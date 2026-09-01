@@ -61,7 +61,8 @@ Output lands in `out/`.
 | `--subframes` | `2` | sub-frames averaged per output frame — this is the motion blur |
 | `--shutter` | `0.5` | fraction of the frame the shutter is open; `0.5` is a 180° shutter |
 | `--quality` | `high` | `high` / `medium` / `draft` |
-| `--crf` | `16` | x264 quality, lower is bigger and better |
+| `--crf` | `18` | x264 quality, lower is bigger and better |
+| `--maxrate` | `16M` | bitrate ceiling; X transcodes on upload, so there is no point going far above it |
 | `--loops` | `1` | repeat the loop N times in one file |
 
 The MP4 comes out H.264 High / yuv420p / faststart with a silent AAC track —

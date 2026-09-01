@@ -23,7 +23,8 @@ const fps = Number(args.fps || 60);
 const quality = args.quality || 'high';
 const subframes = Number(args.subframes || 2);
 const shutter = Number(args.shutter || 0.5);
-const crf = Number(args.crf || 16);
+const crf = Number(args.crf || 18);
+const maxrate = args.maxrate || '16M';
 const loops = Number(args.loops || 1);
 const outDir = args.outdir || 'out';
 
@@ -58,6 +59,11 @@ for (const id of ids) {
     '-c:v', 'libx264',
     '-preset', 'slow',
     '-crf', String(crf),
+    // X transcodes on upload, so the goal is a source clean enough to survive
+    // that pass without being needlessly huge. Fine filament detail defeats
+    // rate control, hence the explicit ceiling on top of CRF.
+    '-maxrate', maxrate,
+    '-bufsize', `${parseInt(maxrate, 10) * 2}M`,
     '-pix_fmt', 'yuv420p',
     '-profile:v', 'high',
     '-level', '4.2',
