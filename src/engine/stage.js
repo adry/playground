@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Compositor } from './compositor.js';
 import { tier } from './quality.js';
+import { jitterOffset } from './camera.js';
 
 // The Stage owns the renderer and drives a component through the pipeline.
 //
@@ -26,7 +27,10 @@ export class Stage {
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.renderer.setClearColor(0x000000, 1);
 
-    this.compositor = new Compositor(this.renderer, { bloomLevels: this.quality.bloom });
+    this.compositor = new Compositor(this.renderer, {
+      bloomLevels: this.quality.bloom,
+      samples: options.samples ?? this.quality.samples,
+    });
 
     this.component = null;
     this.width = 0;
@@ -98,6 +102,9 @@ export class Stage {
         dt,
         width: this.width,
         height: this.height,
+        // Only jitter when there is more than one sample to average; a single
+        // jittered frame would just look soft.
+        jitter: subframes > 1 ? jitterOffset(i) : null,
       });
       this.compositor.accumulate(1 / subframes);
     }

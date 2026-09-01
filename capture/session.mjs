@@ -22,7 +22,15 @@ function resolveChrome() {
 export async function openLab({ width, height, verbose = false, gpu = process.env.LAB_GPU === '1' } = {}) {
   const server = await createServer({
     configFile: path.resolve('vite.config.js'),
-    server: { port: 0, host: '127.0.0.1' },
+    server: {
+      port: 0,
+      host: '127.0.0.1',
+      // A render can run for an hour. HMR would reload the page mid-capture the
+      // moment a source file is touched, destroying the execution context and
+      // the run with it.
+      hmr: false,
+      watch: null,
+    },
     logLevel: 'silent',
   });
   await server.listen();

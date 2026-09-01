@@ -151,7 +151,15 @@ export class Compositor {
       ...options.grade,
     };
 
-    this.sceneTarget = new THREE.WebGLRenderTarget(1, 1, { ...RT_OPTIONS, depthBuffer: true });
+    // MSAA on the scene pass only. It fixes geometry edges, which is where
+    // aliasing actually shows up; the post chain is full-screen and gains
+    // nothing from it.
+    this.samples = options.samples ?? 4;
+    this.sceneTarget = new THREE.WebGLRenderTarget(1, 1, {
+      ...RT_OPTIONS,
+      depthBuffer: true,
+      samples: this.samples,
+    });
     this.accumTarget = new THREE.WebGLRenderTarget(1, 1, RT_OPTIONS);
     this.brightTarget = new THREE.WebGLRenderTarget(1, 1, RT_OPTIONS);
     this.mips = [];

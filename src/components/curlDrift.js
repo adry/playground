@@ -3,7 +3,7 @@ import { noiseGLSL } from '../shaders/lib/noise.glsl.js';
 import { colorGLSL } from '../shaders/lib/color.glsl.js';
 import { Stage } from '../engine/stage.js';
 import { createBackdrop } from '../engine/backdrop.js';
-import { loopDrift } from '../engine/camera.js';
+import { loopDrift, applyJitter } from '../engine/camera.js';
 
 // CURL DRIFT
 // ----------
@@ -103,7 +103,7 @@ export default function curlDrift() {
     id: 'curl-drift',
     title: 'Curl Drift',
     note: 'Domain-warped noise field, drawn as half a million motion trails.',
-    duration: 8,
+    duration: 6,
     grade: {
       bloom: 0.9,
       bloomThreshold: 0.5,
@@ -202,12 +202,13 @@ export default function curlDrift() {
       backdrop.userData.setAspect(width / height);
     },
 
-    render(renderer, target, { phase }) {
+    render(renderer, target, { phase, jitter, width, height }) {
       material.uniforms.uPhase.value = phase;
       loopDrift(camera, phase, {
         base: new THREE.Vector3(0, 0.05, 6.4),
         amplitude: new THREE.Vector3(0.7, 0.4, 0.3),
       });
+      applyJitter(camera, jitter, width, height);
       Stage.draw(renderer, target, scene, camera);
     },
 

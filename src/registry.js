@@ -1,10 +1,14 @@
 import curlDrift from './components/curlDrift.js';
 import gyroidField from './components/gyroidField.js';
+import latticeWave from './components/latticeWave.js';
+import contourFlow from './components/contourFlow.js';
 
 // Adding a piece to the lab is one import plus one entry here.
 const factories = [
   curlDrift,
   gyroidField,
+  latticeWave,
+  contourFlow,
 ];
 
 export const catalog = factories.map((factory) => {

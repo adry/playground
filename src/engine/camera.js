@@ -37,3 +37,33 @@ export function loopDrift(camera, phase, {
   );
   camera.lookAt(lookAt);
 }
+
+// Halton(2,3): a low-discrepancy sequence. Used to nudge the projection by a
+// fraction of a pixel on each accumulated sub-frame, which turns the motion
+// blur buffer into a supersampled anti-aliaser at no extra cost.
+function halton(index, base) {
+  let f = 1;
+  let r = 0;
+  let i = index;
+  while (i > 0) {
+    f /= base;
+    r += f * (i % base);
+    i = Math.floor(i / base);
+  }
+  return r;
+}
+
+const JITTER = Array.from({ length: 16 }, (_, i) => [halton(i + 1, 2) - 0.5, halton(i + 1, 3) - 0.5]);
+
+export function jitterOffset(subframeIndex) {
+  return JITTER[subframeIndex % JITTER.length];
+}
+
+// Applies a sub-pixel offset to an already-updated projection matrix.
+export function applyJitter(camera, jitter, width, height) {
+  if (!jitter) return;
+  camera.updateProjectionMatrix();
+  camera.projectionMatrix.elements[8] += (jitter[0] * 2) / width;
+  camera.projectionMatrix.elements[9] += (jitter[1] * 2) / height;
+  camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+}

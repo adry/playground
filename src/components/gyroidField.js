@@ -23,6 +23,7 @@ uniform float uPhase;
 uniform vec3 uCamPos;
 uniform mat3 uCamBasis;
 uniform float uFocal;
+uniform vec2 uJitter;
 uniform int uSteps;
 uniform float uScale;
 uniform float uShell;
@@ -88,7 +89,7 @@ float ambientOcclusion(vec3 p, vec3 n) {
 }
 
 void main() {
-  vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution) / uResolution.y;
+  vec2 uv = (gl_FragCoord.xy + uJitter - 0.5 * uResolution) / uResolution.y;
   vec3 rd = normalize(uCamBasis * vec3(uv, -uFocal));
   vec3 ro = uCamPos;
 
@@ -155,7 +156,7 @@ export default function gyroidField() {
     id: 'gyroid-field',
     title: 'Gyroid Field',
     note: 'Raymarched minimal surface, shaded like wet ceramic.',
-    duration: 8,
+    duration: 6,
     grade: {
       bloom: 0.5,
       bloomThreshold: 0.75,
@@ -177,6 +178,7 @@ export default function gyroidField() {
           uCamPos: { value: new THREE.Vector3() },
           uCamBasis: { value: new THREE.Matrix3() },
           uFocal: { value: 1.6 },
+          uJitter: { value: new THREE.Vector2() },
           uSteps: { value: Math.round(140 * quality.steps) },
           uScale: { value: 7.4 },
           uShell: { value: 0.5 },
@@ -196,9 +198,10 @@ export default function gyroidField() {
       pass.material.uniforms.uResolution.value.set(width, height);
     },
 
-    render(renderer, target, { phase }) {
+    render(renderer, target, { phase, jitter }) {
       const u = pass.material.uniforms;
       u.uPhase.value = phase;
+      u.uJitter.value.set(jitter ? jitter[0] : 0, jitter ? jitter[1] : 0);
 
       // Closed camera path: a gentle arc that returns to its start.
       const a = Math.PI * 2 * phase;
