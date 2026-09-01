@@ -126,6 +126,19 @@ void main() {
 }
 `;
 
+// The look a component starts from. A component's `grade` is an override on
+// top of this, never a mutation of it.
+const DEFAULT_GRADE = Object.freeze({
+  bloom: 0.55,
+  bloomThreshold: 0.85,
+  bloomKnee: 0.4,
+  bloomRadius: 1.0,
+  exposure: 1.0,
+  vignette: 0.35,
+  grain: 0.012,
+  aberration: 0.0,
+});
+
 const RT_OPTIONS = {
   type: THREE.HalfFloatType,
   minFilter: THREE.LinearFilter,
@@ -139,17 +152,8 @@ export class Compositor {
   constructor(renderer, options = {}) {
     this.renderer = renderer;
     this.levels = options.bloomLevels ?? 5;
-    this.grade = {
-      bloom: 0.55,
-      bloomThreshold: 0.85,
-      bloomKnee: 0.4,
-      bloomRadius: 1.0,
-      exposure: 1.0,
-      vignette: 0.35,
-      grain: 0.012,
-      aberration: 0.0,
-      ...options.grade,
-    };
+    this.baseGrade = { ...DEFAULT_GRADE, ...options.grade };
+    this.grade = { ...this.baseGrade };
 
     // MSAA on the scene pass only. It fixes geometry edges, which is where
     // aliasing actually shows up; the post chain is full-screen and gains
@@ -225,8 +229,12 @@ export class Compositor {
     }));
   }
 
+  // Rebuilt from the base every time. Merging into the live grade would let a
+  // component inherit whatever the previously loaded one happened to set, so
+  // a piece would look different depending on what you viewed before it -- and
+  // the preview would disagree with the export.
   applyGrade(grade = {}) {
-    Object.assign(this.grade, grade);
+    this.grade = { ...this.baseGrade, ...grade };
     const p = this.presentPass.material.uniforms;
     p.uBloom.value = this.grade.bloom;
     p.uExposure.value = this.grade.exposure;
