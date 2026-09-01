@@ -282,6 +282,16 @@ export class Compositor {
   present(target = null, seed = 0) {
     const renderer = this.renderer;
 
+    if (this.mips.length === 0) {
+      // Too small for a bloom chain (a thumbnail, or a 1px viewport mid-resize).
+      this.presentPass.material.uniforms.tBloom.value = this.brightTarget.texture;
+      this.presentPass.material.uniforms.uBloom.value = 0;
+      this.presentPass.material.uniforms.uSeed.value = seed;
+      this.presentPass.render(renderer, target);
+      this.presentPass.material.uniforms.uBloom.value = this.grade.bloom;
+      return;
+    }
+
     this.thresholdPass.material.uniforms.tSrc.value = this.accumTarget.texture;
     this.thresholdPass.render(renderer, this.brightTarget);
 

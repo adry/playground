@@ -128,9 +128,11 @@ window.__lab = {
     return { id: entry.id, title: entry.title, duration: entry.duration, width, height };
   },
 
-  frame({ index, fps, subframes = 2, shutter = 0.5 }) {
+  // `seed` only drives grain and dither, which are deliberately per-frame.
+  // Pinning it is what lets the loop verifier compare two frames byte for byte.
+  frame({ index, fps, subframes = 2, shutter = 0.5, seed }) {
     const t = index / fps;
-    state.stage.renderFrame(t, { dt: 1 / fps, subframes, shutter, seed: index });
+    state.stage.renderFrame(t, { dt: 1 / fps, subframes, shutter, seed: seed ?? index });
     return true;
   },
 };

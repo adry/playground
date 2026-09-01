@@ -95,6 +95,20 @@ in a browser. Four things do the work:
    pass tone maps, encodes and adds triangular-PDF dither. Without it, smooth
    gradients band the moment a platform re-compresses the clip.
 
+### Verifying a loop
+
+```bash
+npm run verify
+```
+
+Renders frame 0 and frame `duration * fps` for every component and compares them
+byte for byte. Same instant in the cycle, so a periodic piece produces an
+identical image. Anything that drifts fails the check.
+
+```
+PASS  curl-drift     frame 0 a91c4e2b70d8  frame 180 a91c4e2b70d8
+```
+
 ## How looping works
 
 Noise is sampled along a **closed path** through noise space: `loopOffset()`

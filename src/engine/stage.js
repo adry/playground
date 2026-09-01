@@ -61,10 +61,10 @@ export class Stage {
     this.width = Math.max(2, Math.round(width * pixelRatio));
     this.height = Math.max(2, Math.round(height * pixelRatio));
 
+    // Size the drawing buffer directly and leave CSS alone: in capture mode the
+    // canvas is pinned to exact pixels, and interactively the stylesheet
+    // already stretches it to the window.
     this.renderer.setPixelRatio(1);
-    this.renderer.setSize(width, height, false);
-    this.canvas.width = this.width;
-    this.canvas.height = this.height;
     this.renderer.setSize(this.width, this.height, false);
 
     this.compositor.setSize(this.width, this.height, this.quality.bloom);
