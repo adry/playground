@@ -28,7 +28,7 @@ const DEFAULTS = {
   viewAngle: Math.PI / 4,
   // How much the body's own facing pulls the face away from the camera.
   // 0 = always dead-on, 1 = eyes rigidly on the body's front.
-  faceBias: 0.22,
+  faceBias: 0.12,
 };
 
 function wrapAngle(a) {
@@ -387,15 +387,20 @@ export class Ghost {
     if (!this.grounded) ty = -0.6; // eyes up on the way through the air
 
     const k = 1 - Math.exp(-dt / 0.13);
-    e.look.x += (tx * 0.012 - e.look.x) * k;
+    // Same sign convention as the face turn above.
+    e.look.x += (-tx * 0.012 - e.look.x) * k;
     e.look.y += (ty * 0.014 - e.look.y) * k;
 
     // Keep the face pointed near the camera. The body still turns freely --
     // that is what drives the cloth -- but the eyes drift around to stay
     // readable, which is both practical and very ghost-like.
+    //
+    // The rest pose runs local +Z at theta = PI, so a point's world compass
+    // angle is yaw + PI - 2*PI*u. Solving for u puts the sign on (yaw - target),
+    // not the other way round.
     const off = wrapAngle(this.opts.viewAngle - this.yaw) * (1 - this.opts.faceBias);
-    e.turn += wrapAngle(off - e.turn) * (1 - Math.exp(-dt / 0.25));
-    this.eyeUniforms.uEyeTurn.value = e.turn / TAU;
+    e.turn += wrapAngle(off - e.turn) * (1 - Math.exp(-dt / 0.18));
+    this.eyeUniforms.uEyeTurn.value = -e.turn / TAU;
 
     this.eyeUniforms.uBlink.value = e.blink;
     this.eyeUniforms.uLook.value.copy(e.look);
