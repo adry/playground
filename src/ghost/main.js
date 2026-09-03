@@ -83,12 +83,25 @@ scene.add(ground);
 
 // A fixed seed in test mode so scripted runs reproduce the same blinks
 // and glances frame for frame.
-const rubble = createObstacles();
-scene.add(rubble.group);
+const ruins = createObstacles();
+scene.add(ruins.group);
 
 const ghost = new Ghost(testMode ? { seed: 12345 } : {});
-ghost.setObstacles(rubble);
+ghost.setObstacles(ruins);
 scene.add(ghost.mesh);
+
+// R clears the ruins away and brings them back. The colliders go with them, or
+// the ghost would keep floating over stones that are no longer there.
+let ruinsVisible = true;
+function setRuinsVisible(visible) {
+  ruinsVisible = visible;
+  ruins.group.visible = visible;
+  ghost.setObstacles(visible ? ruins : {});
+}
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyR' || e.repeat) return;
+  setRuinsVisible(!ruinsVisible);
+});
 
 const input = new Input(canvas, camera);
 
@@ -164,6 +177,10 @@ window.__ghost = {
     if (p.turn !== undefined) u.uEyeTurn.value = p.turn;
     if (p.look !== undefined) u.uLook.value.set(p.look[0], p.look[1]);
     renderer.render(scene, camera);
+  },
+
+  setRuins(visible) {
+    setRuinsVisible(visible);
   },
 
   setSize(w, h) {
