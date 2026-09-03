@@ -23,7 +23,19 @@ const DEFAULTS = {
   maxSpeed: 3.2,
   accelTime: 0.28,
   turnRate: 7.0,
+  // Azimuth the face drifts toward. With a fixed isometric camera this is a
+  // constant, so the ghost can always keep an eye on the player.
+  viewAngle: Math.PI / 4,
+  // How much the body's own facing pulls the face away from the camera.
+  // 0 = always dead-on, 1 = eyes rigidly on the body's front.
+  faceBias: 0.22,
 };
+
+function wrapAngle(a) {
+  while (a > Math.PI) a -= TAU;
+  while (a < -Math.PI) a += TAU;
+  return a;
+}
 
 function smoothstep(t) {
   t = Math.min(Math.max(t, 0), 1);
@@ -75,6 +87,7 @@ export class Ghost {
       look: new THREE.Vector2(),
       lookTarget: new THREE.Vector2(),
       wanderTimer: 0,
+      turn: 0,
     };
 
     this.#composeMatrix();
@@ -184,6 +197,7 @@ export class Ghost {
       uEyeSize: { value: new THREE.Vector2(0.034, 0.055) },
       uBlink: { value: 0 },
       uLook: { value: new THREE.Vector2() },
+      uEyeTurn: { value: 0 },
       uEyeColor: { value: new THREE.Color('#1a1d2b').convertSRGBToLinear() },
       uGlint: { value: new THREE.Vector2(-0.3, -0.32) },
     };
@@ -210,6 +224,7 @@ export class Ghost {
         uniform vec2 uEyeSize;
         uniform float uBlink;
         uniform vec2 uLook;
+        uniform float uEyeTurn;
         uniform vec3 uEyeColor;
         uniform vec2 uGlint;
 
@@ -233,8 +248,11 @@ export class Ghost {
         `#include <color_fragment>
         if (gl_FrontFacing) {
           float cv = uEyeV + uLook.y;
-          float lu = 0.5 - uEyeSep + uLook.x;
-          float ru = 0.5 + uEyeSep + uLook.x;
+          // uEyeTurn slides the face around the sheet, so the ghost can look
+          // over its shoulder instead of showing the player a blank back.
+          float cu = 0.5 + uEyeTurn + uLook.x;
+          float lu = cu - uEyeSep;
+          float ru = cu + uEyeSep;
           float mask = max(ghostEye(vGUv, lu, cv, uBlink), ghostEye(vGUv, ru, cv, uBlink));
           diffuseColor.rgb = mix(diffuseColor.rgb, uEyeColor, mask);
           float glint = max(ghostGlint(vGUv, lu, cv, uBlink), ghostGlint(vGUv, ru, cv, uBlink));
@@ -371,6 +389,13 @@ export class Ghost {
     const k = 1 - Math.exp(-dt / 0.13);
     e.look.x += (tx * 0.012 - e.look.x) * k;
     e.look.y += (ty * 0.014 - e.look.y) * k;
+
+    // Keep the face pointed near the camera. The body still turns freely --
+    // that is what drives the cloth -- but the eyes drift around to stay
+    // readable, which is both practical and very ghost-like.
+    const off = wrapAngle(this.opts.viewAngle - this.yaw) * (1 - this.opts.faceBias);
+    e.turn += wrapAngle(off - e.turn) * (1 - Math.exp(-dt / 0.25));
+    this.eyeUniforms.uEyeTurn.value = e.turn / TAU;
 
     this.eyeUniforms.uBlink.value = e.blink;
     this.eyeUniforms.uLook.value.copy(e.look);

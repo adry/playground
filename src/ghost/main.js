@@ -28,7 +28,7 @@ scene.fog = new THREE.Fog(BACKDROP, 16, 34);
 
 // True isometric-ish: 45 degrees around, ~30 degrees up, orthographic so there
 // is no perspective convergence.
-const VIEW_SIZE = 2.7;
+const VIEW_SIZE = 2.35;
 const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 const camTarget = new THREE.Vector3(0, 0.75, 0);
@@ -91,7 +91,7 @@ window.addEventListener('resize', resize);
 // --- loop -------------------------------------------------------------------
 
 function follow(dt) {
-  const k = 1 - Math.exp(-dt * 3.2);
+  const k = 1 - Math.exp(-dt * 4.2);
   camTarget.x += (ghost.pos.x - camTarget.x) * k;
   camTarget.z += (ghost.pos.z - camTarget.z) * k;
   placeCamera();
