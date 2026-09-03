@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PALETTE, SEGMENTS, toyMaterial } from './style.js';
+import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from './style.js';
 
 // Carved headstones for the graveyard set.
 //
@@ -420,6 +420,13 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
   body.rotation.z = (rng() - 0.5) * 0.045;
   body.rotation.x = -0.012 - rng() * 0.02;
   body.position.y = -0.012;
+
+  // The plinth footprint is a rectangle, so the occlusion patch is stretched to
+  // match it rather than left as a disc floating around a wider stone.
+  const contact = contactShadow({ radius: 0.5, opacity: 0.55, softness: 0.5 });
+  contact.scale.set((pW + 0.26) / 0.5, (pD / 2 + 0.24) / 0.5, 1);
+  group.add(contact);
+
   group.scale.setScalar(scale);
 
   return {
@@ -433,6 +440,7 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
         tex.map.dispose();
         tex.normalMap.dispose();
       }
+      contact.userData.dispose();
     },
   };
 }

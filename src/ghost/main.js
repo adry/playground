@@ -87,10 +87,8 @@ const ghost = new Ghost(testMode ? { seed: 12345 } : {});
 scene.add(ghost.mesh);
 
 // --- props ------------------------------------------------------------------
-// Placed either side of the spawn so both are in frame on load, with the ghost
-// between them. This camera projects +X to screen-right-down and +Z to
-// screen-left-down, so a yaw of PI/4 turns a prop's local +Z face toward the
-// viewer.
+// This camera projects +X to screen-right-down and +Z to screen-left-down, so
+// a yaw of PI/4 turns a prop's local +Z face toward the viewer.
 
 const props = [];
 
@@ -110,37 +108,37 @@ function atScreen(right, up) {
   return [(right - up) * k, (-up - right) * k];
 }
 
-// A row of pumpkins below the ghost, each turned a different way. Same light,
-// same ground, different facings -- so how the carving and the spill read with
-// the lamp behind, beside or in front of the cut is visible in one frame.
-const PUMPKIN_ROW = [
-  { right: -2.6, up: -1.8, yaw: 0 },
-  { right: -1.0, up: -2.1, yaw: Math.PI / 2 },
-  { right: 0.6, up: -1.7, yaw: Math.PI },
-  { right: 2.1, up: -2.0, yaw: -Math.PI / 2 },
-  { right: 3.6, up: -1.6, yaw: Math.PI / 4 },
+// A small graveyard rather than a test rig: stones set back along the top of
+// the frame, pumpkins down front, and the middle two thirds left empty so the
+// ghost always has somewhere to drift. Every prop is turned near PI/4 -- enough
+// variation to look hand-placed, close enough that the carved faces and the
+// inscriptions stay readable from this one fixed camera.
+//
+// Pumpkin count is deliberate: each one carries a spotlight, and every lit
+// material in the scene pays for all of them.
+const GRAVES = [
+  { variant: 'cross', right: -3.3, up: 2.7, yaw: Math.PI / 4 - 0.34 },
+  { variant: 'fred', right: -1.9, up: 1.9, yaw: Math.PI / 4 + 0.52 },
+  { variant: 'bat', right: 1.5, up: 2.5, yaw: Math.PI / 4 - 0.18 },
+  { variant: 'cross', right: 3.1, up: 1.7, yaw: Math.PI / 4 + 0.66 },
+  { variant: 'fred', right: -4.4, up: 1.2, yaw: Math.PI / 4 - 0.88 },
+  { variant: 'bat', right: 4.4, up: 3.0, yaw: Math.PI / 4 - 0.60 },
 ];
 
-for (const [i, spot] of PUMPKIN_ROW.entries()) {
-  const [x, z] = atScreen(spot.right, spot.up);
-  addProp(createPumpkin({ seed: 3 + i * 7 }), x, z, spot.yaw);
-}
-
-// All three stones, twice each, turned right the way round. The inscription is
-// a normal map on the front face only, so this shows how it holds at a grazing
-// angle and confirms the backs and sides are plain stone with no wrap.
-const GRAVE_ROW = [
-  { variant: 'cross', right: -3.6, up: 2.3, yaw: 0 },
-  { variant: 'bat', right: -2.1, up: 2.6, yaw: Math.PI / 3 },
-  { variant: 'fred', right: -0.6, up: 2.3, yaw: (2 * Math.PI) / 3 },
-  { variant: 'cross', right: 0.9, up: 2.6, yaw: Math.PI },
-  { variant: 'bat', right: 2.4, up: 2.3, yaw: (4 * Math.PI) / 3 },
-  { variant: 'fred', right: 3.9, up: 2.6, yaw: (5 * Math.PI) / 3 },
-];
-
-for (const [i, g] of GRAVE_ROW.entries()) {
+for (const [i, g] of GRAVES.entries()) {
   const [x, z] = atScreen(g.right, g.up);
   addProp(createTombstone({ variant: g.variant, seed: 11 + i * 13 }), x, z, g.yaw);
+}
+
+const PUMPKINS = [
+  { right: -2.6, up: -1.9, yaw: Math.PI / 4 + 0.30 },
+  { right: 2.7, up: -2.3, yaw: Math.PI / 4 - 0.42 },
+  { right: 3.9, up: 0.5, yaw: Math.PI / 4 + 0.08 },
+];
+
+for (const [i, spot] of PUMPKINS.entries()) {
+  const [x, z] = atScreen(spot.right, spot.up);
+  addProp(createPumpkin({ seed: 3 + i * 7 }), x, z, spot.yaw);
 }
 
 const input = new Input(canvas, camera);

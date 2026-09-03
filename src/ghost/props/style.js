@@ -36,3 +36,50 @@ export const SEGMENTS = { radial: 48, height: 32, curve: 24 };
 // Everything is authored against the ghost, which stands about 1.6 units tall
 // with its hem near y = 0.2. A pumpkin should come up to roughly its hem.
 export const SCENE_SCALE = { ghostHeight: 1.6, gridCell: 1 };
+
+// A soft occlusion patch to sit directly under a prop.
+//
+// The scene's one shadow-casting light comes in at an angle, so its shadow is
+// thrown off to the side and nothing darkens the ground where the prop actually
+// meets it -- which is what makes a prop look like it is hovering a millimetre
+// up. This is the contact term that a single directional light cannot give you.
+export function contactShadow({ radius = 0.5, opacity = 0.42, softness = 0.55 } = {}) {
+  // Props are built head-less in tests; without a canvas there is simply no
+  // patch, and the caller's dispose() still has something to call.
+  if (typeof document === 'undefined') {
+    const stub = new THREE.Object3D();
+    stub.userData.dispose = () => {};
+    return stub;
+  }
+
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createRadialGradient(size / 2, size / 2, size * 0.5 * (1 - softness), size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(0,0,0,1)');
+  g.addColorStop(0.55, 'rgba(0,0,0,0.45)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    opacity,
+    depthWrite: false,   // never occlude anything, it is only a stain
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+  });
+
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2, radius * 2), material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.004;
+  mesh.renderOrder = -1;
+  mesh.userData.dispose = () => { texture.dispose(); material.dispose(); mesh.geometry.dispose(); };
+  return mesh;
+}

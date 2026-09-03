@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { toyMaterial, PALETTE, SEGMENTS } from './style.js';
+import { toyMaterial, PALETTE, SEGMENTS, contactShadow } from './style.js';
 
 // A squat ribbed jack-o'-lantern in the house vinyl-toy style: smooth lobes, a
 // curved tapering stem, and a carved face that glows from inside.
@@ -271,32 +271,45 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     (bly + (bry - bly) * u) * (1 - v) + ay * v,
   ];
 
-  // Mouth: a crescent that tapers to points at the corners, with two triangular
-  // teeth hanging off its top edge.
-  const MW = 0.192;
+  // The whole face sits this much higher up the body. Authored low first, it
+  // read as a chin rather than a face -- on the reference the eyes straddle the
+  // equator and the grin sits on the belly, not under it.
+  const RISE = 0.075;
+
+  // Mouth: a wide grin, corners lifted, with triangular teeth biting down from
+  // the top edge and one rising from the bottom, which is what gives the
+  // reference its jack-o'-lantern read rather than a plain crescent.
+  const MW = 0.225;
   const mouth = (u, v) => {
     const x = -MW + 2 * MW * u;
     const k = 1 - (x / MW) * (x / MW);
-    const centre = 0.194 - 0.034 * k;               // corners up, middle down: a grin
-    const thick = 0.050 * Math.pow(Math.max(0, k), 0.5);
+    const centre = 0.196 + RISE - 0.040 * k;        // corners up, middle down
+    const thick = 0.064 * Math.pow(Math.max(0, k), 0.45);
     let top = centre + thick * 0.5;
-    const bottom = centre - thick * 0.5;
-    for (const tx of [-0.062, 0.062]) {             // two teeth
-      const d = 1 - Math.abs(x - tx) / 0.046;
-      if (d > 0) top -= thick * 0.80 * d;
+    let bottom = centre - thick * 0.5;
+    for (const tx of [-0.078, 0.078]) {             // two upper teeth
+      const d = 1 - Math.abs(x - tx) / 0.055;
+      if (d > 0) top -= thick * 0.92 * d;
     }
+    const dLow = 1 - Math.abs(x) / 0.050;           // one lower tooth, centred
+    if (dLow > 0) bottom += thick * 0.72 * dLow;
     return [x, top + (bottom - top) * v];
   };
 
-  // Eyes are apex-up triangles tipped outward a little, which reads friendly
-  // rather than scowling.
-  const eye = (dir) => triSampler(0.122 * dir + 0.013 * dir, 0.322, 0.122 * dir - 0.049, 0.258, 0.122 * dir + 0.049, 0.258);
-  const nose = triSampler(0, 0.252, -0.034, 0.203, 0.034, 0.203);
+  // Apex-up triangles, tipped outward a little, which reads friendly rather
+  // than scowling. Larger than the first pass: on the reference the eyes are
+  // the dominant feature.
+  const eye = (dir) => triSampler(
+    0.132 * dir + 0.014 * dir, 0.356 + RISE,
+    0.132 * dir - 0.062, 0.268 + RISE,
+    0.132 * dir + 0.062, 0.268 + RISE,
+  );
+  const nose = triSampler(0, 0.262 + RISE, -0.031, 0.208 + RISE, 0.031, 0.208 + RISE);
   const FACE_SHAPES = [
-    { nx: 10, ny: 10, sampler: eye(-1), cx: -0.122, cy: 0.280 },
-    { nx: 10, ny: 10, sampler: eye(1), cx: 0.122, cy: 0.280 },
-    { nx: 8, ny: 8, sampler: nose, cx: 0, cy: 0.219 },
-    { nx: 84, ny: 10, sampler: mouth, cx: 0, cy: 0.170 },
+    { nx: 10, ny: 10, sampler: eye(-1), cx: -0.132, cy: 0.300 + RISE },
+    { nx: 10, ny: 10, sampler: eye(1), cx: 0.132, cy: 0.300 + RISE },
+    { nx: 8, ny: 8, sampler: nose, cx: 0, cy: 0.226 + RISE },
+    { nx: 96, ny: 10, sampler: mouth, cx: 0, cy: 0.176 + RISE },
   ];
 
   const faceGeo = patchGeometry(FACE_SHAPES, FACE_LIFT);
@@ -398,12 +411,14 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // instead of staying pinned to a world direction.
   const faceDir = new THREE.Vector3(Math.sin(FACE_YAW), 0, Math.cos(FACE_YAW));
   const lightTarget = new THREE.Object3D();
-  lightTarget.position.copy(faceDir).multiplyScalar(1.15 * scale);
-  lightTarget.position.y = -0.5 * scale;
+  // Local units: the group is scaled below, so these must not be pre-scaled.
+  lightTarget.position.copy(faceDir).multiplyScalar(1.15);
+  lightTarget.position.y = -0.5;
   light.target = lightTarget;
 
   const group = new THREE.Group();
-  group.add(shell, face, halo, stem, light, lightTarget);
+  const contact = contactShadow({ radius: 0.46, opacity: 0.4 });
+  group.add(shell, face, halo, stem, light, lightTarget, contact);
   group.scale.setScalar(scale);
 
   const lightHome = light.position.clone();
@@ -451,6 +466,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     dispose() {
       for (const g of [shellGeo, faceGeo, haloGeo, stemGeo]) g.dispose();
       for (const m of [shellMat, faceMat, haloMat, stemMat]) m.dispose();
+      contact.userData.dispose();
       group.clear();
     },
   };
