@@ -64,10 +64,10 @@ On top of that:
   heading for a moment before catching up.
 - **Blinks** that snap shut and open more slowly, sometimes doubled.
 - **Reflexes**: eyes screwed shut on landing impact, flung wide on takeoff.
-- **The face turns toward the camera.** A character that faces its direction of
-  travel spends half its time showing you a blank white back. Because the eyes
-  are only a UV offset, the face slides around the sheet toward the camera — so
-  the ghost looks over its shoulder as it wanders off.
+- **The face rides the body's front.** Walk away from the camera and the ghost
+  turns its back on you, exactly as a body facing its direction of travel
+  should. Because the eyes are only a UV offset, sliding the face elsewhere on
+  the sheet is a single number if you ever want it to look over its shoulder.
 
 ## Tools
 

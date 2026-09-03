@@ -28,7 +28,7 @@ scene.fog = new THREE.Fog(BACKDROP, 16, 34);
 
 // True isometric-ish: 45 degrees around, ~30 degrees up, orthographic so there
 // is no perspective convergence.
-const VIEW_SIZE = 2.35;
+const VIEW_SIZE = 2.72;
 const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 const camTarget = new THREE.Vector3(0, 0.75, 0);
@@ -86,32 +86,6 @@ scene.add(ghost.mesh);
 
 const input = new Input(canvas, camera);
 
-// --- readout ----------------------------------------------------------------
-// The panel reports the solver's actual numbers rather than copy written into
-// the markup, so it can never drift from what is running.
-
-const readout = {
-  particles: document.getElementById('r-particles'),
-  constraints: document.getElementById('r-constraints'),
-  solver: document.getElementById('r-solver'),
-  lag: document.getElementById('r-lag'),
-};
-const fmt = new Intl.NumberFormat('en-US');
-if (readout.particles) {
-  readout.particles.textContent = fmt.format(ghost.cloth.count);
-  readout.constraints.textContent = fmt.format(ghost.cloth.constraintCount);
-  readout.solver.textContent = `${ghost.cloth.iterations}x @ 120Hz`;
-}
-
-let readoutTick = 0;
-function updateReadout() {
-  if (!readout.lag) return;
-  // Throttled: this touches layout, and the value is only meaningful as a
-  // rough magnitude anyway.
-  if (readoutTick++ % 6) return;
-  readout.lag.textContent = ghost.metrics().hemLag.toFixed(2);
-}
-
 placeCamera();
 resize();
 window.addEventListener('resize', resize);
@@ -134,7 +108,6 @@ function follow(dt) {
 function step(dt, axis) {
   ghost.update(dt, axis);
   follow(dt);
-  updateReadout();
   renderer.render(scene, camera);
 }
 
@@ -161,6 +134,14 @@ window.__ghost = {
       yaw: ghost.yaw,
       grounded: ghost.grounded,
       ...ghost.metrics(),
+      // Lid state, so the harness can assert that expressions actually fire
+      // rather than relying on someone spotting them in a crop.
+      eye: {
+        open: +ghost.eyeUniforms.uOpen.value.toFixed(3),
+        tilt: +ghost.eyeUniforms.uTilt.value.toFixed(3),
+        curve: +ghost.eyeUniforms.uCurve.value.toFixed(3),
+        scaleY: +ghost.eyeUniforms.uEyeScale.value.y.toFixed(3),
+      },
     };
   },
   // Forces lid parameters and redraws without stepping, so expression shapes

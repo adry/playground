@@ -24,12 +24,6 @@ const DEFAULTS = {
   accelTime: 0.28,
   turnRate: 7.0,
   seed: undefined,
-  // Azimuth the face drifts toward. With a fixed isometric camera this is a
-  // constant, so the ghost can always keep an eye on the player.
-  viewAngle: Math.PI / 4,
-  // How much the body's own facing pulls the face away from the camera.
-  // 0 = always dead-on, 1 = eyes rigidly on the body's front.
-  faceBias: 0.12,
 };
 
 // Deterministic RNG. Blinks and glances are random, which would otherwise make
@@ -118,12 +112,11 @@ export class Ghost {
       gazeDur: 0.07,
       holdTimer: 0.8,
 
-      turn: 0,
       vor: 0,       // vestibulo-ocular: eyes hold still as the head whips round
       prevYaw: this.yaw,
       idleTime: 0,
       moodTimer: 0,
-      moodCooldown: 4,
+      moodCooldown: 1.2,
     };
 
     this.#composeMatrix();
@@ -310,8 +303,9 @@ export class Ghost {
         `#include <color_fragment>
         if (gl_FrontFacing) {
           float cv = uEyeV + uLook.y;
-          // uEyeTurn slides the face around the sheet, so the ghost can look
-          // over its shoulder instead of showing the player a blank back.
+          // uEyeTurn nudges the face around the sheet. The face otherwise
+          // rides the body's front, so the ghost shows its back when it walks
+          // away from you.
           float cu = 0.5 + uEyeTurn + uLook.x;
 
           vec2 rawL, rawR;
@@ -455,9 +449,11 @@ export class Ghost {
     if (speed < 0.15 && this.grounded) e.idleTime += dt; else e.idleTime = 0;
     e.moodTimer -= dt;
     e.moodCooldown -= dt;
-    if (e.idleTime > 2.5 && e.moodCooldown <= 0 && e.moodTimer <= 0 && this.rand() < dt * 0.5) {
+    // Needs to be reachable in an ordinary pause. Requiring 2.5s of stillness
+    // on top of a 4s cooldown meant it never fired at all.
+    if (e.idleTime > 1.6 && e.moodCooldown <= 0 && e.moodTimer <= 0 && this.rand() < dt * 0.9) {
       e.moodTimer = 1.15;
-      e.moodCooldown = 7 + this.rand() * 6;
+      e.moodCooldown = 6 + this.rand() * 5;
     }
 
     // --- expression targets --------------------------------------------------
@@ -536,24 +532,15 @@ export class Ghost {
     e.prevYaw = this.yaw;
     e.vor = THREE.MathUtils.clamp(e.vor + dYaw * 0.5, -0.12, 0.12) * Math.exp(-dt / 0.12);
 
-    // --- face orientation ----------------------------------------------------
-    // Keep the face pointed near the camera. The body still turns freely --
-    // that is what drives the cloth -- but the eyes drift around to stay
-    // readable, which is both practical and very ghost-like.
-    //
-    // The rest pose runs local +Z at theta = PI, so a point's world compass
-    // angle is yaw + PI - 2*PI*u. Solving for u puts the sign on (yaw - target),
-    // not the other way round.
-    const off = wrapAngle(this.opts.viewAngle - this.yaw) * (1 - this.opts.faceBias);
-    e.turn += wrapAngle(off - e.turn) * (1 - Math.exp(-dt / 0.18));
-
     // --- push to the shader --------------------------------------------------
+    // The face rides the body's front, so the ghost turns its back on you when
+    // it walks away. uEyeTurn carries only the reflex offset.
     const u = this.eyeUniforms;
     u.uOpen.value = open;
     u.uTilt.value = e.tilt;
     u.uCurve.value = e.curve;
     u.uEyeScale.value.set(e.scaleX, e.scaleY);
-    u.uEyeTurn.value = -e.turn / TAU + e.vor / TAU;
+    u.uEyeTurn.value = e.vor / TAU;
     u.uLook.value.set(-e.gaze.x * 0.013, e.gaze.y * 0.014);
     // The glint drifts within the eye as the gaze moves, in unmirrored local
     // coordinates so both eyes catch the light on the same side.
