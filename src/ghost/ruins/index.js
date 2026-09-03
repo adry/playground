@@ -127,13 +127,15 @@ export function createRuins({
   }
 
   // --- loose stone, thickening around whatever is already standing ----------
-  for (let i = 0; i < 150; i++) {
+  // Fewer, and mostly hugging what is still standing. Spread evenly over open
+  // floor they read as confetti rather than as debris that fell off something.
+  for (let i = 0; i < 95; i++) {
     let x;
     let z;
-    if (placed.length && rand() < 0.62) {
+    if (placed.length && rand() < 0.78) {
       const host = placed[Math.floor(rand() * placed.length)];
       const a = rand() * Math.PI * 2;
-      const d = host.radius + rand() * 2.2;
+      const d = host.radius + rand() * 1.7;
       x = host.x + Math.cos(a) * d;
       z = host.z + Math.sin(a) * d;
     } else {

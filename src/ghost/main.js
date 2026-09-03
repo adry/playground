@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Ghost } from './ghost.js';
 import { createGround } from './ground.js';
-import { createObstacles } from './obstacles.js';
+import { createRuins } from './ruins/index.js';
 import { Input } from './input.js';
 
 const canvas = document.getElementById('view');
@@ -83,7 +83,7 @@ scene.add(ground);
 
 // A fixed seed in test mode so scripted runs reproduce the same blinks
 // and glances frame for frame.
-const ruins = createObstacles();
+const ruins = createRuins();
 scene.add(ruins.group);
 
 const ghost = new Ghost(testMode ? { seed: 12345 } : {});
