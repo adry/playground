@@ -13,7 +13,12 @@ const TAU = Math.PI * 2;
 
 const DEFAULTS = {
   rings: 26,
-  segments: 38,
+  segments: 60,
+  // The hem is finished with a rolled lip built from the simulated edge rather
+  // than simulated itself. A real hem barely affects how a sheet moves, and
+  // generating it means it can never unroll or fight the solver.
+  hemRows: 5,
+  hemRadius: 0.032,
   headRadius: 0.42,
   headSpan: 0.36,   // fraction of the sheet that forms the head dome
   bodyHeight: 1.18,
@@ -119,6 +124,10 @@ export class Ghost {
       moodCooldown: 1.2,
     };
 
+    // Keep the rolled lip clear of the floor; the solver only knows about the
+    // edge it simulates, which now sits a hem's thickness above the geometry.
+    this.cloth.groundY = this.opts.hemRadius * 1.2;
+
     this.#composeMatrix();
     this.cloth.reset(this.matrix);
     this.#syncGeometry();
@@ -162,9 +171,12 @@ export class Ghost {
       for (let j = 0; j < S; j++) {
         const theta = TAU * (j / S);
         // theta = PI faces +Z, so the UV seam lands on the ghost's back.
-        const wave = Math.cos(6 * theta);
+        // Two coprime frequencies so the hem reads as folds of cloth rather
+        // than a repeating scallop stamp.
+        const wave = Math.cos(6 * theta) + 0.26 * Math.cos(11 * theta + 1.1);
         const rr = r * (1 + scallop * wave * skirt * skirt);
-        const yy = y + 0.07 * Math.cos(6 * theta + 0.6) * skirt * skirt;
+        const yy = y + 0.07 * (Math.cos(6 * theta + 0.6) + 0.3 * Math.cos(11 * theta + 2.2))
+          * skirt * skirt;
 
         const p = i * S + j;
         const o = p * 3;
@@ -183,21 +195,24 @@ export class Ghost {
   }
 
   #buildGeometry() {
-    const { rings: R, segments: S } = this.opts;
+    const { rings: R, segments: S, hemRows } = this.opts;
     const cols = S + 1; // duplicated seam column so UVs are continuous
-    const verts = (R + 1) * cols;
+    const rows = R + 1 + hemRows;
+    const verts = rows * cols;
 
     const position = new Float32Array(verts * 3);
     const normal = new Float32Array(verts * 3);
     const uv = new Float32Array(verts * 2);
     const index = [];
 
-    for (let i = 0; i <= R; i++) {
+    for (let i = 0; i < rows; i++) {
       for (let j = 0; j < cols; j++) {
         const v = i * cols + j;
         uv[v * 2] = j / S;
+        // v keeps running past 1 across the rolled rows, so the eye positions
+        // stay where they were when the hem was a bare edge.
         uv[v * 2 + 1] = i / R;
-        if (i < R && j < S) {
+        if (i < rows - 1 && j < S) {
           const a = i * cols + j;
           const b = a + 1;
           const c = a + cols;
@@ -217,6 +232,7 @@ export class Ghost {
     this.geometry.setIndex(index);
     this.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 12);
     this.cols = cols;
+    this.rows = rows;
   }
 
   #buildMaterial() {
@@ -564,6 +580,8 @@ export class Ghost {
         position[v + 2] = src[p + 2];
       }
     }
+
+    this.#buildHemRoll(position);
     this.geometry.attributes.position.needsUpdate = true;
 
     this.geometry.computeVertexNormals();
@@ -571,15 +589,72 @@ export class Ghost {
     this.geometry.attributes.normal.needsUpdate = true;
   }
 
+  // Finishes the bare simulated edge with a rolled lip.
+  //
+  // A cut edge is what makes cloth read as a flat cardboard silhouette: it has
+  // no thickness, so nothing on it catches light and the outline is a hard
+  // polygon. Rolling the last rows under gives the edge a rounded profile that
+  // shades like a real hem, and because it is generated from the simulated
+  // edge each frame it follows every fold exactly.
+  #buildHemRoll(position) {
+    const { rings: R, segments: S, hemRows, hemRadius } = this.opts;
+    const cols = this.cols;
+    const src = this.cloth.pos;
+
+    for (let j = 0; j < cols; j++) {
+      const jj = j % S;
+      const o = (R * S + jj) * 3;
+      const up = ((R - 1) * S + jj) * 3;
+      const next = (R * S + ((jj + 1) % S)) * 3;
+      const prev = (R * S + ((jj - 1 + S) % S)) * 3;
+
+      const px = src[o];
+      const py = src[o + 1];
+      const pz = src[o + 2];
+
+      // Down the sheet, and along the hem.
+      let dx = px - src[up];
+      let dy = py - src[up + 1];
+      let dz = pz - src[up + 2];
+      let dl = Math.hypot(dx, dy, dz) || 1;
+      dx /= dl; dy /= dl; dz /= dl;
+
+      let ex = src[next] - src[prev];
+      let ey = src[next + 1] - src[prev + 1];
+      let ez = src[next + 2] - src[prev + 2];
+      const el = Math.hypot(ex, ey, ez) || 1;
+      ex /= el; ey /= el; ez /= el;
+
+      // cross(along-hem, down-sheet) points out of the ghost, matching the
+      // convention the solver uses for its own normals.
+      let nx = ey * dz - ez * dy;
+      let ny = ez * dx - ex * dz;
+      let nz = ex * dy - ey * dx;
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      nx /= nl; ny /= nl; nz /= nl;
+
+      for (let k = 1; k <= hemRows; k++) {
+        // A half turn: down, under, and back up inside the skirt.
+        const a = (k / hemRows) * Math.PI;
+        const along = hemRadius * Math.sin(a);
+        const under = hemRadius * (1 - Math.cos(a));
+        const v = ((R + k) * cols + j) * 3;
+        position[v] = px + dx * along - nx * under;
+        position[v + 1] = py + dy * along - ny * under;
+        position[v + 2] = pz + dz * along - nz * under;
+      }
+    }
+  }
+
   // computeVertexNormals only sees each side of the seam, and the pole fan is
   // degenerate. Both need fixing up or the ghost shows a hard crease down its
   // back and a pinch at the crown.
   #weldNormals() {
-    const { rings: R, segments: S } = this.opts;
+    const { segments: S } = this.opts;
     const cols = this.cols;
     const n = this.geometry.attributes.normal.array;
 
-    for (let i = 0; i <= R; i++) {
+    for (let i = 0; i < this.rows; i++) {
       const a = (i * cols) * 3;
       const b = (i * cols + S) * 3;
       const x = n[a] + n[b];

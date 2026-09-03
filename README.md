@@ -34,6 +34,13 @@ push it backwards and down, which reads as a wet towel.
 **Outward pressure**, standing in for the air trapped under the sheet, so the
 ghost stays inflated instead of flattening when dragged sideways.
 
+The bottom edge is finished with a **rolled hem** built from the simulated edge
+each frame rather than simulated itself. A cut edge has no thickness, so nothing
+along it catches light and the outline reads as a flat cardboard silhouette;
+rolling the last rows under gives it a rounded profile that shades like real
+fabric. A hem barely affects how a sheet moves, so generating it costs the
+solver nothing and it can never unroll.
+
 ## How the eyes work
 
 The eyes are painted into the fabric's UV space inside the material's fragment

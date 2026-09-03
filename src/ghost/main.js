@@ -134,6 +134,8 @@ window.__ghost = {
       yaw: ghost.yaw,
       grounded: ghost.grounded,
       ...ghost.metrics(),
+      particles: ghost.cloth.count,
+      constraints: ghost.cloth.constraintCount,
       // Lid state, so the harness can assert that expressions actually fire
       // rather than relying on someone spotting them in a crop.
       eye: {
