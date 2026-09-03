@@ -44,7 +44,16 @@ export function voussoir({
 // no crack opens between faces; splitting again keeps the facets flat, which is
 // what makes it read as cut stone rather than a smooth pebble.
 function chipGeometry(geometry, amount, rand) {
-  if (amount <= 0) return geometry;
+  // Must return non-indexed even when there is nothing to chip. The primitives
+  // are merged together later, and mergeGeometries refuses a mix of indexed and
+  // non-indexed inputs -- so a chip amount that clamped to zero used to break
+  // the whole set with an error pointing at the wrong primitive.
+  if (amount <= 0) {
+    const flat = geometry.toNonIndexed();
+    flat.computeVertexNormals();
+    geometry.dispose();
+    return flat;
+  }
   const welded = mergeVertices(geometry, 1e-4);
   const pos = welded.attributes.position;
   for (let i = 0; i < pos.count; i++) {
@@ -66,6 +75,9 @@ function chipGeometry(geometry, amount, rand) {
 // wound outward. Exact by construction, so an arch ring closes properly.
 function voussoirGeometry(p) {
   const { innerR, outerR, from, to, thickness } = p;
+  if (!(outerR > innerR) || !(thickness > 0) || from === to) {
+    throw new Error(`voussoir needs outerR > innerR, positive thickness and from != to`);
+  }
   const hz = thickness / 2;
   const c = [];
   for (const a of [from, to]) {
@@ -119,6 +131,11 @@ function primitiveGeometry(p, rand) {
 
   if (p.kind === 'block') {
     const [w, h, d] = p.size;
+    // Fail loudly rather than emitting inverted or zero-area faces, so a
+    // builder's arithmetic slip surfaces here instead of as a visual glitch.
+    if (!(w > 0) || !(h > 0) || !(d > 0)) {
+      throw new Error(`block needs positive extents, got ${w} x ${h} x ${d}`);
+    }
     geo = new THREE.BoxGeometry(w, h, d, 1, 1, 1);
     // Never chip more than a fraction of the thinnest dimension, or a thin
     // slab turns itself inside out.
@@ -132,6 +149,9 @@ function primitiveGeometry(p, rand) {
   }
 
   if (p.kind === 'drum') {
+    if (!(p.radius > 0) || !(p.height > 0)) {
+      throw new Error(`drum needs positive radius and height, got ${p.radius} / ${p.height}`);
+    }
     geo = new THREE.CylinderGeometry(p.radiusTop, p.radius, p.height, p.seg, 1);
     chip = Math.min(chip, Math.min(p.radius, p.height) * 0.15);
     geo = stripToPositionNormal(chipGeometry(geo, chip, rand));
