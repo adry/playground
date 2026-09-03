@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { Ghost } from './ghost.js';
 import { createGround } from './ground.js';
 import { Input } from './input.js';
+import { createPumpkin } from './props/pumpkin.js';
+import { createTombstone } from './props/tombstones.js';
 
 const canvas = document.getElementById('view');
 const params = new URLSearchParams(location.search);
@@ -84,6 +86,29 @@ scene.add(ground);
 const ghost = new Ghost(testMode ? { seed: 12345 } : {});
 scene.add(ghost.mesh);
 
+// --- props ------------------------------------------------------------------
+// Placed either side of the spawn so both are in frame on load, with the ghost
+// between them. This camera projects +X to screen-right-down and +Z to
+// screen-left-down, so a yaw of PI/4 turns a prop's local +Z face toward the
+// viewer.
+
+const props = [];
+
+function addProp(prop, x, z, yaw = Math.PI / 4) {
+  prop.group.position.set(x, 0, z);
+  prop.group.rotation.y = yaw;
+  scene.add(prop.group);
+  props.push(prop);
+  return prop;
+}
+
+// Positions are solved in screen axes rather than guessed in world ones:
+// screen-right is (x - z) / sqrt(2) and screen-up is -(x + z) / sqrt(2), so
+// these put the stone up and to the left and the pumpkin down and to the
+// right. Picked in world space, the stone sat directly behind the ghost.
+addProp(createTombstone({ variant: 'cross', seed: 11 }), -3.2, 0.35);
+addProp(createPumpkin({ seed: 3 }), 2.75, -0.5);
+
 const input = new Input(canvas, camera);
 
 placeCamera();
@@ -105,8 +130,14 @@ function follow(dt) {
   ground.userData.uniforms.uFocus.value.copy(camTarget);
 }
 
+let sceneTime = 0;
+
 function step(dt, axis) {
+  sceneTime += dt;
   ghost.update(dt, axis);
+  // The pumpkin's lamp flickers, so props advance with the scene clock rather
+  // than a wall clock -- a scripted capture then reproduces the same flame.
+  for (const prop of props) prop.update?.(sceneTime, dt);
   follow(dt);
   renderer.render(scene, camera);
 }
