@@ -8,6 +8,15 @@ npm install
 npm run dev          # http://localhost:5183
 ```
 
+`npm install` also fetches a 77 MB ffmpeg binary and Playwright's browsers, for
+the capture scripts further down. They are declared as optional dependencies so
+that a slow or blocked download cannot fail the install — if they do not arrive
+the app still runs, and only the capture scripts are unavailable.
+
+Do not reach for `--omit=optional` to skip them: Rollup and esbuild ship their
+native binaries as optional dependencies too, so that flag leaves Vite unable to
+start.
+
 `W A S D` or arrows to move · `space` to hop · or press and drag to lead it
 around. On touch, drag to steer and tap to hop.
 
