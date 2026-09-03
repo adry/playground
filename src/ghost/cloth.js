@@ -32,6 +32,8 @@ export class ClothSim {
     this.windStrength = 0.55;
     this.groundY = 0.0;
     this.iterations = 6;
+    this.colliders = null;
+    this.maxObstacleTop = 0;
 
     this.#buildConstraints();
   }
@@ -86,6 +88,16 @@ export class ClothSim {
       this.crest[c] = d;
       this.cstiff[c] = k;
     });
+  }
+
+  // Obstacles the fabric drapes over. Nothing is solved against them: they are
+  // static, so a positional push each substep is enough.
+  setColliders(colliders) {
+    this.colliders = colliders && colliders.length ? colliders : null;
+    this.maxObstacleTop = 0;
+    if (this.colliders) {
+      for (const c of this.colliders) this.maxObstacleTop = Math.max(this.maxObstacleTop, c.top);
+    }
   }
 
   // Places every particle exactly on its rest pose. Used on the first frame so
@@ -245,6 +257,7 @@ export class ClothSim {
     this.#solve();
     this.#applyShapeMemory();
     this.#applyVolume(axis);
+    this.#applyObstacles();
     this.#applyGround();
   }
 
@@ -319,6 +332,69 @@ export class ClothSim {
       const s = (r - d) / Math.max(d, 1e-6);
       pos[o] += dx * s;
       pos[o + 2] += dz * s;
+    }
+  }
+
+  // Resolves along the axis of least penetration, which is what gives both
+  // behaviours from one test: a particle mostly above a stone gets lifted onto
+  // it and drapes, one mostly beside it gets pushed out of the way.
+  #applyObstacles() {
+    const list = this.colliders;
+    if (!list) return;
+    const { pos, invMass } = this;
+    const maxTop = this.maxObstacleTop;
+
+    for (let p = 0; p < this.count; p++) {
+      if (invMass[p] === 0) continue;
+      const o = p * 3;
+      const y = pos[o + 1];
+      if (y > maxTop) continue; // the head and most of the body, skipped cheaply
+
+      const x = pos[o];
+      const z = pos[o + 2];
+
+      for (let i = 0; i < list.length; i++) {
+        const c = list[i];
+        if (y > c.top) continue;
+
+        const dx = x - c.x;
+        const dz = z - c.z;
+        const reach = c.bound;
+        if (dx * dx + dz * dz > reach * reach) continue;
+
+        const pUp = c.top - y;
+
+        if (c.circle) {
+          const d = Math.sqrt(dx * dx + dz * dz);
+          const pr = c.radius - d;
+          if (pr <= 0) continue;
+          if (pUp <= pr) {
+            pos[o + 1] = c.top;
+          } else if (d > 1e-6) {
+            pos[o] += (dx / d) * pr;
+            pos[o + 2] += (dz / d) * pr;
+          }
+          continue;
+        }
+
+        const lx = dx * c.cos + dz * c.sin;
+        const lz = -dx * c.sin + dz * c.cos;
+        const pX = c.hx - Math.abs(lx);
+        const pZ = c.hz - Math.abs(lz);
+        if (pX <= 0 || pZ <= 0) continue;
+
+        if (pUp <= pX && pUp <= pZ) {
+          pos[o + 1] = c.top;
+        } else if (pX <= pZ) {
+          const sx = lx < 0 ? -1 : 1;
+          pos[o] += c.cos * pX * sx;
+          pos[o + 2] += c.sin * pX * sx;
+        } else {
+          const sz = lz < 0 ? -1 : 1;
+          pos[o] += -c.sin * pZ * sz;
+          pos[o + 2] += c.cos * pZ * sz;
+        }
+      }
     }
   }
 

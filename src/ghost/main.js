@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Ghost } from './ghost.js';
 import { createGround } from './ground.js';
+import { createObstacles } from './obstacles.js';
 import { Input } from './input.js';
 
 const canvas = document.getElementById('view');
@@ -24,11 +25,11 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
 scene.background = BACKDROP;
-scene.fog = new THREE.Fog(BACKDROP, 16, 34);
+scene.fog = new THREE.Fog(BACKDROP, 24, 52);
 
 // True isometric-ish: 45 degrees around, ~30 degrees up, orthographic so there
 // is no perspective convergence.
-const VIEW_SIZE = 5.2;
+const VIEW_SIZE = 6.2;
 const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 const camTarget = new THREE.Vector3(0, 0.75, 0);
@@ -59,11 +60,12 @@ const key = new THREE.DirectionalLight(0xfff4e6, 2.1);
 key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
 key.shadow.camera.near = 0.5;
-key.shadow.camera.far = 24;
-key.shadow.camera.left = -4;
-key.shadow.camera.right = 4;
-key.shadow.camera.top = 4;
-key.shadow.camera.bottom = -4;
+key.shadow.camera.far = 30;
+// Wide enough to take in the rubble around the ghost, not just the ghost.
+key.shadow.camera.left = -8;
+key.shadow.camera.right = 8;
+key.shadow.camera.top = 8;
+key.shadow.camera.bottom = -8;
 key.shadow.bias = -0.0012;
 key.shadow.normalBias = 0.02;
 key.shadow.radius = 3;
@@ -81,7 +83,11 @@ scene.add(ground);
 
 // A fixed seed in test mode so scripted runs reproduce the same blinks
 // and glances frame for frame.
+const rubble = createObstacles();
+scene.add(rubble.group);
+
 const ghost = new Ghost(testMode ? { seed: 12345 } : {});
+ghost.setObstacles(rubble);
 scene.add(ghost.mesh);
 
 const input = new Input(canvas, camera);
@@ -133,6 +139,7 @@ window.__ghost = {
       vel: ghost.vel.toArray(),
       yaw: ghost.yaw,
       grounded: ghost.grounded,
+      ground: +ghost.ground.toFixed(3),
       ...ghost.metrics(),
       particles: ghost.cloth.count,
       constraints: ghost.cloth.constraintCount,

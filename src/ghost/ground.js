@@ -8,8 +8,8 @@ export function createGround({
   lineColor = '#7a7f8a',
   cell = 1.0,
   size = 400,
-  fadeStart = 9,
-  fadeEnd = 26,
+  fadeStart = 16,
+  fadeEnd = 40,
 } = {}) {
   const material = new THREE.MeshStandardMaterial({
     color,

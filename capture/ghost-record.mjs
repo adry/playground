@@ -18,18 +18,17 @@ const fps = Number(args.fps || 60);
 const seconds = Number(args.seconds || 10);
 const outFile = args.out || `out/ghost-${width}x${height}.mp4`;
 
-// A route that exercises both the cloth and the face: long enough idles for a
-// blink and the occasional happy squint, a hard start, a sharp stop, a hop, and
-// two direction changes.
+// A route that exercises the cloth and the face: long enough idles for a blink
+// and the occasional happy squint, a hard start, a hop, and a pass over the
+// rubble cluster north of the spawn so the skirt has something to drape on.
 function scriptedInput(t) {
-  if (t < 3.0) return { x: 0, y: 0 };
-  if (t < 4.6) return { x: 1, y: 0 };
-  if (t < 5.2) return { x: 0, y: 0 };
-  if (t < 5.25) return { x: 0, y: 0, jump: true };
-  if (t < 6.8) return { x: 0, y: 0 };
-  if (t < 8.4) return { x: -0.72, y: -0.72 };
-  if (t < 9.8) return { x: 0.72, y: -0.72 };
-  if (t < 10.6) return { x: 0, y: 1 };
+  if (t < 2.2) return { x: 0, y: 0 };
+  if (t < 4.9) return { x: -0.16, y: 0.99 };
+  if (t < 5.6) return { x: 0, y: 0 };
+  if (t < 5.65) return { x: 0, y: 0, jump: true };
+  if (t < 6.9) return { x: 0, y: 0 };
+  if (t < 9.3) return { x: 0.16, y: -0.99 };
+  if (t < 11.0) return { x: 0.86, y: 0.5 };
   return { x: 0, y: 0 };
 }
 
