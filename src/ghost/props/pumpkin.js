@@ -38,7 +38,7 @@ const RINGS = SEGMENTS.height * 3;
 // What the lamp, the carving and its bloom look like at the bottom and the top
 // of the flicker's swing. All three are driven off the one value, which is what
 // makes the light and the face read as the same flame.
-const LAMP = { min: 0.42, max: 1.30 };     // PointLight intensity
+const LAMP = { min: 1.05, max: 3.10 };     // PointLight intensity
 const GLOW = { min: 0.88, max: 1.38 };     // face emissiveIntensity
 const BLOOM = { min: 0.09, max: 0.32 };    // halo opacity
 
@@ -373,16 +373,37 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   stem.receiveShadow = true;
 
   // --- The lamp inside -----------------------------------------------------
-  // No shadow map: it is expensive, and the shell would block the light it is
-  // meant to throw. Without one the light passes straight through and pools on
-  // the ground, which is the effect we actually want.
-  const LIGHT_DISTANCE = 2.2;
-  const light = new THREE.PointLight(new THREE.Color(PALETTE.glow), (LAMP.min + LAMP.max) / 2, LIGHT_DISTANCE * scale, 2);
+  // A point light was wrong here. Three does not occlude lights without a
+  // shadow map, so an omnidirectional lamp inside an opaque shell lit the
+  // ground evenly all the way round -- including behind the pumpkin, where no
+  // light can actually get out. Turning shadows on does not fix it either: the
+  // shell has no real holes, so it would block everything.
+  //
+  // What the light physically does is leave through the cuts, so it is a cone
+  // aimed out of the face and tilted down at the floor. Wide and very soft,
+  // because three separate openings scatter it rather than one aperture.
+  const LIGHT_DISTANCE = 2.8;
+  const light = new THREE.SpotLight(
+    new THREE.Color(PALETTE.glow),
+    (LAMP.min + LAMP.max) / 2,
+    LIGHT_DISTANCE * scale,
+    0.98,  // half-cone, wide enough that the pool is not a torch beam
+    0.9,   // penumbra: almost all edge, so there is no visible cone rim
+    1.5,
+  );
   light.position.set(0, yBase * 0.9, 0);
   light.castShadow = false;
 
+  // The target is parented to the group, so the cone turns with the pumpkin
+  // instead of staying pinned to a world direction.
+  const faceDir = new THREE.Vector3(Math.sin(FACE_YAW), 0, Math.cos(FACE_YAW));
+  const lightTarget = new THREE.Object3D();
+  lightTarget.position.copy(faceDir).multiplyScalar(1.15 * scale);
+  lightTarget.position.y = -0.5 * scale;
+  light.target = lightTarget;
+
   const group = new THREE.Group();
-  group.add(shell, face, halo, stem, light);
+  group.add(shell, face, halo, stem, light, lightTarget);
   group.scale.setScalar(scale);
 
   const lightHome = light.position.clone();
