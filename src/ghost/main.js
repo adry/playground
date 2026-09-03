@@ -103,11 +103,45 @@ function addProp(prop, x, z, yaw = Math.PI / 4) {
 }
 
 // Positions are solved in screen axes rather than guessed in world ones:
-// screen-right is (x - z) / sqrt(2) and screen-up is -(x + z) / sqrt(2), so
-// these put the stone up and to the left and the pumpkin down and to the
-// right. Picked in world space, the stone sat directly behind the ghost.
-addProp(createTombstone({ variant: 'cross', seed: 11 }), -3.2, 0.35);
-addProp(createPumpkin({ seed: 3 }), 2.75, -0.5);
+// screen-right is (x - z) / sqrt(2) and screen-up is -(x + z) / sqrt(2). Picked
+// in world space, the first stone sat directly behind the ghost.
+function atScreen(right, up) {
+  const k = Math.SQRT1_2;
+  return [(right - up) * k, (-up - right) * k];
+}
+
+// A row of pumpkins below the ghost, each turned a different way. Same light,
+// same ground, different facings -- so how the carving and the spill read with
+// the lamp behind, beside or in front of the cut is visible in one frame.
+const PUMPKIN_ROW = [
+  { right: -2.6, up: -1.8, yaw: 0 },
+  { right: -1.0, up: -2.1, yaw: Math.PI / 2 },
+  { right: 0.6, up: -1.7, yaw: Math.PI },
+  { right: 2.1, up: -2.0, yaw: -Math.PI / 2 },
+  { right: 3.6, up: -1.6, yaw: Math.PI / 4 },
+];
+
+for (const [i, spot] of PUMPKIN_ROW.entries()) {
+  const [x, z] = atScreen(spot.right, spot.up);
+  addProp(createPumpkin({ seed: 3 + i * 7 }), x, z, spot.yaw);
+}
+
+// All three stones, twice each, turned right the way round. The inscription is
+// a normal map on the front face only, so this shows how it holds at a grazing
+// angle and confirms the backs and sides are plain stone with no wrap.
+const GRAVE_ROW = [
+  { variant: 'cross', right: -3.6, up: 2.3, yaw: 0 },
+  { variant: 'bat', right: -2.1, up: 2.6, yaw: Math.PI / 3 },
+  { variant: 'fred', right: -0.6, up: 2.3, yaw: (2 * Math.PI) / 3 },
+  { variant: 'cross', right: 0.9, up: 2.6, yaw: Math.PI },
+  { variant: 'bat', right: 2.4, up: 2.3, yaw: (4 * Math.PI) / 3 },
+  { variant: 'fred', right: 3.9, up: 2.6, yaw: (5 * Math.PI) / 3 },
+];
+
+for (const [i, g] of GRAVE_ROW.entries()) {
+  const [x, z] = atScreen(g.right, g.up);
+  addProp(createTombstone({ variant: g.variant, seed: 11 + i * 13 }), x, z, g.yaw);
+}
 
 const input = new Input(canvas, camera);
 
