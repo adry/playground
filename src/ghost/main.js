@@ -28,7 +28,7 @@ scene.fog = new THREE.Fog(BACKDROP, 16, 34);
 
 // True isometric-ish: 45 degrees around, ~30 degrees up, orthographic so there
 // is no perspective convergence.
-const VIEW_SIZE = 2.72;
+const VIEW_SIZE = 3.3;
 const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 const camTarget = new THREE.Vector3(0, 0.75, 0);
@@ -156,6 +156,7 @@ window.__ghost = {
     if (p.scale !== undefined) u.uEyeScale.value.set(p.scale[0], p.scale[1]);
     if (p.turn !== undefined) u.uEyeTurn.value = p.turn;
     if (p.look !== undefined) u.uLook.value.set(p.look[0], p.look[1]);
+    if (p.glint !== undefined) u.uGlint.value.set(p.glint[0], p.glint[1]);
     renderer.render(scene, camera);
   },
 

@@ -250,8 +250,11 @@ export class Ghost {
       uCurve: { value: 0 },
       uLook: { value: new THREE.Vector2() },
       uEyeTurn: { value: 0 },
-      uEyeColor: { value: new THREE.Color('#1a1d2b').convertSRGBToLinear() },
-      uGlint: { value: new THREE.Vector2(-0.34, -0.36) },
+      uEyeColor: { value: new THREE.Color('#171a26').convertSRGBToLinear() },
+      // Two catchlights: the warm key and a smaller, dimmer fill on the
+      // opposite side, as a wet surface under this light rig would show.
+      uGlint: { value: new THREE.Vector2(-0.20, -0.42) },
+      uGlint2: { value: new THREE.Vector2(0.40, 0.28) },
     };
 
     this.material = new THREE.MeshStandardMaterial({
@@ -282,6 +285,7 @@ export class Ghost {
         uniform float uEyeTurn;
         uniform vec3 uEyeColor;
         uniform vec2 uGlint;
+        uniform vec2 uGlint2;
 
         // Eye-local coordinates, roughly -1..1 across the eye. u has to wrap
         // because it is an angle around the ghost. \`mirror\` flips x so that
@@ -310,13 +314,23 @@ export class Ghost {
           return 1.0 - length(vec2(e.x, (e.y - centre) / open));
         }
 
-        float ghostGlintField(vec2 raw) {
-          return 1.0 - length((raw - uGlint) / 0.32);
+        // Soft-edged spot in eye-local space. Fed the unmirrored coordinates
+        // so both eyes catch the light on the same side, the way two eyes
+        // under one light actually do.
+        float ghostSpot(vec2 raw, vec2 centre, float radius, float soft) {
+          float d = length(raw - centre) / radius;
+          return 1.0 - smoothstep(1.0 - soft, 1.0, d);
+        }
+
+        // Light bouncing up off the pale floor, caught along the lower rim.
+        float ghostBounce(vec2 raw) {
+          return smoothstep(0.05, 0.85, raw.y) * (1.0 - smoothstep(0.55, 1.0, length(raw)));
         }
         ${shader.fragmentShader}
       `.replace(
         '#include <color_fragment>',
         `#include <color_fragment>
+        float gEye = 0.0;
         if (gl_FrontFacing) {
           float cv = uEyeV + uLook.y;
           // uEyeTurn nudges the face around the sheet. The face otherwise
@@ -330,13 +344,35 @@ export class Ghost {
           float f = max(fL, fR);
 
           // Derivative-based edge so the lids stay crisp at any zoom.
-          float mask = smoothstep(0.0, max(fwidth(f) * 1.4, 0.005), f);
-          diffuseColor.rgb = mix(diffuseColor.rgb, uEyeColor, mask);
+          float aa = max(fwidth(f) * 1.4, 0.005);
+          float mL = smoothstep(0.0, aa, fL);
+          float mR = smoothstep(0.0, aa, fR);
+          gEye = max(mL, mR);
 
-          float g = max(min(ghostGlintField(rawL), fL), min(ghostGlintField(rawR), fR));
-          float gm = smoothstep(0.0, max(fwidth(g) * 1.6, 0.02), g);
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.90), gm * 0.85);
+          vec3 wet = uEyeColor;
+          diffuseColor.rgb = mix(diffuseColor.rgb, wet, gEye);
+
+          // Bounce first, then the catchlights over it.
+          float bounce = max(ghostBounce(rawL) * mL, ghostBounce(rawR) * mR);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.30, 0.35, 0.46), bounce * 0.5);
+
+          float keyL = ghostSpot(rawL, uGlint, 0.34, 0.55);
+          float keyR = ghostSpot(rawR, uGlint, 0.34, 0.55);
+          float fillL = ghostSpot(rawL, uGlint2, 0.17, 0.8);
+          float fillR = ghostSpot(rawR, uGlint2, 0.17, 0.8);
+
+          float key = max(keyL * mL, keyR * mR);
+          float fill = max(fillL * mL, fillR * mR);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.95, 0.98), key * 0.94);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.70, 0.86), fill * 0.55);
         }`,
+      ).replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        // A wet eye is far glossier than cotton. Dropping roughness inside the
+        // mask lets the scene's own lights put a real specular on it, one that
+        // tracks the head as it turns instead of being painted on.
+        roughnessFactor = mix(roughnessFactor, 0.13, gEye);`,
       );
     };
   }
@@ -424,6 +460,9 @@ export class Ghost {
     q.copy(tilt).multiply(yawQ);
 
     const s = 1 + this.squash * 0.16;
+    // Kept so the eyes can cancel it out; the head squashes with the body, and
+    // anything painted into its UV space squashes with it unless told not to.
+    this.bodyScaleY = s;
     const scale = new THREE.Vector3(1 / Math.sqrt(s), s, 1 / Math.sqrt(s));
 
     this.matrix.compose(new THREE.Vector3(this.pos.x, y, this.pos.z), q, scale);
@@ -480,15 +519,18 @@ export class Ghost {
     let syT = 1;
 
     if (!this.grounded) {
-      // Wide-eyed in the air.
-      sxT = 1.10;
-      syT = 1.16;
+      // Wide-eyed in the air. Scaled evenly on both axes -- stretching one of
+      // them reads as a distortion rather than an expression.
+      sxT = 1.05;
+      syT = 1.05;
     } else if (sp > 0.22) {
       // Narrowed and tilted down at the inner corner: determined, leaning in.
+      // Held well back from a slit; the eyes should stay round enough to read
+      // as eyes while the ghost is moving.
       const k = smoothstep((sp - 0.22) / 0.55);
-      openT = 1 - 0.34 * k;
-      tiltT = -0.5 * k;
-      curveT = 0.16 * k;
+      openT = 1 - 0.16 * k;
+      tiltT = -0.32 * k;
+      curveT = 0.08 * k;
     }
 
     if (e.moodTimer > 0) {
@@ -555,12 +597,23 @@ export class Ghost {
     u.uOpen.value = open;
     u.uTilt.value = e.tilt;
     u.uCurve.value = e.curve;
-    u.uEyeScale.value.set(e.scaleX, e.scaleY);
+    // Cancel the body's squash and stretch. The head is scaled by s vertically
+    // and 1/sqrt(s) horizontally, so a fixed patch of UV maps to a taller,
+    // narrower area on screen -- which is exactly the stretch you see on the
+    // eyes during a hop or a hard stop. Countering it here keeps them round
+    // while the cloth still squashes.
+    const bs = this.bodyScaleY || 1;
+    u.uEyeScale.value.set(e.scaleX * Math.sqrt(bs), e.scaleY / bs);
     u.uEyeTurn.value = e.vor / TAU;
     u.uLook.value.set(-e.gaze.x * 0.013, e.gaze.y * 0.014);
-    // The glint drifts within the eye as the gaze moves, in unmirrored local
-    // coordinates so both eyes catch the light on the same side.
-    u.uGlint.value.set(-0.34 - e.gaze.x * 0.30, -0.36 + e.gaze.y * 0.26);
+    // A reflection sits on the surface, so it should stay roughly put while
+    // the eye moves under it rather than being dragged along. These offsets
+    // partly cancel the gaze shift applied to the eye centre above.
+    // Up and slightly to the right on screen, matching where the scene's key
+    // light actually sits. Note +x in eye-local space runs screen-left, since
+    // u increases the other way around the sheet.
+    u.uGlint.value.set(-0.20 + e.gaze.x * 0.24, -0.42 - e.gaze.y * 0.18);
+    u.uGlint2.value.set(0.40 + e.gaze.x * 0.24, 0.28 - e.gaze.y * 0.18);
   }
 
   // --- geometry sync --------------------------------------------------------

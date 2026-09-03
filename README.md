@@ -57,9 +57,9 @@ whole range:
 |---|---|---|---|
 | neutral | 1.0 | 0 | 0 |
 | blink / closed | → 0 | — | — |
-| determined (moving fast) | 0.66 | −0.5 | 0.16 |
+| determined (moving fast) | 0.84 | −0.32 | 0.08 |
 | happy squint (idle) | 0.26 | 0 | 0.85 |
-| startled (airborne) | 1.0 | — | — (eyes scale up) |
+| startled (airborne) | 1.0 | — | — (eyes scale up evenly) |
 
 On top of that:
 
@@ -70,6 +70,17 @@ On top of that:
 - **A vestibulo-ocular reflex**: whip the body round and the eyes hold their
   heading for a moment before catching up.
 - **Blinks** that snap shut and open more slowly, sometimes doubled.
+- **A wet, glossy surface.** Roughness drops inside the eye mask so the scene's
+  own lights lay a real specular on it, one that tracks the head as it turns.
+  Over that sit two painted catchlights — a bright warm key up and to the right
+  where the scene's key light actually is, and a smaller cool fill opposite —
+  plus light bouncing up off the pale floor along the lower rim. The catchlights
+  only partly follow the gaze, so they read as sitting on the surface while the
+  eye moves under them rather than being dragged around with it.
+- **No stretching.** The head squashes with the body on a hop or a hard stop,
+  and anything painted into its UV space squashes with it. The eye scale cancels
+  that transform out, so the eyes hold their shape while the cloth still
+  squashes.
 - **Reflexes**: eyes screwed shut on landing impact, flung wide on takeoff.
 - **The face rides the body's front.** Walk away from the camera and the ghost
   turns its back on you, exactly as a body facing its direction of travel

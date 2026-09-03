@@ -16,9 +16,9 @@ const PRESETS = [
   { name: 'neutral', open: 1.0, tilt: 0, curve: 0, scale: [1, 1] },
   { name: 'blink-mid', open: 0.38, tilt: 0, curve: 0, scale: [1, 1] },
   { name: 'closed', open: 0.02, tilt: 0, curve: 0, scale: [1, 1] },
-  { name: 'determined', open: 0.66, tilt: -0.5, curve: 0.16, scale: [1, 1] },
+  { name: 'determined', open: 0.84, tilt: -0.32, curve: 0.08, scale: [1, 1] },
   { name: 'happy', open: 0.2, tilt: 0, curve: 0.85, scale: [1, 1] },
-  { name: 'startled', open: 1.0, tilt: 0.12, curve: 0, scale: [1.1, 1.16] },
+  { name: 'startled', open: 1.0, tilt: 0.06, curve: 0, scale: [1.05, 1.05] },
 ];
 
 const lab = await openLab({
