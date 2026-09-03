@@ -222,64 +222,62 @@ function rubblePile(rand) {
   };
 }
 
-// One or two drum segments lying on their side, sometimes with a broken
-// capital and abacus tumbled a short way off the end. Tipping the drum is
-// just rotating its normally-vertical axis ~90 degrees about Z; the jitter
-// keeps it from looking like a deliberate CAD rotation.
+// One or two drum segments lying on their side, or a single drum with a
+// broken capital and abacus tumbled off its end. Tipping a drum is just
+// rotating its normally-vertical axis ~90 degrees about Z; the jitter keeps
+// it from looking like a deliberate CAD rotation. The two extra elements
+// (a second drum, or a capital+abacus) are kept mutually exclusive -- piling
+// all of them into one piece is how a "small filler stone" quietly grows
+// past the scale this kit is meant to stay inside.
 function fallenColumn(rand) {
   const prims = [];
-  const radius = 0.1 + rand() * 0.09;
+  const radius = 0.09 + rand() * 0.06;
   const radiusTop = radius * (0.85 + rand() * 0.15);
-  const pieceLen = 0.32 + rand() * 0.28;
   const baseRot = Math.PI / 2 + (rand() - 0.5) * 0.25;
+  const twoPieces = rand() < 0.4;
 
+  const len1 = twoPieces ? 0.24 + rand() * 0.18 : 0.3 + rand() * 0.22;
   const rot1 = [(rand() - 0.5) * 0.12, 0, baseRot];
-  const d1 = settledDrum(0, 0, radius, radiusTop, pieceLen, rot1, 0);
+  const d1 = settledDrum(0, 0, radius, radiusTop, len1, rot1, 0);
   prims.push(d1.prim);
   let maxTop = d1.top;
-  let footprint = pieceLen / 2 + radius;
+  let footprint = len1 / 2 + radius;
 
-  const twoPieces = rand() < 0.5;
-  let x2 = 0;
-  let z2 = 0;
+  const colliders = [{ x: 0, z: 0, hx: len1 / 2 + radius, hz: radius + 0.08, top: d1.top }];
+
   if (twoPieces) {
     // The second drum lands a short way further along and slightly
-    // off-axis -- a broken shaft doesn't land in a perfect straight row.
-    const gap = pieceLen * (0.45 + rand() * 0.35);
-    const yaw = (rand() - 0.5) * 0.6;
-    x2 = gap * Math.cos(yaw);
-    z2 = gap * Math.sin(yaw);
-    const len2 = pieceLen * (0.7 + rand() * 0.5);
+    // off-axis, close enough to still read as one broken shaft -- a column
+    // that snapped doesn't scatter its pieces far apart.
+    const len2 = 0.2 + rand() * 0.18;
+    const gap = (len1 + len2) * 0.5 * (0.55 + rand() * 0.3);
+    const yaw = (rand() - 0.5) * 0.5;
+    const x2 = gap * Math.cos(yaw);
+    const z2 = gap * Math.sin(yaw);
     const rot2 = [(rand() - 0.5) * 0.15, 0, Math.PI / 2 + (rand() - 0.5) * 0.3];
-    const d2 = settledDrum(x2, z2, radius * (0.9 + rand() * 0.15), radiusTop, len2, rot2, 0);
+    const d2 = settledDrum(x2, z2, radius, radiusTop, len2, rot2, 0);
     prims.push(d2.prim);
     if (d2.top > maxTop) maxTop = d2.top;
     footprint = Math.max(footprint, Math.hypot(x2, z2) + len2 / 2 + radius);
-  }
-
-  const colliders = [
-    { x: 0, z: 0, hx: pieceLen / 2 + radius, hz: radius + 0.08, top: d1.top },
-  ];
-  if (twoPieces) colliders.push({ x: x2, z: z2, hx: 0.22, hz: 0.22, top: maxTop });
-
-  // A broken capital sometimes rides along with the shaft: a block wider
-  // than the drum, plus a thin abacus plate that landed slightly askew of
-  // it -- capitals and abaci are separate stones and rarely fall square.
-  if (rand() < 0.55 && colliders.length < 3) {
-    const capSize = radius * (2.4 + rand() * 0.6);
-    const capH = 0.14 + rand() * 0.08;
-    const cx = -(pieceLen / 2 + capSize * 0.4);
-    const cz = (rand() - 0.5) * 0.2;
+    colliders.push({ x: x2, z: z2, hx: len2 / 2 + radius, hz: radius + 0.08, top: d2.top });
+  } else if (rand() < 0.55) {
+    // A broken capital: a block wider than the shaft, plus a thin abacus
+    // plate that landed slightly askew of it -- capitals and abaci are
+    // separate stones and rarely fall square with each other.
+    const capSize = radius * (1.8 + rand() * 0.3);
+    const capH = 0.13 + rand() * 0.07;
+    const cx = -(len1 / 2 + capSize * 0.28);
+    const cz = (rand() - 0.5) * 0.16;
     const rotCap = [(rand() - 0.5) * 0.3, rand() * Math.PI * 2, (rand() - 0.5) * 0.3];
     const cap = settledBlock(cx, cz, [capSize, capH, capSize], rotCap, 0, 0.014);
     prims.push(cap.prim);
     if (cap.top > maxTop) maxTop = cap.top;
     footprint = Math.max(footprint, Math.hypot(cx, cz) + yawSafeHalf(capSize, capSize));
 
-    const abW = capSize * (1.05 + rand() * 0.15);
+    const abW = capSize * (1.0 + rand() * 0.08);
     const abH = 0.08 + rand() * 0.04;
-    const ax = cx + (rand() - 0.5) * 0.12;
-    const az = cz + (rand() - 0.5) * 0.12;
+    const ax = cx + (rand() - 0.5) * 0.1;
+    const az = cz + (rand() - 0.5) * 0.1;
     const rotAb = [(rand() - 0.5) * 0.35, rand() * Math.PI * 2, (rand() - 0.5) * 0.35];
     const ab = settledBlock(ax, az, [abW, abH, abW], rotAb, 0, 0.01);
     prims.push(ab.prim);
