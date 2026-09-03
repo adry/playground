@@ -240,6 +240,10 @@ export class Ghost {
     // value. Together they cover the whole expression range: wide, narrowed,
     // determined (upper lid tilted down at the inner corner), happy squint (a
     // thin band following an upward arc) and fully closed.
+    //
+    // The surface itself is deliberately flat: a solid dark oval with one crisp
+    // catchlight. A physically shaded version reflecting the scene's lights was
+    // tried and reverted -- it was more realistic and less characterful.
     this.eyeUniforms = {
       uEyeV: { value: 0.255 },
       uEyeSep: { value: 0.063 },
@@ -250,16 +254,8 @@ export class Ghost {
       uCurve: { value: 0 },
       uLook: { value: new THREE.Vector2() },
       uEyeTurn: { value: 0 },
-      uEyeColor: { value: new THREE.Color('#12141d').convertSRGBToLinear() },
-      // The eye is shaded as a glossy bead sitting on the cloth: uBulge is how
-      // domed it is, uGloss the tightness of the highlight.
-      uBulge: { value: 0.92 },
-      uGloss: { value: 260.0 },
-      uSpec: { value: 0.95 },
-      // What the bead reflects. These match the scene's floor and backdrop, so
-      // the eye picks up the room it is actually standing in.
-      uEnvFloor: { value: new THREE.Color('#8f949e').convertSRGBToLinear() },
-      uEnvSky: { value: new THREE.Color('#c6cbd4').convertSRGBToLinear() },
+      uEyeColor: { value: new THREE.Color('#1a1d2b').convertSRGBToLinear() },
+      uGlint: { value: new THREE.Vector2(-0.3, -0.32) },
     };
 
     this.material = new THREE.MeshStandardMaterial({
@@ -272,11 +268,10 @@ export class Ghost {
     this.material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.eyeUniforms);
 
-      shader.vertexShader = `varying vec2 vGUv;\nvarying vec3 vGView;\n${shader.vertexShader}`
-        .replace('#include <uv_vertex>', '#include <uv_vertex>\n  vGUv = uv;')
-        // mvPosition is still in scope after project_vertex; the reflection
-        // needs the fragment's position in view space.
-        .replace('#include <project_vertex>', '#include <project_vertex>\n  vGView = -mvPosition.xyz;');
+      shader.vertexShader = `varying vec2 vGUv;\n${shader.vertexShader}`.replace(
+        '#include <uv_vertex>',
+        '#include <uv_vertex>\n  vGUv = uv;',
+      );
 
       shader.fragmentShader = `
         varying vec2 vGUv;
@@ -289,13 +284,8 @@ export class Ghost {
         uniform float uCurve;
         uniform vec2 uLook;
         uniform float uEyeTurn;
-        varying vec3 vGView;
         uniform vec3 uEyeColor;
-        uniform float uBulge;
-        uniform float uGloss;
-        uniform float uSpec;
-        uniform vec3 uEnvFloor;
-        uniform vec3 uEnvSky;
+        uniform vec2 uGlint;
 
         // Eye-local coordinates, roughly -1..1 across the eye. u has to wrap
         // because it is an angle around the ghost. \`mirror\` flips x so that
@@ -303,8 +293,8 @@ export class Ghost {
         // drive a symmetric pair of lids.
         //
         // Returns the lid field (positive inside the eye) and hands back the
-        // unmirrored coordinates, which the glint needs so it tracks the gaze
-        // the same way in both eyes instead of splaying outward.
+        // unmirrored coordinates, which the catchlight needs so it sits on the
+        // same side in both eyes instead of splaying outward.
         float ghostEyeField(vec2 uv, float cu, float cv, float mirror, out vec2 raw) {
           float du = fract(uv.x - cu + 0.5) - 0.5;
           float dv = uv.y - cv;
@@ -324,24 +314,14 @@ export class Ghost {
           return 1.0 - length(vec2(e.x, (e.y - centre) / open));
         }
 
+        float ghostGlintField(vec2 raw) {
+          return 1.0 - length((raw - uGlint) / 0.32);
+        }
         ${shader.fragmentShader}
       `.replace(
-        // Late enough that the shading normal and the light uniforms exist,
-        // early enough that diffuseColor and roughnessFactor still feed the
-        // lighting model.
-        '#include <emissivemap_fragment>',
-        `#include <emissivemap_fragment>
-        {
-          // Every derivative is taken here, in uniform control flow. Screen
-          // space derivatives read neighbouring fragments in the same quad, so
-          // taking them inside a branch those neighbours may not have entered
-          // is undefined and shows up as speckle along the eye edge.
-          vec3 vp = -vGView;
-          vec3 dp1 = dFdx(vp);
-          vec3 dp2 = dFdy(vp);
-          vec2 duv1 = dFdx(vGUv);
-          vec2 duv2 = dFdy(vGUv);
-
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        if (gl_FrontFacing) {
           float cv = uEyeV + uLook.y;
           // uEyeTurn nudges the face around the sheet. The face otherwise
           // rides the body's front, so the ghost shows its back when it walks
@@ -354,58 +334,12 @@ export class Ghost {
           float f = max(fL, fR);
 
           // Derivative-based edge so the lids stay crisp at any zoom.
-          float aa = max(fwidth(f) * 1.4, 0.005);
-          float mask = gl_FrontFacing ? smoothstep(0.0, aa, f) : 0.0;
+          float mask = smoothstep(0.0, max(fwidth(f) * 1.4, 0.005), f);
+          diffuseColor.rgb = mix(diffuseColor.rgb, uEyeColor, mask);
 
-          if (mask > 0.002) {
-            vec2 raw = fL > fR ? rawL : rawR;
-
-            // Cotangent frame. The mesh carries no tangent attribute, and
-            // deriving one here also means the frame follows the cloth as it
-            // deforms.
-            vec3 dp2perp = cross(dp2, normal);
-            vec3 dp1perp = cross(normal, dp1);
-            vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-            vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
-            float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
-            T *= invmax;
-            B *= invmax;
-
-            // Shade the eye with the normal of a dome rather than of the flat
-            // cloth under it. This is the whole trick: the highlight now sits
-            // where the light actually reflects, slides across the eye as the
-            // ghost turns, and leaves entirely when the light is behind it.
-            float r2 = min(dot(raw, raw), 1.0);
-            vec3 tn = normalize(vec3(raw * uBulge, sqrt(max(1.0 - r2, 0.03))));
-            vec3 nEye = normalize(T * tn.x + B * tn.y + normal * tn.z);
-            vec3 V = normalize(vGView);
-
-            vec3 refl = vec3(0.0);
-
-            #if NUM_DIR_LIGHTS > 0
-            for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
-              vec3 L = directionalLights[i].direction;
-              vec3 H = normalize(L + V);
-              float ndh = max(dot(nEye, H), 0.0);
-              // A tight core inside a broad sheen, which is what a wet surface
-              // gives you: a hot pinpoint with a soft falloff around it.
-              refl += directionalLights[i].color * (pow(ndh, uGloss) + pow(ndh, 16.0) * 0.06);
-            }
-            #endif
-
-            // Reflected environment. viewMatrix is world-to-view and its
-            // rotation is orthonormal, so multiplying from the right applies
-            // the transpose and takes the reflection back into world space.
-            vec3 rWorld = reflect(-V, nEye) * mat3(viewMatrix);
-            float up = rWorld.y * 0.5 + 0.5;
-            vec3 env = mix(uEnvFloor, uEnvSky, smoothstep(0.28, 0.74, up));
-            float fres = pow(1.0 - max(dot(nEye, V), 0.0), 3.5);
-            refl += env * (0.14 + 0.5 * fres);
-
-            diffuseColor.rgb = mix(diffuseColor.rgb, uEyeColor, mask);
-            roughnessFactor = mix(roughnessFactor, 0.32, mask);
-            totalEmissiveRadiance += refl * uSpec * mask;
-          }
+          float g = max(min(ghostGlintField(rawL), fL), min(ghostGlintField(rawR), fR));
+          float gm = smoothstep(0.0, max(fwidth(g) * 1.6, 0.02), g);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.92), gm * 0.9);
         }`,
       );
     };
@@ -633,11 +567,14 @@ export class Ghost {
     u.uCurve.value = e.curve;
     // Cancel the body's squash and stretch. The head is scaled by s vertically
     // and 1/sqrt(s) horizontally, so a fixed patch of UV maps to a taller,
-    // narrower area on screen -- which is exactly the stretch you see on the
-    // eyes during a hop or a hard stop. Countering it here keeps them round
-    // while the cloth still squashes.
+    // narrower area on screen -- which is exactly the stretch you would
+    // otherwise see on the eyes during a hop or a hard stop. Countering it here
+    // keeps them round while the cloth still squashes.
     const bs = this.bodyScaleY || 1;
     u.uEyeScale.value.set(e.scaleX * Math.sqrt(bs), e.scaleY / bs);
+
+    // The catchlight drifts a little with the gaze, as in the original.
+    u.uGlint.value.set(-0.3 - e.gaze.x * 0.16, -0.32 + e.gaze.y * 0.14);
     u.uEyeTurn.value = e.vor / TAU;
     u.uLook.value.set(-e.gaze.x * 0.013, e.gaze.y * 0.014);
     // A reflection sits on the surface, so it should stay roughly put while
