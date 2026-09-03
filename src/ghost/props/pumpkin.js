@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { toyMaterial, PALETTE, SEGMENTS } from './style.js';
 
 // A squat ribbed jack-o'-lantern in the house vinyl-toy style: smooth lobes, a
-// curved tapering stem, one leaf, and a carved face that glows from inside.
+// curved tapering stem, and a carved face that glows from inside.
 //
 // Everything curved here is generated parametrically rather than assembled from
 // primitives, for one reason: the ribs. A lathe or a scaled sphere cannot make
@@ -19,10 +19,12 @@ import { toyMaterial, PALETTE, SEGMENTS } from './style.js';
 // Authored against the ghost (1.6 tall, hem near 0.2): body ~0.39 tall and
 // ~0.80 across, stem on top, ~0.6 overall.
 const BODY_R = 0.40;   // equator radius before the ribs bite into it
-const BODY_H = 0.30;   // half-height of the un-dished profile
-const SQUASH = 2.5;    // superellipse power: >2 fattens the shoulders, flattens the poles
-const DIP = 0.42;      // how hard the poles are pulled back in, making the stem dish
-const RIB_SHARP = 1.25; // >1 narrows the groove and widens the lobe crest
+const BODY_H = 0.345;  // half-height of the un-dished profile
+// Nearer 2 is nearer a true ellipsoid. The earlier 2.5 squared off the
+// shoulders and flattened the poles, which is what read as not round enough.
+const SQUASH = 2.08;
+const DIP = 0.26;      // how hard the poles are pulled back in, making the stem dish
+const RIB_SHARP = 1.5; // >1 narrows the groove and widens the lobe crest
 
 // The face looks along +x+z so it meets the preview/game camera square-on at
 // spin 0; the lobe crest sits at the same angle so the face lands on a bulge.
@@ -36,9 +38,14 @@ const RINGS = SEGMENTS.height * 3;
 // What the lamp, the carving and its bloom look like at the bottom and the top
 // of the flicker's swing. All three are driven off the one value, which is what
 // makes the light and the face read as the same flame.
-const LAMP = { min: 0.76, max: 1.16 };     // PointLight intensity
+const LAMP = { min: 0.42, max: 1.30 };     // PointLight intensity
 const GLOW = { min: 0.88, max: 1.38 };     // face emissiveIntensity
-const BLOOM = { min: 0.14, max: 0.30 };    // halo opacity
+const BLOOM = { min: 0.09, max: 0.32 };    // halo opacity
+
+// The flame's two ends: a dull ember at the bottom of a gutter, bright flame at
+// the top of a flare.
+const EMBER = new THREE.Color('#ff6a24').convertSRGBToLinear();
+const FLAME = new THREE.Color(PALETTE.glow).convertSRGBToLinear();
 
 // Small deterministic PRNG: same seed, same pumpkin, and nothing at module scope.
 function makeRng(seed) {
@@ -70,14 +77,14 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
 
   // Per-seed variation, kept small: these are the same toy, not different ones.
   const lobes = 9 + Math.floor(rand() * 3);          // 9..11
-  const ribDepth = 0.115 + rand() * 0.035;
+  // Shallower grooves: deep ones cut the round silhouette into a gear.
+  const ribDepth = 0.085 + rand() * 0.025;
   const bodyR = BODY_R * (0.96 + rand() * 0.08);
   const bodyH = BODY_H * (0.96 + rand() * 0.08);
-  // Stem lean and leaf are placed relative to the *face*, not to world axes, so
-  // the bend and the leaf both read from the angle the face is being seen from.
+  // The stem leans relative to the *face*, not to world axes, so the bend reads
+  // from the angle the face is being seen from.
   const side = rand() < 0.5 ? -1 : 1;
   const aStem = side * (0.38 + rand() * 0.16) * Math.PI;   // out to one side
-  const aLeaf = -side * (0.26 + rand() * 0.14) * Math.PI;  // and the leaf to the other
   const flickerPhase = rand() * 100;
 
   // --- The body surface ----------------------------------------------------
@@ -141,12 +148,12 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
       // Paint the grooves with the palette's shade colour. Real shading already
       // darkens them; this keeps them readable when the key light is head-on.
       const g = Math.pow(0.5 - 0.5 * Math.cos(lobes * a), 0.9);
-      c.copy(skin).lerp(shade, g * 0.26);
+      c.copy(skin).lerp(shade, g * 0.20);
       // A touch more shade in the last of the underside, standing in for the
       // contact occlusion a prop this simple gets no other way. Kept small:
       // overdoing it turns the palette's orange into a muddy red.
       const low = Math.max(0, -s - 0.55) / 0.45;
-      c.lerp(shade, low * low * 0.20);
+      c.lerp(shade, low * low * 0.12);
       colors.push(c.r, c.g, c.b);
     };
 
@@ -365,69 +372,6 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   stem.castShadow = true;
   stem.receiveShadow = true;
 
-  // --- Leaf ----------------------------------------------------------------
-  // The leaf is *draped on the shell*, not floated above the dish: its spine is
-  // a run of shell-surface points, and its cross-section is laid out in the
-  // local surface frame (across the surface, thickness along the normal). Built
-  // any other way it either buries itself in the shoulder or hovers off it.
-  const leafGeo = (() => {
-    const along = SEGMENTS.curve;
-    const around = Math.round(SEGMENTS.radial / 2);
-    const S0 = 0.945, S1 = 0.545;      // from beside the stem out over the shoulder
-    const LEN = 0.070;                 // half-width at the widest point
-    const spine = [];
-    for (let j = 0; j <= along; j++) {
-      const t = j / along;
-      const sv = S0 + (S1 - S0) * t;
-      const P = surface(aLeaf, sv, new THREE.Vector3());
-      const N = surfaceNormal(aLeaf, sv, new THREE.Vector3());
-      spine.push({ t, P: P.addScaledVector(N, 0.011), N });
-    }
-    // Central differences give a tangent that follows the drape.
-    for (let j = 0; j <= along; j++) {
-      const a = spine[Math.max(0, j - 1)].P;
-      const b = spine[Math.min(along, j + 1)].P;
-      const T = new THREE.Vector3().subVectors(b, a).normalize();
-      // (T, S, N) is right-handed, which is what makes the winding below face out.
-      spine[j].S = new THREE.Vector3().crossVectors(spine[j].N, T).normalize();
-    }
-
-    const verts = [];
-    const idx = [];
-    const p = new THREE.Vector3();
-    for (let j = 0; j <= along; j++) {
-      const { t, P, N, S } = spine[j];
-      // Narrow stalk, widest a little past a third of the way, pointed tip.
-      const w = LEN * Math.pow(t, 0.62) * Math.pow(1 - t, 0.95) * 3.1;
-      const th = w * 0.22;
-      for (let i = 0; i < around; i++) {
-        const phi = (i / around) * Math.PI * 2;
-        const across = Math.cos(phi) * w;
-        p.copy(P)
-          .addScaledVector(S, across)
-          .addScaledVector(N, Math.sin(phi) * th)
-          // Cup the blade upward from the midrib, so it catches its own highlight.
-          .addScaledVector(N, (across * across) / Math.max(1e-4, LEN) * 0.42);
-        verts.push(p.x, p.y, p.z);
-      }
-    }
-    const vi = (j, i) => j * around + (i % around);
-    for (let j = 0; j < along; j++) {
-      for (let i = 0; i < around; i++) {
-        idx.push(vi(j, i), vi(j, i + 1), vi(j + 1, i), vi(j, i + 1), vi(j + 1, i + 1), vi(j + 1, i));
-      }
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    return g;
-  })();
-  const leafMat = toyMaterial(PALETTE.leaf, { roughness: 0.8 });
-  const leaf = new THREE.Mesh(leafGeo, leafMat);
-  leaf.castShadow = true;
-  leaf.receiveShadow = true;
-
   // --- The lamp inside -----------------------------------------------------
   // No shadow map: it is expensive, and the shell would block the light it is
   // meant to throw. Without one the light passes straight through and pools on
@@ -438,7 +382,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   light.castShadow = false;
 
   const group = new THREE.Group();
-  group.add(shell, face, halo, stem, leaf, light);
+  group.add(shell, face, halo, stem, light);
   group.scale.setScalar(scale);
 
   const lightHome = light.position.clone();
@@ -446,16 +390,23 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   return {
     group,
     update(time) {
-      // Three rates of smooth noise: a slow wander, a mid flutter and a fine
-      // shimmer. Summed, it never repeats audibly and never snaps -- and it
-      // moves by well under a twentieth of its range in a frame, so it reads as
-      // a flame rather than a strobe.
+      // A candle mostly burns near full and occasionally ducks. Summed smooth
+      // noise on its own only wanders about its middle, which is why the first
+      // version read as a dimmer being nudged rather than a flame. So the
+      // steady part sits high, and a separate sparse guttering term pulls it
+      // down.
       const t = time + flickerPhase;
-      const n =
-        0.62 * noise(t * 1.7) +
-        0.26 * noise(t * 4.6 + 13.2) +
-        0.12 * noise(t * 11.3 + 41.7);
-      const level = Math.min(1, Math.max(0, n)); // 0 = guttering, 1 = flaring
+      const swing = (f, o) => (noise(t * f + o) - 0.5) * 2; // -1..1
+
+      const steady = 0.84 + 0.10 * swing(1.3, 0) + 0.07 * swing(6.1, 13.2) + 0.04 * swing(15.7, 41.7);
+
+      // Only the top of this slow channel counts, so dips are occasional and
+      // brief rather than rhythmic; squaring the ramp keeps their onset soft.
+      const g = noise(t * 0.62 + 77.3);
+      const gutter = g > 0.70 ? (g - 0.70) / 0.30 : 0;
+      const dip = gutter * gutter * 0.52 * (0.55 + 0.45 * noise(t * 9.3 + 5.1));
+
+      const level = Math.min(1, Math.max(0, steady - dip)); // 0 = guttering, 1 = flaring
 
       const at = (range) => range.min + (range.max - range.min) * level;
       light.intensity = at(LAMP);
@@ -464,6 +415,9 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
       // near saturation even as the spill on the ground drops away.
       faceMat.emissiveIntensity = at(GLOW);
       haloMat.opacity = at(BLOOM);
+      // A guttering flame reddens as it drops, so the colour rides the same
+      // value rather than sitting at a fixed warm white.
+      light.color.copy(EMBER).lerp(FLAME, level);
 
       // A candle is not nailed down; a few millimetres of sway makes the pool of
       // light on the ground breathe.
@@ -474,8 +428,8 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
       );
     },
     dispose() {
-      for (const g of [shellGeo, faceGeo, haloGeo, stemGeo, leafGeo]) g.dispose();
-      for (const m of [shellMat, faceMat, haloMat, stemMat, leafMat]) m.dispose();
+      for (const g of [shellGeo, faceGeo, haloGeo, stemGeo]) g.dispose();
+      for (const m of [shellMat, faceMat, haloMat, stemMat]) m.dispose();
       group.clear();
     },
   };

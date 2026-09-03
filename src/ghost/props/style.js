@@ -9,8 +9,8 @@ import * as THREE from 'three';
 // with no hard edges at all.
 
 export const PALETTE = {
-  pumpkinSkin: '#f0913f',
-  pumpkinShade: '#d9752c',
+  pumpkinSkin: '#ffb268',
+  pumpkinShade: '#ef9448',
   stem: '#6b4a2f',
   leaf: '#5f9e4a',
   glow: '#ffc061',
