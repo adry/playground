@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { Ghost } from './ghost.js';
 import { createGround } from './ground.js';
-import { createRuins } from './ruins/index.js';
 import { Input } from './input.js';
 
 const canvas = document.getElementById('view');
@@ -61,7 +60,6 @@ key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
 key.shadow.camera.near = 0.5;
 key.shadow.camera.far = 30;
-// Wide enough to take in the rubble around the ghost, not just the ghost.
 key.shadow.camera.left = -8;
 key.shadow.camera.right = 8;
 key.shadow.camera.top = 8;
@@ -83,25 +81,8 @@ scene.add(ground);
 
 // A fixed seed in test mode so scripted runs reproduce the same blinks
 // and glances frame for frame.
-const ruins = createRuins();
-scene.add(ruins.group);
-
 const ghost = new Ghost(testMode ? { seed: 12345 } : {});
-ghost.setObstacles(ruins);
 scene.add(ghost.mesh);
-
-// R clears the ruins away and brings them back. The colliders go with them, or
-// the ghost would keep floating over stones that are no longer there.
-let ruinsVisible = true;
-function setRuinsVisible(visible) {
-  ruinsVisible = visible;
-  ruins.group.visible = visible;
-  ghost.setObstacles(visible ? ruins : {});
-}
-window.addEventListener('keydown', (e) => {
-  if (e.code !== 'KeyR' || e.repeat) return;
-  setRuinsVisible(!ruinsVisible);
-});
 
 const input = new Input(canvas, camera);
 
@@ -152,7 +133,6 @@ window.__ghost = {
       vel: ghost.vel.toArray(),
       yaw: ghost.yaw,
       grounded: ghost.grounded,
-      ground: +ghost.ground.toFixed(3),
       ...ghost.metrics(),
       particles: ghost.cloth.count,
       constraints: ghost.cloth.constraintCount,

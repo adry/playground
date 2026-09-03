@@ -69,10 +69,6 @@ export class Ghost {
     this.lean = new THREE.Vector2();
     this.bob = 0;
     this.airY = 0;
-    // Height of whatever it is currently floating over, eased rather than
-    // stepped, so passing a stone is a smooth rise and settle.
-    this.ground = 0;
-    this.heightAt = null;
     this.airV = 0;
     this.grounded = true;
     this.squash = 0;
@@ -352,22 +348,11 @@ export class Ghost {
     };
   }
 
-  // Terrain and drapeable obstacles. The ghost floats over these rather than
-  // being stopped by them; the cloth is what actually touches them.
-  setObstacles({ colliders, heightAt } = {}) {
-    this.heightAt = heightAt || null;
-    this.cloth.setColliders(colliders);
-  }
-
   // --- per-frame ------------------------------------------------------------
 
   update(dt, input) {
     const sub = 2;
     const h = dt / sub;
-    // Narrow the obstacle set once per frame rather than per substep; the
-    // ghost cannot travel far enough in one frame for the shortlist to go
-    // stale within it.
-    this.cloth.refreshActive(this.pos.x, this.pos.z, 2.4);
     for (let s = 0; s < sub; s++) {
       this.time += h;
       this.#stepBody(h, input);
@@ -428,13 +413,6 @@ export class Ghost {
     const leanBlend = 1 - Math.exp(-h / 0.16);
     this.lean.x += (THREE.MathUtils.clamp(accX * 0.045, -0.32, 0.32) - this.lean.x) * leanBlend;
     this.lean.y += (THREE.MathUtils.clamp(accZ * 0.045, -0.32, 0.32) - this.lean.y) * leanBlend;
-
-    // Float over whatever is underneath. Rising a little faster than it
-    // settles reads as lifting to clear something rather than bobbing on it.
-    const groundTarget = this.heightAt ? this.heightAt(this.pos.x, this.pos.z) : 0;
-    const gTau = groundTarget > this.ground ? 0.15 : 0.3;
-    this.ground += (groundTarget - this.ground) * (1 - Math.exp(-h / gTau));
-    this.pos.y = o.hoverHeight + this.ground;
 
     this.bob = Math.sin(this.time * 2.3) * 0.045 + Math.sin(this.time * 1.31) * 0.02;
 
