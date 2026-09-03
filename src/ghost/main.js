@@ -156,7 +156,6 @@ window.__ghost = {
     if (p.scale !== undefined) u.uEyeScale.value.set(p.scale[0], p.scale[1]);
     if (p.turn !== undefined) u.uEyeTurn.value = p.turn;
     if (p.look !== undefined) u.uLook.value.set(p.look[0], p.look[1]);
-    if (p.glint !== undefined) u.uGlint.value.set(p.glint[0], p.glint[1]);
     renderer.render(scene, camera);
   },
 

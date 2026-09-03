@@ -70,13 +70,15 @@ On top of that:
 - **A vestibulo-ocular reflex**: whip the body round and the eyes hold their
   heading for a moment before catching up.
 - **Blinks** that snap shut and open more slowly, sometimes doubled.
-- **A wet, glossy surface.** Roughness drops inside the eye mask so the scene's
-  own lights lay a real specular on it, one that tracks the head as it turns.
-  Over that sit two painted catchlights — a bright warm key up and to the right
-  where the scene's key light actually is, and a smaller cool fill opposite —
-  plus light bouncing up off the pale floor along the lower rim. The catchlights
-  only partly follow the gaze, so they read as sitting on the surface while the
-  eye moves under them rather than being dragged around with it.
+- **A real reflection.** The eye is shaded as a glossy bead sitting on the
+  cloth: inside the mask the surface is given a dome's normal instead of the
+  flat cloth's. Everything else falls out of that. The highlight sits where the
+  scene's lights actually reflect, slides across the eye as the ghost turns, and
+  leaves entirely when the light is behind it. The bead also reflects its
+  surroundings — the pale floor below, the lighter backdrop above — with a
+  Fresnel rim, so it is never a flat black hole even out of the light. There are
+  no painted catchlights; an earlier version had them, and they gave the game
+  away by sitting still while the ghost turned.
 - **No stretching.** The head squashes with the body on a hop or a hard stop,
   and anything painted into its UV space squashes with it. The eye scale cancels
   that transform out, so the eyes hold their shape while the cloth still

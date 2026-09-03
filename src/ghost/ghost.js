@@ -250,11 +250,16 @@ export class Ghost {
       uCurve: { value: 0 },
       uLook: { value: new THREE.Vector2() },
       uEyeTurn: { value: 0 },
-      uEyeColor: { value: new THREE.Color('#171a26').convertSRGBToLinear() },
-      // Two catchlights: the warm key and a smaller, dimmer fill on the
-      // opposite side, as a wet surface under this light rig would show.
-      uGlint: { value: new THREE.Vector2(-0.20, -0.42) },
-      uGlint2: { value: new THREE.Vector2(0.40, 0.28) },
+      uEyeColor: { value: new THREE.Color('#12141d').convertSRGBToLinear() },
+      // The eye is shaded as a glossy bead sitting on the cloth: uBulge is how
+      // domed it is, uGloss the tightness of the highlight.
+      uBulge: { value: 0.92 },
+      uGloss: { value: 260.0 },
+      uSpec: { value: 0.95 },
+      // What the bead reflects. These match the scene's floor and backdrop, so
+      // the eye picks up the room it is actually standing in.
+      uEnvFloor: { value: new THREE.Color('#8f949e').convertSRGBToLinear() },
+      uEnvSky: { value: new THREE.Color('#c6cbd4').convertSRGBToLinear() },
     };
 
     this.material = new THREE.MeshStandardMaterial({
@@ -267,10 +272,11 @@ export class Ghost {
     this.material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, this.eyeUniforms);
 
-      shader.vertexShader = `varying vec2 vGUv;\n${shader.vertexShader}`.replace(
-        '#include <uv_vertex>',
-        '#include <uv_vertex>\n  vGUv = uv;',
-      );
+      shader.vertexShader = `varying vec2 vGUv;\nvarying vec3 vGView;\n${shader.vertexShader}`
+        .replace('#include <uv_vertex>', '#include <uv_vertex>\n  vGUv = uv;')
+        // mvPosition is still in scope after project_vertex; the reflection
+        // needs the fragment's position in view space.
+        .replace('#include <project_vertex>', '#include <project_vertex>\n  vGView = -mvPosition.xyz;');
 
       shader.fragmentShader = `
         varying vec2 vGUv;
@@ -283,9 +289,13 @@ export class Ghost {
         uniform float uCurve;
         uniform vec2 uLook;
         uniform float uEyeTurn;
+        varying vec3 vGView;
         uniform vec3 uEyeColor;
-        uniform vec2 uGlint;
-        uniform vec2 uGlint2;
+        uniform float uBulge;
+        uniform float uGloss;
+        uniform float uSpec;
+        uniform vec3 uEnvFloor;
+        uniform vec3 uEnvSky;
 
         // Eye-local coordinates, roughly -1..1 across the eye. u has to wrap
         // because it is an angle around the ghost. \`mirror\` flips x so that
@@ -314,24 +324,24 @@ export class Ghost {
           return 1.0 - length(vec2(e.x, (e.y - centre) / open));
         }
 
-        // Soft-edged spot in eye-local space. Fed the unmirrored coordinates
-        // so both eyes catch the light on the same side, the way two eyes
-        // under one light actually do.
-        float ghostSpot(vec2 raw, vec2 centre, float radius, float soft) {
-          float d = length(raw - centre) / radius;
-          return 1.0 - smoothstep(1.0 - soft, 1.0, d);
-        }
-
-        // Light bouncing up off the pale floor, caught along the lower rim.
-        float ghostBounce(vec2 raw) {
-          return smoothstep(0.05, 0.85, raw.y) * (1.0 - smoothstep(0.55, 1.0, length(raw)));
-        }
         ${shader.fragmentShader}
       `.replace(
-        '#include <color_fragment>',
-        `#include <color_fragment>
-        float gEye = 0.0;
-        if (gl_FrontFacing) {
+        // Late enough that the shading normal and the light uniforms exist,
+        // early enough that diffuseColor and roughnessFactor still feed the
+        // lighting model.
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+        {
+          // Every derivative is taken here, in uniform control flow. Screen
+          // space derivatives read neighbouring fragments in the same quad, so
+          // taking them inside a branch those neighbours may not have entered
+          // is undefined and shows up as speckle along the eye edge.
+          vec3 vp = -vGView;
+          vec3 dp1 = dFdx(vp);
+          vec3 dp2 = dFdy(vp);
+          vec2 duv1 = dFdx(vGUv);
+          vec2 duv2 = dFdy(vGUv);
+
           float cv = uEyeV + uLook.y;
           // uEyeTurn nudges the face around the sheet. The face otherwise
           // rides the body's front, so the ghost shows its back when it walks
@@ -345,34 +355,58 @@ export class Ghost {
 
           // Derivative-based edge so the lids stay crisp at any zoom.
           float aa = max(fwidth(f) * 1.4, 0.005);
-          float mL = smoothstep(0.0, aa, fL);
-          float mR = smoothstep(0.0, aa, fR);
-          gEye = max(mL, mR);
+          float mask = gl_FrontFacing ? smoothstep(0.0, aa, f) : 0.0;
 
-          vec3 wet = uEyeColor;
-          diffuseColor.rgb = mix(diffuseColor.rgb, wet, gEye);
+          if (mask > 0.002) {
+            vec2 raw = fL > fR ? rawL : rawR;
 
-          // Bounce first, then the catchlights over it.
-          float bounce = max(ghostBounce(rawL) * mL, ghostBounce(rawR) * mR);
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.30, 0.35, 0.46), bounce * 0.5);
+            // Cotangent frame. The mesh carries no tangent attribute, and
+            // deriving one here also means the frame follows the cloth as it
+            // deforms.
+            vec3 dp2perp = cross(dp2, normal);
+            vec3 dp1perp = cross(normal, dp1);
+            vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+            vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+            float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
+            T *= invmax;
+            B *= invmax;
 
-          float keyL = ghostSpot(rawL, uGlint, 0.34, 0.55);
-          float keyR = ghostSpot(rawR, uGlint, 0.34, 0.55);
-          float fillL = ghostSpot(rawL, uGlint2, 0.17, 0.8);
-          float fillR = ghostSpot(rawR, uGlint2, 0.17, 0.8);
+            // Shade the eye with the normal of a dome rather than of the flat
+            // cloth under it. This is the whole trick: the highlight now sits
+            // where the light actually reflects, slides across the eye as the
+            // ghost turns, and leaves entirely when the light is behind it.
+            float r2 = min(dot(raw, raw), 1.0);
+            vec3 tn = normalize(vec3(raw * uBulge, sqrt(max(1.0 - r2, 0.03))));
+            vec3 nEye = normalize(T * tn.x + B * tn.y + normal * tn.z);
+            vec3 V = normalize(vGView);
 
-          float key = max(keyL * mL, keyR * mR);
-          float fill = max(fillL * mL, fillR * mR);
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.95, 0.95, 0.98), key * 0.94);
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.70, 0.86), fill * 0.55);
+            vec3 refl = vec3(0.0);
+
+            #if NUM_DIR_LIGHTS > 0
+            for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
+              vec3 L = directionalLights[i].direction;
+              vec3 H = normalize(L + V);
+              float ndh = max(dot(nEye, H), 0.0);
+              // A tight core inside a broad sheen, which is what a wet surface
+              // gives you: a hot pinpoint with a soft falloff around it.
+              refl += directionalLights[i].color * (pow(ndh, uGloss) + pow(ndh, 16.0) * 0.06);
+            }
+            #endif
+
+            // Reflected environment. viewMatrix is world-to-view and its
+            // rotation is orthonormal, so multiplying from the right applies
+            // the transpose and takes the reflection back into world space.
+            vec3 rWorld = reflect(-V, nEye) * mat3(viewMatrix);
+            float up = rWorld.y * 0.5 + 0.5;
+            vec3 env = mix(uEnvFloor, uEnvSky, smoothstep(0.28, 0.74, up));
+            float fres = pow(1.0 - max(dot(nEye, V), 0.0), 3.5);
+            refl += env * (0.14 + 0.5 * fres);
+
+            diffuseColor.rgb = mix(diffuseColor.rgb, uEyeColor, mask);
+            roughnessFactor = mix(roughnessFactor, 0.32, mask);
+            totalEmissiveRadiance += refl * uSpec * mask;
+          }
         }`,
-      ).replace(
-        '#include <roughnessmap_fragment>',
-        `#include <roughnessmap_fragment>
-        // A wet eye is far glossier than cotton. Dropping roughness inside the
-        // mask lets the scene's own lights put a real specular on it, one that
-        // tracks the head as it turns instead of being painted on.
-        roughnessFactor = mix(roughnessFactor, 0.13, gEye);`,
       );
     };
   }
@@ -609,11 +643,6 @@ export class Ghost {
     // A reflection sits on the surface, so it should stay roughly put while
     // the eye moves under it rather than being dragged along. These offsets
     // partly cancel the gaze shift applied to the eye centre above.
-    // Up and slightly to the right on screen, matching where the scene's key
-    // light actually sits. Note +x in eye-local space runs screen-left, since
-    // u increases the other way around the sheet.
-    u.uGlint.value.set(-0.20 + e.gaze.x * 0.24, -0.42 - e.gaze.y * 0.18);
-    u.uGlint2.value.set(0.40 + e.gaze.x * 0.24, 0.28 - e.gaze.y * 0.18);
   }
 
   // --- geometry sync --------------------------------------------------------
