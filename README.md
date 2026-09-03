@@ -36,6 +36,48 @@ npm run dev          # http://localhost:5183
 | `lattice-wave` | Instanced rods riding a travelling wave — one draw call, height and colour derived in the vertex shader. |
 | `contour-flow` | Engraved topographic contour lines drifting through a warped field. |
 
+## Cloth Ghost
+
+An interactive piece rather than a loop: **http://localhost:5183/ghost.html**
+
+`WASD` / arrows to move, `space` to hop, or press and drag to lead it around.
+
+The ghost is one sheet of simulated cloth — a hemispherical head flowing into a
+scalloped skirt — hovering over an isometric grey floor. Three things make it
+behave like fabric rather than a rigid model:
+
+- **Shape memory with a fast falloff.** Every particle is pulled back toward
+  where the body says it should be, hard through the head and almost not at all
+  below it. Without this the sheet collapses into a rag; with the falloff spread
+  too wide, the skirt snaps back before any motion is visible.
+- **Aerodynamics along the surface normal.** A sheet only feels air along its
+  normal, and modelling it that way gives lift as well as drag: as the skirt
+  swings back its surfaces tilt, the normal picks up a downward component, and
+  the reaction billows the fabric upward. Isotropic drag can only ever push it
+  backwards and down, which reads as a wet towel.
+- **Outward pressure**, standing in for the air trapped under the sheet, so the
+  ghost stays inflated instead of flattening when dragged sideways.
+
+The eyes are painted into the fabric's UV space inside the material's fragment
+shader, not modelled as separate objects. So they deform with the cloth, stay
+glued to the front as the body turns, and can never drift off the surface.
+They blink on a random timer, look toward where the ghost is actually heading
+versus where it is facing, and glance up while it is airborne.
+
+```bash
+# drive a scripted route and save stills at exact moments
+node capture/ghost-shot.mjs --at 0.7,1.4,3.35
+
+# record the same route to video
+node capture/ghost-record.mjs --seconds 9.5 --w 900 --h 900
+```
+
+Both step the simulation by hand instead of by `requestAnimationFrame`, so a run
+is repeatable and the cloth can be inspected at the exact frame where the skirt
+is trailing hardest. `ghost-shot.mjs` also prints `hemLag` and `hemSpread` —
+how far the hem is trailing the body and how much of it has lifted — which is
+far more useful for tuning cloth than squinting at renders.
+
 ## Recording video
 
 ```bash
@@ -166,9 +208,17 @@ src/
     quality.js      quality tiers
   shaders/lib/      simplex noise + loop-safe fbm, colour helpers
   components/       the pieces
+  ghost/            the interactive cloth ghost
+    cloth.js        verlet + PBD solver, aerodynamics, pressure
+    ghost.js        rest pose, body motion, eyes in UV space
+    ground.js       isometric floor and grid
+    input.js        keyboard and pointer steering
 capture/
   record.mjs        frame-stepped MP4 export
   shot.mjs          stills
+  ghost-shot.mjs    scripted-route stills with cloth diagnostics
+  ghost-record.mjs  scripted-route video
+  verify-loop.mjs   proves the loops are seamless
 ```
 
 Simplex noise is Ashima Arts / Stefan Gustavson's `webgl-noise` (MIT), vendored

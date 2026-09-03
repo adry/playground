@@ -19,7 +19,15 @@ function resolveChrome() {
   return undefined; // let Playwright resolve its own download
 }
 
-export async function openLab({ width, height, verbose = false, gpu = process.env.LAB_GPU === '1' } = {}) {
+export async function openLab({
+  width,
+  height,
+  verbose = false,
+  gpu = process.env.LAB_GPU === '1',
+  entry = '/',
+  query = 'capture=1',
+  readyFlag = '__labReady',
+} = {}) {
   const server = await createServer({
     configFile: path.resolve('vite.config.js'),
     server: {
@@ -62,8 +70,9 @@ export async function openLab({ width, height, verbose = false, gpu = process.en
     if (verbose || m.type() === 'error' || m.type() === 'warning') console.log(`  [page] ${m.text()}`);
   });
 
-  await page.goto(`${url}?capture=1`, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__labReady === true, null, { timeout: 60000 });
+  const base = url.replace(/\/$/, '');
+  await page.goto(`${base}${entry}?${query}`, { waitUntil: 'load' });
+  await page.waitForFunction((flag) => window[flag] === true, readyFlag, { timeout: 60000 });
 
   const renderer = await page.evaluate(() => {
     const gl = document.getElementById('view').getContext('webgl2');
