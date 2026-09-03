@@ -28,7 +28,7 @@ scene.fog = new THREE.Fog(BACKDROP, 16, 34);
 
 // True isometric-ish: 45 degrees around, ~30 degrees up, orthographic so there
 // is no perspective convergence.
-const VIEW_SIZE = 3.3;
+const VIEW_SIZE = 4.2;
 const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 const camTarget = new THREE.Vector3(0, 0.75, 0);
