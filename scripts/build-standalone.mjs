@@ -1,0 +1,50 @@
+#!/usr/bin/env node
+// Bundles the whole toy into one self-contained HTML file, with no CDN or
+// asset requests beyond the webfonts. Emits two flavours:
+//
+//   dist/standalone.html  a complete document you can open or host anywhere
+//   dist/artifact.html    head contents plus body, for hosts that supply their
+//                         own document skeleton
+//
+//   npm run standalone
+
+import { build } from 'vite';
+import { readFile, writeFile, readdir } from 'node:fs/promises';
+import path from 'node:path';
+
+const root = process.cwd();
+const dist = path.join(root, 'dist');
+
+await build({ logLevel: 'warn' });
+
+const html = await readFile(path.join(dist, 'index.html'), 'utf8');
+const assets = await readdir(path.join(dist, 'assets'));
+const jsFile = assets.find((f) => f.endsWith('.js'));
+if (!jsFile) throw new Error('no JS chunk in dist/assets — did the build emit more than one entry?');
+
+const js = await readFile(path.join(dist, 'assets', jsFile), 'utf8');
+// A bundled string literal could contain a closing script tag and end the
+// block early.
+const inlineJs = `<script type="module">\n${js.replace(/<\/script/gi, '<\\/script')}\n</script>`;
+
+// A function replacer, not a string: minified bundles contain `$&` and `$\``,
+// which String.replace would expand, splicing the original script tag back
+// into the middle of the code.
+const standalone = html
+  .replace(/<link rel="modulepreload"[^>]*>/g, '')
+  .replace(/<script type="module"[^>]*src="[^"]*"[^>]*><\/script>/, () => inlineJs);
+await writeFile(path.join(dist, 'standalone.html'), standalone);
+
+// Strip the document skeleton for hosts that wrap the page themselves.
+const head = standalone.match(/<head>([\s\S]*?)<\/head>/)[1];
+const body = standalone.match(/<body>([\s\S]*?)<\/body>/)[1];
+const keptHead = head
+  .split('\n')
+  .filter((l) => !/<meta charset|<meta name="viewport"/.test(l))
+  .join('\n')
+  .trim();
+await writeFile(path.join(dist, 'artifact.html'), `${keptHead}\n${body.trim()}\n`);
+
+const kb = (s) => `${(Buffer.byteLength(s) / 1024).toFixed(0)} kB`;
+console.log(`dist/standalone.html  ${kb(standalone)}`);
+console.log(`dist/artifact.html    ${kb(`${keptHead}\n${body}`)}`);

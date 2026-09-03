@@ -79,10 +79,38 @@ scene.add(rim);
 const ground = createGround();
 scene.add(ground);
 
-const ghost = new Ghost();
+// A fixed seed in test mode so scripted runs reproduce the same blinks
+// and glances frame for frame.
+const ghost = new Ghost(testMode ? { seed: 12345 } : {});
 scene.add(ghost.mesh);
 
 const input = new Input(canvas, camera);
+
+// --- readout ----------------------------------------------------------------
+// The panel reports the solver's actual numbers rather than copy written into
+// the markup, so it can never drift from what is running.
+
+const readout = {
+  particles: document.getElementById('r-particles'),
+  constraints: document.getElementById('r-constraints'),
+  solver: document.getElementById('r-solver'),
+  lag: document.getElementById('r-lag'),
+};
+const fmt = new Intl.NumberFormat('en-US');
+if (readout.particles) {
+  readout.particles.textContent = fmt.format(ghost.cloth.count);
+  readout.constraints.textContent = fmt.format(ghost.cloth.constraintCount);
+  readout.solver.textContent = `${ghost.cloth.iterations}x @ 120Hz`;
+}
+
+let readoutTick = 0;
+function updateReadout() {
+  if (!readout.lag) return;
+  // Throttled: this touches layout, and the value is only meaningful as a
+  // rough magnitude anyway.
+  if (readoutTick++ % 6) return;
+  readout.lag.textContent = ghost.metrics().hemLag.toFixed(2);
+}
 
 placeCamera();
 resize();
@@ -106,6 +134,7 @@ function follow(dt) {
 function step(dt, axis) {
   ghost.update(dt, axis);
   follow(dt);
+  updateReadout();
   renderer.render(scene, camera);
 }
 
@@ -134,6 +163,19 @@ window.__ghost = {
       ...ghost.metrics(),
     };
   },
+  // Forces lid parameters and redraws without stepping, so expression shapes
+  // can be inspected directly instead of waiting for the right moment.
+  setEyes(p) {
+    const u = ghost.eyeUniforms;
+    if (p.open !== undefined) u.uOpen.value = p.open;
+    if (p.tilt !== undefined) u.uTilt.value = p.tilt;
+    if (p.curve !== undefined) u.uCurve.value = p.curve;
+    if (p.scale !== undefined) u.uEyeScale.value.set(p.scale[0], p.scale[1]);
+    if (p.turn !== undefined) u.uEyeTurn.value = p.turn;
+    if (p.look !== undefined) u.uLook.value.set(p.look[0], p.look[1]);
+    renderer.render(scene, camera);
+  },
+
   setSize(w, h) {
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;

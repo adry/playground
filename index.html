@@ -2,96 +2,212 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>WebGL Lab</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%236fd3ff'/%3E%3C/svg%3E" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Cloth Ghost</title>
+<meta name="description" content="A bedsheet ghost you can push around an isometric floor. Every fold is simulated cloth." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%91%BB%3C/text%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Instrument+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" />
 <style>
+  /* One committed visual world: a lit studio floor. The scene's clear colour
+     is a fixed light grey, so a dark variant would put the page and the canvas
+     in two different rooms. Every colour below is painted explicitly. */
   :root {
-    --ink: #eef1f8;
-    --dim: #7d879e;
-    --line: rgba(255, 255, 255, 0.09);
+    --ground: #b9bec7;
+    --floor: #8f949e;
+    --ink: #22252d;
+    --ink-2: #565c68;
+    --ink-3: #767c88;
+    --sheet: #f4f5f8;
+    --line: rgba(34, 37, 45, 0.16);
+    --accent: #5566b8;
+
+    --pad: clamp(18px, 3.2vw, 40px);
   }
+
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #05060b; color: var(--ink); overflow: hidden; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--ground);
+    color: var(--ink);
+  }
+
   body {
-    font: 13px/1.45 ui-sans-serif, -apple-system, "SF Pro Text", Inter, system-ui, sans-serif;
+    font-family: "Instrument Sans", ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-size: 14.5px;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
-  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
-  .panel {
+  #view {
     position: fixed;
-    left: 20px;
-    top: 20px;
-    width: 268px;
-    padding: 14px;
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    background: rgba(8, 10, 18, 0.62);
-    backdrop-filter: blur(18px) saturate(1.3);
-    transition: opacity 0.35s ease, transform 0.35s ease;
-  }
-  .title { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
-
-  .item {
-    display: flex;
-    gap: 10px;
+    inset: 0;
     width: 100%;
-    text-align: left;
-    padding: 9px 10px;
-    margin-bottom: 4px;
-    border: 1px solid transparent;
-    border-radius: 10px;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-    transition: background 0.18s ease, border-color 0.18s ease;
+    height: 100%;
+    display: block;
+    touch-action: none;
+    cursor: grab;
   }
-  .item:hover { background: rgba(255, 255, 255, 0.05); }
-  .item.active { background: rgba(120, 170, 255, 0.11); border-color: rgba(120, 170, 255, 0.28); }
-  .idx { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 11px; padding-top: 1px; }
-  .body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .name { font-weight: 550; }
-  .note { color: var(--dim); font-size: 11.5px; }
+  #view:active { cursor: grabbing; }
+  #view:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
 
-  .footer { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--dim); font-size: 11px; }
+  /* Chrome floats over the scene as labels around a sculpture. It never takes
+     pointer events, so the whole surface stays draggable. */
+  .chrome {
+    position: fixed;
+    inset: 0;
+    padding: var(--pad);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    pointer-events: none;
+  }
+
+  .label { grid-column: 1 / -1; max-width: 34ch; }
+
+  .wordmark {
+    margin: 0;
+    font-family: Fraunces, ui-serif, Georgia, serif;
+    font-optical-sizing: auto;
+    font-weight: 600;
+    font-size: clamp(30px, 5.2vw, 52px);
+    line-height: 0.95;
+    letter-spacing: -0.018em;
+    /* Held back from full contrast so it reads as painted onto the floor
+       rather than pasted on top of it. */
+    color: color-mix(in srgb, var(--ink) 72%, var(--ground));
+    text-wrap: balance;
+  }
+
+  .blurb {
+    margin: 12px 0 0;
+    max-width: 30ch;
+    color: var(--ink-2);
+    text-wrap: pretty;
+  }
+  .blurb em { font-style: normal; color: var(--ink); font-weight: 500; }
+
+  .legend {
+    grid-row: 3;
+    grid-column: 1 / -1;
+    justify-self: center;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 10px 14px;
+    padding: 9px 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--sheet) 62%, transparent);
+    backdrop-filter: blur(12px) saturate(1.15);
+    color: var(--ink-2);
+    pointer-events: none;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .legend .sep { width: 1px; height: 15px; background: var(--line); }
+
   kbd {
-    display: inline-block; padding: 1px 5px; border-radius: 4px;
-    border: 1px solid var(--line); background: rgba(255,255,255,0.05); font: inherit; font-size: 10.5px;
+    font-family: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    display: inline-block;
+    min-width: 21px;
+    padding: 5px 6px 4px;
+    text-align: center;
+    color: var(--ink);
+    background: var(--sheet);
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 5px;
   }
 
-  .status {
-    position: fixed; left: 20px; bottom: 20px; display: flex; align-items: center; gap: 12px;
-    padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px;
-    background: rgba(8, 10, 18, 0.62); backdrop-filter: blur(18px);
-    color: var(--dim); font-variant-numeric: tabular-nums; font-size: 11.5px;
-    transition: opacity 0.35s ease;
+  /* The instrument panel. These are the simulation's real numbers, read from
+     the running solver rather than written into the markup. */
+  .readout {
+    grid-row: 2;
+    grid-column: 2;
+    align-self: end;
+    justify-self: end;
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 3px 14px;
+    font-family: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-2);
+    text-align: right;
   }
-  .track { width: 120px; height: 2px; background: rgba(255,255,255,0.12); border-radius: 2px; overflow: hidden; }
-  #bar { height: 100%; background: linear-gradient(90deg, #6fd3ff, #b58cff); transform-origin: left; transform: scaleX(0); }
+  .readout dt { letter-spacing: 0.04em; text-transform: uppercase; font-size: 10px; padding-top: 1px; color: var(--ink-3); }
+  .readout dd { margin: 0; color: var(--ink); font-weight: 500; }
 
-  body.clean .panel, body.clean .status { opacity: 0; pointer-events: none; }
+  .live { display: inline-flex; align-items: center; gap: 6px; }
+  .live::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.32; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .live::before { animation: none; }
+    * { transition-duration: 0.01ms !important; }
+  }
+
+  /* Keyboard hints are the default; touch replaces them. Written this way
+     round so a device that reports neither pointer type still gets one legend
+     rather than both. */
+  /* Scoped to .legend so these beat `.legend span`, which is a class plus a
+     type and therefore outranks a bare class. */
+  .legend .touch-only { display: none; }
+  @media (pointer: coarse) {
+    .legend .keys { display: none; }
+    .legend .touch-only { display: inline-flex; }
+  }
+  @media (max-width: 620px) {
+    .readout { grid-row: 3; grid-column: 1 / -1; justify-self: center; text-align: center; display: none; }
+  }
 </style>
 </head>
 <body>
-  <canvas id="view"></canvas>
+  <canvas id="view" tabindex="0" aria-label="Interactive scene: a cloth ghost on an isometric floor"></canvas>
 
-  <aside class="panel">
-    <div class="title">WebGL Lab</div>
-    <div id="menu"></div>
-    <div class="footer">
-      <kbd>1-9</kbd> switch · <kbd>space</kbd> pause · <kbd>r</kbd> restart<br />
-      <kbd>q</kbd> quality · <kbd>h</kbd> hide UI<br />
-      <a href="/ghost.html" style="color:#8fb8ff">cloth ghost →</a>
+  <div class="chrome">
+    <header class="label">
+      <h1 class="wordmark">Cloth Ghost</h1>
+      <p class="blurb">
+        A bedsheet with somewhere to be. Every fold, swing and billow is
+        <em>simulated cloth</em> — nothing here is keyframed.
+      </p>
+    </header>
+
+    <dl class="readout" aria-label="Simulation readout">
+      <dt>particles</dt><dd id="r-particles">—</dd>
+      <dt>constraints</dt><dd id="r-constraints">—</dd>
+      <dt>solver</dt><dd id="r-solver">—</dd>
+      <dt>hem lag</dt><dd id="r-lag" class="live">—</dd>
+    </dl>
+
+    <div class="legend">
+      <span class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
+      <span class="sep keys"></span>
+      <span class="keys"><kbd>space</kbd> hop</span>
+      <span class="sep keys"></span>
+      <span class="keys">or drag to lead it</span>
+      <span class="touch-only">Drag to lead it around · tap to hop</span>
     </div>
-  </aside>
-
-  <div class="status">
-    <span id="hud">booting</span>
-    <span class="track"><span id="bar"></span></span>
   </div>
 
-  <script type="module" src="/src/main.js"></script>
+  <script type="module" src="/src/ghost/main.js"></script>
 </body>
 </html>

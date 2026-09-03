@@ -1,5 +1,5 @@
 {
-  "name": "webgl-lab",
+  "name": "cloth-ghost",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -7,9 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "record": "node capture/record.mjs",
-    "shot": "node capture/shot.mjs",
-    "verify": "node capture/verify-loop.mjs"
+    "standalone": "node scripts/build-standalone.mjs",
+    "shot": "node capture/ghost-shot.mjs",
+    "eyes": "node capture/ghost-eyes.mjs",
+    "record": "node capture/ghost-record.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"

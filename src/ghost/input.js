@@ -12,6 +12,8 @@ export class Input {
     this.pointerNdc = new THREE.Vector2();
     this.pointerWorld = new THREE.Vector3();
     this.jumpQueued = false;
+    this.pressedAt = 0;
+    this.pressedNdc = null;
 
     this.axis = { x: 0, y: 0, jump: false };
     this.raycaster = new THREE.Raycaster();
@@ -43,10 +45,19 @@ export class Input {
     this.dom.addEventListener('pointerdown', (e) => {
       this.dom.setPointerCapture?.(e.pointerId);
       this.pointerActive = true;
+      this.pressedAt = performance.now();
+      this.pressedNdc = this.pointerNdc.clone();
       move(e);
     });
     this.dom.addEventListener('pointermove', move);
-    const release = () => { this.pointerActive = false; };
+    const release = () => {
+      // A quick tap that did not travel is a hop, so touch users get the jump
+      // without a keyboard.
+      const held = performance.now() - (this.pressedAt || 0);
+      const travel = this.pressedNdc ? this.pointerNdc.distanceTo(this.pressedNdc) : 1;
+      if (this.pointerActive && held < 220 && travel < 0.04) this.jumpQueued = true;
+      this.pointerActive = false;
+    };
     this.dom.addEventListener('pointerup', release);
     this.dom.addEventListener('pointercancel', release);
     this.dom.addEventListener('contextmenu', (e) => e.preventDefault());

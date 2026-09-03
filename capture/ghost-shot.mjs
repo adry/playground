@@ -33,7 +33,7 @@ function scriptedInput(t) {
 const lab = await openLab({
   width,
   height,
-  entry: '/ghost.html',
+  entry: '/',
   query: 'test=1',
   readyFlag: '__ghostReady',
   verbose: !!args.verbose,

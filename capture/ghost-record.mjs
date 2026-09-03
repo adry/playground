@@ -18,24 +18,25 @@ const fps = Number(args.fps || 60);
 const seconds = Number(args.seconds || 10);
 const outFile = args.out || `out/ghost-${width}x${height}.mp4`;
 
-// A route that exercises the cloth: hard start, sharp stop, hop, direction
-// change, then a tight turn.
+// A route that exercises both the cloth and the face: long enough idles for a
+// blink and the occasional happy squint, a hard start, a sharp stop, a hop, and
+// two direction changes.
 function scriptedInput(t) {
-  if (t < 0.9) return { x: 0, y: 0 };
-  if (t < 2.4) return { x: 1, y: 0 };
-  if (t < 3.1) return { x: 0, y: 0 };
-  if (t < 3.15) return { x: 0, y: 0, jump: true };
-  if (t < 4.4) return { x: 0, y: 0 };
-  if (t < 6.0) return { x: -0.72, y: -0.72 };
-  if (t < 7.4) return { x: 0.72, y: -0.72 };
-  if (t < 8.2) return { x: 0, y: 1 };
+  if (t < 3.0) return { x: 0, y: 0 };
+  if (t < 4.6) return { x: 1, y: 0 };
+  if (t < 5.2) return { x: 0, y: 0 };
+  if (t < 5.25) return { x: 0, y: 0, jump: true };
+  if (t < 6.8) return { x: 0, y: 0 };
+  if (t < 8.4) return { x: -0.72, y: -0.72 };
+  if (t < 9.8) return { x: 0.72, y: -0.72 };
+  if (t < 10.6) return { x: 0, y: 1 };
   return { x: 0, y: 0 };
 }
 
 const lab = await openLab({
   width,
   height,
-  entry: '/ghost.html',
+  entry: '/',
   query: 'test=1',
   readyFlag: '__ghostReady',
   verbose: !!args.verbose,
