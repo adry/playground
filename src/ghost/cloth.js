@@ -33,7 +33,8 @@ export class ClothSim {
     this.groundY = 0.0;
     this.iterations = 6;
     this.colliders = null;
-    this.maxObstacleTop = 0;
+    this.active = null;      // shortlist near the ghost, rebuilt once per frame
+    this.activeMaxTop = 0;
 
     this.#buildConstraints();
   }
@@ -94,9 +95,27 @@ export class ClothSim {
   // static, so a positional push each substep is enough.
   setColliders(colliders) {
     this.colliders = colliders && colliders.length ? colliders : null;
-    this.maxObstacleTop = 0;
-    if (this.colliders) {
-      for (const c of this.colliders) this.maxObstacleTop = Math.max(this.maxObstacleTop, c.top);
+    this.active = null;
+    this.activeMaxTop = 0;
+  }
+
+  // A whole ruined castle is a few hundred colliders, and testing every
+  // particle against all of them every substep would dominate the frame. The
+  // ghost only ever touches what is next to it, so the list is narrowed once
+  // per frame and the inner loop usually runs over nothing at all.
+  refreshActive(x, z, radius) {
+    if (!this.colliders) return;
+    if (!this.active) this.active = [];
+    this.active.length = 0;
+    this.activeMaxTop = 0;
+    for (let i = 0; i < this.colliders.length; i++) {
+      const c = this.colliders[i];
+      const reach = radius + c.bound;
+      const dx = x - c.x;
+      const dz = z - c.z;
+      if (dx * dx + dz * dz > reach * reach) continue;
+      this.active.push(c);
+      if (c.top > this.activeMaxTop) this.activeMaxTop = c.top;
     }
   }
 
@@ -339,10 +358,10 @@ export class ClothSim {
   // behaviours from one test: a particle mostly above a stone gets lifted onto
   // it and drapes, one mostly beside it gets pushed out of the way.
   #applyObstacles() {
-    const list = this.colliders;
-    if (!list) return;
+    const list = this.active;
+    if (!list || list.length === 0) return;
     const { pos, invMass } = this;
-    const maxTop = this.maxObstacleTop;
+    const maxTop = this.activeMaxTop;
 
     for (let p = 0; p < this.count; p++) {
       if (invMass[p] === 0) continue;

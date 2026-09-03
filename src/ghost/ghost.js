@@ -25,9 +25,12 @@ const DEFAULTS = {
   flare: 0.44,
   scallop: 0.1,     // wave in the hem
   hoverHeight: 1.34,
-  maxSpeed: 3.2,
-  accelTime: 0.28,
-  turnRate: 7.0,
+  // Feel: quick off the mark and quick to stop. accelTime governs both, so
+  // lowering it is what makes the ghost feel connected to the input rather
+  // than merely fast.
+  maxSpeed: 4.5,
+  accelTime: 0.12,
+  turnRate: 11.0,
   seed: undefined,
 };
 
@@ -361,6 +364,10 @@ export class Ghost {
   update(dt, input) {
     const sub = 2;
     const h = dt / sub;
+    // Narrow the obstacle set once per frame rather than per substep; the
+    // ghost cannot travel far enough in one frame for the shortlist to go
+    // stale within it.
+    this.cloth.refreshActive(this.pos.x, this.pos.z, 2.4);
     for (let s = 0; s < sub; s++) {
       this.time += h;
       this.#stepBody(h, input);

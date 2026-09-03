@@ -99,7 +99,7 @@ window.addEventListener('resize', resize);
 // --- loop -------------------------------------------------------------------
 
 function follow(dt) {
-  const k = 1 - Math.exp(-dt * 4.2);
+  const k = 1 - Math.exp(-dt * 5.6);
   camTarget.x += (ghost.pos.x - camTarget.x) * k;
   camTarget.z += (ghost.pos.z - camTarget.z) * k;
   placeCamera();

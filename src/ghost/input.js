@@ -94,8 +94,10 @@ export class Input {
         const dx = this.pointerWorld.x - ghostPos.x;
         const dz = this.pointerWorld.z - ghostPos.z;
         const d = Math.hypot(dx, dz);
-        if (d > 0.12) {
-          const s = Math.min(d / 1.2, 1);
+        if (d > 0.1) {
+          // Reach full input much closer to the pointer, so dragging feels
+          // like leading the ghost rather than coaxing it.
+          const s = Math.min(d / 0.5, 1);
           x = (dx / d) * s;
           z = (dz / d) * s;
         }
