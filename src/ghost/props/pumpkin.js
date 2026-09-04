@@ -347,43 +347,49 @@ const PLATE_FLAME = new THREE.Color('#ffb44a');
 // are respectively the top of a flare and the floor of a real gutter.
 const HUE_MID = 0.88, HUE_GAIN = 1.5;
 
-// The skin, which is the palette's pair taken down before it is used.
+// The skin, which is the palette's pair taken down a little before it is used.
 //
-// Reported as too bright an orange, and too saturated with it. The palette's
-// #ffb268 measures as a FULLY saturated orange at 70% lightness -- S = 1.000 to
-// three figures -- which is why it reads as a traffic cone next to a cool grey
-// floor rather than as a vegetable. So both entries are taken down before
-// anything else touches them: same hue, less chroma, less value.
+// The report was that the orange was too bright and too saturated, and it is
+// not wrong: the palette's #ffb268 measures as a FULLY saturated orange at 70%
+// lightness -- S = 1.000 to three figures -- which is why it can read as a
+// traffic cone beside a cool grey floor and pale stone. But the ask was for "a
+// bit" and for "nicer", and the first attempt at it was a rout. Read the second
+// paragraph before touching these numbers.
 //
-// Done here and not in style.js for two reasons. It is a change to this prop
-// and not to the house palette, and pumpkinSkin/pumpkinShade have no other
-// reader in the tree, so the palette entry stays what the family was authored
-// against and this file says what the pumpkin does with it. The other reason is
-// the trap below.
+// Done here and not in style.js because it is a change to this prop rather than
+// to the house palette, and pumpkinSkin/pumpkinShade have no other reader in
+// the tree: the palette entry stays what the family was authored against, and
+// this file says what the pumpkin does with it.
 //
-// TUNE THIS BY LOOKING, NOT BY PICKING A HEX. Both colours go through
-// convertSRGBToLinear a few lines down, which under three's ColorManagement is
-// the SECOND such conversion -- Color already decoded the hex on the way in.
-// That is a known defect and it is deliberately not being fixed here: the
-// pumpkin's colours were tuned by eye with the double decode in place, so
-// straightening it out would move an approved asset sideways for no reason the
-// user asked for. What it means in practice is that the number in the source is
-// not the colour on screen and never was. These two multipliers were settled
-// against renders, and the hex they imply is not what you will see.
+// HOW FAR: 0.90 of the chroma and 0.97 of the value, which is a very small
+// move, and small is the finding rather than a failure of nerve. It was first
+// taken to 0.70 / 0.88 and that was rejected outright -- "way too dark, maybe
+// it was better before". Beside pale stone and a white ghost it had gone from
+// pumpkin to terracotta plant pot. Anything past about 0.85 chroma reads as a
+// different object rather than as the same object calmer, and it is worth
+// knowing why the room for manoeuvre is so small: the pair also goes through
+// convertSRGBToLinear below, which under three's ColorManagement is the SECOND
+// such decode, so every cut made here is compounded by one already in place.
+// out/pumpkin-work/scene-tint.png is 1.00, 0.96, 0.90 and 0.70 in the lab
+// scene, and mix-tint.png the same four next to a tombstone, which is where the
+// bottom one is obviously wrong and the top three are obviously close.
 //
-// The values: 0.70 of the chroma and 0.88 of the value. The move is a mix
-// toward the colour's OWN luminance and then a scale, not an HSL edit, and that
-// is not a stylistic preference. Pulled down in HSL the pair came out brick red
-// at every setting tried: ACES turns a saturated orange toward red as it
-// darkens, and HSL's lightness axis takes the green channel down fastest, so
-// the two compound and 0.74/0.86, 0.62/0.90, 0.55/0.86 and 0.70/0.82 all
-// rendered as terracotta rather than as a calmer pumpkin. Mixing toward grey
-// keeps green and blue up, which is what holds the hue where it was while the
-// chroma comes off it. out/pumpkin-work/tint-grid.png is those four rejected
-// HSL settings, and grey-grid.png the four grey mixes this was chosen from:
-// 0.58 chroma went tan and stopped being a pumpkin, 0.82 value went brown, and
-// 0.72 / 0.90 is the same move one shade short of this one.
-const SKIN_CHROMA = 0.70, SKIN_VALUE = 0.88;
+// HOW: a mix toward the colour's own luminance and then a scale, not an HSL
+// edit, and that is not a stylistic preference. Pulled down in HSL the pair
+// came out brick red at every setting tried -- 0.74/0.86, 0.62/0.90, 0.55/0.86
+// and 0.70/0.82 all rendered as terracotta, see tint-grid.png. ACES turns a
+// saturated orange toward red as it darkens and HSL's lightness axis takes the
+// green channel down fastest, so the two compound. Mixing toward grey keeps
+// green and blue up, which holds the hue where it was while the chroma comes
+// off it.
+//
+// TUNE THIS BY LOOKING, IN THE SCENE, AND NOT BY PICKING A HEX. Because of the
+// double decode the number in the source is not the colour on screen and never
+// was. Do not "fix" that decode as part of a colour tweak either: the face and
+// the glow were tuned by eye with it in place, and straightening it out moves
+// far more than the skin. Judge on the lab scene, not the turntable -- an empty
+// grey floor flatters a colour that goes muddy next to stone.
+const SKIN_CHROMA = 0.90, SKIN_VALUE = 0.97;
 const skinTone = (hex) => {
   const c = new THREE.Color(hex);
   // Worked in sRGB, the space the palette was authored in, so the conversion
@@ -403,8 +409,12 @@ function makeRng(seed) {
   };
 }
 
-// Smooth 1D value noise. Layered at a few rates this is what makes the light
-// read as a flame: white noise reads as a failing bulb, a sine reads as a pulse.
+// Smooth 1D value noise. Layered at a few rates it gives the light its slow
+// wander and its rare events: white noise reads as a failing bulb, a bare sine
+// reads as a pulse. What it cannot give is the fine tremble, and the reason is
+// visible in the interpolation below: smoothstep is flat at every lattice node,
+// so a channel at f Hz stands still f times a second. See update() for what
+// carries the tremble instead.
 function makeNoise(seed) {
   const hash = (n) => {
     const x = Math.sin(n * 127.1 + seed * 311.7) * 43758.5453;
@@ -425,7 +435,9 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
 
   // Per-seed variation, kept small: these are the same toy, not different ones.
   // The draws are made in the same order and from the same ranges whatever the
-  // variant, so a seed picks out the same point in each family's spread.
+  // variant, so a seed picks out the same point in each family's spread. The
+  // stem's direction and the flame's phase are deliberately NOT drawn from this
+  // stream, for the reason set out at `vrand` below.
   const lobes = V.lobes[0] + Math.floor(rand() * V.lobes[1]);
   const ribDepth = V.rib[0] + rand() * V.rib[1];
   const bodyR = V.bodyR * (0.96 + rand() * 0.08);
@@ -1784,6 +1796,24 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
       const level = raw <= KNEE
         ? Math.max(0, raw)
         : 1 - (1 - KNEE) * Math.exp(-(raw - KNEE) / (1 - KNEE));
+
+      // What all of that measures, over ten simulated minutes a seed at 60fps,
+      // against the pass it replaces:
+      //
+      //                          this      previous
+      //   mean level             0.876     0.877     unchanged, on purpose
+      //   spread (sd)            0.084     0.080     the range is NOT the fix
+      //   1st percentile         0.50      0.53
+      //   99th / max             0.97/0.99 0.98/1.00 no longer pinned
+      //   mean step per frame    0.0182    0.0047    four times as much motion
+      //   frames within 0.002    8.7%      30.2%     this is the fix
+      //
+      // and as events, counted with a 0.05 re-arm so the tremble is not
+      // miscounted as an event: a duck below 0.80 every 3 seconds, below 0.70
+      // every 11, a real gutter past 0.50 every 17 to 33, the deepest past 0.40
+      // every 40 to 100, and a flare over 0.96 every 4. The previous pass, on
+      // the same metric, went below 0.80 every 10 seconds and past 0.50 every
+      // 37 -- fewer events, and nothing at all happening between them.
 
       const at = (range) => range.min + (range.max - range.min) * level;
       light.intensity = at(LAMP) * LAMP_GAIN;

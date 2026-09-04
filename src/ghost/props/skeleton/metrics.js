@@ -55,8 +55,14 @@ export const M = {
 
   skull: {
     height: f(0.167),            // crown to chin, jaw closed
-    width: f(0.141),
-    depth: f(0.150),             // slightly less than width: a skull is not a ball
+    // A real braincase is LONGER front to back than it is wide: the cranial
+    // index, breadth over length, runs 0.75 to 0.80 across human populations.
+    // These two were 0.141 and 0.150, an index of 0.94, which is not a human
+    // skull of any type and is most of why the head read as a ball. 0.125 over
+    // 0.160 is an index of 0.78, and the width also matches the reference
+    // photo's 0.746 of the head's own height.
+    width: f(0.125),
+    depth: f(0.160),
     // The mandible is a thin deep bar. Measured off the photo the whole mouth
     // from the tooth line to the chin point is only this tall, and getting it
     // wrong is what made an earlier build's head oversized.

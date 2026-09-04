@@ -298,6 +298,12 @@ if (SCENE === 'full') {
   // and damping 2.0 rather than the module's default, because with nothing to
   // strike there is no other loss in the system and at 0.6 the leaf rings above
   // two degrees for fifteen seconds like a metronome.
+  //
+  // The gate's origin is its HINGE POST, not the middle of its span, so it goes
+  // at the START of the missing panel's step and not at that panel's centre.
+  // Placed at the centre it stood half a panel to the right of its own gap and
+  // overlapped the next panel along.
+  const GATE_AT = -7.0 + 1.0 * PANEL;
   const gate = createGate({ seed: 6, hingeSide: 'left' });
   const swing = createSwing({
     stop: 'none',
@@ -306,34 +312,37 @@ if (SCENE === 'full') {
     length: 0.5,
   });
   {
-    const [gx, gz] = atScreen(-7.0 + 1.5 * PANEL, FENCE_UP_PLOT);
+    const [gx, gz] = atScreen(GATE_AT, FENCE_UP_PLOT);
     addProp(gate, gx, gz, ACROSS);
   }
 
-  // The ghost shoves the gate by walking through it. The impulse is his speed
-  // ACROSS the gate's closed plane, so brushing it sideways barely moves it and
-  // running straight through throws it wide, and the sign decides which way it
-  // swings. A cooldown stops a ghost loitering in the gap from pumping the leaf
-  // every frame, which is a pendulum driven at its own frequency and goes over
-  // the top given a few seconds.
-  const gateAt = new THREE.Vector3();
-  const gatePlane = new THREE.Vector3(Math.sin(ACROSS + Math.PI / 2), 0, Math.cos(ACROSS + Math.PI / 2));
+  // The ghost shoves the gate by walking through it.
+  //
+  // The impulse is his speed ACROSS the closed leaf, which is the leaf's own
+  // normal: local +Z turned by the gate's yaw, so (sin yaw, 0, cos yaw). The
+  // first version used local +X by mistake, which runs ALONG the leaf, so the
+  // gate answered to a ghost sliding past the fence and ignored one walking
+  // straight through it.
+  //
+  // Proximity is measured from the middle of the OPENING, not from the hinge
+  // post at one end of it, or half the gateway is out of range.
+  const openMid = new THREE.Vector3();
+  {
+    const [cx, cz] = atScreen(GATE_AT + 0.5 * PANEL, FENCE_UP_PLOT);
+    openMid.set(cx, 0, cz);
+  }
+  const gateNormal = new THREE.Vector3(Math.sin(ACROSS), 0, Math.cos(ACROSS));
   const toGhost = new THREE.Vector3();
   let gateCooldown = 0;
-  // Reported through the test hook so the wiring can be checked without
-  // rendering: the lab scene is heavy enough that a software-rendered strip of
-  // frames takes minutes, and the question here is only whether the ghost's
-  // passage drives the leaf.
   gateAngle = () => swing.angle;
   gateProps.push({
     update(dt) {
-      gate.hinge.getWorldPosition(gateAt);
-      toGhost.subVectors(ghost.pos, gateAt).setY(0);
+      toGhost.subVectors(ghost.pos, openMid).setY(0);
       gateCooldown = Math.max(0, gateCooldown - dt);
-      if (toGhost.length() < PANEL * 0.7 && gateCooldown === 0) {
-        const through = ghost.vel.dot(gatePlane);
-        if (Math.abs(through) > 0.4) {
-          swing.push(through * 5.5);
+      if (toGhost.length() < PANEL * 0.85 && gateCooldown === 0) {
+        const through = ghost.vel.dot(gateNormal);
+        if (Math.abs(through) > 0.25) {
+          swing.push(through * 7.0);
           gateCooldown = 0.5;
         }
       }
@@ -341,6 +350,7 @@ if (SCENE === 'full') {
       gate.hinge.rotation.y = swing.angle;
     },
   });
+
   fencePlot({ right: 1.0, up: FENCE_UP_PLOT, w: 3, h: 2, seed: 40, gates: { front: 1 }, broken: { back: 1, right: 0 } });
 
   // The skeleton, standing in its rest pose so it can be judged before anyone
