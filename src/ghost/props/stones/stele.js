@@ -96,9 +96,9 @@ const SINK = 0.16;
 //                    30% of the shaft's half width.
 const CORNICE = {
   coveR: 0.05,
-  coveSweep: (46 * Math.PI) / 180,
-  rollR: 0.082,
-  halfWidth: 0.385,
+  coveSweep: (55 * Math.PI) / 180,
+  rollR: 0.072,
+  halfWidth: 0.4,
 };
 
 // --- the palmette ----------------------------------------------------------
@@ -136,16 +136,17 @@ const CORNICE = {
 // middle leaf is longer and fatter than the others so the fan does not read as a
 // scallop shell.
 const PALMETTE = {
-  depth: 0.16,
+  depth: 0.17,
   edge: 0.04,
   baseHalf: 0.13,
   pillar: 0.035,
   coveR: 0.05,
-  valleyR: 0.034,
+  baseR: 0.03,
+  valleyR: 0.02,
   leaves: [
-    { ang: 0, len: 0.285, rad: 0.069 },
-    { ang: 48, len: 0.270, rad: 0.065 },
-    { ang: 96, len: 0.270, rad: 0.065 },
+    { ang: 0, len: 0.265, rad: 0.069 },
+    { ang: 44, len: 0.265, rad: 0.065 },
+    { ang: 88, len: 0.272, rad: 0.065 },
   ],
 };
 
@@ -182,17 +183,28 @@ const mirrored = (arcs) => arcs.map((c) => arc(-c.cx, c.cy, c.r, Math.PI - c.a1,
 // is. So the tip cap runs from lo - 90 degrees to hi + 90 degrees, which is
 // 180 + 2*alpha of arc, and both ends carry the flank's normal, which is what
 // lets the straight run between two arcs offset exactly.
-function leafAt(O, L) {
+function leafAt(O, L, baseR) {
   const mu = Math.PI / 2 - (L.ang * Math.PI) / 180;
-  const alpha = Math.asin(Math.min(0.999, L.rad / L.len));
-  return {
-    ...L,
-    mu,
-    alpha,
-    lo: mu - alpha,
-    hi: mu + alpha,
-    tip: { x: O.x + L.len * Math.cos(mu), y: O.y + L.len * Math.sin(mu) },
+  const alpha = Math.asin(Math.min(0.999, (L.rad - baseR) / L.len));
+  const tip = { x: O.x + L.len * Math.cos(mu), y: O.y + L.len * Math.sin(mu) };
+  // Each flank as an outward unit normal and the line's offset along it. The
+  // normal's bearing is also the angle at which the flank meets the tip circle,
+  // which is what makes the arc angles fall out with no further trigonometry.
+  const flank = (side) => {
+    const nb = mu + side * (alpha + Math.PI / 2);
+    const m = { x: Math.cos(nb), y: Math.sin(nb) };
+    return { m, p: O.x * m.x + O.y * m.y + baseR, at: nb };
   };
+  return { ...L, mu, tip, lo: flank(-1), hi: flank(1) };
+}
+
+// Centre of the fillet of radius rv tangent to two lines from the inside, i.e.
+// one radius out along each line's own outward normal.
+function cornerFillet(a, b, rv) {
+  const det = a.m.x * b.m.y - a.m.y * b.m.x;
+  const ca = a.p + rv;
+  const cb = b.p + rv;
+  return { x: (ca * b.m.y - cb * a.m.y) / det, y: (a.m.x * cb - b.m.x * ca) / det };
 }
 
 // Where the cornice's flat top sits, and how wide it is. Both pieces need it:
@@ -233,48 +245,41 @@ function corniceOutline() {
 function palmetteOutline() {
   const P = PALMETTE;
   const ledgeY = corniceTop().y;
-  const rs = P.coveR;
   const O = { x: 0, y: 0 };
-  const outer = leafAt(O, P.leaves[P.leaves.length - 1]);
+  const build = () => P.leaves.map((L) => leafAt(O, L, P.baseR));
 
-  // The cove is tangent to the pillar's straight side from the outside, so its
-  // centre is one radius clear of it, and tangent to the outer leaf's lower
-  // flank on the far side of that line. Both conditions in the origin's own
-  // frame give the drop from the origin to the pillar's top, which is the only
-  // unknown left.
-  // Written out: centre = O + along*(cos lo, sin lo) + rs*(sin lo, -cos lo), and
-  // its x is baseHalf + rs. Solve that for `along`, read the y off it, then
-  // slide the whole fan up until the cove's tangency lands on the pillar's top.
-  const along = (P.baseHalf + rs * (1 - Math.sin(outer.lo))) / Math.cos(outer.lo);
-  const cove = { x: P.baseHalf + rs, y: along * Math.sin(outer.lo) - rs * Math.cos(outer.lo) };
+  // The pillar's own side, as a line in the same form as a flank. The shoulder
+  // cove is just the fillet between it and the outermost leaf's lower flank, and
+  // it touches the pillar at its own centre height -- which is the number the
+  // whole fan hangs from, so solve it with the origin at zero and then slide
+  // everything up until it lands on the pillar's top.
+  const side = { m: { x: 1, y: 0 }, p: P.baseHalf, at: 0 };
+  let cove = cornerFillet(side, build()[P.leaves.length - 1].lo, P.coveR);
   O.y = ledgeY + P.pillar - cove.y;
-  cove.y += O.y;
+  const leaves = build();
+  cove = cornerFillet(side, leaves[leaves.length - 1].lo, P.coveR);
 
-  const leaves = P.leaves.map((L) => leafAt(O, L));
   const rb = 0.06; // buried corner, and it has to clear this plate's own rim
   const yBot = ledgeY - 0.12;
   const right = [
     arc(P.baseHalf - rb, yBot + rb, rb, -Math.PI / 2, 0, 1),
-    arc(cove.x, cove.y, rs, Math.PI, outer.lo + Math.PI / 2, -1),
+    arc(cove.x, cove.y, P.coveR, Math.PI, leaves[leaves.length - 1].lo.at + Math.PI, -1),
   ];
 
   // Outermost leaf inward. Each leaf is a tip cap between two straight flanks,
-  // and each notch is a fillet inscribed in the wedge of air between one leaf's
-  // upper flank and the next one's lower flank: on the bisector, rv/sin(half the
-  // wedge) out from the origin, which is what carries it down near the base.
+  // and each notch is a fillet dropped into the wedge of air between one leaf's
+  // upper flank and the next one's lower one.
   for (let i = leaves.length - 1; i > 0; i--) {
     const a = leaves[i];
     const b = leaves[i - 1];
-    right.push(arc(a.tip.x, a.tip.y, a.rad, a.lo - Math.PI / 2, a.hi + Math.PI / 2, 1));
-    const half = (b.lo - a.hi) / 2;
-    const bis = (a.hi + b.lo) / 2;
-    const d = P.valleyR / Math.sin(half);
-    right.push(arc(O.x + d * Math.cos(bis), O.y + d * Math.sin(bis), P.valleyR, a.hi - Math.PI / 2, b.lo + Math.PI / 2, -1));
+    right.push(arc(a.tip.x, a.tip.y, a.rad, a.lo.at, a.hi.at, 1));
+    const f = cornerFillet(a.hi, b.lo, P.valleyR);
+    right.push(arc(f.x, f.y, P.valleyR, a.hi.at + Math.PI, b.lo.at + Math.PI, -1));
   }
   // The middle leaf straddles the axis, so it is one cap from its right notch
   // round to the mirror of it.
   const mid = leaves[0];
-  const crown = arc(mid.tip.x, mid.tip.y, mid.rad, mid.lo - Math.PI / 2, mid.hi + Math.PI / 2, 1);
+  const crown = arc(mid.tip.x, mid.tip.y, mid.rad, mid.lo.at, mid.hi.at, 1);
   return [...right, crown, ...mirrored(right)];
 }
 

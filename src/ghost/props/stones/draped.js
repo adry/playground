@@ -88,11 +88,13 @@ const CLOTH = {
   bead: 0.30, // and how far it swells past its own thickness just inside it
 
   endOver: 0.070, // hang down the ENDS of the stone, below the shoulder roll
-  fallMid: 0.345, // hang down the front, at the middle
-  fallEnd: 0.420, // and at the outer end of the material, which is what sets
-  // how far the corner falls past the shoulder
-  swag: 0.110, // the middle of the front hem dips this much further again
-  tilt: 0.085, // and the whole hem falls further on one side than the other
+  fallMid: 0.330, // hang down the front, at the middle
+  swag: 0.130, // the middle of the front hem dips this much further again,
+  // which is the swag: the hem sweeps UP from there to the two shoulders
+  // and the cloth reads as hung between them rather than laid on top
+  tailFrom: 0.38, // and past the shoulder it plunges: the corner of the pall,
+  tailDrop: 0.300, // which falls this much further than the middle of the hem
+  tilt: 0.085, // one tail longer than the other, because a cloth is thrown
 
   // Fewer, deeper. Three ridges across the face, and between them a narrow
   // groove each, because a ridge alone is a swell and a swell is what the light
@@ -189,14 +191,17 @@ function buildDrape({ halfWidth: W, height: H, depth: D, edge: e, rng }) {
   // The hem, as hang below the shoulder against material a.
   const fallAt = (a, front) => {
     const t = a / A;
-    const mid = CLOTH.swag * (0.5 + 0.5 * Math.cos(Math.PI * clamp(Math.abs(t) / 0.62, 0, 1)));
-    return (
-      CLOTH.fallMid +
-      (CLOTH.fallEnd - CLOTH.fallMid) * t * t +
-      mid +
-      (front ? tilt : -tilt) * t +
-      CLOTH.hemWave * foldShape(a, front)
-    );
+    const q = Math.abs(t);
+    // Three terms and they do three different jobs. The swag is a broad dip
+    // over the middle of the face; the tail is a plunge that only starts
+    // OUTBOARD of the stone's own shoulder, so it is a corner of cloth hanging
+    // past the stone rather than a hem that sags everywhere; the wave is the
+    // folds meeting the hem. Written as one polynomial in t, which is what this
+    // was first, the swag and the tail cancelled into a hem that ran level
+    // across the whole front and read as a layer of snow on the stone.
+    const swag = CLOTH.swag * (0.5 + 0.5 * Math.cos(Math.PI * clamp(q / 0.62, 0, 1)));
+    const tail = CLOTH.tailDrop * smooth((q - CLOTH.tailFrom) / (1 - CLOTH.tailFrom));
+    return CLOTH.fallMid + swag + tail + (front ? tilt : -tilt) * t + CLOTH.hemWave * foldShape(a, front);
   };
 
   const rows = NU + 1;

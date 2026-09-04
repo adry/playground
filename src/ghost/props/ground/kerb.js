@@ -100,9 +100,18 @@ const CONTACT = {
 // headstone have to look quarried from the same block.
 
 const PPU = 620;          // texture pixels per world unit, post.js's number
-const TEX_U = 1.80;       // world units the map spans along the run
+const TEX_U = 1.80;       // world units the map spans along the run, at scale 1
 const TEX_V = 0.34;       // and vertically
 const V_BELOW = 0.16;     // how far below y = 0 the bottom of the map sits
+
+// The map covers a fixed number of WORLD units, so a run built at scale 2 needs
+// a canvas twice as big rather than the same canvas stretched: the pixels per
+// unit, and with them the grain, have to stay where they are. Everything that
+// converts between world and UV goes through one of these.
+const frameFor = (scale) => {
+  const k = Math.max(1, scale);
+  return { u: TEX_U * k, v: TEX_V * k, below: V_BELOW * k };
+};
 
 // The headstones' grime runs from GRIME * 3.4 of a 1.37-high stone down to its
 // foot: 0.93 world units, which is where post.js got its own number. Reused
@@ -139,13 +148,13 @@ function mottle(ctx, w, h, rng, light, dark, strength, speckle = true) {
   }
 }
 
-// World height to canvas row. v = (worldY + V_BELOW) / TEX_V and the canvas is
+// World height to canvas row. v = (worldY + below) / frame.v and the canvas is
 // flipped, so this is the one place the mapping is written down.
-const rowAt = (h, worldY) => h * (1 - (worldY + V_BELOW) / TEX_V);
+const rowAt = (h, worldY, f) => h * (1 - (worldY + f.below) / f.v);
 
-function buildTextures(rng) {
-  const w = Math.round(TEX_U * PPU);
-  const h = Math.round(TEX_V * PPU);
+function buildTextures(rng, f) {
+  const w = Math.round(f.u * PPU);
+  const h = Math.round(f.v * PPU);
 
   const colour = document.createElement('canvas');
   colour.width = w;
@@ -161,7 +170,7 @@ function buildTextures(rng) {
   // of it falls off the top of this short canvas and what is left is the very
   // bottom of the same wash a headstone gets. Canvas gradients clamp outside
   // their endpoints, so filling the whole canvas is safe.
-  const grime = cc.createLinearGradient(0, rowAt(h, GRIME_TOP), 0, rowAt(h, 0));
+  const grime = cc.createLinearGradient(0, rowAt(h, GRIME_TOP, f), 0, rowAt(h, 0, f));
   grime.addColorStop(0, 'rgba(146,142,136,0)');
   grime.addColorStop(1, `rgba(146,142,136,${GRIME_ALPHA})`);
   cc.fillStyle = grime;
@@ -170,7 +179,10 @@ function buildTextures(rng) {
   // One thing a kerb has that a headstone does not: a crown that boots and rain
   // have kept clean. Narrow, and keyed to world height like everything else, so
   // it lands on the top few centimetres of every stone however deep it sits.
-  const worn = cc.createLinearGradient(0, rowAt(h, KERB.reveal + 0.02), 0, rowAt(h, KERB.reveal - 0.055));
+  const worn = cc.createLinearGradient(
+    0, rowAt(h, KERB.reveal * f.v / TEX_V + 0.02, f),
+    0, rowAt(h, KERB.reveal * f.v / TEX_V - 0.055, f),
+  );
   worn.addColorStop(0, 'rgba(255,253,250,0.30)');
   worn.addColorStop(1, 'rgba(255,253,250,0)');
   cc.fillStyle = worn;
@@ -240,7 +252,7 @@ function stoneGeometry({ length, width, height }) {
 // run. Folding z in where the normal points that way turns the top and the two
 // ends into proper planar patches of their own, and because the normals roll
 // over smoothly across the rounded edges, so does the mapping.
-function layUV(geo, baseY, uOff) {
+function layUV(geo, baseY, uOff, f) {
   const pos = geo.getAttribute('position');
   const nor = geo.getAttribute('normal');
   const uv = geo.getAttribute('uv');
@@ -252,8 +264,8 @@ function layUV(geo, baseY, uOff) {
     const ny = Math.abs(nor.getY(i));
     uv.setXY(
       i,
-      (uOff + x + z * nx) / TEX_U,
-      (V_BELOW + baseY + y + z * ny) / TEX_V,
+      (uOff + x + z * nx) / f.u,
+      (f.below + baseY + y + z * ny) / f.v,
     );
   }
   uv.needsUpdate = true;
@@ -359,7 +371,8 @@ export function createKerbRun({ seed = 1, points, scale = 1 } = {}) {
 
   const group = new THREE.Group();
   const hasDOM = typeof document !== 'undefined';
-  const tex = hasDOM ? buildTextures(rng) : null;
+  const frame = frameFor(scale);
+  const tex = hasDOM ? buildTextures(rng, frame) : null;
   const material = toyMaterial(PALETTE.stone, {
     map: tex ? tex.map : null,
     normalMap: tex ? tex.normalMap : null,
@@ -430,7 +443,7 @@ export function createKerbRun({ seed = 1, points, scale = 1 } = {}) {
     // texture do not come out as twenty copies of the same grain. The range
     // keeps a whole stone inside the map with no wrap, so the joint faces never
     // pick up a seam.
-    layUV(geo, baseY, 0.10 + rng() * Math.max(0.02, TEX_U - length - 0.24));
+    layUV(geo, baseY, 0.10 + rng() * Math.max(0.02, frame.u - length - 0.24), frame);
     shade(geo, 1 + (rng() * 2 - 1) * VARY.tone, (rng() * 2 - 1) * VARY.warm, baseY);
 
     // Yaw so +X follows the chord, then the two tilts in the stone's own frame:

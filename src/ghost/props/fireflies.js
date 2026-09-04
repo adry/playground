@@ -252,9 +252,9 @@ const VERTEX = /* glsl */`
 const FRAGMENT = /* glsl */`
   precision highp float;
 
-  // colorspace_pars_fragment is already in the renderer's own fragment prefix,
-  // so including it here would redefine sRGBTransferOETF and fail to link.
-  #include <tonemapping_pars_fragment>
+  // The tone mapping and colour space helpers are already in the renderer's
+  // own fragment prefix, so including their pars chunks here redefines every
+  // one of them and the program fails to link. Only fog needs declaring.
   #include <fog_pars_fragment>
 
   uniform vec3 uCore;

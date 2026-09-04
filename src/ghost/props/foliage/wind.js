@@ -407,10 +407,13 @@ const SHARED = {
   uTime: { value: 0 },
   uWindDir: { value: new THREE.Vector2(0.707, -0.707) },
   uWindStr: { value: 1.0 },
-  // Gusts travel across the yard, so two bushes three metres apart lean a beat
-  // apart. 0.42 rad/unit is a gust wavelength of about fifteen units, which is
-  // wider than the graveyard: neighbours differ, the yard still moves together.
-  uWaveK: { value: 0.42 },
+  // Gusts travel across the yard, so two plants a metre apart lean a beat apart.
+  // 0.95 rad/unit is a gust about six and a half units long, roughly the size of
+  // the yard: neighbours are visibly out of step with each other, and the whole
+  // set still moves as one weather system rather than as separate props. At the
+  // 0.42 this shipped with first, two bushes a metre apart were five per cent of
+  // a cycle apart, which is to say identical.
+  uWaveK: { value: 0.95 },
   // Three carriers at incommensurate rates. NOT summed value noise: smoothstep
   // value noise has zero derivative at every lattice node, so a channel at f Hz
   // stalls f times a second and summing three of them just gives three sets of

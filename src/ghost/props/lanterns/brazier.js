@@ -541,8 +541,8 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
   disposables.push(ironGeo, ironMat);
 
   // --- FIRE ----------------------------------------------------------------
-  // Four surfaces, in the order the eye reads them, and the fire only works
-  // when all four are running.
+  // Four layers, in the order the eye reads them, and the fire only works when
+  // all four are running.
   //
   //   COALS   a bed of lumps in the pan, nearly black, glowing from inside.
   //           This is the half of a fire that does not move, and it is what

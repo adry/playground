@@ -140,10 +140,10 @@ const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); retu
 // be tellable apart at a glance, and hue is what does that at this size, not
 // detail. Everything here is a desaturated blue-grey; nothing in it is warm.
 const GRAVEL = {
-  base: '#c3c8d1',
-  pale: '#d9dce2',   // the top of a chip catching the key
-  dark: '#a8aeb9',   // a chip that has sat wet
-  crevice: '#8d93a0', // the gap between chips, which is where the depth is
+  base: '#d7dce5',
+  pale: '#e9ebf0',   // the top of a chip catching the key
+  dark: '#bcc2cf',   // a chip that has sat wet
+  crevice: '#9fa6b6', // the gap between chips, which is where the depth is
 };
 
 // One tile of packed chippings, as an albedo map and a normal map.

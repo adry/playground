@@ -64,9 +64,9 @@ export const HEAP = { length: 1.8, spread: 0.9, height: 0.5, scatter: 1.2 };
 // (which ground.js does, correctly, because it feeds a raw shader uniform) is
 // what turned the first clod pass into chocolate.
 const EARTH = {
-  top: new THREE.Color('#c2a67a'),
-  side: new THREE.Color('#8f7757'),
-  crevice: new THREE.Color('#544435'),
+  top: new THREE.Color('#c4ab83'),
+  side: new THREE.Color('#917c60'),
+  crevice: new THREE.Color('#554839'),
 };
 // Per-clod tone. A heap of one colour reads as a heap of dough whatever shape
 // the lumps are: some clods came off the wet bottom of the hole and some off

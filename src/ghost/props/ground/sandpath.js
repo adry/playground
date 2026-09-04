@@ -243,30 +243,50 @@ export function createSandPath({ seed = 1, width = 1.2, points, scale = 1 } = {}
   // rim of the ribbon is at exactly y = 0 all the way along and there is no lip
   // to catch the light at a grazing angle. The crown in the middle is what
   // turns a coloured patch into a surface.
-  const camber = 0.013 * (hw / 0.6);
-  const swell = makeNoise(rng, length / 1.9 + 2);
+  const camber = 0.026 * (hw / 0.6);
+  // Two swells, one weighted to each side, so the crown rolls slowly from side
+  // to side instead of running down the path as one extruded tube. This is most
+  // of what makes the path read as a surface from across the scene, where the
+  // relief in the normal map has already filtered away.
+  const swellL = makeNoise(rng, length / 1.9 + 2);
+  const swellR = makeNoise(rng, length / 2.7 + 2);
   const rutAn = makeNoise(rng, length / 3.1 + 2);
   const rutBn = makeNoise(rng, length / 3.1 + 2);
-  const rutDepth = 0.0075 * (hw / 0.6);
+  const rutDepth = 0.012 * (hw / 0.6);
   const RUT_W = 0.15; // in u, the across-path coordinate
 
   const rutA = new Float64Array(n);
   const rutB = new Float64Array(n);
-  const swellAt = new Float64Array(n);
+  const swA = new Float64Array(n);
+  const swB = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     rutA[i] = 0.30 + 0.055 * rutAn(S[i] / 3.1);
     rutB[i] = 0.70 + 0.055 * rutBn(S[i] / 3.1);
-    swellAt[i] = 0.0055 * swell(S[i] / 1.9) * (hw / 0.6);
+    swA[i] = 0.010 * swellL(S[i] / 1.9) * (hw / 0.6);
+    swB[i] = 0.010 * swellR(S[i] / 2.7) * (hw / 0.6);
   }
 
-  const crown = (u) => Math.pow(Math.max(0, 4 * u * (1 - u)), 0.7);
+  // The cross-section. A road camber, not a dome: a broad near-flat crown with
+  // the whole rise gathered into a rounded shoulder at each side.
+  //
+  // The shape matters more than the height. Spread over the full width, a 26mm
+  // crown tilts the surface about one degree, which at this camera is nothing;
+  // gathered into a 0.24-of-half-width shoulder it is nearer six, which is a
+  // shading step the eye reads as an edge of a raised surface. Both ends of the
+  // curve have zero slope, so the shoulder meets the floor tangentially and the
+  // rim has no lip of its own.
+  const SHOULDER = 0.24;
+  const crown = (u) => {
+    const t = Math.min(1, Math.min(u, 1 - u) / SHOULDER);
+    return t * t * t * (t * (t * 6 - 15) + 10);
+  };
   const hollow = (u, c) => {
     const d = (u - c) / RUT_W;
     return Math.exp(-d * d);
   };
   function heightAt(i, u) {
     const p = crown(u);
-    let y = (camber + swellAt[i]) * p;
+    let y = (camber + swA[i] * (1 - u) + swB[i] * u) * p;
     y -= rutDepth * hollow(u, rutA[i]) * p;
     y -= rutDepth * hollow(u, rutB[i]) * p;
     return y;

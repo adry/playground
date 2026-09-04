@@ -44,10 +44,12 @@ const DEPTH = 1.45;
 const CUT_MARGIN = 0.15;
 
 const TURF = new THREE.Color('#8f949e'); // the floor's own colour
-const SPOIL = new THREE.Color('#93715a'); // broken earth at the lip
-const EARTH = new THREE.Color('#7a5c46'); // upper wall
-const SUB = new THREE.Color('#59402e'); // wall below the light
-const DEEP = new THREE.Color('#231a13'); // bottom
+// Warm, but only just: under ACES with a 2.1 key, a saturated brown tilted up
+// toward the light comes back as orange and the hole reads as rust.
+const SPOIL = new THREE.Color('#8d7867'); // broken earth around the lip
+const EARTH = new THREE.Color('#7b6250'); // upper wall, still catching light
+const SUB = new THREE.Color('#513e2f'); // wall below the light
+const DEEP = new THREE.Color('#20180f'); // bottom
 
 // --- small deterministic noise ----------------------------------------------
 
@@ -129,14 +131,14 @@ function profile(depth) {
   // It stays low and narrow: raised any higher it stops reading as broken turf
   // and starts reading as a rubber gasket laid round the hole.
   push(0.28, 0.004, { rim: 1 });
-  push(0.215, 0.008);
-  push(0.150, 0.016);
-  push(0.100, 0.028);
-  push(0.058, 0.038);
+  push(0.215, 0.007);
+  push(0.150, 0.013);
+  push(0.100, 0.023);
+  push(0.058, 0.032);
   // The lip: a rolled clay edge, not a knife cut.
-  push(0.030, 0.043, { cut: 0.4 });
-  push(0.008, 0.041, { cut: 0.9 });
-  push(-0.010, 0.032, { cut: 1 });
+  push(0.030, 0.038, { cut: 0.4 });
+  push(0.008, 0.036, { cut: 0.9 });
+  push(-0.010, 0.028, { cut: 1 });
   push(-0.026, 0.015, { cut: 1, spade: 0.35 });
   push(-0.038, -0.012, { cut: 1, spade: 0.75 });
   // Wall. Near vertical, with only enough taper to keep it from reading as
@@ -234,14 +236,17 @@ function buildPit({ seed, depth }) {
       // wall. The darkening is doing the work a single key light cannot: it is
       // what turns a lit box into a hole.
       c.copy(EARTH)
-        .lerp(SUB, THREE.MathUtils.smoothstep(depthF, 0.04, 0.60))
-        .lerp(DEEP, THREE.MathUtils.smoothstep(depthF, 0.58, 1.02));
+        .lerp(SUB, THREE.MathUtils.smoothstep(depthF, 0.12, 0.78))
+        .lerp(DEEP, THREE.MathUtils.smoothstep(depthF, 0.72, 1.15));
       c.lerp(SPOIL, THREE.MathUtils.smoothstep(ring.inset, -0.02, 0.05));
-      c.lerp(TURF, THREE.MathUtils.smoothstep(ring.inset, 0.05, 0.16));
+      // The turf blend is pushed well out, so the part of the skirt that tilts
+      // up into the key is earth. A raised ring of floor-coloured turf catches
+      // the light and reads as a rubber gasket laid round the hole.
+      c.lerp(TURF, THREE.MathUtils.smoothstep(ring.inset, 0.13, 0.235));
       // Ambient occlusion, and not much of it: the wall has to stay lit enough
       // to show what it is made of. The dark comes from the ramp above and
       // from the near lip's own cast shadow, not from painting the pit black.
-      const shade = 1 - 0.30 * THREE.MathUtils.smoothstep(depthF, 0.08, 1.0);
+      const shade = 1 - 0.24 * THREE.MathUtils.smoothstep(depthF, 0.08, 1.0);
       c.multiplyScalar(shade * (0.95 + 0.10 * ringNoise(t, depthF * 6.0, 9.0, seed + 13)));
       color[k] = c.r;
       color[k + 1] = c.g;
