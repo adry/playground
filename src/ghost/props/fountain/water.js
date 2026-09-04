@@ -63,7 +63,9 @@ vec3 flowPoint(float t, float ang) {
   // continuity: area times speed is constant, so radius goes as 1/sqrt(speed)
   float sp = max(length(vel), 1e-4);
   float s0 = max(length(aVel), 1e-4);
-  float r = aShape.y * sqrt(s0 / sp);
+  // Capped on the way up: at the top of a jet's arc the vertical speed passes
+  // through zero, and an uncapped 1/sqrt(speed) puts a blob there.
+  float r = aShape.y * min(1.25, sqrt(s0 / sp));
 
   // the water passing through here left the lip at this moment
   float ph = uTime - tau + aShape.z;
@@ -272,11 +274,15 @@ function poolGeometry(pools) {
     const base = pos.length / 3;
     const RAD = p.radial;
     const ANG = p.angular;
+    // Outer radius sampled per angle so the disc ends exactly where the bowl's
+    // wall is, groove or crest.
+    const edge = new Float32Array(ANG);
+    for (let j = 0; j < ANG; j++) edge[j] = p.edge((j / ANG) * Math.PI * 2);
     for (let i = 0; i <= RAD; i++) {
       const fr = i / RAD;
-      const r = fr * p.radius;
       for (let j = 0; j < ANG; j++) {
         const a = (j / ANG) * Math.PI * 2;
+        const r = fr * edge[j];
         pos.push(r * Math.cos(a), p.y, r * Math.sin(a));
         nor.push(0, 1, 0);
         plane.push(p.impactRadius, p.impactCount, p.impactPhase, p.amp);

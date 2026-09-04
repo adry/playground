@@ -149,10 +149,34 @@ export function latheInto(sink, {
   tint = null,
   uRepeat = 3,
   vScale = 1.0,
+  minRadius = 0.07,
 }) {
   const rows = profile.length;
   const cols = segments + 1; // seam column duplicated so u can run 0..uRepeat
   const base = sink.pos.length / 3;
+
+  // v is arc length scaled by the LOCAL circumference, not by a constant.
+  //
+  // u has to wrap, so it must run 0..uRepeat whatever the radius is, which
+  // means the map is squeezed hard on anything thin. Measured on this fountain
+  // the finial is eleven times denser in u than the basin, and what came back
+  // was a bud carved into vertical gores: at that squeeze the normal map's own
+  // gradients get multiplied by eleven and read as ridges. Advancing v at the
+  // matching rate makes every part of the piece isotropic in texel density, and
+  // costs nothing -- v only has to be continuous along the profile, not even.
+  const vs = new Float32Array(rows);
+  {
+    let acc = 0;
+    for (let i = 0; i < rows; i++) {
+      if (i > 0) {
+        const a = profile[i - 1];
+        const b = profile[i];
+        const ds = Math.hypot(b.r - a.r, b.y - a.y);
+        acc += (ds * uRepeat) / (Math.PI * 2 * Math.max(minRadius, (a.r + b.r) / 2));
+      }
+      vs[i] = acc * vScale;
+    }
+  }
 
   // Positions first, whole grid, then normals from it.
   const P = new Float32Array(rows * cols * 3);
@@ -240,7 +264,7 @@ export function latheInto(sink, {
       const k = (i * cols + j) * 3;
       sink.pos.push(P[k], P[k + 1], P[k + 2]);
       sink.nor.push(nx, ny, nz);
-      sink.uv.push((j / segments) * uRepeat, sample.s * vScale);
+      sink.uv.push((j / segments) * uRepeat, vs[i]);
       const theta = ((j === segments ? 0 : j) / segments) * Math.PI * 2;
       const t = tint ? tint(sample, theta, D[i * cols + j]) : null;
       if (t) sink.col.push(t[0], t[1], t[2]);

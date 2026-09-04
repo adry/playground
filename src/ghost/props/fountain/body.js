@@ -25,10 +25,13 @@ const DISH_LOBES = 8; // top dish, and eight strands
 // Where the water sits in each bowl, and how wide the disc is. Each radius is a
 // hair inside the wall at that height: the disc is a separate mesh and pushing
 // it out to meet the stone exactly would z-fight along the whole waterline.
+// Each waterline sits a few thousandths below the LOWEST point of that bowl's
+// inner lip, measured off the displaced surface: the scalloped rims dip, and a
+// level above the dip is a level the pool leaks over.
 export const TIERS = {
-  basin: { y: 0.906, radius: 0.622 },
-  bowl: { y: 1.410, radius: 0.344 },
-  dish: { y: 1.678, radius: 0.196 },
+  basin: { y: 0.906 },
+  bowl: { y: 1.404 },
+  dish: { y: 1.675 },
 };
 
 export const GRAVITY = 3.4;
@@ -69,21 +72,21 @@ export function buildProfile() {
   // --- plinth: two rounded steps ------------------------------------------
   const step = (R, y0, y1, e, n) => {
     P.lineTo(R - e, y0, n);
-    P.arc(R - e, y0 + e, e, -Math.PI / 2, 0, 4);
+    P.arc(R - e, y0 + e, e, -Math.PI / 2, 0, 3);
     P.lineTo(R, y1 - e, 2);
-    P.arc(R - e, y1 - e, e, 0, Math.PI / 2, 4);
+    P.arc(R - e, y1 - e, e, 0, Math.PI / 2, 3);
   };
   P.setTag('plinth');
   P.moveTo(0, 0);
-  step(0.575, 0.000, 0.105, 0.028, 5);
+  step(0.575, 0.000, 0.105, 0.028, 3);
   step(0.478, 0.105, 0.205, 0.026, 2);
 
   // --- turned baluster foot ------------------------------------------------
   P.setTag('foot');
   P.lineTo(0.262, 0.205, 2);
-  P.curve([[0.212, 0.236], [0.190, 0.268]], 5);
-  P.curve([[0.248, 0.300], [0.202, 0.336]], 7); // collar ring
-  P.curve([[0.258, 0.378], [0.294, 0.428], [0.270, 0.474]], 12); // belly
+  P.curve([[0.212, 0.236], [0.190, 0.268]], 4);
+  P.curve([[0.248, 0.300], [0.202, 0.336]], 6); // collar ring
+  P.curve([[0.258, 0.378], [0.294, 0.428], [0.270, 0.474]], 10); // belly
   P.curve([[0.210, 0.500], [0.202, 0.520]], 5);
 
   // --- bottom basin --------------------------------------------------------
@@ -102,9 +105,9 @@ export function buildProfile() {
 
   // --- middle baluster -----------------------------------------------------
   P.setTag('mid-stem');
-  P.curve([[0.165, 0.876], [0.130, 0.912], [0.120, 0.956]], 6);
+  P.curve([[0.165, 0.876], [0.130, 0.912], [0.120, 0.956]], 5);
   P.curve([[0.154, 0.988], [0.122, 1.020]], 6); // collar ring
-  P.curve([[0.115, 1.076], [0.124, 1.126]], 6);
+  P.curve([[0.115, 1.076], [0.124, 1.126]], 5);
 
   // --- middle bowl ---------------------------------------------------------
   P.setTag('bowl-out');
@@ -112,11 +115,11 @@ export function buildProfile() {
   P.setTag('bowl-rim');
   P.arc(0.402, 1.428, 0.036, -0.588, Math.PI, 11);
   P.setTag('bowl-in');
-  P.curve([[0.350, 1.412], [0.292, 1.398], [0.162, 1.394]], 9);
+  P.curve([[0.352, 1.410], [0.330, 1.392], [0.250, 1.380], [0.150, 1.377]], 10);
 
   // --- top baluster --------------------------------------------------------
   P.setTag('top-stem');
-  P.curve([[0.107, 1.398], [0.090, 1.428], [0.086, 1.468]], 6);
+  P.curve([[0.102, 1.381], [0.090, 1.416], [0.086, 1.462]], 6);
   P.curve([[0.112, 1.492], [0.088, 1.518]], 5); // collar ring
 
   // --- top dish ------------------------------------------------------------
@@ -125,7 +128,7 @@ export function buildProfile() {
   P.setTag('dish-rim');
   P.arc(0.235, 1.692, 0.0215, -0.733, Math.PI, 9);
   P.setTag('dish-in');
-  P.curve([[0.200, 1.680], [0.152, 1.670], [0.077, 1.668]], 8);
+  P.curve([[0.202, 1.681], [0.176, 1.670], [0.110, 1.662], [0.070, 1.661]], 9);
 
   // --- finial --------------------------------------------------------------
   // The reference calls this a bud with two little side lobes and a rounded
@@ -134,10 +137,10 @@ export function buildProfile() {
   // a flared collar under a teardrop bud. Modelling literally two lobes would
   // have been the only asymmetric thing on the whole fountain.
   P.setTag('finial');
-  P.curve([[0.052, 1.676], [0.044, 1.704]], 5);
-  P.curve([[0.076, 1.726], [0.088, 1.750], [0.060, 1.772]], 8); // collar
-  P.curve([[0.048, 1.790], [0.066, 1.824], [0.074, 1.864], [0.060, 1.902]], 12); // bud
-  P.arc(0.0, 1.902, 0.060, 0, Math.PI / 2, 7);
+  P.curve([[0.050, 1.670], [0.044, 1.700]], 4);
+  P.curve([[0.072, 1.726], [0.080, 1.750], [0.056, 1.772]], 7); // collar
+  P.curve([[0.046, 1.790], [0.058, 1.822], [0.063, 1.858], [0.052, 1.896]], 9); // bud
+  P.arc(0.0, 1.896, 0.052, 0, Math.PI / 2, 6);
 
   return P.build();
 }
@@ -202,7 +205,7 @@ function chipBite(sample, theta) {
   return bite;
 }
 
-export function buildBodyGeometry({ segments = 84 } = {}) {
+export function buildBodyGeometry({ segments = 78 } = {}) {
   const profile = buildProfile();
 
   const displace = (sample, theta) => {
@@ -219,12 +222,12 @@ export function buildBodyGeometry({ segments = 84 } = {}) {
       // also its outermost. That is not decoration: it is where each strand
       // hangs from, and water leaving a lip that dips inboard of its widest
       // point would run back down the outside of the bowl.
-      dy -= 0.016 * w.bowl * s;
+      dy -= 0.009 * w.bowl * s;
     }
     if (w.dish > 0) {
       const s = lobes(theta, DISH_LOBES, 0, 0.62);
       dr += 0.024 * w.dish * (s - 0.42);
-      dy -= 0.011 * w.dish * s;
+      dy -= 0.006 * w.dish * s;
     }
 
     // The bottom basin's rim is a plain torus, but a hand-made one: a slow
@@ -240,7 +243,11 @@ export function buildBodyGeometry({ segments = 84 } = {}) {
 
     const bite = chipBite(sample, theta);
     dr -= bite;
-    dy -= bite * 0.62;
+    // The vertical part of a chip is kept off the INNER wall. A chip that cuts
+    // the inner lip below the waterline is a leak: the pool's edge follows that
+    // wall, so the water would have poured out through the chip. Bitten out of
+    // the outer half of a rim this thick, it still reads as a chip.
+    dy -= bite * (sample.tag === 'basin-in' ? 0 : 0.62);
 
     return [dr, dy];
   };
@@ -267,7 +274,7 @@ export function buildBodyGeometry({ segments = 84 } = {}) {
   };
 
   const sink = createSink();
-  latheInto(sink, { profile, segments, displace, tint, uRepeat: 2, vScale: 0.62 });
+  latheInto(sink, { profile, segments, displace, tint, uRepeat: 2, vScale: 1.0 });
   const geometry = sinkToGeometry(sink);
 
   return { geometry, profile, displace };
@@ -286,6 +293,36 @@ export function findSpout(profile, displace, tag, theta) {
     if (!best || r > best.r) best = { r, y: s.y + dy };
   }
   return best;
+}
+
+// The waterline, as a function of angle: where the bowl's inner wall actually
+// is at the height the pool sits, read off the same displaced surface the stone
+// was built from.
+//
+// A circular disc inside a scalloped bowl does not fit. The bowl's wall comes
+// in at every groove between scallops, and a disc wide enough to reach the
+// stone at the crests pushes straight through the wall at the grooves, which
+// showed up as slivers of pool hanging outside the bowl. Following the wall
+// also gets the thing that matters visually for free: the waterline scallops
+// the way the bowl does.
+export function poolEdge(profile, displace, tag, y, overlap = 0.005) {
+  const run = profile.filter((s) => s.tag === tag);
+  return (theta) => {
+    let prev = null;
+    for (const s of run) {
+      const d = displace(s, theta);
+      const p = { r: s.r + d[0], y: s.y + d[1] };
+      if (prev && ((prev.y >= y && p.y <= y) || (prev.y <= y && p.y >= y))) {
+        const f = (y - prev.y) / (p.y - prev.y || 1);
+        // Pushed a hair INTO the stone rather than stopped short of it: the
+        // seam is then buried in the wall instead of leaving a hairline of
+        // background between the water and the bowl.
+        return prev.r + (p.r - prev.r) * f + overlap;
+      }
+      prev = p;
+    }
+    return (prev ? prev.r : 0) + overlap;
+  };
 }
 
 // Ballistic flight time from y0 down to yTarget with a signed vertical speed.

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { marbleTextures, marbleMaterial, mulberry32 } from './marble.js';
 import {
-  buildBodyGeometry, findSpout, flightTime,
+  buildBodyGeometry, findSpout, flightTime, poolEdge,
   TIERS, GRAVITY, BOWL_LOBES, DISH_LOBES,
 } from './body.js';
 import { createWater } from './water.js';
@@ -30,7 +30,7 @@ const SPILL = { speed: 0.42, out: 0.055 };
 // ring is the thinnest thing on the strand and the surface it is meant to be
 // entering is transparent. Run it under instead.
 const PIERCE = 0.016;
-const JETS = { at: -Math.PI / 4, count: 2, r: 0.052, y: 1.792, up: 0.55, out: 0.26 };
+const JETS = { at: -Math.PI / 4, count: 2, r: 0.052, y: 1.792, up: 0.38, out: 0.26 };
 
 function strandsFor({ profile, displace, rng, tag, count, phase, target, rLip, flatten, dropBelowLip }) {
   const out = [];
@@ -80,12 +80,12 @@ export function createFountain({ seed = 1, scale = 1 } = {}) {
   const bowlStrands = strandsFor({
     profile, displace, rng,
     tag: 'bowl-rim', count: BOWL_LOBES, phase: 0,
-    target: TIERS.basin, rLip: 0.0185, flatten: 0.55, dropBelowLip: 0.020,
+    target: TIERS.basin, rLip: 0.0185, flatten: 0.55, dropBelowLip: 0.009,
   });
   const dishStrands = strandsFor({
     profile, displace, rng,
     tag: 'dish-rim', count: DISH_LOBES, phase: 0,
-    target: TIERS.bowl, rLip: 0.0145, flatten: 0.52, dropBelowLip: 0.014,
+    target: TIERS.bowl, rLip: 0.0145, flatten: 0.52, dropBelowLip: 0.006,
   });
 
   // The finial throws two arcs sideways into the top dish. Same shader as a
@@ -116,15 +116,15 @@ export function createFountain({ seed = 1, scale = 1 } = {}) {
     strands: [...bowlStrands, ...dishStrands, ...jets],
     pools: [
       {
-        y: TIERS.basin.y, radius: TIERS.basin.radius, angular: 44, radial: 18,
+        y: TIERS.basin.y, edge: poolEdge(profile, displace, 'basin-in', TIERS.basin.y), angular: 48, radial: 18,
         impactRadius: mean(bowlStrands), impactCount: BOWL_LOBES, impactPhase: 0, amp: 0.0070,
       },
       {
-        y: TIERS.bowl.y, radius: TIERS.bowl.radius, angular: 36, radial: 11,
+        y: TIERS.bowl.y, edge: poolEdge(profile, displace, 'bowl-in', TIERS.bowl.y), angular: 40, radial: 11,
         impactRadius: mean(dishStrands), impactCount: DISH_LOBES, impactPhase: 0, amp: 0.0048,
       },
       {
-        y: TIERS.dish.y, radius: TIERS.dish.radius, angular: 28, radial: 8,
+        y: TIERS.dish.y, edge: poolEdge(profile, displace, 'dish-in', TIERS.dish.y), angular: 30, radial: 8,
         impactRadius: mean(jets), impactCount: JETS.count, impactPhase: JETS.at, amp: 0.0030,
       },
     ],
