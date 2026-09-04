@@ -357,7 +357,7 @@ export function buildAxial({ material }) {
   const SAC_TOP = f(0.5792);            // just above the spineLower pivot, so L5 buries into it
   const SAC_BOT = f(0.5288);
   const SAC_LEAN = f(0.0048);           // extra rearward drop of the apex, on top of the spine curve
-  const SAC_THICK = f(0.0104);
+  const SAC_THICK = f(0.0080);
   // The rim rod is exactly half the blade's thickness, so the margin is flush
   // with the faces. Fatter than that and the flat face reads as the inside of a
   // bowl, which was the first attempt at this.
@@ -382,21 +382,32 @@ export function buildAxial({ material }) {
   // makes it unreadable for a robustness nobody is going to exercise.
   // Everything that decides where a bone SITS is a fraction.
   const SACRUM_RIM = [
-    [0, 0.054], [0.039, 0.054], [0.036, 0.029], [0.030, 0.004],
-    [0.024, -0.021], [0.015, -0.042], [0.007, -0.054], [0, -0.056],
-    [-0.007, -0.054], [-0.015, -0.042], [-0.024, -0.021],
-    [-0.030, 0.004], [-0.036, 0.029], [-0.039, 0.054],
+    [0, 0.054], [0.040, 0.054], [0.038, 0.029], [0.033, 0.004],
+    [0.028, -0.021], [0.017, -0.042], [0.007, -0.054], [0, -0.056],
+    [-0.007, -0.054], [-0.017, -0.042], [-0.028, -0.021],
+    [-0.033, 0.004], [-0.038, 0.029], [-0.040, 0.054],
   ];
 
   // Four pairs, converging downward the way a real sacrum's do: x, height, and
-  // the radius of the opening. Set low on the blade rather than centred on it,
-  // because L5's body overhangs the promontory and anything in the top f(0.010)
-  // is simply not visible from the front.
+  // the radius of the opening. Two constraints squeeze these, and both were
+  // found by rendering rather than by thinking:
+  //
+  //   * Set them low on the blade, not centred on it. L5's body overhangs the
+  //     promontory, so anything in the top f(0.010) is simply not visible.
+  //   * Keep every one of them at least SAC_RIM clear of the rim rod's
+  //     centreline. The rod is a solid tube THROUGH the blade's thickness, so a
+  //     hole within its radius is plugged by it: the first two attempts cut all
+  //     eight holes correctly (the vertex count says so) and only rendered the
+  //     top two pairs, because the bottom two were sitting inside the rod.
+  //
+  // Between them those are why the blade is as thin as it is. At the first
+  // thickness the rim rod was f(0.0052) fat and there was no room on a bone
+  // this size for four rows that clear it.
   const FORAMINA = [
-    [0.019, 0.024, f(0.0034)],
-    [0.016, 0.004, f(0.0032)],
-    [0.013, -0.016, f(0.0028)],
-    [0.010, -0.034, f(0.0025)],
+    [0.017, 0.028, f(0.0032)],
+    [0.014, 0.010, f(0.0032)],
+    [0.011, -0.008, f(0.0032)],
+    [0.008, -0.024, f(0.0032)],
   ];
   const ring = (cx, cy, r) => {
     const pts = [];
@@ -409,14 +420,13 @@ export function buildAxial({ material }) {
   const holes = [];
   for (const [x, y, r] of FORAMINA) {
     holes.push(ring(x, y, r));
-    holes.push(ring(-x, y, r));
   }
 
   // bevel 0.06 rather than the vocabulary's 0.4: it is only there to take the
   // wire edge off the holes, and every bit of it comes straight off their
   // radius at the face. The blade's own edge is the rim rod's job.
   mesh(
-    plate(smoothOutline(SACRUM_RIM, 72), SAC_THICK, { bevel: 0.06, holes, bevelSegments: 3 }),
+    plate(smoothOutline(SACRUM_RIM, 72), SAC_THICK, { bevel: 0, holes }),
     sacrum,
     'sacrum-blade',
   );
@@ -451,14 +461,18 @@ export function buildAxial({ material }) {
   // The top one is the S1 tubercle and it is the biggest, because it is the one
   // that has to reach back far enough to meet L5's spinous knuckle. Below the
   // apex the chain becomes the coccyx and curls forward again.
+  // The four on the blade are narrower than they want to be for the back view,
+  // because a wide bulb on the midline sits directly behind a foramen and fills
+  // it: a hole with bone behind it at the same depth is not a hole any more.
+  // The connecting rod carries the chain where the bulbs no longer touch.
   const CREST = [
-    [0.048, f(0.0080), f(0.0092)],
-    [0.016, f(0.0056), f(0.0080)],
-    [-0.014, f(0.0036), f(0.0068)],
-    [-0.042, f(0.0020), f(0.0060)],
-    [-0.076, f(-0.0012), f(0.0056)],   // coccyx, first segment
-    [-0.098, f(-0.0044), f(0.0048)],
-    [-0.117, f(-0.0076), f(0.0040)],
+    [0.048, f(0.0076), f(0.0092)],
+    [0.020, f(0.0044), f(0.0060)],
+    [-0.006, f(0.0034), f(0.0050)],
+    [-0.032, f(0.0026), f(0.0042)],
+    [-0.070, f(-0.0012), f(0.0054)],   // coccyx, first segment
+    [-0.094, f(-0.0044), f(0.0046)],
+    [-0.115, f(-0.0076), f(0.0038)],
   ];
   const crestPts = CREST.map(([u, stand, r]) => ({
     p: new THREE.Vector3(0, u, -(SAC_THICK / 2 + stand)),
@@ -467,8 +481,8 @@ export function buildAxial({ material }) {
   mesh(
     shaft(
       new THREE.CatmullRomCurve3(crestPts.map((c) => c.p), false, 'centripetal', 0.5),
-      f(0.0028),
-      { waist: 0.9, segments: 24 },
+      f(0.0034),
+      { waist: 0.94, segments: 24 },
     ),
     sacrum,
     'sacral-crest',

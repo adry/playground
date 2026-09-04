@@ -24,10 +24,11 @@ import { shaft, straightShaft, jointBall, plate } from './bone.js';
 //
 // Three helpers here are local rather than from bone.js, and none of them is a
 // new primitive: smoothOutline() conditions the outline before the extruder,
-// poseAndFit() moves and measures the slab after it, and ringCurve() hands
-// shaft() a circular arc. Each says at its own definition what went wrong
-// without it. A fourth, a taper, used to live here and is gone: bone.js's
-// shaft() now takes endRadius and does it properly.
+// poseAndFit() moves and measures the slab after it, and onPlate() sends a
+// single point on the same journey so the crest rim and the sacroiliac pad land
+// on the bone the outline became. Each says at its own definition what went
+// wrong without it. A taper used to live here too and is gone: bone.js's
+// shaft() takes endRadius now and does it properly.
 
 // --- local constants ---------------------------------------------------------
 //
@@ -49,7 +50,7 @@ const R = {
   // The head has to be wider than the plate is thick or it vanishes into the
   // socket and the hip stops reading as a joint at all, which is what happened
   // at 0.038 against a 0.070 plate.
-  femurHead: frac(0.0176),      // 0.044
+  femurHead: frac(0.0184),      // 0.046
   femurNeck: frac(0.0092),      // 0.023. Thin enough that the angle shows.
   trochanter: frac(0.0160),     // 0.040. Also the cap over the shaft's top ring.
                                 // Only a little wider than the tapered shaft it
@@ -114,9 +115,9 @@ const seat = (r, scaleY = 1) => -RISE + r * FOOT_SQUASH * scaleY;
 //   BLADE     an extruded plate. Broad at the crest and tapering hard down to
 //             the socket, so it reads as a wing flaring up and out rather than
 //             as a slab bolted on.
-//   SOCKET    a thick lens with a raised rim swept round it, deep enough that
-//             the femoral head sits IN something. This is the single strongest
-//             read in the pelvis and the first version had none of it.
+//   SOCKET    a rounded block at the blade's lower outer corner with the
+//             femoral head half sunk into it. This is the single strongest read
+//             in the pelvis and the first version had none of it at all.
 //   RING      the ischiopubic mass. Still rods, because the extruder pinches
 //             the struts out of a pierced plate, but three times thicker than
 //             the first attempt, rooted INSIDE the socket rather than hung off
@@ -150,13 +151,20 @@ const SYMPHYSIS_X = frac(0.0028);                        // 0.007, so a 0.014 se
 // foramen and there is no daylight through the hole any more.
 const PLATE_MEDIAL = 0.056;
 const PLATE_BOTTOM = 0.000;
+// Points are dense along the crest and sparse elsewhere on purpose. A
+// centripetal spline through evenly spaced points rounds every corner equally,
+// and the first pass came out as a smooth egg with no crest on it at all; the
+// crest is the line the eye follows across the top of the pelvis and it has to
+// stay a long shallow arc with a corner at each end.
 const HIP_OUTLINE = [
-  [PLATE_MEDIAL, 0.128],              // posterior superior iliac spine, on the sacrum
-  [0.086, 0.172],
-  [0.128, 0.196],
-  [0.166, PELVIS_TOP],                // crest apex
-  [0.196, 0.180],
-  [PELVIS_HALF, 0.140],               // anterior superior iliac spine: the widest
+  [PLATE_MEDIAL, 0.126],              // posterior superior iliac spine, on the sacrum
+  [0.072, 0.156],
+  [0.098, 0.178],
+  [0.128, 0.192],
+  [0.158, PELVIS_TOP],                // crest apex
+  [0.184, 0.196],
+  [0.202, 0.176],
+  [PELVIS_HALF, 0.144],               // anterior superior iliac spine: the widest
   [0.204, 0.098],                     // point in the lower body, and high up
   [0.190, 0.062],                     // the outer border diving in towards the socket
   [0.172, 0.026],
@@ -167,40 +175,37 @@ const HIP_OUTLINE = [
   [0.064, 0.108],
 ];
 
-// 0.034, traced off the crest ridge in the photo. It was 0.070 for one round,
-// on the theory that a thin plate reads as sheet metal. It does not: what read
-// as sheet metal was a bent cap with sliver triangles in it, and the fix for
-// that was to stop bending it. At 0.070 on a wing 0.146 across the blade is
-// half as thick as it is wide and comes out as a fat lozenge.
-const HIP_THICKNESS = frac(0.0136);
-const HIP_BEVEL = 0.42;               // no holes to protect, so round it properly
+// The blade is THIN and its rim is THICK, which is the actual anatomy: the
+// iliac crest is a thickened lip on a sheet of bone, and in the photo it is the
+// line your eye follows across the top of the pelvis. Three rounds were spent
+// trying to get both out of one extruded plate and it cannot be done -- thick
+// enough for the crest is a fat lozenge, thin enough for the blade is a pillow
+// of pure bevel with no crest on it at all. So the plate is 0.028 and CREST
+// below is a tube swept along its top and front edge.
+const HIP_THICKNESS = frac(0.0112);
+// The bevel eats the thickness from both faces, so anything much over a third
+// leaves no flat face at all and the blade is a pillow rather than a bone with
+// an edge.
+const HIP_BEVEL = 0.30;
 // bone.js defaults to 4 bevel segments, which on a plate this thick with a
 // bevel this generous puts four flat bands round the rim. The hip bone is seen
 // edge-on from the side and from behind in every pose, so it pays for more.
 const HIP_BEVEL_SEGMENTS = 12;
 
-// The acetabulum, in the group frame. The socket is a lens flattened along the
-// lateral axis and set MEDIAL of the pivot, so the femoral head at HIP_X still
-// clears it sideways and reads as a ball; and a rim is swept round the pivot
-// as an arc of tube, open at the bottom front where the neck leaves.
+// The acetabular mass. A rounded block at the blade's lower outer corner with
+// the femoral head half sunk in it, set medial of the pivot so the head still
+// clears it sideways and reads as a ball in a cup.
 //
-// A rim on its own was tried first and thrown away: with nothing solid behind
-// it, a ring whose plane faces sideways is seen edge-on from every useful angle
-// and reads as a handle glued to the pelvis. On top of the lens it reads as the
-// lip of a cup, which is what the photo shows.
+// A swept rim ring round the pivot was tried twice and thrown away twice. The
+// socket faces sideways, so a ring in its plane is edge-on from the front and
+// from behind and reads as a handle glued on; and in a region this crowded --
+// blade, block, ring, ramus loop, head, neck and trochanter all inside 0.15 --
+// one more rounded thing is what tips it from anatomy into tangle. The block
+// alone gives the cup, because the crease where the head enters it IS the rim.
 const ACET = {
-  x: 0.114, y: -0.008, z: -0.002,
-  bossR: frac(0.0264),                // 0.066 before flattening
-  scale: [0.58, 0.86, 1.0],           // flattened along the lateral axis
-  rimR: frac(0.0212),                 // 0.053, so the 0.044 head fills the ring
-  rimTube: frac(0.0068),              // 0.017
-  // The rim's plane. It wants to face the way the socket opens, which is
-  // sideways, and a ring facing sideways is edge-on from the front and reads as
-  // nothing at all. Swung towards the front until it catches the light in the
-  // three-quarter views, which is where the cup has to read.
-  normal: [0.72, -0.26, 0.64],
-  gap: 1.86,                          // radians of rim left out for the notch
-  gapAt: -1.15,                       // pointing down and forward, where the neck goes
+  x: 0.116, y: -0.008, z: 0.000,
+  bossR: frac(0.0184),                // 0.046 before scaling
+  scale: [0.80, 0.85, 1.05],
 };
 
 // The ischiopubic mass, as centreline points in the group frame. Authored with
@@ -217,23 +222,34 @@ const ACET = {
 // floor, and thick bone all round a 0.055 hole does not fit in that. The photo
 // gets away with a bigger hole because its hip joints are 0.31 apart rather
 // than M.leg.hipSeparation's 0.25. Thick bone won the trade.
+// Two swept tubes rather than four straight rods, and two rather than one.
+//
+// Four rods meeting at four corners is four crossings, and at the size this
+// region actually renders -- about 38 pixels across in a full-figure shot --
+// four crossings is a tangle with no hole in it. Sweeping the lot as one tube
+// fixes that but then the whole loop has to be one thickness, and the photo is
+// emphatically not one thickness: the superior ramus and the ischium are stout
+// bars and the inferior ramus between the symphysis and the tuberosity is half
+// their width. So: one sweep down the front, one round the bottom, meeting
+// inside the pubic body where the join cannot be seen.
+//
+// Both sweeps run low. Measured off the photo the symphysis and the foramen
+// both sit in the bottom third, between y = -0.03 and the floor, with the
+// superior ramus descending to them from the socket. An earlier pass had them
+// 0.03 too high, which put the pubic bodies out in front of the hip joints
+// like a pair of handles.
 const RING = {
-  S:  [0.104, 0.026, 0.004],          // superior ramus, rooted in the socket
-  Pu: [0.033, 0.008, 0.086],          // where it enters the pubic body
-  B:  [0.031, -0.010, 0.085],         // the pubic body itself, one block
-  Pd: [0.035, -0.028, 0.084],         // where the inferior ramus leaves it
-  T:  [0.086, -0.062, 0.030],         // ischial tuberosity: the lowest bone here
-  Q:  [0.108, -0.020, 0.000],         // ischium, rooted in the socket
-  // Thin enough to leave a hole, thick enough to be bone. The superior ramus is
-  // the one that decides: it runs straight across the top of the foramen and
-  // every millimetre of it comes off the hole, so it is the thinnest of the
-  // three and it is bowed upward as well.
-  superior: [frac(0.0092), frac(0.0084)],   // 0.023 at the socket, 0.021 at the pubis
-  superiorBow: 0.12,
-  inferior: [frac(0.0076), frac(0.0084)],
-  ischium: [frac(0.0096), frac(0.0108)],
-  body: frac(0.0120),                 // 0.030 before scaling
-  bodyScale: [0.80, 1.40, 0.95],
+  A:  [0.104, 0.004, 0.004],          // superior ramus, rooted in the socket
+  Bu: [0.034, -0.026, 0.084],         // top of the pubic body
+  Bd: [0.038, -0.062, 0.080],         // bottom of the pubic body
+  T:  [0.084, -0.0644, 0.030],        // ischial tuberosity: the lowest bone here
+  Q:  [0.110, -0.022, -0.002],        // ischium, rooted back in the socket
+  superior: [frac(0.0096), frac(0.0084)],   // 0.024 at the socket, 0.021 at the pubis
+  superiorBow: 0.10,
+  lower: [frac(0.0056), frac(0.0096)],      // 0.014 at the pubis, 0.024 at the ischium
+  lowerWaistAt: 0.30,
+  body: frac(0.0116),                 // 0.029 before scaling
+  bodyScale: [0.82, 1.36, 0.95],
   tuber: frac(0.0104),                // 0.026, the ischial tuberosity
   tuberScale: [1.0, 1.12, 1.0],
   // jointBall squashes by this before tuberScale gets a look in, and the
@@ -247,6 +263,29 @@ const RING = {
 // that stands a little proud of the edge, so where the sacrum lands there is a
 // joint rather than two flat faces near each other.
 const SI = { x: 0.062, y: 0.108, r: frac(0.0112), scale: [0.70, 1.60, 1.05] };
+
+// The iliac crest and the anterior border, as a tube swept along the blade's
+// own top and outer edge. The centreline is the outline inset by one rod
+// radius, so the finished rim lands ON M.pelvis.width rather than 0.019 past
+// it; the rod straddles the 0.028 plate and stands 5mm proud of each face,
+// which is what turns a flat lens into a dished blade with a lip.
+const CREST = [
+  [0.0903, 0.0912],                   // dying into the sacroiliac face
+  [0.0800, 0.1089],
+  [0.0717, 0.1231],                   // posterior superior iliac spine
+  [0.0849, 0.1465],
+  [0.1053, 0.1638],
+  [0.1288, 0.1760],
+  [0.1535, 0.1847],                   // over the crest apex
+  [0.1756, 0.1824],
+  [0.1902, 0.1652],
+  [0.1952, 0.1379],                   // anterior superior iliac spine
+  [0.1883, 0.1011],
+  [0.1779, 0.0724],                   // and on down the anterior border
+  [0.1652, 0.0405],
+  [0.1475, 0.0158],                   // dying into the acetabular mass
+];
+const CREST_R = [frac(0.0076), frac(0.0056)];   // 0.019 at the crest, 0.014 at the socket
 
 // THREE.Shape draws straight lines between the points it is handed, so the
 // outline above extrudes as a faceted crystal: the first render of this part
@@ -265,27 +304,6 @@ function smoothOutline(points, samples = 132) {
     out.push(new THREE.Vector2(p.x, p.y));
   }
   return out;
-}
-
-// A circular arc as a THREE.Curve, so shaft() can sweep a tube along it. The
-// acetabular rim is the one place in the lower body where a bone really is a
-// ring, and this keeps it inside the vocabulary instead of reaching for a torus.
-function ringCurve(centre, normal, radius, a0, a1, n = 26) {
-  const nrm = normal.clone().normalize();
-  const u = new THREE.Vector3(0, 1, 0).cross(nrm);
-  if (u.lengthSq() < 1e-8) u.set(1, 0, 0);
-  u.normalize();
-  const v = new THREE.Vector3().crossVectors(nrm, u).normalize();
-  const points = [];
-  for (let i = 0; i <= n; i++) {
-    const a = a0 + (a1 - a0) * (i / n);
-    points.push(
-      centre.clone()
-        .addScaledVector(u, Math.cos(a) * radius)
-        .addScaledVector(v, Math.sin(a) * radius),
-    );
-  }
-  return new THREE.CatmullRomCurve3(points);
 }
 
 // Turning the flat slab into a blade, in two steps that are both AFFINE.
@@ -438,58 +456,61 @@ export function buildLower({ material }) {
     const map = poseAndFit(slab, s);
     put(group, slab);
 
+    put(group, shaft(
+      new THREE.CatmullRomCurve3(CREST.map(([x, y]) => onPlate(map, s, x, y)), false, 'centripetal'),
+      CREST_R[0],
+      { endRadius: CREST_R[1], waist: 0.97, segments: 40 },
+    ));
+    // Both ends of the rim are open tubes, so both get capped. The posterior
+    // one is the PSIS, a real knob in the photo; the anterior one dies inside
+    // the acetabular mass.
+    const psis = onPlate(map, s, CREST[0][0], CREST[0][1]);
+    put(group, bulb(CREST_R[0] * 1.10), psis.x, psis.y, psis.z);
+
     const si = onPlate(map, s, SI.x, SI.y);
     put(group, bulb(SI.r, { squash: 1 }), si.x, si.y, si.z).scale.set(...SI.scale);
 
     // --- acetabulum ---------------------------------------------------------
-    const socket = V(s * HIP_X, 0, 0);
     put(group, bulb(ACET.bossR, { squash: 1 }), s * ACET.x, ACET.y, ACET.z)
-      .scale.set(ACET.flat, 1, 1);
-
-    // The rim, swept round the pivot itself so it stays concentric with the
-    // head no matter what the hip does. Open at the bottom front: that gap is
-    // the acetabular notch, and it is also where the femoral neck leaves, so
-    // without it the rim would saw through the neck at every angle of flexion.
-    const rimCurve = ringCurve(
-      socket,
-      V(s * 0.94, -0.20, 0.28),
-      ACET.rimR,
-      ACET.gapAt + ACET.gap / 2,
-      ACET.gapAt - ACET.gap / 2 + Math.PI * 2,
-    );
-    put(group, shaft(rimCurve, ACET.rimTube, { waist: 0.96, segments: 30 }));
-    for (const t of [0, 1]) {
-      const end = rimCurve.getPointAt(t);
-      put(group, bulb(ACET.rimTube * 1.12), end.x, end.y, end.z);
-    }
+      .scale.set(...ACET.scale);
 
     // --- ischiopubic mass ---------------------------------------------------
     const at = (k) => V(s * RING[k][0], RING[k][1], RING[k][2]);
-    const rS = at('S');
-    const rPu = at('Pu');
-    const rPd = at('Pd');
+    const rA = at('A');
+    const rBu = at('Bu');
+    const rBd = at('Bd');
     const rT = at('T');
     const rQ = at('Q');
 
-    // The two numbers here that have to be exact, pinned rather than trusted:
-    // the pubic body sets the seam at the symphysis, and the ischial tuberosity
-    // is the lowest bone in the pelvis, so it alone decides whether the pelvis
-    // is M.pelvis.height tall.
-    const bodyX = s * (SYMPHYSIS_X + RING.body);
-    rPu.x = bodyX;
-    rPd.x = bodyX;
+    // Two numbers here have to be exact and are pinned rather than trusted: the
+    // pubic body sets the seam at the symphysis, and the ischial tuberosity is
+    // the lowest bone in the pelvis, so it alone decides whether the pelvis
+    // comes out M.pelvis.height tall.
+    const shift = s * (SYMPHYSIS_X + RING.body * RING.bodyScale[0]) - rBu.x;
+    rBu.x += shift;
+    rBd.x += shift;
     rT.y = PELVIS_BOTTOM + RING.tuber * RING.tuberSquash * RING.tuberScale[1];
 
-    for (const [a, b, r] of [
-      [rS, rPu, RING.superior],
-      [rPu, rPd, [RING.body * 0.98, RING.body * 0.98]],
-      [rPd, rT, RING.inferior],
-      [rT, rQ, RING.ischium],
-    ]) {
-      put(group, straightShaft(a, b, r[0], { endRadius: r[1], waist: 0.93, segments: 16 }));
-    }
-    put(group, bulb(RING.body), rPu.x, rPu.y, rPu.z);
-    put(group, bulb(RING.body), rPd.x, rPd.y, rPd.z);
+    // Bowed up and away from the middle of the foramen. Run straight, the
+    // superior ramus cuts a chord across the hole and there is nothing left to
+    // see through.
+    put(group, straightShaft(rA, rBu, RING.superior[0], {
+      endRadius: RING.superior[1], bow: RING.superiorBow, bowAxis: V(0, 1, 0.30),
+      waist: 0.94, segments: 20,
+    }));
+    put(group, shaft(
+      new THREE.CatmullRomCurve3([rBd, rT, rQ], false, 'centripetal'),
+      RING.lower[0],
+      { endRadius: RING.lower[1], waistAt: RING.lowerWaistAt, waist: 0.94, segments: 26 },
+    ));
+
+    // One block for the pubic body rather than a bulb at each end of a bar.
+    // Both sweeps die inside it, so the two sides meet at the symphysis as a
+    // solid front with a seam down it, which is what the photo has, instead of
+    // each side ending in a ball of its own with daylight between them.
+    const body = rBu.clone().lerp(rBd, 0.5);
+    put(group, bulb(RING.body, { squash: 1 }), body.x, body.y, body.z)
+      .scale.set(...RING.bodyScale);
     put(group, bulb(RING.tuber), rT.x, rT.y, rT.z).scale.set(...RING.tuberScale);
 
     // --- hip joint ----------------------------------------------------------
