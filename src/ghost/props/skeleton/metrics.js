@@ -14,6 +14,18 @@
 // a rounded bulb, because that is what makes it read as a vinyl toy next to the
 // cloth ghost rather than as a museum cast.
 
+// WHICH SIDE IS LEFT.
+//
+// The figure faces +Z with +Y up, so its own left hand is at +X: left is
+// up x forward, and Y cross Z is X. Every part must put its 'L' bones at
+// POSITIVE x. This is not a matter of taste and it is not negotiable per part,
+// because the animator gets one flat joint map and `shoulderL` and `hipL`
+// landing on opposite sides of the body is a bug nobody sees until the walk
+// cycle comes out cross-limbed. An earlier pass had exactly that.
+//
+// Parts publish `group.userData.outwardX` so the assembler can assert it.
+export const LEFT_X = 1;
+
 export const HEIGHT = 2.5;              // crown to sole, world units
 const H = HEIGHT;
 
@@ -67,7 +79,13 @@ export const M = {
     forearm: f(0.143),
     hand: f(0.090),
     shoulderSeparation: f(0.203),
-    flare: 0.14,                 // radians the A-pose holds the arm out from vertical
+    // Radians the A-pose holds the arm out from vertical, as a length-weighted
+    // mean over the whole limb. Measured off the photo at the scale that
+    // reproduces shoulderSeparation to within 1%: the humerus leaves the
+    // glenoid at about 0.34 and the forearm continues at about 0.13. An
+    // earlier 0.14 here put the wrist 0.055 too close to the centreline, so
+    // the arms hugged the body.
+    flare: 0.22,
   },
 
   leg: {

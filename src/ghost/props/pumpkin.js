@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { toyMaterial, PALETTE, SEGMENTS, contactShadow } from './style.js';
+import { toyMaterial, PALETTE, SEGMENTS } from './style.js';
 
 // A squat ribbed jack-o'-lantern in the house vinyl-toy style: smooth lobes, a
 // curved tapering stem, and a carved face that glows from inside.
@@ -23,8 +23,39 @@ const BODY_H = 0.345;  // half-height of the un-dished profile
 // Nearer 2 is nearer a true ellipsoid. The earlier 2.5 squared off the
 // shoulders and flattened the poles, which is what read as not round enough.
 const SQUASH = 2.08;
-const DIP = 0.26;      // how hard the poles are pulled back in, making the stem dish
+const DIP = 0.26;      // how hard the TOP pole is pulled back in, making the stem dish
 const RIB_SHARP = 1.5; // >1 narrows the groove and widens the lobe crest
+
+// The underside is not the stem dish mirrored, and used to be. Mirrored, the
+// shell's lowest point was a ring at only 36% of the body radius and the belly
+// then curved outward and upward away from it, so the prop touched the floor
+// very nearly at a point and the bottom of its silhouette sat 5% of its own
+// height clear of the ground. That is what was being reported as a gap between
+// the pumpkin and its shadow: not a shadow bug at all, and no shadow tuning can
+// reach it, because the thing casting it really was hovering.
+//
+// So the underside runs straight down and then turns over into a flat disc, the
+// way a real pumpkin's does. BASE_TURN is where the turn starts, BASE_FLAT
+// where it finishes and the disc begins. Their midpoint is what sets how deep
+// the disc lands, and 0.745 is the depth the old dish's lowest ring had: yBase
+// comes out unchanged, so the face solve below -- authored as heights above the
+// ground -- stays exactly where it was.
+//
+// The 0.11 between them is the fillet, and it is the number that matters. The
+// silhouette's lowest point is wherever the shell first leans back at more than
+// the camera's own elevation, so a long lazy fillet puts that point back up the
+// flank and hands most of the gap straight back; solved against the scene
+// camera the leftover height comes out as 0.22 * fillet * bodyH, dead linear.
+// At 0.11 that is under a hundredth of a unit, which measures as 1.2% of the
+// prop's height where the old dish measured 5.0% and is what actually reads as
+// touching. Much shorter and the base turns into a rim you can see as a rim.
+const BASE_TURN = 0.69;
+const BASE_FLAT = 0.80;
+// A hair of concavity across the disc, so the prop rests on the disc's rim and
+// not on its whole face. Real pumpkins are dished there anyway, and a quarter
+// of a unit of geometry lying exactly coplanar with the floor is asking for
+// z-fighting and shadow acne in the one place the eye is looking.
+const BASE_CUP = 0.02;
 
 // The face looks along +x+z so it meets the preview/game camera square-on at
 // spin 0; the lobe crest sits at the same angle so the face lands on a bulge.
@@ -38,22 +69,40 @@ const RINGS = SEGMENTS.height * 4;
 // What the lamp, the carving and its bloom look like at the bottom and the top
 // of the flicker's swing. All three are driven off the one value, which is what
 // makes the light and the face read as the same flame.
-const LAMP = { min: 1.05, max: 3.10 };     // PointLight intensity
-// Raised once the interior was recessed. Sunk a shell thickness behind a wall,
-// the plate lost the light the old flush patch caught, and at game size the
-// faces went dim. The reference's openings are close to white anyway.
-const GLOW = { min: 1.18, max: 1.82 };     // face emissiveIntensity
+// A candle does not swing three to one. The old 1.05..3.10 pumped the pool on
+// the floor hard enough to read as a light being turned up and down; this is
+// still plainly alive at the far end of the swing without doing that.
+const LAMP = { min: 1.20, max: 2.60 };     // SpotLight intensity
+// Brought down hard, and this is the fix the report was actually asking for.
+// At 1.18..1.82 the plate tone-mapped to a flat #f3e0aa -- 95% luminance,
+// brighter than anything else in frame -- and the cut wall built at such
+// expense beside it could not be seen against that at all: no shaded ceiling,
+// no lit lower lip, no wall thickness, just one bright shape with a hard edge.
+// Down here the openings are a warm butter that falls off, the wall reads, and
+// the depth of every cut comes back. Multiplied by the per-vertex falloff the
+// plate carries, so this is the value at the brightest point of the face only.
+// The bottom end sits well below anything the flicker reaches in normal
+// running: it is there so a gutter has somewhere to go, not to be sat at.
+const GLOW = { min: 0.45, max: 1.58 };     // face emissiveIntensity
 // The cuts are real holes with a real wall now, so what used to be a painted
 // bloom on the skin is instead a faint emissive on that wall: the flame washing
 // the inside of the opening. Kept low, because the hemisphere light is what
 // gives the cut its shape -- ceiling dark, lower lip catching the sky -- and a
 // strong emissive would flatten exactly that.
-const WASH = { min: 0.07, max: 0.20 };      // flame washing the inside of the cuts
+const WASH = { min: 0.05, max: 0.15 };      // flame washing the inside of the cuts
 
 // The flame's two ends: a dull ember at the bottom of a gutter, bright flame at
 // the top of a flare.
 const EMBER = new THREE.Color('#ff6a24').convertSRGBToLinear();
 const FLAME = new THREE.Color(PALETTE.glow).convertSRGBToLinear();
+// The same two ends again for the plate, and deliberately not the same values.
+// These are a material's emissive, which three colour-manages on the way in,
+// where the pair above are the light's colour and are converted by hand; and
+// they are warmer, because the plate is the thing the eye actually judges the
+// flame by. ACES desaturates as it brightens, so an emissive at the palette's
+// own glow washes out to cream well before it is bright enough to read as fire.
+const PLATE_EMBER = new THREE.Color('#ff7b2c');
+const PLATE_FLAME = new THREE.Color('#ffb44a');
 
 // Small deterministic PRNG: same seed, same pumpkin, and nothing at module scope.
 function makeRng(seed) {
@@ -102,19 +151,37 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // Superellipse profile: full through the middle, flat-shouldered at the poles.
   const profileR = (s) => Math.pow(Math.max(0, 1 - Math.pow(Math.abs(s), SQUASH)), 1 / SQUASH);
 
-  // Pull the last stretch of each pole back toward the centre so the top and
-  // bottom sit in a shallow dish, the way a pumpkin does around its stem.
+  // Top: pull the last stretch of the pole back toward the centre so the stem
+  // sits in a shallow dish, the way a pumpkin does. Bottom: see BASE_TURN --
+  // it turns over onto a flat disc instead.
+  const BASE_L = BASE_FLAT - BASE_TURN;
+  const BASE_DEEP = BASE_TURN + BASE_L * 0.5;   // where the disc lands, in bodyH
   const profileY = (s) => {
-    const t = Math.max(0, (Math.abs(s) - 0.55) / 0.45);
-    return bodyH * (s - Math.sign(s) * DIP * t * t);
+    if (s >= 0) {
+      const t = Math.max(0, (s - 0.55) / 0.45);
+      return bodyH * (s - DIP * t * t);
+    }
+    const x = -s;
+    if (x <= BASE_TURN) return -bodyH * x;
+    if (x >= BASE_FLAT) {
+      const u = (x - BASE_FLAT) / (1 - BASE_FLAT);
+      return -bodyH * (BASE_DEEP - BASE_CUP * u * u);
+    }
+    // Smoothstep the *slope* from 1 to 0 rather than the height, so the flat
+    // really is flat and the turn has no curvature step at either end of it.
+    // This is the integral of 1 - smoothstep(t); at t = 1 it has descended
+    // exactly half the fillet's length, which is where BASE_DEEP comes from.
+    const t = (x - BASE_TURN) / BASE_L;
+    return -bodyH * (BASE_TURN + BASE_L * (t - t * t * t + 0.5 * t * t * t * t));
   };
 
   // Grooves, deepest at a = ±pi/lobes, zero at the crest so the front lobe is a
   // clean bulge for the face to sit on.
   const rib = (a) => 1 - ribDepth * Math.pow(0.5 - 0.5 * Math.cos(lobes * a), RIB_SHARP);
 
-  // Because of the dish, the lowest point of the shell is a ring rather than the
-  // pole. Find it numerically and stand the prop on it, so y = 0 is the ground.
+  // The lowest point of the shell is the base disc's rim, not the pole -- the
+  // disc is cupped. Find it numerically and stand the prop on it, so y = 0 is
+  // the ground and the contact is a wide ring rather than a point.
   let lowest = Infinity;
   for (let i = 0; i <= 400; i++) lowest = Math.min(lowest, profileY(-1 + (2 * i) / 400));
   const yBase = -lowest;
@@ -172,6 +239,10 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // the mouth broke into fragments. This is as thick as the thinnest feature on
   // the face can carry.
   const SHELL_T = 0.028;
+  // A hair below the bottom of the wall rather than exactly level with it.
+  // Level, the plate and the wall's inner ring are coplanar and their shared
+  // edge speckles.
+  const PLATE = SHELL_T + 0.0012;
   const WALL_TAPER = 0.005; // how much narrower the cut is at its bottom
   // The wall's top ring laps this far back over the skin, a hair proud of it,
   // rather than meeting the hole edge exactly. Meeting exactly is correct and
@@ -198,11 +269,45 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     return target.addScaledVector(tmpN, lift);
   };
 
+  // Where the flame sits inside the shell. The lamp further down is parked at
+  // this same point, so what the openings show and what the floor is lit by are
+  // one flame rather than two sources that happen to agree.
+  const faceDir = new THREE.Vector3(Math.sin(FACE_YAW), 0, Math.cos(FACE_YAW));
+  const FLAME_AT = new THREE.Vector3(faceDir.x * bodyR * 0.50, yBase * 1.25, faceDir.z * bodyR * 0.50);
+
+  // How much of the flame reaches the plate at a point on it.
+  //
+  // The plate is not a lamp in its own right: it is the bottom of a hole with a
+  // flame behind it, so what the eye reads there is the flame lighting the BACK
+  // of the plug. Flat emissive gave every opening the same value to four
+  // figures -- measured off the render, the far corner of an eye and the middle
+  // of the grin came out the identical pixel -- and that is what read as one
+  // bright shape instead of a lit cavity. So it falls off with distance, and
+  // far more visibly with how square the opening is to the flame: the apex of
+  // each eye is up on the shoulder and tipped away from a flame sitting below
+  // it, and goes deep amber, while the middle of the grin faces it square on
+  // and stays pale. Which is the reference's face exactly.
+  const tmpP = new THREE.Vector3();
+  const tmpL = new THREE.Vector3();
+  const tmpFn = new THREE.Vector3();
+  const flameAt = (X, Y) => {
+    const s = sOfY(Y * FACE_SY);
+    const a = (X * FACE_SX) / Math.max(0.05, bodyR * profileR(s));
+    surface(a, s, tmpP);
+    surfaceNormal(a, s, tmpFn);
+    tmpP.addScaledVector(tmpFn, -PLATE);
+    tmpL.copy(FLAME_AT).sub(tmpP);
+    const d = Math.max(0.02, tmpL.length());
+    // Lambert against the INWARD normal: the flame is behind this surface.
+    const cos = Math.max(0, -tmpFn.dot(tmpL) / d);
+    return cos / (d * d);
+  };
+
   // Builds one geometry from a list of patches, each a 2D sampler over the unit
   // square projected onto the shell. Everything is a grid so the tessellation
   // stays dense and evenly shaped; triangles are authored as degenerate grids
   // (the base edge collapsed to a point at v = 1).
-  const patchGeometry = (defs, lift) => {
+  const patchGeometry = (defs, lift, glowOut) => {
     const verts = [];
     const idx = [];
     const p = new THREE.Vector3();
@@ -213,6 +318,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
           const [X, Y] = sampler(i / nx, j / ny);
           facePoint(X, Y, lift, p);
           verts.push(p.x, p.y, p.z);
+          if (glowOut) glowOut.push(flameAt(X, Y));
         }
       }
       const vi = (i, j) => base + j * (nx + 1) + i;
@@ -753,11 +859,8 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // thickness and only a cell and a half wide, the skin covers it from every
   // angle the prop is ever seen from.
   const faceGeo = (() => {
-    // A hair below the bottom of the wall rather than exactly level with it.
-    // Level, the plate and the wall's inner ring are coplanar and their shared
-    // edge speckles.
-    const PLATE = SHELL_T + 0.0012;
-    const g = patchGeometry(FACE_SHAPES, -PLATE);
+    const glow = [];
+    const g = patchGeometry(FACE_SHAPES, -PLATE, glow);
     const pos = Array.from(g.getAttribute('position').array);
     const idx = Array.from(g.getIndex().array);
     const p = new THREE.Vector3();
@@ -766,6 +869,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     const put = (X, Y, lift) => {
       facePoint(X, Y, lift === undefined ? -PLATE : lift, p);
       pos.push(p.x, p.y, p.z);
+      glow.push(flameAt(X, Y));
       return pos.length / 3 - 1;
     };
     for (const cut of CUTS) {
@@ -815,8 +919,29 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
         idx.push(e0, e1, e2, e0, e2, e3);
       }
     }
+    // Normalise the arrival against the brightest point on the face rather than
+    // against an absolute, so the flicker's own range stays the only thing that
+    // sets how bright the pumpkin is and a differently scaled seed does not
+    // come out dimmer. Then lift it: raw cosine-over-distance-squared spans
+    // about five to one across the face, and left alone the far corner of an
+    // eye is a hole with the light off. PLATE_FLOOR is where the dimmest part
+    // lands and PLATE_GAMMA how fast it climbs off it; these put the spread at
+    // a little over two to one, which is the reference's, where the darkest
+    // interior is around half the brightest and still plainly lit.
+    const PLATE_FLOOR = 0.28, PLATE_GAMMA = 0.90;
+    let peak = 0;
+    for (const v of glow) if (v > peak) peak = v;
+    const colors = new Float32Array(glow.length * 3);
+    for (let i = 0; i < glow.length; i++) {
+      const f = PLATE_FLOOR + (1 - PLATE_FLOOR) * Math.pow(peak > 0 ? glow[i] / peak : 1, PLATE_GAMMA);
+      colors[i * 3] = f;
+      colors[i * 3 + 1] = f;
+      colors[i * 3 + 2] = f;
+    }
+
     const out = new THREE.BufferGeometry();
     out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    out.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     out.setIndex(idx);
     out.computeVertexNormals();
     g.dispose();
@@ -828,12 +953,22 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // same flicker value as the lamp, which is what ties the two together.
   const faceMat = new THREE.MeshStandardMaterial({
     color: 0x1a0a00,
-    emissive: new THREE.Color(PALETTE.glow),
+    vertexColors: true,
+    emissive: PLATE_FLAME.clone(),
     emissiveIntensity: (GLOW.min + GLOW.max) / 2,
     roughness: 1,
     metalness: 0,
     side: THREE.DoubleSide,
   });
+  // The per-vertex value built above is the flame's falloff across the plate,
+  // and in the standard material vertex colours drive the diffuse term -- which
+  // on a plate this dark is nothing at all. Hand it to the emissive instead.
+  faceMat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      'vec3 totalEmissiveRadiance = emissive;',
+      'vec3 totalEmissiveRadiance = emissive * vColor;',
+    );
+  };
   const face = new THREE.Mesh(faceGeo, faceMat);
   // No shadows: it is coplanar with the shell, and a caster there only produces
   // acne. It is light, not matter.
@@ -889,9 +1024,10 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // shadow both drowned underneath it. Nothing about the shadow maps was wrong.
   //
   // So the lamp is parked where the light really leaves, just inside the carved
-  // face at mouth height, and the cone is narrow enough that the floor within
-  // the base is behind it rather than under it. The pool now starts a little
-  // clear of the pumpkin and washes forward, which is what was wanted anyway.
+  // face at mouth height (FLAME_AT, the same point the plate's falloff is
+  // measured from), and the cone is narrow enough that the floor within the
+  // base is behind it rather than under it. The pool now starts a little clear
+  // of the pumpkin and washes forward, which is what was wanted anyway.
   const LIGHT_DISTANCE = 3.2;
   const light = new THREE.SpotLight(
     new THREE.Color(PALETTE.glow),
@@ -903,9 +1039,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     // source, and a steep decay is exactly what made the near field explode.
     0.9,
   );
-  const faceDir = new THREE.Vector3(Math.sin(FACE_YAW), 0, Math.cos(FACE_YAW));
-  light.position.copy(faceDir).multiplyScalar(bodyR * 0.50);
-  light.position.y = yBase * 1.25;
+  light.position.copy(FLAME_AT);
   light.castShadow = false;
 
   // The target is parented to the group, so the cone turns with the pumpkin
@@ -920,11 +1054,14 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   light.target = lightTarget;
 
   const group = new THREE.Group();
-  // Tighter and darker than the old 0.46/0.40. With the spill pulled off it the
-  // contact is the only thing holding the pumpkin down, and a pumpkin meets the
-  // floor on a small ring rather than over its whole width.
-  const contact = contactShadow({ radius: 0.42, opacity: 0.52, softness: 0.62 });
-  group.add(shell, wall, face, stem, light, lightTarget, contact);
+  // No painted contact patch under this prop any more. It was here to stand in
+  // for the contact the key light's angled shadow cannot give, and while the
+  // shell touched the floor almost at a point it was the only thing holding the
+  // pumpkin down. Now that the base is a real disc the cast shadow reaches the
+  // silhouette on its own, and the patch was doing what the tombstones' did:
+  // painting an even dark ring on every side, including the lit one, where a
+  // real shadow only lies on one. Checked by looking, patch on and patch off.
+  group.add(shell, wall, face, stem, light, lightTarget);
   group.scale.setScalar(scale);
 
   const lightHome = light.position.clone();
@@ -932,23 +1069,34 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   return {
     group,
     update(time) {
-      // A candle mostly burns near full and occasionally ducks. Summed smooth
-      // noise on its own only wanders about its middle, which is why the first
-      // version read as a dimmer being nudged rather than a flame. So the
-      // steady part sits high, and a separate sparse guttering term pulls it
-      // down.
+      // A candle is mostly steady. What makes it a candle and not a pulse is
+      // the shape of the exceptions: small irregular flutters nearly all the
+      // time, and every several seconds one real gutter that ducks hard and
+      // climbs back. Summed smooth noise on its own only wanders about its
+      // middle, which is why an early version read as a dimmer being nudged.
       const t = time + flickerPhase;
       const swing = (f, o) => (noise(t * f + o) - 0.5) * 2; // -1..1
 
-      const steady = 0.84 + 0.10 * swing(1.3, 0) + 0.07 * swing(6.1, 13.2) + 0.04 * swing(15.7, 41.7);
+      // Flutter. Three rates so nothing in it has a period you can hear, and
+      // all three small enough that the flame never leaves the top of its
+      // range: this bottoms out near 0.78 and tops out at 1.02, so it grazes
+      // the ceiling and nothing more. The old 0.10 + 0.07 + 0.04 about a base
+      // of 0.84 spent a third of its time visibly down, which is a lamp on a
+      // bad circuit rather than a candle.
+      const flutter = 0.060 * swing(1.1, 0) + 0.040 * swing(4.7, 13.2) + 0.024 * swing(12.9, 41.7);
 
-      // Only the top of this slow channel counts, so dips are occasional and
-      // brief rather than rhythmic; squaring the ramp keeps their onset soft.
-      const g = noise(t * 0.62 + 77.3);
-      const gutter = g > 0.70 ? (g - 0.70) / 0.30 : 0;
-      const dip = gutter * gutter * 0.52 * (0.55 + 0.45 * noise(t * 9.3 + 5.1));
+      // Gutter. Only the top of a slow channel counts, so the events are
+      // separate things that happen rather than a rhythm, and squaring the ramp
+      // keeps the deep part of each one brief while its onset and recovery stay
+      // soft. Its depth wobbles on a fast channel of its own, because a flame
+      // fighting for air does not duck smoothly. Measured over five minutes and
+      // four seeds this lands a duck every seven or eight seconds and a real
+      // gutter, past halfway down, every twenty-five or so.
+      const g = noise(t * 0.55 + 77.3);
+      const gutter = g > 0.72 ? (g - 0.72) / 0.28 : 0;
+      const dip = gutter * gutter * (0.34 + 0.26 * noise(t * 8.1 + 5.1));
 
-      const level = Math.min(1, Math.max(0, steady - dip)); // 0 = guttering, 1 = flaring
+      const level = Math.min(1, Math.max(0, 0.90 + flutter - dip)); // 0 = guttering, 1 = flaring
 
       const at = (range) => range.min + (range.max - range.min) * level;
       light.intensity = at(LAMP);
@@ -958,8 +1106,12 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
       faceMat.emissiveIntensity = at(GLOW);
       wallMat.emissiveIntensity = at(WASH);
       // A guttering flame reddens as it drops, so the colour rides the same
-      // value rather than sitting at a fixed warm white.
+      // value rather than sitting at a fixed warm white. The plate has to do it
+      // too, not just the lamp: the openings are most of what is on screen, and
+      // a dip that only dims them reads as a dimmer where a dip that reddens
+      // them reads as a flame going short of air.
       light.color.copy(EMBER).lerp(FLAME, level);
+      faceMat.emissive.copy(PLATE_EMBER).lerp(PLATE_FLAME, level);
 
       // A candle is not nailed down; a few millimetres of sway makes the pool of
       // light on the ground breathe.
@@ -972,7 +1124,6 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     dispose() {
       for (const g of [shellGeo, wallGeo, faceGeo, stemGeo]) g.dispose();
       for (const m of [shellMat, wallMat, faceMat, stemMat]) m.dispose();
-      contact.userData.dispose();
       group.clear();
     },
   };

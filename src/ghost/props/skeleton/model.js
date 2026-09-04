@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import M from './metrics.js';
+import M, { LEFT_X } from './metrics.js';
 import { boneMaterial } from './parts/bone.js';
 import { buildSkull } from './parts/skull.js';
 import { buildAxial } from './parts/axial.js';
@@ -41,6 +41,8 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   const skull = track(buildSkull({ material }));
   head.add(skull.group);
 
+  group.updateMatrixWorld(true);
+
   const armL = track(buildArm({ material, side: 'L' }));
   const armR = track(buildArm({ material, side: 'R' }));
   axial.anchors.shoulderL.add(armL.group);
@@ -71,6 +73,20 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   // assert it instead of trusting a paragraph. See CONTRACT.md.
   joints.jaw.userData.openAxis = 'x';
   joints.jaw.userData.openSign = 1;
+
+  // Left is +X, and the parts are checked rather than trusted. Two regions
+  // disagreeing about which side is left is invisible in the rest pose and
+  // comes out as a cross-limbed walk, so it is worth a hard failure here.
+  for (const [name, node] of [
+    ['shoulderL', axial.anchors.shoulderL], ['shoulderR', axial.anchors.shoulderR],
+    ['hipL', lower.joints.hipL], ['hipR', lower.joints.hipR],
+  ]) {
+    const want = name.endsWith('L') ? LEFT_X : -LEFT_X;
+    const got = Math.sign(node.getWorldPosition(new THREE.Vector3()).x);
+    if (got !== 0 && got !== want) {
+      throw new Error(`skeleton: ${name} is at x sign ${got}, expected ${want}. See LEFT_X in metrics.js.`);
+    }
+  }
 
   const shed = new Map([...axial.shed, ...armL.shed, ...armR.shed]);
 

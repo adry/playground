@@ -37,6 +37,14 @@ joint visibly pulls apart the moment it rotates.
 **Author facing +Z, Y up, in world units.** Do not apply `scale`; the assembler
 does that.
 
+**LEFT IS +X.** The figure faces +Z with +Y up, so its own left is at positive
+x (left is up cross forward, and Y cross Z is X). Every part puts its `L` bones
+at positive x, no exceptions, and exports `group.userData.outwardX = +1` for a
+left-side subtree so the assembler can assert it. `metrics.js` exports `LEFT_X`
+for this. An earlier pass had the shoulders on one convention and the hips on
+the other, which means `shoulderL` and `hipL` sat on opposite sides of the same
+body: invisible at rest, cross-limbed the moment anything walks.
+
 ## The four parts
 
 Each module exports one builder. Each returns its own subtree plus the joints it
