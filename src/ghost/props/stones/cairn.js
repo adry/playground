@@ -606,6 +606,6 @@ registerStone('cairn', {
 
     // What the layout generator needs, measured rather than guessed, and left
     // on the group so footprints-probe.mjs and a lab can both read it.
-    body.userData.cairn = { tip, push, height: wanted, stones: stones.length };
+    body.userData.cairn = { tip, push, height: wanted, stones: stones.length, crest, S, gap: best ? best.gap : null, outer: outer0 * S };
   },
 });

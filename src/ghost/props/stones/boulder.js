@@ -564,12 +564,13 @@ function buildStone({ body, material, rng, disposables, stripUV, slabUV, lean })
   // applied to the geometry rather than to a group so the seating below can
   // measure the real lowest point instead of a rotated bounding box -- which
   // is book.js's finding and the reason this walks vertices at all.
+  //
+  // Yaw is NOT among them: it would swing the dressed face away from the front,
+  // and the front is where the camera is. Only the two tilts vary, and the face
+  // keeps whatever skew its own frame was given.
   const tilt = new THREE.Matrix4().makeRotationFromEuler(
-    new THREE.Euler((rng() - 0.5) * 0.10, rng() * 6.283, (rng() - 0.5) * 0.11, 'ZXY'),
+    new THREE.Euler((rng() - 0.5) * 0.10, 0, (rng() - 0.5) * 0.11, 'ZXY'),
   );
-  // Yaw is NOT free: it would swing the dressed face away from the front. Only
-  // the two tilts vary, and the yaw stays at whatever the frame's own skew is.
-  tilt.makeRotationFromEuler(new THREE.Euler((rng() - 0.5) * 0.10, 0, (rng() - 0.5) * 0.11, 'ZXY'));
 
   const all = { pos: [], nor: [], uv: [], face: [], idx: [] };
   appendSink(all, sink, tilt);
@@ -578,7 +579,6 @@ function buildStone({ body, material, rng, disposables, stripUV, slabUV, lean })
   // front centre: a lump in front of the panel is the one place a small stone
   // can do harm.
   const feet = FOOT_MIN + Math.floor(rng() * (FOOT_MAX - FOOT_MIN + 1));
-  const footY = [];
   for (let i = 0; i < feet; i++) {
     const s = 0.055 + rng() * 0.075;
     const th = (i / feet) * Math.PI * 2 + rng() * 0.8;
@@ -588,9 +588,7 @@ function buildStone({ body, material, rng, disposables, stripUV, slabUV, lean })
       new THREE.Quaternion().setFromEuler(new THREE.Euler(rng() * 6.283, rng() * 6.283, rng() * 6.283)),
       new THREE.Vector3(s * 2.0, s * 1.35, s * 1.85),
     );
-    const g = footStone(rng, 16, 9);
-    appendSink(all, g, m);
-    footY.push(s);
+    appendSink(all, footStone(rng, 16, 9), m);
   }
 
   // --- seating -------------------------------------------------------------
