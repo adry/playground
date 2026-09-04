@@ -663,6 +663,13 @@ export function buildSkull({ material }) {
       lum *= 1 - 0.93 * (1 - smoothstep(0.5, 1.05, s));
     }
 
+    // DIAGNOSTIC, worth knowing about: comment these three lines out and the
+    // face renders with the paint and none of the geometry. Every feature on
+    // this head is half paint and half dent, so when one of them looks wrong
+    // that one edit says immediately which half is lying. It is how the fold
+    // described up at ORBIT_WALL was found, after an afternoon of treating a
+    // bright crescent in the socket as a lighting problem: paint-only came out
+    // clean, so it could not have been the light.
     position[j] -= normal[j] * dent;
     position[j + 1] -= normal[j + 1] * dent;
     position[j + 2] -= normal[j + 2] * dent;

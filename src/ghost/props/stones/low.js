@@ -24,7 +24,7 @@ import { PALETTE, SEGMENTS, toyMaterial } from '../style.js';
 //   - The seam. The projection covers the +Z hemisphere only, and the ring
 //     where the surface turns away from the camera is a real ring of vertices
 //     in the mesh, duplicated so the front half carries face UVs and the back
-//     half carries plain stone. Without that the spirals mirror onto the back.
+//     half does not. Without that the spirals mirror onto the back.
 //   - The rim. A planar projection compresses to nothing at that silhouette
 //     ring, so the outermost texels smear all the way round the rock and the
 //     derivative-based tangent frame that MeshStandardMaterial builds for the
@@ -135,6 +135,13 @@ function makeOutline(circles, budget = SEGMENTS.radial) {
   const total = arcs.reduce((s, a) => s + a.r * (a.a1 - a.a0), 0);
   for (const a of arcs) a.seg = Math.max(2, Math.round((budget * a.r * (a.a1 - a.a0)) / total));
   const count = arcs.reduce((s, a) => s + a.seg + 1, 0);
+  // Where each arc's samples begin in the ring, so a caller can stroke an OPEN
+  // run of the outline and stop at a chosen tangent line.
+  const arcStart = [];
+  arcs.reduce((at, a) => {
+    arcStart.push(at);
+    return at + a.seg + 1;
+  }, 0);
 
   const ring = (inset) => {
     const out = [];
@@ -161,7 +168,7 @@ function makeOutline(circles, budget = SEGMENTS.radial) {
     y1 = Math.max(y1, p.y);
   }
   const maxInset = Math.min(...arcs.map((a) => a.r));
-  return { arcs, count, ring, bounds: { x0, x1, y0, y1 }, maxInset };
+  return { arcs, arcStart, count, ring, bounds: { x0, x1, y0, y1 }, maxInset };
 }
 
 // A rounded rectangle standing on y = 0, as four circles.
@@ -311,8 +318,8 @@ function resampleClosed(pts, n) {
   return out;
 }
 
-function buildLumpGeometry({ outline, centre, halfDepth, sweep = 14, uv }) {
-  const eq = resampleClosed(outline.ring(0), Math.max(48, outline.count));
+function buildLumpGeometry({ outline, centre, halfDepth, sweep = 14, ring = 48, uv }) {
+  const eq = resampleClosed(outline.ring(0), Math.max(ring, outline.count));
   const N = eq.length;
   const cx = centre.x;
   const cy = centre.y;
@@ -635,10 +642,13 @@ function buildTextures({ faceAspect, draw, rng, rim = 0 }) {
   // constant UV makes the derivative exactly zero, which three handles by
   // dropping the perturbation entirely, and the colour matches the washed rim
   // it meets. Detail lost: mottle on the hidden half of a rock.
+  // It lives in the top band of the strip, above every other user's v range;
+  // parked across the middle it cut a hard horizontal line across the back of
+  // anything mapped through the strip with a tall v span.
   cc.fillStyle = '#ffffff';
-  cc.fillRect(FW, FH * 0.05, STRIP, FH * 0.5);
+  cc.fillRect(FW, 0, STRIP, FH * 0.14);
   hc.fillStyle = '#808080';
-  hc.fillRect(FW, FH * 0.05, STRIP, FH * 0.5);
+  hc.fillRect(FW, 0, STRIP, FH * 0.14);
 
   const map = new THREE.CanvasTexture(colour);
   map.colorSpace = THREE.SRGBColorSpace;
@@ -648,7 +658,7 @@ function buildTextures({ faceAspect, draw, rng, rim = 0 }) {
     normalMap: heightToNormalMap(height, 14),
     frontFrac: FW / w,
     stripFrac: STRIP / w,
-    flat: [(FW + STRIP * 0.5) / w, 0.72],
+    flat: [(FW + STRIP * 0.5) / w, 0.93],
   };
 }
 
@@ -746,21 +756,31 @@ function drawBoulderFace(ctx, W, H, face) {
   ].map(P), groove);
 }
 
-// The outline groove of the broken stone. It follows the stone's silhouette a
-// little in from the edge, which is what says carved rather than cut from card.
+// The outline groove of the broken stone: the stone's own silhouette, offset
+// inward, which is what says carved rather than cut from card.
 //
-// Drawn from the UNBROKEN outline, on purpose: the mason cut the groove before
-// the stone lost its corner, so it should run to the break and stop dead. It
-// does that for free -- the texels past the break belong to no geometry.
-function drawOutlineGroove(ctx, W, H, face, outline, inset, width) {
+// Stroked OPEN, starting at `openAtArc` and running all the way round to the
+// point before it, so the two loose ends land on the tangent run that is the
+// break. The mason cut this groove before the stone lost its corner, so it has
+// to run to the break and stop dead there rather than turn the corner with it.
+//
+// Drawing it from an intact round-top outline instead was tried and is worse:
+// the surviving crown is a different circle from the intact one, so the groove
+// wandered off the real edge and faded out halfway over the top.
+function drawOutlineGroove(ctx, W, H, face, outline, openAtArc, inset, width) {
   const sx = W / (face.x1 - face.x0);
   const sy = H / (face.y1 - face.y0);
-  const pts = outline.ring(inset).map((p) => [(p.x - face.x0) * sx, H - (p.y - face.y0) * sy]);
+  const ring = outline.ring(inset);
+  const from = outline.arcStart[openAtArc];
+  const pts = [];
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[(from + i) % ring.length];
+    pts.push([(p.x - face.x0) * sx, H - (p.y - face.y0) * sy]);
+  }
   ctx.lineWidth = width * sx;
   ctx.beginPath();
   ctx.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-  ctx.closePath();
   ctx.stroke();
 }
 
@@ -853,24 +873,36 @@ const URN_STACK = [
   { h: 0.095, w: 0.222, edge: 0.026 },
 ];
 
+const PLINTH_TOP = URN_STACK.reduce((h, part) => h + part.h, 0);
+
 function buildUrn(add, texUV) {
   let y = 0;
   for (const part of URN_STACK) {
     const outline = makeOutline(boxOutline(part.w, part.h, part.edge * 1.6), SEGMENTS.radial);
+    // Each piece gets its own small window into the strip, low in the band
+    // where the grime wash lives -- an up-facing moulding sampling clean stone
+    // reads as a whiter material than the shaft under it -- and rising with the
+    // piece's place in the stack. Giving every piece the SAME v, which the
+    // first pass did, means it samples one row of texels, and one row of a
+    // speckled canvas comes out as vertical stripes down the shaft.
+    const vBase = 0.02 + 0.16 * (y / PLINTH_TOP);
     const geo = buildPuffGeometry({
       outline,
       depth: part.w * 2,
       edge: part.edge,
-      // The whole plinth samples the bottom of the plain strip, where the grime
-      // wash lives, so its up-facing mouldings do not read as fresh stone.
-      uv: (x) => texUV.strip(x, y + part.h / 2, part.w, 1, GRIME),
+      uv: (x, yy) => texUV.strip(x, yy, part.w, part.h, 0.055, vBase),
     });
     const mesh = add(geo);
     mesh.position.y = y;
     y += part.h;
   }
   // A hair of overlap so no seam can open between the urn's foot and the cap.
-  const urn = add(buildUrnGeometry(), (x, yy) => texUV.strip(x, yy, 0.18, URN_HEIGHT, 1));
+  // The lathe keeps its own u, which runs round the axis: rebuilding u from x
+  // would fold the map back on itself at both sides of the pot.
+  const urn = add(buildUrnGeometry(), (x, yy, u0) => [
+    texUV.stripU(u0),
+    0.34 + clamp(yy / URN_HEIGHT, 0, 1) * 0.40,
+  ]);
   urn.position.y = y - 0.006;
   return y - 0.006 + URN_HEIGHT;
 }
@@ -889,29 +921,26 @@ const BOULDER_MAIN = [
 // as the face it broke away from -- the first pass was a small blob and read as
 // a second, separate boulder rather than as a piece of this one.
 const BOULDER_CHUNK = [
-  { x: -0.075, y: 0.085, r: 0.085 },
-  { x: 0.075, y: 0.072, r: 0.072 },
-  { x: 0.060, y: 0.180, r: 0.095 },
-  { x: -0.070, y: 0.250, r: 0.075 },
+  { x: -0.075, y: 0.095, r: 0.095 },
+  { x: 0.075, y: 0.075, r: 0.075 },
+  { x: 0.062, y: 0.190, r: 0.100 },
+  { x: -0.068, y: 0.292, r: 0.088 },
 ];
 
-// The broken round-top stone. Bottom two circles and a right shoulder give the
-// standing sides; the crown sits up and to the LEFT of centre, so the tangent
-// run from shoulder to crown is a long diagonal, and that diagonal is the
-// break. Same list with the crown centred and grown is the stone as it was
-// before it lost its corner, which is what the outline groove is drawn from.
+// The broken round-top stone. The crown circle is tangent to the LEFT side and
+// carries a real half-round over the top left; a shoulder circle low on the
+// right pulls a long tangent run down from that crown, and that run is the
+// break. First pass put the crown high and small and the stone came out as a
+// gable end: the round top has to survive the break or the piece is not a
+// round-top stone any more. Index 3 is the crown, which is where the groove
+// starts and therefore where it stops.
 const BROKEN_STONE = [
-  { x: -0.175, y: 0.062, r: 0.062 },
-  { x: 0.175, y: 0.062, r: 0.062 },
-  { x: 0.175, y: 0.300, r: 0.062 },
-  { x: -0.040, y: 0.455, r: 0.090 },
-  { x: -0.170, y: 0.320, r: 0.070 },
+  { x: -0.180, y: 0.065, r: 0.065 },
+  { x: 0.180, y: 0.065, r: 0.065 },
+  { x: 0.180, y: 0.268, r: 0.065 },
+  { x: -0.050, y: 0.380, r: 0.195 },
 ];
-const BROKEN_WHOLE = [
-  { x: -0.175, y: 0.062, r: 0.062 },
-  { x: 0.175, y: 0.062, r: 0.062 },
-  { x: 0.000, y: 0.330, r: 0.237 },
-];
+const BROKEN_CROWN = 3;
 
 export function createLowStone({ variant = 'urn', seed = 1, scale = 1 } = {}) {
   const kind = LOW_VARIANTS.includes(variant) ? variant : 'urn';
@@ -939,8 +968,7 @@ export function createLowStone({ variant = 'urn', seed = 1, scale = 1 } = {}) {
   } else if (kind === 'brokenRing') {
     mainOutline = makeOutline(BROKEN_STONE, 72);
     face = mainOutline.bounds;
-    const whole = makeOutline(BROKEN_WHOLE, 72);
-    draw = (ctx, W, H) => drawOutlineGroove(ctx, W, H, face, whole, 0.048, 0.024);
+    draw = (ctx, W, H) => drawOutlineGroove(ctx, W, H, face, mainOutline, BROKEN_CROWN, 0.046, 0.022);
   }
 
   const tex = hasDOM
@@ -963,20 +991,26 @@ export function createLowStone({ variant = 'urn', seed = 1, scale = 1 } = {}) {
       (y - face.y0) / (face.y1 - face.y0),
     ],
     // The far side of a carved lump: one point in the strip's flat patch.
-    flat: tex ? tex.flat : [1, 0.72],
+    flat: tex ? tex.flat : [1, 0.93],
     // An uncarved lump. u runs with the SWEEP, front pole to back pole, and
     // only v comes from the geometry. Driving both from (x, y) folds the
     // texture back on itself at the silhouette, because the far side retraces
     // the same x and y as the near side, and the fold showed as a hard line
     // round the middle of every pebble.
-    lump: (t, y, h, vSpan = 1) => [
+    lump: (t, y, h, vSpan = 1, vBase = 0) => [
       frontFrac + stripFrac * (0.12 + 0.76 * t),
-      clamp(y / h, 0, 1) * vSpan,
+      vBase + clamp(y / h, 0, 1) * vSpan,
     ],
-    strip: (x, y, halfW, h, vSpan = 1) => [
+    // vBase picks where in the strip a piece sits. v = 0 is the ground grime
+    // and the top band is the flat patch, so anything that is neither wants to
+    // start above the one and finish below the other.
+    strip: (x, y, halfW, h, vSpan = 1, vBase = 0) => [
       frontFrac + stripFrac * (0.15 + 0.7 * clamp((x + halfW) / (2 * halfW), 0, 1)),
-      clamp(y / h, 0, 1) * vSpan,
+      vBase + clamp(y / h, 0, 1) * vSpan,
     ],
+    // u alone, for a mesh that already has a good one of its own -- a lathe's
+    // angle around the axis, say.
+    stripU: (f) => frontFrac + stripFrac * (0.15 + 0.7 * clamp(f, 0, 1)),
   };
 
   const material = toyMaterial(PALETTE.stone, {
@@ -1001,7 +1035,7 @@ export function createLowStone({ variant = 'urn', seed = 1, scale = 1 } = {}) {
         const attr = geo.attributes.uv;
         const pos = geo.attributes.position;
         for (let i = 0; i < attr.count; i++) {
-          const [u, v] = uv(pos.getX(i), pos.getY(i));
+          const [u, v] = uv(pos.getX(i), pos.getY(i), attr.getX(i));
           attr.setXY(i, u, v);
         }
         attr.needsUpdate = true;
@@ -1016,7 +1050,7 @@ export function createLowStone({ variant = 'urn', seed = 1, scale = 1 } = {}) {
     add(buildLumpGeometry({
       outline: mainOutline,
       centre,
-      halfDepth: 0.190,
+      halfDepth: 0.172,
       sweep: 18,
       uv: (x, y, front) => (front ? texUV.face(x, y) : texUV.flat),
     }));
@@ -1028,19 +1062,24 @@ export function createLowStone({ variant = 'urn', seed = 1, scale = 1 } = {}) {
     const chunk = add(buildLumpGeometry({
       outline: chunkOutline,
       centre: { x: 0, y: 0.16 },
-      halfDepth: 0.150,
+      halfDepth: 0.132,
       sweep: 12,
-      uv: (x, y, front, t) => texUV.lump(t, y, 0.34, 0.55),
+      uv: (x, y, front, t) => texUV.lump(t, y, 0.34, 0.30, 0.05),
     }));
-    chunk.position.set(0.470, 0, 0.018);
-    chunk.rotation.set(0.04, 0.10, -0.15);
+    // Both facing walls are near-vertical tangent runs, and the placement keeps
+    // them roughly parallel: the crack has to read as a crack down its whole
+    // height, not as a wedge that a pebble happens to sit at the mouth of.
+    // Measured closest approach is about 0.017, which is where the crack stops
+    // looking like a gap between two rocks.
+    chunk.position.set(0.421, 0, 0.014);
+    chunk.rotation.set(0.03, 0.07, -0.06);
     seat(chunk);
   } else {
     const slab = add(buildPuffGeometry({
       outline: mainOutline,
       depth: 0.150,
       edge: 0.052,
-      uv: (x, y, front) => (front ? texUV.face(x, y) : texUV.strip(x, y, 0.20, 0.52, 0.9)),
+      uv: (x, y, front) => (front ? texUV.face(x, y) : texUV.strip(x, y, 0.25, 0.58, 0.45, 0.30)),
     }));
     // Leaning back, not forward: rotation.x tips +y toward +z, so the lean is
     // negative. Half sunk is sold by the rubble piled at the foot rather than
@@ -1053,13 +1092,20 @@ export function createLowStone({ variant = 'urn', seed = 1, scale = 1 } = {}) {
     // deep because the stone is, with the gaps and doubling that a ring of
     // fallen pieces has. Radii start outside the slab's own footprint plus the
     // largest pebble, so nothing can intersect the stone.
-    const COUNT = 13;
+    // Radii are measured off the slab's own plan, not off a circle: the
+    // distance from the centre to the slab's edge in this direction, plus the
+    // pebble and a gap. A circular ring round a slab that is three times wider
+    // than it is deep leaves a moat at the front and back and touches at the
+    // ends. This hugs.
+    const HALF_W = 0.245;
+    const HALF_D = 0.075;
+    const COUNT = 16;
     for (let i = 0; i < COUNT; i++) {
-      const a = ((i + 0.5) / COUNT) * Math.PI * 2 + (rng() - 0.5) * 0.30;
-      const rx = 0.335 + (rng() - 0.5) * 0.10;
-      const rz = 0.255 + (rng() - 0.5) * 0.09;
-      const s = 0.055 + rng() * 0.055;
-      const flat = 0.55 + rng() * 0.25;
+      const a = ((i + 0.5) / COUNT) * Math.PI * 2 + (rng() - 0.5) * 0.34;
+      const s = 0.030 + rng() * 0.040;
+      const flat = 0.46 + rng() * 0.20;
+      const reach = Math.min(HALF_W / Math.max(0.08, Math.abs(Math.cos(a))), HALF_D / Math.max(0.08, Math.abs(Math.sin(a))));
+      const out = reach + s + 0.012 + rng() * 0.055;
 
       // A pebble is the same hull of circles as everything else, jittered.
       const circles = [];
@@ -1074,13 +1120,17 @@ export function createLowStone({ variant = 'urn', seed = 1, scale = 1 } = {}) {
         });
       }
       const pebble = add(buildLumpGeometry({
-        outline: makeOutline(circles, 34),
+        // A pebble is five centimetres across. It gets the segment counts a
+        // five-centimetre pebble deserves, or sixteen of them cost more
+        // vertices than the stone they are lying round.
+        outline: makeOutline(circles, 24),
         centre: { x: 0, y: s * flat },
         halfDepth: s * (0.55 + rng() * 0.25),
-        sweep: 8,
+        sweep: 6,
+        ring: 26,
         uv: (x, y, front, t) => texUV.lump(t, y, s * 2, GRIME * 1.4),
       }));
-      pebble.position.set(Math.cos(a) * rx, 0, Math.sin(a) * rz);
+      pebble.position.set(Math.cos(a) * out, 0, Math.sin(a) * out);
       pebble.rotation.set((rng() - 0.5) * 0.5, rng() * Math.PI * 2, (rng() - 0.5) * 0.5);
       seat(pebble);
     }

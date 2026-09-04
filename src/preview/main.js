@@ -66,6 +66,40 @@ const PROPS = {
     };
   },
 
+  // The second graveyard set: the three tall carved stones, the three low
+  // ones, and a cluster of dressing. Laid out in a row the way a shelf of
+  // assets is, because the thing being judged here is whether they read as
+  // one family rather than how they compose.
+  stones: async () => {
+    const [t, l, d] = await Promise.all([
+      import('../ghost/props/stones/tall.js'),
+      import('../ghost/props/stones/low.js'),
+      import('../ghost/props/stones/dressing.js'),
+    ]);
+    const group = new THREE.Group();
+    const parts = [];
+    // Step along the SCREEN's horizontal, not world X. This camera maps world
+    // (1,0,-1) to screen-right, so a row laid out along X runs diagonally out
+    // of frame and the auto-framing then pulls back to fit a diagonal.
+    const K = Math.SQRT1_2;
+    let x = 0;
+    const put = (part, gap) => {
+      part.group.position.set(x * K, 0, -x * K);
+      x += gap;
+      group.add(part.group);
+      parts.push(part);
+    };
+    for (const v of t.TALL_VARIANTS) put(t.createTallStone({ variant: v, seed: 5 }), 1.5);
+    for (const v of l.LOW_VARIANTS) put(l.createLowStone({ variant: v, seed: 5 }), 1.6);
+    put(d.createGroundDressing({ seed: 3 }), 1.4);
+    group.position.set((-x / 2) * K, 0, (x / 2) * K);
+    return {
+      group,
+      update: (time, dt) => parts.forEach((p) => p.update?.(time, dt)),
+      dispose: () => parts.forEach((p) => p.dispose?.()),
+    };
+  },
+
   tombstones: async () => {
     const m = await import('../ghost/props/tombstones.js');
     // Lay the variants out in a row so one render shows the whole set.
