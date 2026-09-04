@@ -91,8 +91,8 @@ const CLOAK = [
   [0.250, 0.218],
   [0.290, 0.198],
   [0.330, 0.164],
-  [0.355, 0.134],
-  [0.370, 0.110],
+  [0.355, 0.126],
+  [0.370, 0.106],
   [0.378, 0.104], // inside the urn here, so the cloth has run out by the flare
 ];
 
@@ -101,6 +101,13 @@ const DRAPE = {
   arcNeg: 0.92,   // and the other. Uneven on purpose: a hand-thrown cloth is.
   folds: 3,       // ridges across the whole span
   foldDepth: 0.55,
+  // Folds gather at the bottom of a hanging cloth and die out where it is
+  // pulled tight over the lip. Fading them is not only truer, it is structural:
+  // at full depth up on the neck a fold PEAK stood further out than the rim
+  // above it, and a peak poking past the lip reads from the side as a tab stuck
+  // on the urn.
+  foldTop: 0.300,
+  foldEnd: 0.360,
   // Where the hem sits. It is written as a TUCK LINE up on the shoulder and a
   // fall below it, and the fall is scaled by the same fade that thins the cloth
   // at its ends. Written the other way round -- a hem height with a tilt added
@@ -193,7 +200,8 @@ function drapeDisplacer(profile, centre) {
     // out as a spiky flap with creases fanning off it; a bell over the whole
     // span cured that but left the cloth too thin anywhere but dead centre.
     const edge = 1 - smooth((Math.abs(q) - 0.42) / 0.58);
-    const ridge = Math.cos(q * Math.PI * DRAPE.folds);
+    const ridge = Math.cos(q * Math.PI * DRAPE.folds)
+      * (1 - smooth((sample.y - DRAPE.foldTop) / (DRAPE.foldEnd - DRAPE.foldTop)));
 
     const corner = Math.exp(-Math.pow((q - DRAPE.tailAt) / DRAPE.tailWidth, 2));
     const fall = DRAPE.fall + DRAPE.hemWave * ridge - DRAPE.hemTilt * q + DRAPE.tailDrop * corner;

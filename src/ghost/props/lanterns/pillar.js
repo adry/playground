@@ -58,7 +58,7 @@ import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from '../style.js';
 // stone and 0.22 for the metal. That split is itself the point: stone is
 // weathered and metal is folded, and giving them the same radius made the
 // lantern look like it had been cast in one lump with the pillar.
-const P_STONE = 0.34;
+const P_STONE = 0.22;
 const P_METAL = 0.22;
 
 // -----------------------------------------------------------------------------
@@ -773,7 +773,7 @@ function makeNoise(seed) {
 // stylistic call: against a hemisphere at 1.15 and a key at 2.1 a truthful
 // candle is invisible, and this is what makes the lantern read as lit.
 const LAMP = { min: 0.362, max: 0.78 };
-const GLASS_GLOW = { min: 0.40, max: 1.05 };
+const GLASS_GLOW = { min: 0.325, max: 0.86 };
 const WICK = { min: 0.58, max: 1.25 };
 const HUE_MID = 0.88, HUE_GAIN = 1.5;
 
@@ -829,7 +829,7 @@ export function createPillarLantern({ seed = 1, scale = 1 } = {}) {
     // ray's own y. -0.22 puts it across the upper third of a pane at this
     // camera's elevation, and 0.13 makes it about a fifth of the pane deep: any
     // wider and it is a gradient again.
-    uGlare: { value: new THREE.Color('#f2f6ff').convertSRGBToLinear().multiplyScalar(3.20) },
+    uGlare: { value: new THREE.Color('#f2f6ff').convertSRGBToLinear().multiplyScalar(4.00) },
     uGlareAt: { value: new THREE.Vector2(-0.24, 0.060) },
     // Between the key in main.js and the one in the preview harness.
     uSunDir: { value: new THREE.Vector3(3.45, 6.0, 2.4).normalize() },

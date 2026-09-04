@@ -6,10 +6,13 @@ import { createSwing } from '../fence/swing.js';
 // A lantern hanging from a shepherd's crook.
 //
 // A slim iron post with a soft domed foot, curving over at the top into a hook,
-// with a glazed lantern hanging off the nose on a ring. The post's crown sits
-// at y = 1.36 and the lantern's body hangs between y = 0.68 and y = 0.99, so
-// the thing reads at chest height: above the lanterns that sit on the ground
-// and well under the street lamp.
+// with a glazed lantern hanging off the nose on a ring. Measured across the
+// seeds: the crown of the hook stands at y = 1.33 to 1.37, the hook overhangs
+// its own foot by 0.32, the ring hangs at about y = 1.10, and the lantern's
+// body runs from y = 0.69 up to y = 0.95. So it reads at chest height, which is
+// what puts it between the lanterns that sit on the ground and the street lamp.
+// The whole footprint is the foot, a disc 0.22 across, and the group's origin
+// is its centre.
 //
 // THE POINT OF THIS PROP IS THAT IT MOVES. Everything else in this set is
 // nailed down. A hanging lantern is the one object in the graveyard with a
@@ -395,12 +398,23 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
   post.castShadow = true;
   post.receiveShadow = true;
 
-  // The whole post leans a hair and points wherever the seed says. The lantern
-  // hangs off the same yaw, so the crook and its load stay in one plane.
+  // Two groups, and the split matters. `stand` carries only the yaw, so its
+  // frame is still plumb; `mast` carries the lean, and only the post is in it.
+  //
+  // The first version leaned the whole stand with the lantern inside it, which
+  // is wrong and was visible: gravity does not know the post is crooked, so a
+  // lantern under a post leaning half a degree still hangs plumb, and hanging
+  // it in the post's frame instead parked it permanently half a degree off with
+  // the pendulum swinging about that. Small, and exactly the sort of small that
+  // reads as the whole prop being slightly wonky rather than as the post being
+  // old. So the pivot is a child of the PLUMB group, placed at the hang point
+  // after the lean has been applied to it by hand.
   const stand = new THREE.Group();
   stand.rotation.y = facing;
-  stand.rotation.z = lean;
-  stand.add(post);
+  const mast = new THREE.Group();
+  mast.rotation.z = lean;
+  mast.add(post);
+  stand.add(mast);
   group.add(stand);
 
   // ---------------------------------------------------------------------------
@@ -410,7 +424,7 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
   // negative y from there, so the swing is a rotation of one group about the
   // one place a lantern on a ring can actually rotate about.
   const pivot = new THREE.Group();
-  pivot.position.copy(HANG);
+  pivot.position.copy(HANG).applyAxisAngle(new THREE.Vector3(0, 0, 1), lean);
   stand.add(pivot);
 
   // The ring, threaded over the nose.

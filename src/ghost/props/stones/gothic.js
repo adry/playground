@@ -4,21 +4,28 @@ import { registerStone, inkText } from '../tombstones.js';
 
 // The gothic arch: the tall narrow one of the set.
 //
-// The point is the whole identity, and buildSlabGeometry cannot make one: it
-// sweeps a quarter-round profile around a convex four-circle outline, so its
-// top is a half-round arch or a pair of squared corners and nothing else. So
-// the slab is kept, round top and all, as the body and the carved face, and a
-// second swept piece added in extras carries the point.
+// The point is the whole identity, and the exported buildSlabGeometry cannot
+// make one. Its outline is four corner circles at fixed centres, (+-(W - rt),
+// H - rt) across the top, so the top of anything it builds is either a straight
+// run between two corners or, at rt = W, a half-round: there is no way to put a
+// tangent discontinuity on the axis. Deforming what it returns is worse, since
+// its straight sides carry no vertices to deform. So the slab is kept, round
+// top and all, as the body and the carved face, and a second swept piece added
+// in extras carries the point.
 //
 // The head is built on the slab's own principle, generalised from four corner
 // circles to an arbitrary convex core curve: every point of the silhouette is
 // a core point pushed out by a fixed radius R0 along a known normal, so "inset
-// by d" is "pushed out by R0 - d" and the normal is unchanged. Nothing is
-// faceted, no normals are averaged, and the apex is a CORNER OF THE CORE, which
-// makes the silhouette there a circular cap of radius R0: a soft vinyl peak by
+// by d" is "pushed out by R0 - d" and the normal is unchanged. The offset
+// reasoning the house relies on survives the generalisation unchanged, because
+// every arc here is convex and every centre is fixed. Nothing is faceted, no
+// normals are averaged, and the apex is a CORNER OF THE CORE, which makes the
+// silhouette there a circular cap of radius R0: a soft vinyl peak by
 // construction rather than by tuning.
 //
-// Three things make the joint disappear.
+// Three things make the joint disappear. None of them is the usual cap
+// argument: a cap that BUTTS ONTO the slab's flat top does leave a crease or a
+// coplanar fight, and that is worth saying because this is not one.
 //
 // The head SWALLOWS the slab's round top rather than butting onto it. A pointed
 // arch and a half-round of the same span springing from the same height are
@@ -235,8 +242,8 @@ registerStone('gothic', {
   // repeating it, and four digits hold together at the sixty-odd pixels the
   // mark gets at scene scale where a longer line would smear.
   draw(ctx, w, h) {
-    inkTrefoil(ctx, w / 2, h * 0.33, w * 0.38);
-    inkText(ctx, '1666', w / 2, h * 0.56, h * 0.1, h * 0.012);
+    inkTrefoil(ctx, w / 2, h * 0.34, w * 0.38);
+    inkText(ctx, '1666', w / 2, h * 0.6, h * 0.1, h * 0.012);
   },
 
   extras({ body, material, shape, plinthH, halfWidth, height, edge, disposables, stripUV, frontFrac }) {
@@ -250,10 +257,11 @@ registerStone('gothic', {
 
     // Below the slab's top this is the slab's own face mapping, vertex for
     // vertex, so the head's face and the slab's face are one surface carrying
-    // one texture. Above it the map is mirrored back down and squashed, which
-    // keeps the stone continuous at the joint and puts nothing but mottle on
-    // the arch. Everything that is not the front face goes to the plain strip,
-    // same as the slab's sides.
+    // one texture. Above it the map is mirrored back down, one to one, which
+    // keeps it continuous at the top edge and puts nothing but mottle on the
+    // arch: the mirror never reaches below v = 0.81 and the marks stop at 0.76.
+    // slabUV is not used for the front because its v clamps above the slab, and
+    // a clamp would smear the map's top row up the point.
     const faceV = (y) => (y <= height ? y / height : 2 - y / height);
     // Everything that is not the front face goes to the plain strip on exactly
     // the slab's own terms, so the head's sides and back are the same stone as

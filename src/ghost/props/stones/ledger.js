@@ -51,12 +51,12 @@ const DIP = 0.19;
 // floor crosses the carved face, as a fraction of the half-length in from the
 // low end. Sinking by a depth instead is guesswork, and sinking by less than the
 // slab's own thickness buries nothing but the underside, which is exactly how a
-// slab resting on a lawn looks. At 0.46 rather better than a quarter of the
+// slab resting on a lawn looks. At 0.56 a fifth of the
 // stone is gone, the cut runs where the sides are parallel so it reads as a cut
 // and not as the stone's own rounded end, and it takes the foot of the cross
 // with it: a mark walking into the ground says buried in a way no heap of soil
 // beside the stone managed to.
-const WATERLINE = -0.46;
+const WATERLINE = -0.56;
 // ...and the depth is then checked, not assumed. Nothing may be left hovering.
 const MIN_BURY = 0.05;
 

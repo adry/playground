@@ -120,11 +120,14 @@ const VARY_LEAN = 0.10;  // of the lean
 const LEAN_Z = 0.125;   // about 7 degrees sideways
 const LEAN_X = -0.035;  // and a little more of the backward tip the set already has
 // Leaning about the foot lifts one corner of the plinth clear of the ground, so
-// the whole thing is sunk by roughly what the lean lifts, which also reads as
-// settled rather than as placed. Measured rather than guessed: at 0.052 the
-// raised corner of the plinth's flat underside still stood 4mm clear, a
-// hairline of daylight under a prop that is meant to have been here a century.
-const SINK = 0.060;
+// the stone has to be sunk by whatever the lean lifted, which reads as settled
+// rather than as placed anyway. Not a constant: the lean varies per stone, and a
+// constant chosen for one of them left a 4mm hairline of daylight under the
+// raised corner of another. seat() below measures it off the plinth's own flat
+// underside, which is the same rule the set uses for ground contact everywhere:
+// the true lowest vertex under the transform, never a bounding box, which a
+// rotation inflates to a tumbling cube's corner.
+const SEAT_MARGIN = 0.004;
 
 // ---------------------------------------------------------------------------
 // the face
@@ -429,11 +432,25 @@ registerStone('cracked', {
 
     // The lean. A group slipped in under body, because body's own rotation is
     // set after this returns and would overwrite anything put on it here.
+    const plinth = body.children.find((m) => m.isMesh && m !== slab);
     const tilt = new THREE.Group();
     for (const child of [...body.children]) tilt.add(child);
     tilt.rotation.z = LEAN_Z * (1 + vary(VARY_LEAN));
     tilt.rotation.x = LEAN_X;
-    tilt.position.y = -SINK;
     body.add(tilt);
+
+    // Sunk until the highest point of the plinth's flat underside is back in the
+    // ground. The set sinks every stone another 0.012 after this, which covers
+    // its own seeded lean on top of ours.
+    if (plinth) {
+      const p = plinth.geometry.getAttribute('position');
+      const q = new THREE.Vector3();
+      let hi = 0;
+      for (let i = 0; i < p.count; i++) {
+        if (p.getY(i) > 1e-6) continue;   // the flat underside only
+        hi = Math.max(hi, q.fromBufferAttribute(p, i).applyEuler(tilt.rotation).y);
+      }
+      tilt.position.y = -(hi + SEAT_MARGIN);
+    }
   },
 });
