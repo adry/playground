@@ -226,6 +226,10 @@ const RING = {
 const HIP_THICKNESS = frac(0.0280);   // 0.070. A 0.058 plate over this much area
                                       // reads as sheet metal rather than bone.
 const HIP_BEVEL = 0.34;               // no holes to protect, so round it properly
+// bone.js defaults to 4 bevel segments, which on a plate this thick with a
+// bevel this generous puts four flat bands round the rim. The hip bone is seen
+// edge-on from the side and from behind in every pose, so it pays for more.
+const HIP_BEVEL_SEGMENTS = 12;
 
 // THREE.Shape draws straight lines between the points it is handed, so the
 // outline above extrudes as a faceted crystal: the first render of this part
@@ -356,7 +360,10 @@ const HEEL = { z: -0.176, r: 0.150, scale: [1.0, 1.0, 1.30] };
 // Flattened front to back it is an instep instead, and the five rays get 40% of
 // their length back out in the open where they can be seen.
 const TARSAL = { z: 0.084, r: 0.168, scale: [1.05, 1.0, 0.72] };
-const SWEEP_R = 0.120;
+// As fat as the tarsal block's underside allows. The waist is nearly off for
+// this one bone: bone.js's 0.62 pinches the midfoot into an hourglass from the
+// side, and a foot is not two lumps with a stick between them.
+const SWEEP_R = 0.124;
 
 // A standing foot toes out a little. It is a rotation on a node BELOW the ankle
 // joint, not on the joint itself, so `ankleL.rotation` is still identity in the
@@ -388,7 +395,7 @@ export function buildLower({ material }) {
   for (const [tag, s] of [['L', 1], ['R', -1]]) {
     // --- hip bone -----------------------------------------------------------
     const outline = smoothOutline(HIP_OUTLINE.map(([x, y]) => new THREE.Vector2(s * x, y)));
-    const slab = plate(outline, HIP_THICKNESS, { bevel: HIP_BEVEL });
+    const slab = plate(outline, HIP_THICKNESS, { bevel: HIP_BEVEL, bevelSegments: HIP_BEVEL_SEGMENTS });
     const map = poseAndFit(slab, s);
     put(group, slab);
 
@@ -546,7 +553,7 @@ export function buildLower({ material }) {
         V(0, soleY, tarsalZ),
       ]),
       SWEEP_R * FOOT,
-      { waist: 0.86, segments: 16 },
+      { waist: 0.94, segments: 16 },
     ));
         // Just under the heel's width. Wider than the heel and the tube's rim
     // stands proud of it as a hard fin, which is the one thing bone.js warns

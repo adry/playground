@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import M from '../metrics.js';
+import M, { LEFT_X } from '../metrics.js';
 import { shaft, straightShaft, jointBall, plate } from './bone.js';
 
 // One arm and its half of the shoulder girdle: clavicle, scapula, humerus,
@@ -10,32 +10,25 @@ import { shaft, straightShaft, jointBall, plate } from './bone.js';
 // axes are the world's, so +Y is up, +Z is the way the figure faces, and the
 // arm hangs down -Y. Everything below is authored in that frame.
 //
-// Which way is out. `sx` is the outward direction for the side being built and
-// every left/right decision in this file goes through it, so the two arms are
-// two separately authored meshes rather than one mesh with a negative scale. A
-// mirrored scale inverts triangle winding, and the result is an arm that is lit
-// inside out from behind, which is exactly the class of bug that only shows up
-// in the back view nobody rendered.
+// Which way is out. LEFT IS +X: the figure faces +Z with +Y up, so its own left
+// is up cross forward, and Y cross Z is X. metrics.js exports that as `LEFT_X`
+// and model.js asserts it against every part's `group.userData.outwardX`, so
+// this file takes the sign from the metric and never from a local guess. An
+// earlier pass had axial on one convention and legs on the other, which put
+// `shoulderL` and `hipL` on opposite sides of the same body: invisible at rest
+// and cross-limbed the moment anything walks.
 //
-// The sign of `sx` is not ours to choose: this part parents onto the anchor
-// that parts/axial.js publishes, and axial puts `shoulderL` at NEGATIVE x. So
-// OUTWARD_FOR_L is -1 and an arm labelled L is built pointing at -x.
-//
-// This disagrees with the rest of the figure and it should be fixed in axial,
-// not here. Anatomically, a body facing +Z with +Y up has its left at +X (up
-// cross forward, Y x Z = X), and parts/legs.js follows that: `hipL` is at +X.
-// Today `joints.shoulderL` and `joints.hipL` are therefore on opposite sides of
-// the character, which nothing in the rest pose shows but which will bite the
-// first animator who poses one arm and one leg together. One line in axial.js
-// (`side < 0 ? 'L' : 'R'` -> `side > 0 ? 'L' : 'R'`) aligns all three, and this
-// file follows with one sign here. Reported to the coordinator.
+// `sx` is the outward direction for the side being built, and every left/right
+// decision in this file goes through it, so the two arms are two separately
+// authored meshes rather than one mesh with a negative scale. A mirrored scale
+// inverts triangle winding, and the result is an arm that is lit inside out
+// from behind, which is exactly the class of bug that only shows up in the back
+// view nobody rendered.
 //
 // The A-pose flare is baked into the geometry here, not applied as a rotation
 // on the shoulder node. `joints.shoulder`, `joints.elbow` and `joints.wrist`
 // are all identity at rest with world-aligned axes, so the animator can write
 // absolute Euler targets.
-
-const OUTWARD_FOR_L = -1;
 
 const f = (v) => v * M.height;        // fraction of standing height -> world units
 const h = (v) => v * M.arm.hand;      // fraction of hand length, for the digits
@@ -100,6 +93,12 @@ const A = {
 // reason the A-pose has a soft break at the elbow instead of reading as one
 // straight splayed stick. Weighted by the two bone lengths these average back
 // to M.arm.flare within a percent, so the metric still governs.
+//
+// Re-checked against the photo after M.arm.flare was corrected from 0.14 to
+// 0.22: the humerus now lands at 0.33 rad against a measured 0.34 and the
+// forearm at 0.11 against a measured 0.126, which puts the wrist 0.418 out from
+// the centreline against a measured 0.414. The 1.5 / 0.5 split is carrying real
+// shape rather than papering over a wrong metric, so it stays as it is.
 const HUMERUS_FLARE = M.arm.flare * 1.5;
 const FOREARM_FLARE = M.arm.flare * 0.5;
 
@@ -139,7 +138,7 @@ const SCAPULA = [
 ];
 
 export function buildArm({ material, side }) {
-  const sx = side === 'L' ? OUTWARD_FOR_L : -OUTWARD_FOR_L;
+  const sx = side === 'L' ? LEFT_X : -LEFT_X;
 
   const geos = [];
   const add = (geo, parent, name) => {
@@ -152,10 +151,10 @@ export function buildArm({ material, side }) {
 
   const group = new THREE.Group();
   group.name = `arm${side}`;
-  // Published so the assembler can assert that the anchor it parented us onto
-  // is on the side we authored for: sign(anchor.position.x) must equal this. If
-  // it does not, the arm flares into the ribs and the clavicle runs away from
-  // the sternum, which is what the first full assembly did.
+  // Published for model.js to assert against the anchor it parents us onto:
+  // sign(anchor.position.x) must equal this. When it did not, the arm flared
+  // into the ribs and the clavicle ran away from the sternum, which is what the
+  // first full assembly did before LEFT_X existed.
   group.userData.outwardX = sx;
 
   const HUM = M.arm.humerus;
