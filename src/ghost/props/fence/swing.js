@@ -58,12 +58,23 @@
 //
 //   VISCOUS   linear in speed. Hinge grease and the general loss.
 //   AIR       quadratic in speed. A gate leaf is a flat plate broadside to its
-//             own travel, and a plate's drag goes as v^2. This is what takes
-//             the first big swing down hard and then almost stops mattering,
-//             which is the difference between a gate and a pendulum in oil.
-//             With the linear term alone every swing loses the same FRACTION
-//             of its amplitude, and the decay reads as an exponential curve
-//             drawn over the motion rather than as air resisting it.
+//             own travel, and a plate's drag goes as v^2. This is the term
+//             that makes the decay stop being an exponential. A purely viscous
+//             gate loses the same FRACTION of its amplitude every swing, at any
+//             amplitude, forever -- an exponential envelope drawn over the
+//             motion. Measured on the shipped numbers with the stop made
+//             lossless, so the ratios below are damping alone: the first, big
+//             swing gives up 26% of its amplitude and the sixth gives up 13%
+//             (0.736  0.785  0.816  0.838  0.853  0.865, climbing toward the
+//             viscous asymptote as the leaf slows down). A big shove therefore
+//             dies back fast and then the gate rings on quietly, which is what
+//             air actually does and what an envelope cannot fake.
+//             AIR was 0.25 against VISCOUS 0.45 in the first tuning, which had
+//             the right settle time and a ratio spread of four points across
+//             the whole run. Correct physics, invisible. The split was moved
+//             most of the way onto the quadratic term to get a spread worth
+//             looking at, and the settle time was kept by taking it out of the
+//             linear term rather than by changing `damping`.
 //   HINGE     constant torque opposing motion, whichever way it is going, i.e.
 //             dry friction in a rusty pin. This is the one that makes the gate
 //             actually STOP. Viscous and quadratic damping are both
@@ -72,25 +83,30 @@
 //             level. Coulomb friction removes a fixed amount of speed per
 //             second, reaches zero in finite time, and then holds: below
 //             asin(mu * L / g) of plumb the friction beats gravity outright
-//             and the leaf sticks. At the default that stiction band is 0.3
-//             degrees wide, which is under the width of the gap the leaf rests
-//             in anyway, so it is never visible -- but it is what guarantees
-//             the numbers actually reach zero rather than 1e-9.
-const VISCOUS = 0.45;  // per second
-const AIR = 0.25;      // per radian
-const HINGE = 0.05;    // rad/s^2
+//             and the leaf sticks. At the default that stiction band is 0.05
+//             degrees wide, well under the clearance the leaf rests in anyway,
+//             so it is never visible -- but it is what guarantees the numbers
+//             actually reach zero rather than 1e-9. REST_GAP below is sized to
+//             swallow the whole band, so a leaf that stalls inside it still
+//             counts as shut and still retires.
+const VISCOUS = 0.18;  // per second
+const AIR = 0.60;      // per radian
+const HINGE = 0.03;    // rad/s^2
 
 // --- the stop ------------------------------------------------------------------
 // Below this closing speed the bounce is dropped and the leaf is simply shut.
-// A gate arriving at 0.3 rad/s carries about a degree of rebound, which is
-// invisible, and reflecting it forever is exactly the jitter that makes a
-// collision look cheap. No value of restitution avoids that; the fix is a
-// floor on the speed. Same argument as MIN_BOUNCE in the skeleton's debris.
-const MIN_BOUNCE = 0.30;   // rad/s
+// A rebound from 0.22 rad/s reaches half a degree, which nobody can see, and
+// reflecting a rebound smaller than that forever is exactly the jitter that
+// makes a collision look cheap. No value of restitution avoids it; the fix is
+// a floor on the speed. Same argument as MIN_BOUNCE in the skeleton's debris.
+const MIN_BOUNCE = 0.22;   // rad/s
 
 // --- sleep ---------------------------------------------------------------------
 const REST_SPEED = 0.05;   // rad/s, slow enough to be resting rather than moving
-const REST_GAP = 5e-4;     // rad off the stop that still counts as shut
+// Wide enough to contain the stiction band above, so a leaf that dry-friction
+// stalls a hair short of the stop is still judged shut and still retires. On a
+// metre-wide leaf this is 2mm at the far edge.
+const REST_GAP = 2e-3;     // rad off the stop that still counts as shut
 const SLEEP_TIME = 0.1;    // seconds of that before the gate retires
 
 // --- stepping -------------------------------------------------------------------
@@ -120,7 +136,7 @@ export function createSwing({
   gravity = 9.8,
   length = 0.5,           // effective pendulum length, metres
   damping = 0.6,          // air and hinge friction, one dial for all three terms
-  bounce = 0.45,          // energy kept when it strikes the closed stop
+  bounce = 0.45,          // ENERGY kept when it strikes the closed stop
   direction = 1,          // +1: the leaf opens toward increasing angle
   // How far it can open before the leaf is up against the fence or the post.
   // This is a real stop on a real gate and it is also the hard guarantee that
@@ -128,6 +144,14 @@ export function createSwing({
   maxAngle = Math.PI / 2,
 } = {}) {
   const dir = direction < 0 ? -1 : 1;
+  // `bounce` is the fraction of ENERGY kept, so the speed coming out of a
+  // strike is sqrt(bounce) of the speed going in. Reading it as a coefficient
+  // of restitution instead (multiplying the velocity by 0.45) is the same
+  // number meaning something four times as lossy, and it is the single tuning
+  // mistake that cost this file the most: the gate banged shut in four arcs
+  // and 2.1s, which reads as three thuds rather than as a gate swinging. On
+  // the energy reading the same 0.45 gives six arcs over 3.2s.
+  const restitution = Math.sqrt(Math.max(0, bounce));
   // Angular frequency squared of the small-angle swing. w0 = sqrt(g/L), so the
   // default gate has a 1.42s natural period, which is about right for a light
   // leaf on a short effective radius. Longer `length` is a heavier, lazier gate.
@@ -166,8 +190,8 @@ export function createSwing({
       // throwing that away instead loses up to a substep of the rebound and
       // makes the first bounce read late.
       if (closing > MIN_BOUNCE) {
-        velocity = -velocity * bounce;
-        angle = shut + dir * (-x * bounce);
+        velocity = -velocity * restitution;
+        angle = shut + dir * (-x * restitution);
       } else {
         // Shut. Not "nearly shut".
         velocity = 0;
@@ -183,8 +207,8 @@ export function createSwing({
       // ghost hits it.
       const opening = velocity * dir;
       if (opening > MIN_BOUNCE) {
-        velocity = -velocity * bounce;
-        angle = open - dir * over * bounce;
+        velocity = -velocity * restitution;
+        angle = open - dir * over * restitution;
       } else {
         velocity = 0;
         angle = open;
