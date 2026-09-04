@@ -87,10 +87,10 @@ const URN_SCALE = 1.18;
 // the urn at the FOOT of the rim flare, so the lip always overhangs the cloth
 // and the cloth's top edge sits in the lip's own shadow.
 const CLOAK = [
-  [0.215, 0.220],
-  [0.260, 0.222],
-  [0.300, 0.198],
-  [0.330, 0.162],
+  [0.215, 0.216],
+  [0.250, 0.212],
+  [0.290, 0.192],
+  [0.330, 0.160],
   [0.355, 0.132],
   [0.370, 0.110],
   [0.378, 0.104], // inside the urn here, so the cloth has run out by the flare
@@ -100,7 +100,7 @@ const DRAPE = {
   arcPos: 1.06,   // how far the cloth wraps one way, radians
   arcNeg: 0.92,   // and the other. Uneven on purpose: a hand-thrown cloth is.
   folds: 3,       // ridges across the whole span
-  foldDepth: 0.32,
+  foldDepth: 0.28,
   // Where the hem sits. It is written as a TUCK LINE up on the shoulder and a
   // fall below it, and the fall is scaled by the same fade that thins the cloth
   // at its ends. Written the other way round -- a hem height with a tilt added
@@ -120,7 +120,7 @@ const DRAPE = {
   // its own thickness just inside the edge and settles back, and it is that
   // bead catching the key light above its own shadow that says "cloth".
   roll: 0.045,
-  bead: 0.24,
+  bead: 0.22,
   // The one corner of cloth that hangs free, down past the belly and over the
   // stem. This is the feature that makes the piece read as draped rather than
   // as a pot with a lumpy shoulder: it is the only place the cloth's edge

@@ -193,7 +193,7 @@ function roundedBlock({ halfX, halfZ, height, edge, corner, y0, uv }) {
 // what you see is a single form that leans in a little, rounds over a shoulder
 // and comes to a soft point. Four sections, each one tangent to the last:
 //
-//   1. the shaft's taper, from inside the shaft up past its rounded top,
+//   1. the shaft's own taper, carried on from where the shaft stops,
 //   2. a fat fillet turning the taper into the pyramid slope -- the shoulder,
 //   3. the pyramid slope itself, 52 degrees off horizontal,
 //   4. a cap arc that rounds the apex off, because a point is a knife edge.
@@ -285,7 +285,6 @@ function pyramidionGeometry({ uv, edge }) {
     capTop: false,
     uv,
   });
-  geo.userData.apex = yTip + TIP;
   return geo;
 }
 
@@ -293,7 +292,7 @@ function pyramidionGeometry({ uv, edge }) {
 // the mark
 //
 // A five-pointed star, the memorial obelisk's own device, and the only thing on
-// a face that is otherwise 0.96 of bare shaft. It sits at four fifths of the
+// a face that is otherwise 0.94 of bare shaft. It sits at four fifths of the
 // height because that is where an obelisk's inscription panel is: the eye finds
 // the mark, then runs down the blank stone under it, and the drop is what sells
 // the height.

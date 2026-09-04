@@ -543,8 +543,15 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
     frontFrac + stripFrac * (0.15 + 0.7 * ((x + halfW) / (2 * halfW))),
     Math.min(1, Math.max(0, y / h)) * vSpan,
   ];
+  // v is clamped on the front branch as well as the strip one. A registered
+  // stone whose extra geometry reaches above shape.height, which a crown or a
+  // finial does by definition, was otherwise relying on the texture's wrap mode
+  // to decide what it sampled, and got the bottom of the inscription wrapped
+  // onto the top of the piece.
   const slabUV = (x, y, front) =>
-    front ? [(((x + W) / (2 * W)) * frontFrac), y / H] : stripUV(x, y, W, H);
+    front
+      ? [((x + W) / (2 * W)) * frontFrac, Math.min(1, Math.max(0, y / H))]
+      : stripUV(x, y, W, H);
 
   const material = toyMaterial(PALETTE.stone, {
     map: tex ? tex.map : null,

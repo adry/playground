@@ -52,7 +52,6 @@ const ARCH = { radius: 0.36, centre: 0.30, valley: 0.09 };
 // rounding; the rest is margin.
 const CROWN_SINK = 0.24;
 
-
 // ---------------------------------------------------------------------------
 // the outline
 

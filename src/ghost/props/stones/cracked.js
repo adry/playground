@@ -124,7 +124,10 @@ const LEAN_X = -0.035;  // and a little more of the backward tip the set already
 // Leaning about the foot lifts one corner of the plinth clear of the ground, so
 // the whole thing is sunk by roughly what the lean lifts. It reads as settled
 // rather than as floating, which is what an old stone does anyway.
-const SINK = 0.052;
+// Measured, not guessed: at 0.052 the raised corner of the plinth's flat
+// underside still sat 4mm clear of the ground, which is a hairline of daylight
+// under a prop that is meant to have been there for a century.
+const SINK = 0.060;
 
 // ---------------------------------------------------------------------------
 // the face

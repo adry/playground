@@ -66,11 +66,11 @@ import { SEGMENTS } from '../style.js';
 // to it, exactly how the slab gets its own straight sides) and turns each lobe
 // back into a dome. On a bigger stone the same edge radius would have cost a
 // fifth of this, and none of it would have come up.
-const LOBE = 0.42; // lobe radius as a fraction of the half-width
-const LIFT = 0.25; // straight rise above the shoulders before the lobes round over
-const VALLEY = 0.234; // fillet radius in the notch, same units
-const LOPSIDED = 0.06; // one lobe this much larger, the other that much smaller
-const TILT = 0.039; // and one sits that much higher than the other
+const LOBE = 0.4; // lobe radius as a fraction of the half-width
+const LIFT = 0.35; // straight rise above the shoulders before the lobes round over
+const VALLEY = 0.25; // fillet radius in the notch, same units
+const LOPSIDED = 0.04; // one lobe this much larger, the other that much smaller
+const TILT = 0.022; // and one sits that much higher than the other
 
 // Two circles, radius r1 about c1 and r2 about c2, meet at two points. Returns
 // the upper one, which is the fillet centre sitting above the notch.
@@ -236,7 +236,7 @@ registerStone('heart', {
   // card. The face comes out at 0.81 of its own height, within a whisker of
   // fred's 0.78, so it is 819 texels wide against his 797 and the engraving
   // treatment is working at the size it was tuned at.
-  shape: { halfWidth: 0.32, height: 0.79, depth: 0.23, plinth: 0.13 },
+  shape: { halfWidth: 0.32, height: 0.77, depth: 0.23, plinth: 0.13 },
   // Squared off: the top corners and the top edge are swallowed by the lobes, so
   // all this has to do is not be an arch. Zero is clamped up to the edge radius,
   // which is the squarest the vinyl style allows and is what the cap assumes.

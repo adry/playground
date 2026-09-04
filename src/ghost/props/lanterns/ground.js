@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { PALETTE, SEGMENTS, contactShadow } from '../style.js';
+import { PALETTE, SEGMENTS } from '../style.js';
 
 // A ground candle lantern: the small squat one that is left standing on the
 // earth beside a headstone. A glazed hexagon in a fat rounded frame, a domed
@@ -472,8 +472,8 @@ function makeNoise(seed) {
 // lantern read as a lantern in THIS scene's light. The 2.2 : 1 ratio between
 // the ends is the pumpkin's and is the part that is not stylistic.
 const LAMP = { min: 0.66, max: 1.45 };
-const CORE = { min: 1.70, max: 3.60 };   // flame body, above 1 so ACES clips it
-const HALO = { min: 0.20, max: 0.46 };   // the soft shell around it
+const CORE = { min: 1.15, max: 2.45 };   // flame body, above 1 so ACES clips it
+const HALO = { min: 0.11, max: 0.28 };   // the soft shell around it
 const WASH = { min: 0.90, max: 2.20 };   // the candle on the inside of the pane
 
 // How the flame's colour is mixed between ember and flame. Levered about the
@@ -607,7 +607,7 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
     return pts;
   };
   const coreGeo = new THREE.LatheGeometry(flameProfile(0.0135, 0.048), 16);
-  const haloGeo = new THREE.LatheGeometry(flameProfile(0.030, 0.070), 16);
+  const haloGeo = new THREE.LatheGeometry(flameProfile(0.026, 0.062), 16);
   const coreMat = new THREE.MeshBasicMaterial({ color: CORE_FLAME.clone(), toneMapped: true });
   const haloMat = new THREE.MeshBasicMaterial({
     color: CORE_EMBER.clone(),
@@ -742,10 +742,14 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
   body.add(ironMesh, candle, wick, core, halo, glass, lamp);
 
   const group = new THREE.Group();
-  // The contact term the key light's angled shadow cannot give: at this size
-  // the cast shadow lands entirely outside the footprint and nothing darkens
-  // the earth where the foot actually meets it.
-  group.add(contactShadow({ radius: 0.20, opacity: 0.38, softness: 0.5 }));
+  // No painted contact patch under this prop, and it is worth saying why, since
+  // style.js offers one and most props here want it. Two reasons, checked by
+  // rendering it both ways. The foot is a real pad with a real rim, so the key
+  // light's own shadow reaches the silhouette and holds the lantern down. And
+  // this prop is the one thing in the set that lights the ground it stands on:
+  // the patch put an even dark disc through the middle of the lantern's own
+  // pool, which is the single brightest place on the floor, so the effect was
+  // a hole punched in the light rather than contact.
   group.add(body);
   body.rotation.y = spin;
   // Lean, applied about the foot so the pad stays in the ground.

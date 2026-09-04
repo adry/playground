@@ -309,7 +309,14 @@ const GLASS_FRAG = `
   // it reads as a source behind the glass rather than as a wash over it. A back
   // pane gets more of it: you are looking at its lit inside face.
   float d = length(vec2(vPane.x * 0.85, (vPane.y + 0.42) * 1.05));
-  float lit = exp(-d * d * 4.20) * mix(1.0, 1.55, back);
+  // The 0.30 floor is not padding. A glazed box is glazed on all four sides, so
+  // a ray through the near pane goes on out through the far one and what it
+  // finds is the scene's pale backdrop: the top half of every pane was reading
+  // as milk for that reason and not, as three passes of tuning assumed, because
+  // the reflection was too strong. What a lit lantern actually has up there is
+  // a boxful of warm air, so there is a warm floor everywhere inside the glass
+  // and the falloff only says where the flame is brightest.
+  float lit = (0.30 + 0.70 * exp(-d * d * 3.20)) * mix(1.0, 1.55, back);
 
   vec3 body = outgoingLight + uGlowCol * (uGlow * lit);
 
@@ -812,7 +819,7 @@ export function createPillarLantern({ seed = 1, scale = 1 } = {}) {
     // ray's own y. -0.22 puts it across the upper third of a pane at this
     // camera's elevation, and 0.13 makes it about a fifth of the pane deep: any
     // wider and it is a gradient again.
-    uGlare: { value: new THREE.Color('#f2f6ff').convertSRGBToLinear().multiplyScalar(0.0) },
+    uGlare: { value: new THREE.Color('#f2f6ff').convertSRGBToLinear().multiplyScalar(3.20) },
     uGlareAt: { value: new THREE.Vector2(-0.24, 0.060) },
     // Between the key in main.js and the one in the preview harness.
     uSunDir: { value: new THREE.Vector3(3.45, 6.0, 2.4).normalize() },
@@ -829,7 +836,7 @@ export function createPillarLantern({ seed = 1, scale = 1 } = {}) {
     // How much of the pane is glass and how much is air. Low: you have to see
     // the flame and the far frame through it, and everything that makes it read
     // as a surface is in the reflection and the edge rather than in the body.
-    uBodyA: { value: 0.125 },
+    uBodyA: { value: 0.150 },
     uWave: { value: 0.048 },
     uSeed: { value: rand() * 6.283 },
   };

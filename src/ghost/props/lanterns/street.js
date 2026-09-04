@@ -167,7 +167,7 @@ const M = {
 // head is the piece the eye lands on and does.
 const SEG = {
   post: Math.round(SEGMENTS.radial * 0.58),   // 28
-  head: SEGMENTS.radial,                      // 48
+  head: Math.round(SEGMENTS.radial * 0.83),   // 40
   bar: 12,
 };
 
@@ -248,7 +248,7 @@ function makeRng(seed) {
 // loft straight between rings and an ease shorter than one segment smears
 // across a whole segment. So the arcs get their OWN samples, proportional to
 // how far they turn, rather than being asked to appear in a fixed grid.
-function fillet(points, radii, perTurn = 9) {
+function fillet(points, radii, perTurn = 7) {
   const P = points.map(([r, y]) => new THREE.Vector2(r, y));
   const out = [P[0].clone()];
 
@@ -294,12 +294,15 @@ function fillet(points, radii, perTurn = 9) {
   }
   out.push(P[P.length - 1].clone());
 
-  // Split any long straight run, so the shading has somewhere to put a
-  // gradient and a merged geometry does not carry one 800mm quad.
+  // Split any long straight run, so the shading has somewhere to put a gradient
+  // and a merged geometry does not carry one 800mm quad. Not finer than this:
+  // a straight run of a solid of revolution has an exact normal at every ring
+  // whatever the spacing, so extra rows down the shaft buy nothing at all, and
+  // at 0.075 they were a third of the prop's triangles.
   const dense = [out[0]];
   for (let i = 1; i < out.length; i++) {
     const gap = out[i].distanceTo(out[i - 1]);
-    const n = Math.max(1, Math.ceil(gap / 0.075));
+    const n = Math.max(1, Math.ceil(gap / 0.16));
     for (let k = 1; k <= n; k++) dense.push(new THREE.Vector2().lerpVectors(out[i - 1], out[i], k / n));
   }
   return dense;
@@ -565,8 +568,8 @@ export function createStreetLamp({ seed = 1, scale = 1 } = {}) {
   // would be nine draw calls buying nothing.
   const ironParts = [
     revolve(fillet(M.post, M.postRound), { segments: SEG.post }),
-    revolve(fillet(M.skirt, M.skirtRound, 11), { section, segments: SEG.head }),
-    revolve(fillet(M.cap, M.capRound, 11), { section, segments: SEG.head }),
+    revolve(fillet(M.skirt, M.skirtRound, 9), { section, segments: SEG.head }),
+    revolve(fillet(M.cap, M.capRound, 9), { section, segments: SEG.head }),
     revolve(fillet(M.burner, M.burnerRound, 8), { segments: SEG.post }),
     revolve(fillet(M.finial, M.finialRound, 10), { segments: SEG.post }),
   ];
@@ -630,7 +633,7 @@ export function createStreetLamp({ seed = 1, scale = 1 } = {}) {
     // Over one on purpose. The fake sky is a flat gradient with no bright spots
     // of its own to find, so a physically honest fresnel leaves the pane's edge
     // barely separated from the iron behind it.
-    uRimGain: { value: 1.62 },
+    uRimGain: { value: 1.90 },
     uGlint: { value: 1.15 },
     uShine: { value: 150.0 },
     uInner: { value: INNER.min },
