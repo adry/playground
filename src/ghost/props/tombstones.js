@@ -184,7 +184,7 @@ export function buildArcSweepGeometry({ outline, depth, edge: e, uv }) {
 // ---------------------------------------------------------------------------
 // deterministic noise
 
-function mulberry32(seed) {
+export function mulberry32(seed) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -469,7 +469,7 @@ function lipMask(marks, dx, dy, colour) {
 // low contrast on purpose: this is a toy headstone, not a granite scan.
 // The speckle pass is colour-only -- on the height map its high frequencies
 // would come back through the normals as sandpaper.
-function mottle(ctx, w, h, rng, light, dark, strength, speckle = true) {
+export function mottle(ctx, w, h, rng, light, dark, strength, speckle = true) {
   for (let i = 0; i < 130; i++) {
     const x = rng() * w;
     const y = rng() * h;
@@ -496,7 +496,7 @@ function mottle(ctx, w, h, rng, light, dark, strength, speckle = true) {
 // derivatives, so the carving would soften as the camera pulls back. Slopes
 // baked here hold up at any distance, and the strength is a number rather than
 // a happy accident of texture resolution.
-function heightToNormalMap(canvas, strength) {
+export function heightToNormalMap(canvas, strength) {
   const w = canvas.width;
   const h = canvas.height;
   const src = canvas.getContext('2d').getImageData(0, 0, w, h).data;
@@ -531,7 +531,7 @@ function heightToNormalMap(canvas, strength) {
 
 // Fraction of the texture's height that the plinth is mapped into, measured up
 // from the bottom -- i.e. how far into the grime band it sits.
-const GRIME = 0.2;
+export const GRIME = 0.2;
 
 // Colour map + height map for one stone. The face artwork occupies a region of
 // exact face aspect on the left; the narrow strip on the right is plain stone
