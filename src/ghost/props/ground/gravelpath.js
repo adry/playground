@@ -146,16 +146,40 @@ function mulberry32(a) {
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
-// The palette. Cooler and lighter than the floor's #8f949e, which is the whole
-// brief: a made path of grey chippings next to a warm unmade sand path has to
-// be tellable apart at a glance, and hue is what does that at this size, not
-// detail. Everything here is a desaturated blue-grey; nothing in it is warm.
+// The palette, and it is the second one. The first was a cool blue-grey pitched
+// LIGHTER than the floor, on the reasoning that gravel is paler than earth and
+// that hue is what tells two paths apart at a glance. Seen in the asset lineup
+// at the size the prop is actually used, about ninety pixels across the whole
+// bend, that was flatly wrong: a bright cold patch with a hard edge is what
+// SNOW looks like, and the path read as a sheet of frost.
+//
+// Two rules came out of that render and they govern everything below.
+//
+// DARKER THAN THE FLOOR. Nothing on the ground in a graveyard is brighter than
+// the ground except a light source. A trodden surface has been walked on, and
+// walked-on reads as darker, full stop. Measured in the lineup, the floor sits
+// at (148, 150, 160) and this path now sits below it.
+//
+// NEUTRAL TO SLIGHTLY WARM. The floor is blue-grey. Going bluer still put the
+// path in the same hue as the ground and left only value to separate them, and
+// the value was going the wrong way. These are stone chippings, so they belong
+// in the same family as the kerb stones and the headstones, which are
+// PALETTE.stone, a warm neutral grey. The sand path is much warmer than this
+// and a good deal lighter, so the two are still told apart instantly.
 const GRAVEL = {
-  base: '#d4d9e3',
-  pale: '#e6e8ee',   // the top of a chip catching the key
-  dark: '#b8bfcc',   // a chip that has sat wet
-  crevice: '#9ca3b4', // the gap between chips, which is where the depth is
+  base: '#93908a',
+  pale: '#b0aca3',   // the top of a chip catching the key
+  dark: '#78766f',   // a chip that has sat wet
+  crevice: '#3f3e3c', // the gap between chips, which is where all the depth is
 };
+
+// How dark a gap between two chips goes. This is the number the whole prop
+// turns on and it is the one the first pass did not have: a field of pale
+// rounded stones lit from above with nothing between them is a snow field, and
+// no amount of pulling the value down fixes that, because what is missing is
+// not value, it is FORM. The one shadow-casting light cannot put a shadow in a
+// gap two centimetres wide, so the gap has to be painted, and painted deep.
+const AO_DEPTH = 0.92;
 
 // A wrapping box blur, run separably with a running sum so a wide radius costs
 // the same as a narrow one. Used to high-pass the height field.
@@ -290,6 +314,35 @@ function gravelTextures(seed) {
   // setting the scale for the whole tile.
   const sigma = Math.max(1e-6, Math.sqrt(sum / n)) * 2;
 
+  // Ambient occlusion between the chips, at chip scale. A texel sitting below
+  // the average of the disc AROUND it is down in a gap and cannot see much of
+  // the sky; a texel above that average is a crown and can see all of it. One
+  // box blur at about one chip radius, and the difference is the answer.
+  //
+  // This is a different measurement from the high pass above, and both are
+  // needed. The high pass is signed and centred, so it says which chips are
+  // proud and which are sunk. This one is one sided and local, so it says how
+  // BURIED a point is, which is the term that has to be dark.
+  const near = boxBlurWrap(blurred, Math.max(2, Math.round(CHIP_R[1] * 0.9 * (TEX / TILE))));
+  const shade = new Float32Array(n);
+  let deepest = 1e-6;
+  for (let i = 0; i < n; i++) {
+    const d = Math.max(0, near[i] - blurred[i]);
+    shade[i] = d;
+    if (d > deepest) deepest = d;
+  }
+  // Scaled against a high percentile rather than the mean, and this matters.
+  // Roughly half of every texel in the tile sits a little below its own
+  // neighbourhood, so a scale taken off the mean saturates the whole surface
+  // and paints the entire path the crevice colour, which is what the first
+  // attempt at this did. Only the real gaps should go dark.
+  const bins = new Int32Array(128);
+  for (let i = 0; i < n; i++) bins[Math.min(127, (shade[i] / deepest * 128) | 0)]++;
+  let acc = 0;
+  let cut = 127;
+  for (let b = 0; b < 128; b++) { acc += bins[b]; if (acc > n * 0.90) { cut = b; break; } }
+  const occScale = Math.max(1e-6, ((cut + 1) / 128) * deepest);
+
   const base = new THREE.Color(GRAVEL.base);
   const pale = new THREE.Color(GRAVEL.pale);
   const dark = new THREE.Color(GRAVEL.dark);
@@ -331,6 +384,7 @@ function gravelTextures(seed) {
 
       // --- albedo ---
       const h = clamp(0.5 + (detail[k] / sigma) * 0.5, 0, 1);
+      const occ = clamp(shade[k] / occScale, 0, 1);
       const who = owner[k];
       const t = who < 0 ? 0.5 : tint[who];
       // Each chip gets one colour off the ramp, so a chip reads as one stone.
@@ -341,12 +395,22 @@ function gravelTextures(seed) {
       // surface rather than an even bed of chippings. Even is the brief.
       c.copy(base);
       if (t < 0.45) c.lerp(dark, ((0.45 - t) / 0.45) * 0.55);
-      else c.lerp(pale, ((t - 0.45) / 0.55) * 0.32);
-      // Then the crevices go down. This is contact occlusion baked in, and it
-      // is doing most of the work: at a glancing angle the key light barely
-      // separates one chip from the next, and without a dark line between them
-      // the surface flattens back into a stain.
-      c.lerp(crev, (1 - smoothstep(0.16, 0.62, h)) * 0.50);
+      else c.lerp(pale, ((t - 0.45) / 0.55) * 0.30);
+      // Only the very top of a chip lifts toward the pale end. Lifting the
+      // whole chip is what turned this into a field of white pebbles: a stone
+      // has one lit crown and a lot of flank, and the flank is the mid tone.
+      c.lerp(pale, smoothstep(0.74, 1.0, h) * 0.20);
+      // And then the gaps go down, hard. See AO_DEPTH.
+      c.lerp(crev, Math.pow(occ, 1.5) * AO_DEPTH);
+      // Every mix above ran in LINEAR space, which is where mixing belongs, and
+      // the map is tagged sRGB, so the bytes have to be encoded on the way out.
+      // Writing the linear values straight into an sRGB texture was a real bug
+      // in the first pass: the renderer decoded them a second time, so the
+      // surface came out well under the colour it had been authored as and the
+      // contrast between crown and gap was squashed on top of that. It was
+      // invisible only because the palette had been tuned by eye against the
+      // wrong numbers.
+      c.convertLinearToSRGB();
       albedo[o] = c.r * 255;
       albedo[o + 1] = c.g * 255;
       albedo[o + 2] = c.b * 255;
