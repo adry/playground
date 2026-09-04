@@ -124,19 +124,31 @@ const PROPS = {
     // it, and only bleeds off the last of the angle. 0.70 rad is where a face
     // is still a face.
     const MAX_TURN = 0.70;
-    const STONE = new THREE.Vector2(stone.group.position.x, stone.group.position.z);
+
+    // The arc fans about its own centre of curvature, not about the stone.
+    // Those were the same point until the cluster was pushed forward to stop it
+    // burying the stone's foot, and then they were not: measured from the stone
+    // the four outward directions all converge as the cluster walks away from
+    // it, and the fan flattens out to nothing at a distance. A fixed focus a
+    // little behind the arc keeps the spread constant wherever the group sits.
+    const FOCUS = new THREE.Vector2(-0.500, 0.075);
+
+    // Pushed forward of the stone rather than wrapped around it. The first
+    // version tucked them against its face, which read well until you noticed
+    // the plinth had vanished behind them: a headstone with no visible foot
+    // looks like it is floating, and the base is where it meets the ground.
     for (const p of [
-      { variant: 'tall', at: [-0.974, 0.831], seed: 17 },
-      { variant: 'squat', at: [-0.210, 0.421], seed: 23 },
-      { variant: 'classic', at: [0.172, -0.243], seed: 3 },
-      { variant: 'tiny', at: [0.299, 0.690], seed: 8 },
+      { variant: 'tall', at: [-0.655, 1.150], seed: 17 },
+      { variant: 'squat', at: [0.108, 0.740], seed: 23 },
+      { variant: 'classic', at: [0.490, 0.075], seed: 3 },
+      { variant: 'tiny', at: [0.618, 1.008], seed: 8 },
     ]) {
       const o = pk.createPumpkin({ variant: p.variant, seed: p.seed });
       o.group.position.set(p.at[0], 0, p.at[1]);
-      // Radially outward. FACE_YAW is where a pumpkin looks at zero rotation,
-      // so subtracting it turns "the direction I want" into "the rotation that
-      // gets me there".
-      const out = new THREE.Vector2(p.at[0], p.at[1]).sub(STONE);
+      // Outward from the focus. FACE_YAW is where a pumpkin looks at zero
+      // rotation, so subtracting it turns "the direction I want" into "the
+      // rotation that gets me there".
+      const out = new THREE.Vector2(p.at[0], p.at[1]).sub(FOCUS);
       const turn = Math.atan2(out.x, out.y) - pk.FACE_YAW;
       o.group.rotation.y = Math.max(-MAX_TURN, Math.min(MAX_TURN, turn));
       group.add(o.group);
