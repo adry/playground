@@ -9,9 +9,12 @@ import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from './style.js';
 // rounded surface. Nothing is faceted or chipped.
 //
 // The inscription is drawn once per stone with the 2D canvas API -- there is no
-// font file to feed TextGeometry -- and used twice: as a colour map, where the
-// letters read darker, and as a normal map baked from the same artwork, where
-// they read *lower*. The second one is what makes it a carving and not a print.
+// font file to feed TextGeometry -- and then used as both maps. The normal map,
+// baked from a blurred copy of the same artwork, makes the mark read *lower*.
+// The colour map carries what the normal map cannot hold once distance filters
+// it away: a dark floor to the cut, a shaded wall under its top edge and a lit
+// one along its bottom lip. Together they are what makes it a carving and not
+// a print.
 
 export const VARIANTS = ['cross', 'bat', 'fred'];
 
@@ -172,9 +175,7 @@ function inkCross(ctx, cx, cy, h) {
 //
 // Units are half-spans in x. In y they are half-spans times Y, so the logo can
 // be squashed to its very wide aspect without every number being rewritten.
-// Each entry is one cubic: two control points then the end point. A segment
-// whose controls sit on the chord is a straight line, which is what the ears
-// want.
+// Each entry is one cubic: two control points then the end point.
 const BAT_TOP = [0, -0.06]; // notch between the ears, on the mirror line
 const BAT_HALF = [
   [0.045, -0.06, 0.09, -0.27, 0.115, -0.34], // top of the head, curving up into the ear point
@@ -231,7 +232,7 @@ function drawInscription(variant, w, h) {
     // the block's centre really is the middle line's centre.
     const lines = ['HERE', 'LIES', 'FRED'];
     const size = h * 0.15;
-    lines.forEach((line, i) => inkText(ctx, line, w / 2, h * (0.47 + (i - 1) * 0.175), size, size * 0.05));
+    lines.forEach((line, i) => inkText(ctx, line, w / 2, h * (0.485 + (i - 1) * 0.175), size, size * 0.05));
   } else if (variant === 'bat') {
     // No lettering under the bat. The reference stone carries the mark alone,
     // and an R.I.P. below it only crowded a symbol that wants the whole face.
@@ -439,9 +440,9 @@ function buildTextures(variant, faceAspect, rng) {
 // chunky slabs -- an earlier attempt at taller-and-no-wider gave thin flagstones
 // that the arch made look like doors.
 const SHAPES = {
-  cross: { halfWidth: 0.435, height: 1.30, depth: 0.28, plinth: 0.18 }, // 1.48
-  bat: { halfWidth: 0.47, height: 1.26, depth: 0.30, plinth: 0.185 }, // 1.445, wide enough for the wings
-  fred: { halfWidth: 0.35, height: 0.90, depth: 0.23, plinth: 0.14 }, // 1.04, still clearly the little one
+  cross: { halfWidth: 0.46, height: 1.37, depth: 0.30, plinth: 0.19 }, // 1.56, 82% of the ghost
+  bat: { halfWidth: 0.50, height: 1.33, depth: 0.32, plinth: 0.19 }, // 1.52, wide enough for the wings
+  fred: { halfWidth: 0.37, height: 0.95, depth: 0.25, plinth: 0.15 }, // 1.10, still clearly the little one
 };
 
 export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {}) {
@@ -531,12 +532,10 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
   // has to choose between hugging the base and spreading far enough to give the
   // stone any weight.
   //
-  // So it is built in two layers. A row of round patches whose diameter is the
-  // plinth's depth paves the footprint: overlapped, their union is a stadium,
-  // which is as close to a rectangle as a radial gradient gets, and each one is
-  // tight enough that the darkness is still at full strength where the plinth
-  // actually touches. Under them, one broad very soft patch is the ambient pool
-  // the stone sits in.
+  // So it is built in two layers. A row of round patches, each about as wide as
+  // the plinth is deep, paves the footprint: overlapped, their union is a
+  // stadium, which is as close to a rectangle as a radial gradient gets. Under
+  // them, one broad very soft patch is the ambient pool the stone sits in.
   const contacts = [];
   const patch = (hx, hz, x, opacity, softness) => {
     const c = contactShadow({ radius: 0.5, opacity, softness });
@@ -549,12 +548,12 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
   };
 
   // Core. contactShadow's gradient is opaque out to (1 - softness) of the
-  // patch's half-extent and fades over the rest, so sizing the patch at
-  // halfDepth / (1 - softness) puts the end of the opaque part exactly on the
-  // plinth's edge: full darkness everywhere the stone covers, and the falloff
-  // begins where the floor becomes visible. Sized the other way round -- patch
-  // barely bigger than the plinth -- the fade started underneath the stone and
-  // the joint went bright again, which is the gap this is here to close.
+  // patch's half-extent and fades over the rest, so dividing by (1 - softness)
+  // is what puts the end of the opaque part where you want it: here, a
+  // centimetre or so past the plinth, so the floor is still fully dark at the
+  // joint and only starts to lift beyond it. Sized the other way round -- patch
+  // barely bigger than the plinth -- the fade begins underneath the stone and
+  // the joint goes bright again, which is the gap this is here to close.
   const soft = 0.5;
   const reach = 0.06; // how far past the plinth the opaque part of the patch runs
   const core = (pD / 2 + reach) / (1 - soft);

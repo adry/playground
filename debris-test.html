@@ -50,6 +50,12 @@ const CAMS = {
   iso: { dir: new THREE.Vector3(1, 0.78, 1).normalize(), target: new THREE.Vector3(0.35, 0.5, 0), view: 1.5 },
   // Almost on the deck, and tight. The only view that can tell resting on the
   // floor from hovering a centimetre above it or sunk a centimetre into it.
+  // The same isometric, swung 90 degrees around. A bone lying flat but pointing
+  // away from the shipping camera projects to a vertical pill and can be
+  // mistaken for one standing on its end; from this azimuth a flat bone reads
+  // horizontal while a genuinely standing one is still vertical. Two azimuths
+  // settle the question that one cannot.
+  iso2: { dir: new THREE.Vector3(-1, 0.78, 1).normalize(), target: new THREE.Vector3(0.35, 0.5, 0), view: 1.5 },
   // Tight on where the long bone comes to rest, for looking at the last second
   // of the settle rather than at the whole drop.
   bone: { dir: new THREE.Vector3(0.2, 0.1, 1).normalize(), target: new THREE.Vector3(-1.45, 0.12, 0), view: 0.42 },
@@ -125,6 +131,17 @@ function chip(x, y, z) {
   return m;
 }
 
+// A sphere, for the neutral-equilibrium case: it may legitimately come to rest
+// anywhere, and a stability test that rejects it would never let a rounded bone
+// settle at all.
+function ball(radius) {
+  const g = new THREE.SphereGeometry(radius, 20, 14);
+  const m = new THREE.Mesh(g, boneMat);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
 const DROPS = [
   { make: () => bone(0.40, 0.05), at: [-1.30, 0.95, 0], vel: [-0.25, 1.1, 0], spin: [0, 0.6, -9.0] },
   { make: () => bone(0.34, 0.055), at: [-0.70, 0.10, 0], vel: [0.05, 0.1, 0], spin: [0.3, 0, 0.4] },
@@ -134,24 +151,58 @@ const DROPS = [
   { make: () => chip(0.20, 0.03, 0.20), at: [1.55, 0.75, 0], vel: [-0.15, 0.5, 0], spin: [1.0, 8.0, 0.6] },
 ];
 
+// The second scene, and the one that matters for the settle. Every object here
+// is placed at rest in a pose that is stationary but not stable, plus two
+// controls that are genuinely at rest and must not be disturbed. Nothing is
+// moving and nothing is falling, so anything that stays as placed is something
+// the solver believes is a valid resting pose.
+const BALANCED = [
+  // A long bone stood on its rounded end. The reference failure.
+  { make: () => bone(0.40, 0.05), at: [-1.15, 0.25, 0], rot: [0, 0, 0] },
+  // A stubby one, where the shaft is short enough to pass for a flat axis. This
+  // is the case the extent heuristic on its own gets wrong.
+  { make: () => bone(0.02, 0.05), at: [-0.62, 0.06, 0], rot: [0, 0, 0] },
+  // A cube balanced on one edge, and another on a corner.
+  { make: () => chip(0.11, 0.11, 0.11), at: [-0.12, 0.0778, 0], rot: [0, 0, Math.PI / 4] },
+  { make: () => chip(0.10, 0.10, 0.10), at: [0.38, 0.0866, 0], rot: [Math.PI / 4, 0, Math.atan2(1, Math.SQRT2)] },
+  // A plate stood on its long edge.
+  { make: () => chip(0.22, 0.03, 0.16), at: [0.92, 0.08, 0], rot: [0, 0, Math.PI / 2] },
+  // Controls. A bone already lying flat and a ball, both of which are at rest
+  // for real. Neither may be nudged, rolled or laid down differently.
+  { make: () => bone(0.30, 0.045), at: [1.5, 0.045, 0], rot: [0, 0, Math.PI / 2] },
+  { make: () => ball(0.055), at: [1.95, 0.055, 0], rot: [0, 0, 0] },
+];
+
+const scenario = params.get('scene') === 'balance' ? BALANCED : DROPS;
+
 const tracked = [];
+const startPose = [];
 let attachError = 0;
 
 function build() {
   const before = new THREE.Vector3();
   const after = new THREE.Vector3();
-  for (const d of DROPS) {
+  for (const d of scenario) {
     const mesh = d.make();
     // Local placement is deliberately fed through the rig's own transform, so
     // the drop heights below are world heights.
     rig.add(mesh);
     rig.updateWorldMatrix(true, true);
-    mesh.position.copy(rig.worldToLocal(new THREE.Vector3(d.at[0], d.at[1] + 1.05, d.at[2])));
-    mesh.rotation.set(0.4, -0.3, 0.9);
+    // The balance scene places world poses exactly, so it bypasses the rig's
+    // own rotation: a bone stood on end has to be stood on end to the degree.
+    if (d.rot) {
+      mesh.position.copy(rig.worldToLocal(new THREE.Vector3(d.at[0], d.at[1], d.at[2])));
+      mesh.quaternion.copy(new THREE.Quaternion().setFromEuler(new THREE.Euler(...d.rot)))
+        .premultiply(rig.quaternion.clone().invert());
+    } else {
+      mesh.position.copy(rig.worldToLocal(new THREE.Vector3(d.at[0], d.at[1] + 1.05, d.at[2])));
+      mesh.rotation.set(0.4, -0.3, 0.9);
+    }
     rig.updateWorldMatrix(true, true);
     mesh.getWorldPosition(before);
 
     debris.spawn(mesh, { velocity: d.vel, spin: d.spin });
+    if (d.rot) startPose.push({ pos: mesh.position.clone(), quat: mesh.quaternion.clone() });
 
     mesh.updateWorldMatrix(true, false);
     mesh.getWorldPosition(after);
@@ -197,6 +248,29 @@ function snap(label) {
 
 // --- driver ------------------------------------------------------------------
 
+// The true vertical extent of an object's real vertices in world space.
+// Box3.setFromObject will not do: it expands the geometry's bounding BOX by the
+// world matrix, so a rotated sphere reports the corners of a tumbling cube and
+// a bone resting perfectly on the floor looks two centimetres sunk. That
+// artefact cost a debugging cycle, so nothing here measures contact any other
+// way.
+const _p = new THREE.Vector3();
+function extentY(object) {
+  let min = Infinity;
+  let max = -Infinity;
+  object.updateWorldMatrix(true, true);
+  object.traverse((node) => {
+    const attr = node.geometry?.attributes?.position;
+    if (!attr) return;
+    for (let i = 0; i < attr.count; i++) {
+      _p.fromBufferAttribute(attr, i).applyMatrix4(node.matrixWorld);
+      if (_p.y < min) min = _p.y;
+      if (_p.y > max) max = _p.y;
+    }
+  });
+  return { min, max };
+}
+
 let time = 0;
 
 window.__debrisTest = {
@@ -208,6 +282,7 @@ window.__debrisTest = {
   reset() {
     debris.clear();
     tracked.length = 0;
+    startPose.length = 0;
     attachError = 0;
     time = 0;
     build();
@@ -226,16 +301,29 @@ window.__debrisTest = {
   // hull so a bug in that hull cannot hide behind itself. Anything below zero
   // is a bone sunk into the floor.
   report() {
-    const box = new THREE.Box3();
     return {
       time: +time.toFixed(3),
       attachError: +attachError.toFixed(6),
       ...debris.stats(),
+      moved: startPose.map((p, i) => +Math.max(
+        p.pos.distanceTo(tracked[i].position),
+        2 * Math.acos(Math.min(1, Math.abs(p.quat.dot(tracked[i].quaternion)))),
+      ).toFixed(4)),
       objects: tracked.map((o) => {
-        box.setFromObject(o);
+        const span = extentY(o);
+        // The angle of the object's own longest axis from world up. A bone
+        // lying flat reads 90, a bone standing on its end reads 0, and unlike a
+        // silhouette this cannot be fooled by the projection.
+        o.geometry.computeBoundingBox();
+        const size = o.geometry.boundingBox.getSize(new THREE.Vector3());
+        const longest = size.x >= size.y && size.x >= size.z
+          ? new THREE.Vector3(1, 0, 0)
+          : size.y >= size.z ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
+        longest.applyQuaternion(o.quaternion);
         return {
-          y: +box.min.y.toFixed(4),
-          h: +(box.max.y - box.min.y).toFixed(4),
+          y: +span.min.toFixed(4),
+          h: +(span.max - span.min).toFixed(4),
+          longAxisFromUp: +THREE.MathUtils.radToDeg(Math.acos(Math.min(1, Math.abs(longest.y)))).toFixed(1),
           pos: [+o.position.x.toFixed(3), +o.position.y.toFixed(3), +o.position.z.toFixed(3)],
         };
       }),
@@ -247,15 +335,11 @@ window.__debrisTest = {
   // that is easy to fool yourself about at 12 frames.
   trace(frames = 180, dt = 1 / 60) {
     this.reset();
-    const box = new THREE.Box3();
     const rows = tracked.map(() => []);
     for (let f = 0; f < frames; f++) {
       time += dt;
       debris.update(dt);
-      tracked.forEach((o, i) => {
-        box.setFromObject(o);
-        rows[i].push(box.min.y);
-      });
+      tracked.forEach((o, i) => rows[i].push(extentY(o).min));
     }
     // An apex is a local maximum that follows a touch of the floor, so this is
     // the list of hops each object made after it first arrived.

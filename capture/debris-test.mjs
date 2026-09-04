@@ -144,7 +144,7 @@ async function debrisRun() {
     width: tileW,
     height: tileH,
     entry: '/debris-test.html',
-    query: `cam=${cam}`,
+    query: `cam=${cam}&scene=${args.scene || 'drop'}`,
     readyFlag: '__debrisReady',
     verbose: !!args.verbose,
   });
@@ -175,6 +175,12 @@ async function debrisRun() {
   console.log('attachError:', report.attachError, ' live/asleep:', report.live, report.asleep);
   console.log('resting lowest point per object:', JSON.stringify(report.objects.map((o) => o.y)));
   console.log('resting height per object:', JSON.stringify(report.objects.map((o) => o.h)));
+  console.log('longest axis, degrees from vertical (90 = lying flat, 0 = on end):',
+    JSON.stringify(report.objects.map((o) => o.longAxisFromUp)));
+  if (report.moved?.length) {
+    console.log('moved from placed pose (metres or radians, whichever is larger):',
+      JSON.stringify(report.moved));
+  }
 
   const trace = await lab.page.evaluate(() => window.__debrisTest.trace(240, 1 / 60));
   console.log('hops after first contact (apex of the lowest point, metres):');

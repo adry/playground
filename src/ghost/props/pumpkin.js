@@ -203,7 +203,10 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // --- Mapping face coordinates onto the shell -----------------------------
   // Face shapes are authored in (X across the surface, Y height above ground)
   // so they keep their proportions; this inverts the profile to get back to s.
-  const S_LO = -0.78, S_HI = 0.78, S_N = 512;
+  // S_HI runs well past the widest part of the body on purpose: the reference's
+  // eyes sit high enough that their apexes land near s = 0.67, and a table that
+  // stopped at the shoulder would clamp them onto the crown.
+  const S_LO = -0.78, S_HI = 0.86, S_N = 512;
   const yTable = new Float32Array(S_N + 1);
   for (let i = 0; i <= S_N; i++) yTable[i] = profileY(S_LO + ((S_HI - S_LO) * i) / S_N) + yBase;
   const sOfY = (y) => {
@@ -223,11 +226,19 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // this tight matters: any more and the carving breaks the silhouette when the
   // face is seen edge-on.
   const FACE_LIFT = 0.003;
+  // The seed rescales the shell a few percent in each axis, so the face has to
+  // ride that scale instead of sitting at fixed heights. Authored absolutely,
+  // the eyes -- which sit high on the shoulder -- ran off the crown of a
+  // small-seeded body and got clamped. Scaling X keeps the same angle round the
+  // body, scaling Y the same fraction of its height, so every seed wears the
+  // same face.
+  const FACE_SX = bodyR / BODY_R;
+  const FACE_SY = bodyH / BODY_H;
   const facePoint = (X, Y, lift, target) => {
-    const s = sOfY(Y);
+    const s = sOfY(Y * FACE_SY);
     // Angular mapping uses the un-ribbed radius, so the face is not stretched
     // and squeezed as it crosses the grooves -- it just drapes over them.
-    const a = X / Math.max(0.05, bodyR * profileR(s));
+    const a = (X * FACE_SX) / Math.max(0.05, bodyR * profileR(s));
     surface(a, s, target);
     surfaceNormal(a, s, tmpN);
     return target.addScaledVector(tmpN, lift);
@@ -271,45 +282,94 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     (bly + (bry - bly) * u) * (1 - v) + ay * v,
   ];
 
-  // The whole face sits this much higher up the body. Authored low first, it
-  // read as a chin rather than a face -- on the reference the eyes straddle the
-  // equator and the grin sits on the belly, not under it.
-  const RISE = 0.075;
+  // --- The carved face -------------------------------------------------------
+  // These numbers are solved off .ref/ref-pumpkin.png, not eyeballed. Each
+  // landmark in the photo was measured in pixels, both pumpkins were pinned to
+  // their own silhouette (axis, widest row, width) so the two could be laid over
+  // each other, and every point was then run back through this camera to find
+  // the (X, Y) on this shell that lands on it. Two earlier passes were laid out
+  // by feel and both came out with the same tell: a face that had slid down the
+  // belly. On the reference the eyes are up on the shoulder, near s = 0.67, and
+  // the mouth's corners sit only a little below the equator.
+  //
+  // Everything below is authored against the nominal BODY_R / BODY_H; facePoint
+  // rescales it onto whatever body the seed actually built.
 
-  // Mouth: a wide grin, corners lifted, with triangular teeth biting down from
-  // the top edge and one rising from the bottom, which is what gives the
-  // reference its jack-o'-lantern read rather than a plain crescent.
-  const MW = 0.225;
+  // Eyes. Big tilted triangles, not the tidy symmetric ones we had: on the
+  // reference each base slopes down toward the nose by about 15 degrees and the
+  // apex leans back out over the outer corner, which is what stops them reading
+  // as a pair of tents. The outer corner also reaches much further round the
+  // body than the inner one -- the eyes are set wide.
+  const EYE = {
+    apexX: 0.1393, apexY: 0.4807,   // apex, high on the shoulder
+    outX: 0.2004, outY: 0.4049,     // outer base corner, the high end of the base
+    inX: 0.0988, inY: 0.3791,       // inner base corner, dropped toward the nose
+  };
+  const eye = (dir) => triSampler(
+    EYE.apexX * dir, EYE.apexY,
+    EYE.outX * dir, EYE.outY,
+    EYE.inX * dir, EYE.inY,
+  );
+
+  // Nose: a small apex-up triangle, and small is the point. It measures about a
+  // third of an eye by area on the reference; ours used to be nearly half, which
+  // is what made the middle of the face look crowded.
+  const NOSE_W = 0.0362, NOSE_TIP = 0.3975, NOSE_BASE = 0.3344;
+  const nose = triSampler(0, NOSE_TIP, -NOSE_W, NOSE_BASE, NOSE_W, NOSE_BASE);
+
+  // Mouth. A wide, fairly flat band -- it reaches past the outer corner of each
+  // eye -- that hooks up into a point at each end. The hook is late: across the
+  // middle two thirds both edges are almost level, and only the last fifth
+  // sweeps up. Parabolas through the same three points gave a droopy banana,
+  // which is what the old grin was.
+  const MW = 0.2213;      // half width
+  const M_TOP = 0.2645;   // upper edge at the centre
+  const M_BOT = 0.1883;   // lower edge at the centre
+  const M_TIP = 0.2924;   // where the two edges meet, at the lifted corners
+  const topAt = (q) => M_TOP + (M_TIP - M_TOP) * Math.pow(q, 3.2);
+  const botAt = (q) => M_BOT + (M_TIP - M_BOT) * Math.pow(q, 6.0);
+
+  // Teeth are blocks, not spikes. A plateau with only the outer fifth of each
+  // flank ramped gives a trapezoid with shoulders you can actually see; the
+  // little linear spikes we had before merged into the grin and read as a W.
+  // ramp is the fraction of the half width given over to the flank: small keeps
+  // the sides near vertical, which is what the reference's teeth do. Smoothstep
+  // rather than a straight line so the shoulder is a corner and not a staircase
+  // across the sampling grid.
+  const block = (d, ramp) => {
+    const t = Math.min(1, Math.max(0, (1 - d) / ramp));
+    return t * t * (3 - 2 * t);
+  };
+  const TOOTH_X = 0.134, TOOTH_HW = 0.039, TOOTH_DROP = 0.60, TOOTH_RAMP = 0.16;
+  const LOW_HW = 0.078, LOW_RISE = 0.62, LOW_DOME = 0.42, LOW_RAMP = 0.22;
+
   const mouth = (u, v) => {
     const x = -MW + 2 * MW * u;
-    const k = 1 - (x / MW) * (x / MW);
-    const centre = 0.196 + RISE - 0.040 * k;        // corners up, middle down
-    const thick = 0.064 * Math.pow(Math.max(0, k), 0.45);
-    let top = centre + thick * 0.5;
-    let bottom = centre - thick * 0.5;
-    for (const tx of [-0.078, 0.078]) {             // two upper teeth
-      const d = 1 - Math.abs(x - tx) / 0.055;
-      if (d > 0) top -= thick * 0.92 * d;
+    const q = Math.abs(x) / MW;
+    const top0 = topAt(q);
+    const bot0 = botAt(q);
+    const gap = top0 - bot0;
+    // Two teeth hang down from the upper edge, just inside the eyes.
+    let top = top0;
+    for (const tx of [-TOOTH_X, TOOTH_X]) {
+      top -= gap * TOOTH_DROP * block(Math.abs(x - tx) / TOOTH_HW, TOOTH_RAMP);
     }
-    const dLow = 1 - Math.abs(x) / 0.050;           // one lower tooth, centred
-    if (dLow > 0) bottom += thick * 0.72 * dLow;
+    // One broad tooth rises from the lower edge in the middle. Its top is given
+    // a slight dome because a top that is flat in these coordinates projects as
+    // a sagging one -- the surface is falling away from the camera across it.
+    const dLow = Math.abs(x) / LOW_HW;
+    const bottom = bot0 + gap * LOW_RISE * (1 - LOW_DOME * dLow * dLow) * block(dLow, LOW_RAMP);
     return [x, top + (bottom - top) * v];
   };
 
-  // Apex-up triangles, tipped outward a little, which reads friendly rather
-  // than scowling. Larger than the first pass: on the reference the eyes are
-  // the dominant feature.
-  const eye = (dir) => triSampler(
-    0.132 * dir + 0.014 * dir, 0.356 + RISE,
-    0.132 * dir - 0.062, 0.268 + RISE,
-    0.132 * dir + 0.062, 0.268 + RISE,
-  );
-  const nose = triSampler(0, 0.262 + RISE, -0.031, 0.208 + RISE, 0.031, 0.208 + RISE);
+  // The mouth needs the samples: at 96 across, a tooth flank fell inside a
+  // single column and its shoulders came out as a staircase. 240 puts two or
+  // three columns in the flank, which is enough for the smoothstep to read.
   const FACE_SHAPES = [
-    { nx: 10, ny: 10, sampler: eye(-1), cx: -0.132, cy: 0.300 + RISE },
-    { nx: 10, ny: 10, sampler: eye(1), cx: 0.132, cy: 0.300 + RISE },
-    { nx: 8, ny: 8, sampler: nose, cx: 0, cy: 0.226 + RISE },
-    { nx: 96, ny: 10, sampler: mouth, cx: 0, cy: 0.176 + RISE },
+    { nx: 12, ny: 12, sampler: eye(-1), cx: -0.1462, cy: 0.4216 },
+    { nx: 12, ny: 12, sampler: eye(1), cx: 0.1462, cy: 0.4216 },
+    { nx: 8, ny: 8, sampler: nose, cx: 0, cy: 0.3554 },
+    { nx: 240, ny: 10, sampler: mouth, cx: 0, cy: 0.2264 },
   ];
 
   const faceGeo = patchGeometry(FACE_SHAPES, FACE_LIFT);
@@ -340,7 +400,13 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
       ny,
       sampler: (u, v) => {
         const [X, Y] = sampler(u, v);
-        return [cx + (X - cx) * 1.5, cy + (Y - cy) * 1.5];
+        // 1.24, not the 1.5 this started at. The bloom is a scaled copy, so its
+        // width grows with the shape it surrounds; once the face was resized to
+        // the reference, 1.5 stopped reading as light spilling round a cut and
+        // started reading as a thick orange outline drawn on the shell -- worst
+        // at the eyes, where scaling a triangle about its centroid pulls the
+        // apex out into a spike.
+        return [cx + (X - cx) * 1.24, cy + (Y - cy) * 1.24];
       },
     })),
     FACE_LIFT * 0.45,

@@ -165,9 +165,24 @@ const CONTACT_SPIN_DRAG = 11.0; // per second, tumble against the floor
 const SETTLE_K = 55;           // torque pulling a grounded bone onto its side
 const SETTLE_REACH = 0.02;     // the torque still applies this far off the floor
 const AXIS_HYSTERESIS = 0.15;  // margin before the settle switches which face is down
+// Two probe angles, because one cannot do both jobs. The coarse tilt is bigger
+// than a facet of the mesh, so it measures the shape of the pose rather than
+// the faceting of the model, and it is what catches a bone balanced on a
+// rounded end. But it also steps clean over shallow slopes: a bone resting with
+// one end 26mm off the ground looked like a minimum to the coarse probe alone,
+// because 14 degrees either way overshoots flat and comes back up the far side.
+// The fine tilt catches exactly that.
+const PROBE_TILT = 0.24;       // radians, coarse
+const FINE_TILT = 0.07;        // radians, fine
+const PROBE_EVERY = 4;         // substeps between stability probes
+const PROBE_SPIN = 3.0;        // above this tumble the probe is pointless, skip it
+const MIN_DROP = 1e-4;         // metres of drop that count as a real downhill
+const DROP_FRACTION = 0.002;   // or this fraction of the centre of mass height
+const TOPPLE_CAP = 60;         // rad/s^2, ceiling on the toppling torque
 const SLEEP_V = 0.09;
 const SLEEP_W = 0.5;
-const SLEEP_TILT = 0.05;       // radians of remaining lean allowed at rest
+const MAX_VERTS = 900;         // vertices kept per bone for the exact passes
+const STABLE_STICK = 3;        // once judged settled, this much harder to unsettle again
 const SLEEP_TIME = 0.18;       // seconds of stillness before a bone is retired
 const FLAT_TOL = 1.25;         // extents within this ratio count as equally flat
 
@@ -185,10 +200,95 @@ const AXES = [
   new THREE.Vector3(0, 0, 1),
 ];
 
+// Directions used to decimate a mesh down to a support cloud. The six axes are
+// in there explicitly because a bone at rest is aligned to one of them, so the
+// contact under a settled bone is then exact rather than approximate.
+function supportDirections(n) {
+  const dirs = [
+    new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+    new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0),
+    new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
+  ];
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < n; i++) {
+    const y = 1 - (2 * i + 1) / n;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    dirs.push(new THREE.Vector3(Math.cos(golden * i) * r, y, Math.sin(golden * i) * r));
+  }
+  return dirs;
+}
+const SUPPORT_DIRS = supportDirections(58);
+
+// Horizontal axes the stability probe tips the object about. Eight rather than
+// four so the direction it decides to fall in is not always square to the world.
+const TILT_AXES = [];
+for (let i = 0; i < 8; i++) {
+  TILT_AXES.push(new THREE.Vector3(Math.cos((i * Math.PI) / 4), 0, Math.sin((i * Math.PI) / 4)));
+}
+
+// The object's own vertices, in its local frame, decimated to the extreme point
+// along each support direction. Every point kept is on the convex hull, so this
+// is a cheap stand-in for the real silhouette in any orientation.
+//
+// This replaces the bounding box the first version used, and it has to. A box
+// hull cannot tell a hemisphere from a flat end: it reports the same four
+// bottom corners either way, which is what let a bone sleep balanced on its
+// rounded tip. The box also lifted a tumbling capsule up to 2cm off the floor
+// at 45 degrees, because the box corner sticks out well past the real surface.
+function supportCloud(object) {
+  object.updateWorldMatrix(true, true);
+  _inv.copy(object.matrixWorld).invert();
+
+  const verts = [];
+  object.traverse((node) => {
+    const attr = node.geometry?.attributes?.position;
+    if (!attr) return;
+    _m.multiplyMatrices(_inv, node.matrixWorld);
+    // A skull is a few thousand vertices and none of this needs that many, so
+    // anything huge is strided down first.
+    const stride = Math.max(1, Math.ceil(attr.count / MAX_VERTS));
+    for (let i = 0; i < attr.count; i += stride) {
+      _v.fromBufferAttribute(attr, i).applyMatrix4(_m);
+      verts.push(_v.x, _v.y, _v.z);
+    }
+  });
+
+  const n = verts.length / 3;
+  if (!n) return null;
+
+  const keep = new Set();
+  for (const d of SUPPORT_DIRS) {
+    let best = -Infinity;
+    let bestIndex = 0;
+    for (let i = 0; i < n; i++) {
+      const dot = d.x * verts[i * 3] + d.y * verts[i * 3 + 1] + d.z * verts[i * 3 + 2];
+      if (dot > best) { best = dot; bestIndex = i; }
+    }
+    keep.add(bestIndex);
+  }
+
+  const hull = new Float32Array(keep.size * 3);
+  let k = 0;
+  for (const i of keep) {
+    hull[k++] = verts[i * 3];
+    hull[k++] = verts[i * 3 + 1];
+    hull[k++] = verts[i * 3 + 2];
+  }
+
+  // Two sets, because they answer two different questions. The hull is walked
+  // every substep for contact and is allowed to be a few millimetres out on a
+  // curved surface mid-tumble, where nobody can see it. The full sample is
+  // walked only when the object is nearly still, for the stability probe and
+  // for the final placement, and it has to be exact: the probe is measuring
+  // drops of a third of a millimetre, so a hull that wanders by three would be
+  // measuring its own decimation rather than the shape of the pose.
+  return { hull, verts: new Float32Array(verts) };
+}
+
 // The bounding box of everything under `object`, expressed in the object's own
-// local frame, before its own transform. Box3.setFromObject would give a world
-// AABB, which is useless the moment the bone tumbles: what we need is a shape
-// that can be re-oriented every frame.
+// local frame, before its own transform. Used for the extents and the centre of
+// mass, not for contact: Box3.setFromObject would give a world AABB, which is
+// useless the moment the bone tumbles.
 function localBounds(object) {
   object.updateWorldMatrix(true, true);
   _inv.copy(object.matrixWorld).invert();
@@ -221,7 +321,11 @@ function localBounds(object) {
     corners[i * 3 + 1] = i & 2 ? _box.max.y : _box.min.y;
     corners[i * 3 + 2] = i & 4 ? _box.max.z : _box.min.z;
   }
-  return { corners, size: _box.getSize(new THREE.Vector3()) };
+  return {
+    corners,
+    size: _box.getSize(new THREE.Vector3()),
+    centre: _box.getCenter(new THREE.Vector3()),
+  };
 }
 
 function toVector(v, out) {
@@ -245,16 +349,69 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
   // up half sunk: the contact test is the real lowest extent, not the origin,
   // and it is recomputed as the bone tumbles because it changes with every
   // degree of roll.
-  function lowestOffset(item) {
-    const o = item.object;
-    const c = item.corners;
+  function lowestOffset(item, q = item.object.quaternion, p = item.points) {
+    const s = item.object.scale;
     let min = Infinity;
-    for (let i = 0; i < 8; i++) {
-      _v.set(c[i * 3] * o.scale.x, c[i * 3 + 1] * o.scale.y, c[i * 3 + 2] * o.scale.z)
-        .applyQuaternion(o.quaternion);
+    for (let i = 0; i < p.length; i += 3) {
+      _v.set(p[i] * s.x, p[i + 1] * s.y, p[i + 2] * s.z).applyQuaternion(q);
       if (_v.y < min) min = _v.y;
     }
     return min;
+  }
+
+  // Height of the centre of mass above the floor if the object were set down at
+  // orientation q. This is the potential energy of the pose, and everything the
+  // settle needs to know is in its shape.
+  function poseEnergy(item, q) {
+    const s = item.object.scale;
+    const low = lowestOffset(item, q, item.verts);
+    _v2.copy(item.com).multiply(s).applyQuaternion(q);
+    return _v2.y - low;
+  }
+
+  // Is this pose actually a resting pose, or merely a stationary one?
+  //
+  // The real question is whether the centre of mass sits inside the support
+  // patch, and the honest way to ask it is to tip the object a little and see
+  // whether the centre of mass goes DOWN. A box on a face, a plate on its face
+  // and a bone on its side all lift their centre of mass when tipped, so they
+  // are minima and may sleep. A bone balanced on its rounded end lowers it in
+  // every direction, because the contact is a point and the hemisphere just
+  // rolls, so it may never sleep no matter how still it is. A sphere is flat in
+  // every direction and is neither, which is correct: it is free to rest.
+  //
+  // The tip is a whole 14 degrees on purpose. Meshes are faceted, and a
+  // one-degree probe mostly measures the facets of the model rather than the
+  // shape of the pose.
+  function probeStability(item) {
+    const q0 = item.object.quaternion;
+    const e0 = poseEnergy(item, q0);
+    const base = Math.max(MIN_DROP, DROP_FRACTION * e0);
+
+    let unstable = false;
+    let bestSlope = 0;
+    let bestAxis = -1;
+    // Hysteresis on the verdict as well as on the axis. A pose sitting right at
+    // the threshold would otherwise flip every probe, and the torque would
+    // switch on and off at 30Hz, which reads as a buzz.
+    const stick = item.unstable ? 1 : STABLE_STICK;
+
+    for (const angle of [PROBE_TILT, FINE_TILT]) {
+      // The tolerance is really a tolerance on slope, so it scales with the
+      // angle the drop was measured over.
+      const tolerance = base * (angle / PROBE_TILT) * stick;
+      for (let i = 0; i < TILT_AXES.length; i++) {
+        _q.setFromAxisAngle(TILT_AXES[i], angle).multiply(q0);
+        const drop = e0 - poseEnergy(item, _q);
+        if (drop > tolerance) unstable = true;
+        const slope = drop / angle;
+        if (slope > bestSlope) { bestSlope = slope; bestAxis = i; }
+      }
+    }
+
+    item.unstable = unstable;
+    item.slope = bestSlope;
+    if (bestAxis >= 0) item.toppleAxis.copy(TILT_AXES[bestAxis]);
   }
 
   // Which way is "up" for this shape once it has settled. For a long bone that
@@ -315,7 +472,38 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
       // atan2 rather than acos, because acos of a dot product loses all its
       // precision exactly where this matters most, near flat.
       item.tilt = Math.atan2(s, _axis.dot(UP));
-      if (s > 1e-6) item.spin.addScaledVector(_v.divideScalar(s), item.tilt * SETTLE_K * h);
+      // Only while the pose is still downhill. Once the probe says the object
+      // has found a real minimum, this torque has to let go: a capsule is a
+      // fourteen-sided polygon and it comes to rest on a facet, while this
+      // heuristic wants its flat axis exactly vertical, which is a facet EDGE.
+      // With both running the bone rocked between the two answers forever.
+      if (s > 1e-6 && item.unstable) {
+        item.spin.addScaledVector(_v.divideScalar(s), item.tilt * SETTLE_K * h);
+      }
+
+      // Gravity, as a torque. The probe already measured how steeply the
+      // centre of mass falls away from this pose, and that slope times the
+      // object's mass over its moment of inertia IS the angular acceleration
+      // gravity applies. So an unstable pose topples on its own, and because
+      // the slope grows as it goes over, the topple starts slow and builds,
+      // which is what a bone falling off its end actually looks like. Nudging
+      // it with a fixed impulse instead reads as a shove from off screen.
+      item.probeAge += 1;
+      if (item.spin.lengthSq() < PROBE_SPIN * PROBE_SPIN) {
+        if (item.probeAge >= PROBE_EVERY) {
+          item.probeAge = 0;
+          probeStability(item);
+        }
+      } else {
+        // Tumbling too fast for the probe to mean anything. Assume the worst,
+        // so nothing can sleep on the strength of a stale answer.
+        item.unstable = true;
+        item.slope = 0;
+      }
+      if (item.unstable && item.slope > 0) {
+        const alpha = Math.min(Math.abs(gravity) * item.slope * item.invInertia, TOPPLE_CAP);
+        item.spin.addScaledVector(item.toppleAxis, alpha * h);
+      }
 
       const drag = Math.exp(-CONTACT_SPIN_DRAG * h);
       item.spin.multiplyScalar(drag);
@@ -325,6 +513,9 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
     } else {
       item.spin.multiplyScalar(Math.exp(-AIR_SPIN_DRAG * h));
       item.tilt = Infinity;
+      // In the air, nothing known about the last contact is worth keeping.
+      item.unstable = true;
+      item.probeAge = PROBE_EVERY;
     }
 
     const w = item.spin.length();
@@ -373,32 +564,39 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
           item.vel.x *= keep;
           item.vel.z *= keep;
           item.spin.multiplyScalar(1 + (SPIN_KEEP - 1) * hit);
-          const radius = Math.max(-lowestOffset(item), 1e-3);
+          const radius = Math.max(-low, 1e-3);
           _v2.crossVectors(UP, _v).divideScalar(radius);
           item.spin.addScaledVector(_v2.sub(item.spin), ROLL_COUPLE * hit);
         }
       }
     }
 
+    // Stationary is not the same as settled. Without the stability term a
+    // stubby bone stood on its rounded end passes every one of these tests: it
+    // is on the floor, it is not moving, and the axis heuristic is perfectly
+    // happy because the shaft is short enough to pass for a flat side.
     const resting =
       low <= floorY + CONTACT_EPS &&
+      !item.unstable &&
       item.vel.lengthSq() < SLEEP_V * SLEEP_V &&
-      item.spin.lengthSq() < SLEEP_W * SLEEP_W &&
-      item.tilt < SLEEP_TILT;
+      item.spin.lengthSq() < SLEEP_W * SLEEP_W;
     item.still = resting ? item.still + h : 0;
     return item.still < SLEEP_TIME;
   }
 
-  // Retiring a bone is also the last chance to make it look right: snap the
-  // remaining lean out of it and set it down so its lowest point is exactly on
-  // the floor. Every "resting object slowly sinking" bug is a settle step that
-  // left a fraction of a millimetre of penetration and never looked again.
+  // Retiring a bone is the last chance to set it down exactly: its lowest point
+  // goes precisely on the floor. Every "resting object slowly sinking" bug is a
+  // settle step that left a fraction of a millimetre of penetration and never
+  // looked again.
+  //
+  // The orientation is left exactly as the simulation found it. An earlier
+  // version snapped the flat axis to vertical here, which is wrong twice over:
+  // it is a visible pop on a long bone, and the pose it snapped to is not
+  // necessarily the resting pose the object actually reached.
   function retire(item) {
     const o = item.object;
-    restAxis(item, _axis).applyQuaternion(o.quaternion);
-    _q.setFromUnitVectors(_axis, UP);
-    o.quaternion.premultiply(_q).normalize();
-    o.position.y = floorY - lowestOffset(item);
+    // The exact sample, not the hull: this is the number a viewer can see.
+    o.position.y = floorY - lowestOffset(item, o.quaternion, item.verts);
     item.vel.set(0, 0, 0);
     item.spin.set(0, 0, 0);
     o.updateMatrix();
@@ -415,7 +613,8 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
       // pop rather than as a bone coming loose.
       scene.attach(object3D);
 
-      const { corners, size } = localBounds(object3D);
+      const { corners, size, centre } = localBounds(object3D);
+      const cloud = supportCloud(object3D);
       const extent = [
         size.x * Math.abs(object3D.scale.x),
         size.y * Math.abs(object3D.scale.y),
@@ -424,15 +623,31 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
 
       const item = {
         object: object3D,
-        corners,
+        // The support cloud, or the eight box corners for an object that has no
+        // geometry of its own to sample.
+        points: cloud ? cloud.hull : corners,
+        verts: cloud ? cloud.verts : corners,
+        com: centre,
         extent,
         minExtent: Math.min(extent[0], extent[1], extent[2]),
+        // Moment of inertia of a box of these extents, over its mass. Turning
+        // the energy slope into an angular acceleration needs it, and getting
+        // it from the real shape rather than a constant is what keeps a finger
+        // bone toppling faster than a femur.
+        invInertia: 12 / Math.max(
+          extent[0] * extent[0] + extent[1] * extent[1] + extent[2] * extent[2],
+          1e-6,
+        ),
         vel: toVector(velocity, new THREE.Vector3()),
         spin: toVector(spin, new THREE.Vector3()),
         still: 0,
         tilt: Infinity,
         downAxis: 0,
         downSign: 1,
+        unstable: true,
+        slope: 0,
+        probeAge: PROBE_EVERY,
+        toppleAxis: new THREE.Vector3(1, 0, 0),
       };
 
       // Land the bone on the floor immediately if it spawned inside it, so a

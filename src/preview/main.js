@@ -10,6 +10,10 @@ const PROPS = {
     const m = await import('../ghost/props/pumpkin.js');
     return m.createPumpkin();
   },
+  skeleton: async () => {
+    const m = await import('../ghost/props/skeleton/model.js');
+    return m.createSkeletonRig();
+  },
   tombstones: async () => {
     const m = await import('../ghost/props/tombstones.js');
     // Lay the variants out in a row so one render shows the whole set.
