@@ -306,10 +306,12 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // toward the outer corner rather than over the middle. That lean is most of
   // what stops them reading as a pair of tents. They are also set wide: the
   // outer corner reaches a good deal further round the body than the inner one.
+  // Grown 4% from the first solve, applied as a uniform scale about the
+  // triangle's own centroid so the tilt, which was right, is untouched.
   const EYE = {
-    apexX: 0.1393, apexY: 0.4807,   // apex, high on the shoulder
-    outX: 0.2004, outY: 0.4049,     // outer base corner, the high end of the base
-    inX: 0.0988, inY: 0.3791,       // inner base corner, dropped toward the nose
+    apexX: 0.1390, apexY: 0.4831,   // apex, high on the shoulder
+    outX: 0.2026, outY: 0.4042,     // outer base corner, the high end of the base
+    inX: 0.0969, inY: 0.3774,       // inner base corner, dropped toward the nose
   };
   const eye = (dir) => triSampler(
     EYE.apexX * dir, EYE.apexY,
@@ -338,6 +340,11 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   const M_TOP = 0.2665;   // upper edge across the middle
   const M_BOT = 0.1800;   // lower edge across the middle
   const M_TIP = 0.2940;   // where the two edges meet, at the lifted corners
+  // The lower edge is not level: on the reference it hangs about 0.009 deeper
+  // halfway out than it does at the centre, which is what gives the grin its two
+  // rounded lobes either side of the middle tooth. Left level, that stretch came
+  // out as a straight shelf.
+  const M_SAG = 0.009;
   // Both edges hold their level across the middle and then sweep up into the
   // point. The exponents are a little lower than the reference measures, which
   // starts the taper earlier: our cut is a flat plate with a hard rim where the
@@ -392,7 +399,8 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
       const x = -mw + 2 * mw * u;
       const q = Math.abs(x) / mw;
       const top0 = top1 + (tip1 - top1) * Math.pow(q, 2.4);
-      const bot0 = bot1 + (tip1 - bot1) * Math.pow(q, 3.8);
+      const sag = Math.max(0, 1 - Math.pow((q - 0.5) / 0.5, 2));
+      const bot0 = bot1 - M_SAG * sag + (tip1 - bot1) * Math.pow(q, 3.8);
       const gap = top0 - bot0;
       // Two teeth hang down from the upper edge, just inside the eyes.
       let bite = 0;
