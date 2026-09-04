@@ -66,7 +66,10 @@ const STOP_RANGE = 1.25;              // stops an arm's length short
 const WAKE_RANGE = 7.0;               // the ghost comes this close and it wakes
 const GIVE_UP_RANGE = 13.0;           // and this far away before it gives up
 
-const FOOT_LIFT = 0.13;               // peak of the swing arc
+// The ankle's height above standing at the middle of the swing. Not the whole
+// of the lift: a stance that ends up on the toe hands the swing most of this
+// for free, and only the remainder is added as an arc. See applyLegs.
+const FOOT_LIFT = 0.13;
 // How far the toe tip reaches in front of the ankle pivot. legs.js sets the
 // pivot a quarter of the way back along a foot M.leg.foot long; measured off
 // the built mesh the tip lands at 0.749 of that length, and the exact figure
@@ -78,10 +81,31 @@ const TOE_AHEAD = M.leg.foot * 0.749;
 // touchdown the ankle is at standing height and any toes-up at all would put
 // the heel through the floor.
 const HEEL_BACK = M.leg.foot * 0.248;
+// The same two corners again, as polar coordinates about the ankle pivot,
+// because that is the form the clearance question actually wants. Tip the foot
+// by p and the toe sits TOE_R * sin(p + TOE_PHI) below the pivot and the heel
+// HEEL_R * cos(p + HEEL_PHI); setting either equal to the pivot's height and
+// solving gives the exact pitch that puts that corner on the floor. The
+// approximate version, asin(height / arm), was 3 degrees out at the pose a
+// stance actually ends in, which is enough for the clamp to bind on the swing's
+// first frame and put back the very snap it is there to prevent.
+const TOE_R = Math.hypot(M.y.ankle, TOE_AHEAD);
+const TOE_PHI = Math.atan2(M.y.ankle, TOE_AHEAD);
+const HEEL_R = Math.hypot(M.y.ankle, HEEL_BACK);
+const HEEL_PHI = Math.atan2(HEEL_BACK, M.y.ankle);
+// Radians of toes-up at the top of the swing's second half, before the foot
+// comes back to flat for the landing. It is a coefficient rather than an angle:
+// the shape is u^2 * (1-u)^1.5, which peaks at 0.092, so this is about 8
+// degrees of heel leading.
+const TOE_UP = 1.5;
 const BOB = 0.045;                    // pelvis rise and fall, twice a cycle
 const SWAY = 0.035;                   // pelvis shift toward the stance foot
 
 const MAX_YAW_RATE = 1.9;             // rad/s. Rate limited so it leans into a turn.
+// How fast the gait phase is pulled back onto the footfalls, per second. Low
+// enough that the correction is never more than about half the phase's own
+// rate, high enough that a step's worth of error is gone before the next one.
+const CURSOR_LOCK_RATE = 5.0;
 
 // Jaw. The mandible is a light bone on a loose hinge, so its spring is well
 // under critical and it rings. The stops are hard, with a little restitution,
@@ -89,11 +113,55 @@ const MAX_YAW_RATE = 1.9;             // rad/s. Rate limited so it leans into a 
 const JAW_OPEN_MAX = 0.52;
 const JAW_BOUNCE = 0.28;
 
-// Nothing is shed after these two. A figure that drops a bone every time it
-// climbs out disassembles itself over a few minutes of play.
+// Bones shaken loose by the climb, in TABLE time (see emergeTime: the warp
+// makes these land at real 0.45s, 0.95, 1.77, 2.23, 2.66 and 3.09 into a 3.4
+// second climb). Six beats rather than two, spread so they read as six separate
+// events caused by six separate efforts and not as a shower.
+//
+// The budget is a HARD CAP and stays one: a figure that emerges and settles
+// repeatedly must not disassemble itself over a few minutes of play, and
+// nothing is shed once SHED_BUDGET pieces have gone. Raising the number is a
+// deliberate act; removing the cap is not available.
+//
+// Every bone here is in rig.shed, the model's own list of what is safe to
+// detach, and each is chosen so its absence does not open a hole in the
+// silhouette. The four ribs in that map are middle ribs whose neighbours close
+// the gap; taking three of them, two on the right and one on the left, reads as
+// a cage losing ribs rather than as a cage with a window in it. The fingers go
+// from the hands that are clawing, which is where a viewer is already looking,
+// and a claw missing a finger still reads as a claw.
+//
+// Timed against the choreography rather than spaced evenly:
+//   1.20  the right hand takes hold of the lip and drags        (strain 0.70)
+//   2.05  the left hand slams down and takes its share          (strain 0.74)
+//   3.10  the heave that carries the ribcage clear of the lip   (strain 0.97)
+//   3.70  the second heave, the other side of the cage          (strain 0.88)
+//   4.25  the arms straighten and take the whole weight         (strain 0.46)
+//   4.80  the last fold, as the legs come under the body        (strain 0.38)
+// Two light beats and then four heavier ones, which is also the shape of the
+// effort: the hands go first because the hands are what is on screen and
+// clawing, and the ribs follow as it starts hauling.
+//
+// The ribs are timed AFTER the ribcage is above the surface. At table 2.8 the
+// cage is still 50mm under it, and a rib that spawns underground arrives by
+// being pushed up out of the floor, which reads as a bug rather than a break;
+// by 3.10 the cage centre is 200mm clear.
+//
+// FOUR of the six are ribs because of what the shot can resolve. In the rise
+// framing the figure is about 400px tall, which puts a shed rib at 45px of
+// legible curve and a shed finger at about 10px. Two fingers is what this
+// clip can carry, and they are the two earliest beats, where the hand they
+// leave is the biggest thing in frame. Everything else the model marks as safe
+// to shed is a finger, so four ribs is the whole of what is available at a
+// size that reads: see the report for the bones worth adding to rig.shed.
+const SHED_BUDGET = 6;
 const SHED_PLAN = [
-  { at: 1.15, bone: 'fingerR3', velocity: [0.55, 1.35, 0.45], spin: [5, 2, 7] },
-  { at: 3.25, bone: 'ribR7', velocity: [-0.95, 1.15, 0.25], spin: [3.5, 1.5, 5.5] },
+  { at: 1.20, bone: 'fingerR3', velocity: [0.55, 1.35, 0.45], spin: [5, 2, 7] },
+  { at: 2.05, bone: 'fingerL4', velocity: [0.85, 1.20, 0.40], spin: [4, 3, 6] },
+  { at: 3.10, bone: 'ribR7', velocity: [-0.95, 1.15, 0.25], spin: [3.5, 1.5, 5.5] },
+  { at: 3.70, bone: 'ribL6', velocity: [0.90, 1.05, 0.45], spin: [4.5, 2, 4] },
+  { at: 4.25, bone: 'ribR4', velocity: [-0.80, 1.25, 0.35], spin: [3, 2.5, 6] },
+  { at: 4.80, bone: 'ribL3', velocity: [0.75, 1.30, 0.20], spin: [5, 1.5, 3] },
 ];
 
 // --- small helpers -----------------------------------------------------------
@@ -404,10 +472,22 @@ export function createSkeletonPerformance({
   // cursor that decides when to swing is DISTANCE walked, not time, which is
   // the whole reason the feet do not skate: at half speed the same stride takes
   // twice as long and covers the same ground.
-  const feet = {
-    L: { plant: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), swing: 1, dur: 0.3, retarget: false, yaw: 0 },
-    R: { plant: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), swing: 1, dur: 0.3, retarget: false, yaw: 0 },
-  };
+  // `fromAnkle` and `liftPitch` are the pose the STANCE ENDED IN, in world, and
+  // they are what a swing starts from. Starting from `plant` instead, which is
+  // the contact point on the floor, was the walk's biggest discontinuity: see
+  // queueStep.
+  const foot = () => ({
+    plant: new THREE.Vector3(),
+    fromAnkle: new THREE.Vector3(),
+    liftPitch: 0,
+    fromYaw: 0,
+    to: new THREE.Vector3(),
+    swing: 1,
+    dur: 0.3,
+    retarget: false,
+    yaw: 0,
+  });
+  const feet = { L: foot(), R: foot() };
   // Hands, during the climb. Same idea as the feet and for the same reason: a
   // crawl reads as a crawl because the hands stay where they were put and the
   // body hauls itself past them. Posed by angle instead, the arms swim.
@@ -419,6 +499,7 @@ export function createSkeletonPerformance({
   let handsDown = false;   // the hands have taken hold of the ground
 
   let cursor = 0;          // steps taken, fractional
+  let cursorFix = 0;       // gait phase correction still to be bled off
   let nextStep = 'R';
   let riseSteps = 0;       // shuffle steps taken at the top of the rise
   let legBlend = 0;        // 0 authored angles, 1 planted feet
@@ -464,6 +545,10 @@ export function createSkeletonPerformance({
   const qParent = new THREE.Quaternion();
   const eul = new THREE.Euler();
   const footPitch = { L: 0, R: 0 };
+  // Diagnostics, read by the harness through metrics(): how far each leg's IK
+  // target was out of reach, and the ceiling the planted feet put on the hips.
+  const ikShort = { L: 0, R: 0 };
+  let liftCap = Infinity;
 
   group.updateMatrixWorld(true);
   J.head.getWorldPosition(headPrev);
@@ -482,6 +567,7 @@ export function createSkeletonPerformance({
       S.lift.snap(BURIED_Y);
       legBlend = 0;
       cursor = 0;
+      cursorFix = 0;
       handsDown = false;
     }
     if (next === 'rising') {
@@ -698,6 +784,11 @@ export function createSkeletonPerformance({
     pos.addScaledVector(fwd, speed * dt);
     travel += speed * dt;
     cursor += (speed * dt) / STEP_LENGTH;
+    // The footfall lock, paid off over about a fifth of a second rather than in
+    // one frame. See advanceSwings.
+    const bleed = cursorFix * (1 - Math.exp(-CURSOR_LOCK_RATE * dt));
+    cursor += bleed;
+    cursorFix -= bleed;
 
     // Gait. One cycle is two steps, so the pelvis rises and falls twice per
     // cycle and sways once. HIP_STALK is the TOP of the bob, not its middle:
@@ -826,8 +917,17 @@ export function createSkeletonPerformance({
         // so the cursor is only an estimate of where in the cycle the body is,
         // and a bob that drifts out of step with the feet is the thing that
         // makes a walk read as a puppet.
-        const snap = Math.round(cursor);
-        if (Math.abs(snap - cursor) < 0.3) cursor = snap;
+        //
+        // The correction is HANDED TO A BLEED rather than applied here. cursor
+        // is the only input to the bob, the sway and the lurch, and writing it
+        // in one frame moved the gait phase by up to 0.22 of a step, which is
+        // 40 degrees of the bob and a 21mm step in the hip's target: measured
+        // over four strides it was the walk's second largest discontinuity,
+        // after the toe-off. Bleeding it off keeps the whole point of the lock,
+        // which is that the error cannot ACCUMULATE, and costs a phase rate
+        // that is half again too fast for a few frames rather than a step.
+        const err = Math.round(cursor) - cursor;
+        if (Math.abs(err) < 0.3) cursorFix = err;
       }
     }
   }
@@ -849,10 +949,59 @@ export function createSkeletonPerformance({
     return out;
   }
 
+  // How far the heel has come off, for a planted foot. It is a pure function of
+  // how far the body has walked past the plant, so it reads the group's matrix
+  // as it stands: a caller running before applyLegs therefore gets exactly the
+  // pitch applyLegs used on the previous frame, which is the pose a swing has
+  // to leave from.
+  function heelOff(f) {
+    group.worldToLocal(v3.copy(f.plant));
+    return smoothstep(0.03, LIFT_BEHIND, -v3.z) * MAX_HEEL;
+  }
+
+  // Where the ankle pivot sits, in world, for a foot planted at `f` and rolled
+  // up onto its toe by `pitch`. The CONTACT does not move: the ankle swings up
+  // and forward about the toe tip. One function, used by the stance and by the
+  // lift-off, so the two cannot disagree about where the ankle was.
+  function ankleOnPlant(f, pitch, out) {
+    const ch = Math.cos(pitch);
+    const sh = Math.sin(pitch);
+    const ahead = (TOE_AHEAD * (1 - ch) + M.y.ankle * sh) * scale;
+    out.copy(f.plant);
+    out.x += Math.sin(f.yaw) * ahead;
+    out.z += Math.cos(f.yaw) * ahead;
+    out.y += (M.y.ankle * ch + TOE_AHEAD * sh) * scale;
+    return out;
+  }
+
   function queueStep(side, z, dur = 0.32, retarget = false) {
     const f = feet[side];
     if (f.swing < 1) return;
-    f.from.copy(f.plant);
+    // THE SWING STARTS WHERE THE STANCE ENDED, which is not the plant.
+    //
+    // By the end of a stance the foot is up on its toe: at the full MAX_HEEL
+    // the ankle pivot is 128mm above the floor and 78mm forward of the contact
+    // point. The first version started the swing at the plant with the ankle
+    // at standing height, so on the frame a foot lifted the ankle fell 115mm
+    // and moved 72mm backwards in a single frame. Measured over four strides
+    // that was a 60 degree jump at the knee, every step, on both legs, and it
+    // pushed the target far enough out of reach that the two link solver sat on
+    // its full-extension clamp for the two frames after it. That is the whole
+    // of what read as jumpy legs.
+    //
+    // Recording the pose here rather than reconstructing it in applyLegs is
+    // deliberate: the stance's pitch depends on where the body was, and the
+    // body has moved on by the time the swing is drawn.
+    f.liftPitch = heelOff(f);
+    ankleOnPlant(f, f.liftPitch, f.fromAnkle);
+    // The heading the stance held, kept before f.yaw is overwritten below. A
+    // planted foot does not turn with the body, on purpose, so by the end of a
+    // stance through a hard turn it can be most of a radian off the body's
+    // current heading: at the top turn rate a 0.6s stance is 65 degrees. Taking
+    // the live yaw on the first frame of the swing spun the foot through all of
+    // that in one frame. Measured at the start of the chase, where the turn is
+    // hardest, that was an 87 degree snap of the sole.
+    f.fromYaw = f.yaw;
     aimStep(side, z, retarget ? dur : 0, f.to);
     f.swing = 0;
     f.dur = dur;
@@ -952,6 +1101,10 @@ export function createSkeletonPerformance({
     if (!debris) return;
     for (const plan of SHED_PLAN) {
       if (!shedLeft.includes(plan.bone) || t < plan.at) continue;
+      // The cap, enforced here rather than by the length of the plan, so that
+      // the plan can be re-timed or re-ordered without anyone having to
+      // remember that the list is also the budget.
+      if (shedFired.length >= SHED_BUDGET) return;
       const bone = rig.shed.get(plan.bone);
       shedLeft.splice(shedLeft.indexOf(plan.bone), 1);
       if (!bone) continue;
@@ -1153,24 +1306,40 @@ export function createSkeletonPerformance({
         // touching the floor, and how is it standing on that.
         let pitchNow = 0;
         if (f.swing < 1) {
-          // In the air. The arc is a half sine in height and an ease along the
-          // ground, so the foot leaves and lands soft and travels fastest in
-          // the middle, the way a real one does.
+          // In the air. The ankle DESCENDS from the toe-off pose to the landing
+          // pose, eased along the ground, with a hump on top. It is a hump on a
+          // descent rather than the whole of the lift because that is what a
+          // real ankle does: it is at its highest as the toe leaves, not half
+          // way through the swing.
           const u = f.swing;
-          v1.lerpVectors(f.from, f.to, easeInOutCubic(u));
-          const above = Math.sin(u * Math.PI) * FOOT_LIFT;
-          v1.y = above + M.y.ankle * scale;
-          // Toes down coming off, toes up going in, and the toes-down half is
-          // capped by how much clearance the foot actually has. The toe is a
-          // quarter of a metre in front of the pivot, so a full toe-off at
-          // ground level would put it through the floor; clamping it against
-          // the real clearance is also what makes the foot roll off the ground
-          // rather than flick off it.
-          const raw = 0.5 * (1 - u) ** 1.5 - 0.22 * u * u;
+          const standY = f.to.y + M.y.ankle * scale;
+          v2.copy(f.to).setY(standY);
+          v1.lerpVectors(f.fromAnkle, v2, easeInOutCubic(u));
+          // The hump is only what the toe-off did not already provide. At mid
+          // swing the descent has handed back exactly half the height the
+          // stance carried in, so half of it is what is left to make up, and
+          // FOOT_LIFT keeps its old meaning: the ankle's height above standing
+          // at the middle of the swing. A foot picked up flat instead, which is
+          // the shuffle at the top of the rise or a step forced by a turn,
+          // carries nothing in and gets the whole of it from here.
+          const carried = Math.max(0, f.fromAnkle.y - standY);
+          const arc = Math.max(0, FOOT_LIFT * scale - 0.5 * carried);
+          v1.y += Math.sin(u * Math.PI) * arc;
+          // Rolls out of the pitch the stance ended on, leads with the heel
+          // through the second half, and comes back to flat for the landing.
+          // Both ends are EXACT rather than clamped into place: the curve
+          // starts at the stance's own pitch and reaches zero with zero slope,
+          // and zero is what the planted branch reads on the frame it takes
+          // over, so neither handover has a step in it.
+          const raw = f.liftPitch * (1 - u) ** 1.6 - TOE_UP * u * u * (1 - u) ** 1.5;
+          // And the clearance clamp is now a guard that never fires rather than
+          // a shaper. Exact, so that the pose the swing starts from is exactly
+          // representable: see TOE_R and HEEL_R.
+          const h = v1.y / scale;
           pitchNow = clamp(
             raw,
-            -Math.asin(clamp(above / (HEEL_BACK * scale), 0, 0.98)),
-            Math.asin(clamp(above / (TOE_AHEAD * scale), 0, 0.98)),
+            Math.acos(clamp(h / HEEL_R, -1, 1)) - HEEL_PHI,
+            Math.asin(clamp(h / TOE_R, -1, 1)) - TOE_PHI,
           );
         } else {
           // Planted. The heel comes off as the body walks past, and from then
@@ -1179,19 +1348,13 @@ export function createSkeletonPerformance({
           // the whole trick that lets a figure with legs this short take a
           // stride, and it is also why the ankle is placed by rotating it about
           // the toe rather than by adding a fudge to its height.
-          group.worldToLocal(v3.copy(f.plant));
-          pitchNow = smoothstep(0.03, LIFT_BEHIND, -v3.z) * MAX_HEEL;
-          const ch = Math.cos(pitchNow);
-          const sh = Math.sin(pitchNow);
-          const ahead = (TOE_AHEAD * (1 - ch) + M.y.ankle * sh) * scale;
-          v1.copy(f.plant);
-          v1.x += Math.sin(f.yaw) * ahead;
-          v1.z += Math.cos(f.yaw) * ahead;
-          v1.y += (M.y.ankle * ch + TOE_AHEAD * sh) * scale;
+          pitchNow = heelOff(f);
+          ankleOnPlant(f, pitchNow, v1);
         }
         footPitch[side] = pitchNow;
         J.root.worldToLocal(v1);
         const ik = solveChain(LEG[side], v1);
+        ikShort[side] = ik.short;
         const swingPitch = pitchNow;
         const kneeWorld = S.root.value + ik.hipX + ik.knee;
         hipX = mix(hipX, ik.hipX, legBlend);
@@ -1224,8 +1387,16 @@ export function createSkeletonPerformance({
         // parent's rotation from the values just written and inverting it fixes
         // both exactly, and costs six quaternion multiplies.
         const f = feet[side];
+        // A planted foot holds the heading it was planted at; a swinging one
+        // turns from that heading onto the body's current one over the swing,
+        // rather than arriving at it on the first frame. Both ends are exact:
+        // the swing starts at the stance's yaw and ends at the live yaw, which
+        // is what advanceSwings writes into f.yaw as it lands.
+        const footYaw = f.swing >= 1
+          ? f.yaw
+          : f.fromYaw + wrap(yaw - f.fromYaw) * easeInOutCubic(f.swing);
         qWant.setFromAxisAngle(X_AXIS, footPitch[side]);
-        qTmp.setFromAxisAngle(Y_AXIS, f.swing >= 1 ? f.yaw : yaw);
+        qTmp.setFromAxisAngle(Y_AXIS, footYaw);
         qWant.premultiply(qTmp);
 
         qParent.setFromAxisAngle(Y_AXIS, yaw);
@@ -1342,6 +1513,7 @@ export function createSkeletonPerformance({
     // also the only thing standing between the rise and a figure that lifts its
     // own feet off the floor at the top of the heave.
     const cap = liftLimit();
+    liftCap = cap;
     if (S.lift.value > cap) {
       S.lift.value = cap;
       if (S.lift.velocity > 0) S.lift.velocity = 0;
@@ -1368,6 +1540,7 @@ export function createSkeletonPerformance({
     armBlend = 0;
     handsDown = false;
     cursor = 0;
+    cursorFix = 0;
     enter('buried');
     stepBuried(0, null);
     // Snapped rather than eased into: easing in from zero on frame one reads as
@@ -1384,7 +1557,7 @@ export function createSkeletonPerformance({
 
   reset();
 
-  return {
+  const api = {
     update,
     reset,
     get state() { return phase; },
@@ -1396,8 +1569,20 @@ export function createSkeletonPerformance({
         phase, phaseTime, clock, speed, yaw, yawVel, travel, cursor,
         hipY: S.lift.value, jaw: S.jaw.value, legBlend, strain, clipping,
         shed: shedFired.slice(),
+        // Whether the shed bones have actually come to rest. A bone that slides
+        // for ever or vibrates never leaves `live`, so this is the assertion.
+        debris: debris?.stats?.() || null,
         feet: {},
       };
+      out.root = S.root.value;
+      out.roll = S.roll.value;
+      out.pitchDeg = (S.root.value * 180) / Math.PI;
+      out.knee = { L: J.kneeL.rotation.x, R: J.kneeR.rotation.x };
+      out.hip = { L: J.hipL.rotation.x, R: J.hipR.rotation.x };
+      out.ankleRot = { L: J.ankleL.rotation.x, R: J.ankleR.rotation.x };
+      out.swing = { L: feet.L.swing, R: feet.R.swing };
+      out.short = { L: ikShort.L, R: ikShort.R };
+      out.liftCap = liftCap;
       for (const side of ['L', 'R']) {
         J[`ankle${side}`].getWorldPosition(v1);
         // The contact point, not the pivot. Once the heel is off, the ankle is
@@ -1418,4 +1603,12 @@ export function createSkeletonPerformance({
       setClipping(false);
     },
   };
+
+  // Harness hook. metrics() is only useful to something that can reach this
+  // object, and the page's own test hook has no handle on the scene graph, so
+  // every performance built in a browser registers itself here. It is a list
+  // rather than a single slot because a lab page can build more than one.
+  if (typeof window !== 'undefined') (window.__skeletons ||= []).push(api);
+
+  return api;
 }
