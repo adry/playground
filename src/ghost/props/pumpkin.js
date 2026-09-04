@@ -340,8 +340,8 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     const t = Math.min(1, Math.max(0, (1 - d) / ramp));
     return t * t * (3 - 2 * t);
   };
-  const TOOTH_X = 0.134, TOOTH_HW = 0.039, TOOTH_DROP = 0.60, TOOTH_RAMP = 0.16;
-  const LOW_HW = 0.078, LOW_RISE = 0.62, LOW_DOME = 0.42, LOW_RAMP = 0.22;
+  const TOOTH_X = 0.134, TOOTH_HW = 0.038, TOOTH_DROP = 0.56, TOOTH_RAMP = 0.16;
+  const LOW_HW = 0.076, LOW_RISE = 0.62, LOW_DOME = 0.42, LOW_RAMP = 0.30;
 
   const mouth = (u, v) => {
     const x = -MW + 2 * MW * u;
