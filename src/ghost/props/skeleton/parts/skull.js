@@ -59,9 +59,20 @@ const HW = M.skull.width / 2;
 const HS = M.skull.height;                    // crown to chin, the unit for the face
 
 // --- the vault -------------------------------------------------------------
-// Bottom sits a hair below the condyle plane so the skull base is a shallow
-// dome where the atlas meets it rather than tapering to a point at y = 0.
-const VAULT_BASE = -0.012 * HS;
+// Where the BRAINCASE stops. It used to be -0.012, a hair below the condyle
+// plane, so the vault ran the whole way down to the atlas and the back of the
+// head hung to within a fifth of the head's height of the chin. That is most of
+// what was left of the egg after the plan was fixed: a braincase 0.856 as tall
+// as it is long, where a real one is 0.73, and in profile the extra height all
+// went on the back of the vault below ear level, where a real skull has mastoid
+// and jaw and nothing else.
+//
+// At 0.055 the braincase is 0.786 as tall as it is long and its floor sits just
+// under the level of the tooth crowns, which is where a real one sits. What is
+// below it is what is below a real one: the condyles, the foramen, the mastoid
+// processes and the mandible, all of which are their own blobs and all of which
+// still reach up past this line, so the base closes.
+const VAULT_BASE = 0.055 * HS;
 // How the skull's depth is split about the atlas. The occipital condyles are
 // behind the middle of a real skull, but only just: put them much further back
 // and the whole head reads as an egg tipping forward off the neck, which was
@@ -157,7 +168,7 @@ const VAULT_UNIT = Math.min(HW, VY_A, VZ_A);
 // what M.skull.width measures. Give the vault the full width as well and the
 // measured breadth comes out over by twice the ridge's proudness, which is
 // enough to push the cranial index from 0.78 to 0.82.
-const WIDTH_PEAK = 1.017;
+const WIDTH_PEAK = 0.992;
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smoothstep = (a, b, x) => {
@@ -206,7 +217,7 @@ const vaultFront = (v) => 1
 // get to overspend.
 const vaultBack = (v) => 1
   - 0.26 * smoothstep(0.75, 1.05, v)
-  - 0.40 * (1 - smoothstep(0.16, 0.58, v));
+  - 0.58 * (1 - smoothstep(0.10, 0.56, v));
 // The plan view's own taper: how wide the section is at a given point along its
 // OWN depth, front to back. This is the piece that only became possible when
 // the plan stopped being square. A skull seen from above is a blunt egg, widest
@@ -806,7 +817,19 @@ export function buildSkull({ material }) {
   const zygRoot = (side) => blob(
     [side * 0.345 * M.skull.width, HINGE_Y + 0.048 * HS, -0.155 * M.skull.depth],
     [0.090 * M.skull.width, 0.070 * HS, 0.125 * M.skull.depth], 2.4);
+  // The lateral orbital margin: the frontal process of the zygomatic, a narrow
+  // vertical bar of bone at the outer edge of each orbit running from the end of
+  // the brow down to the cheek. In profile it is the single feature that makes
+  // an orbit read as a socket rather than as a hole in the side of a dome --
+  // there is a rim standing forward and the temporal fossa dropping away behind
+  // it, and the eye reads the step between them. Kept strictly LATERAL of the
+  // socket's own outline: a blob centred inside it does not build a rim, it
+  // bulges into the opening.
+  const orbitalRim = (side) => blob(
+    [side * 0.400 * M.skull.width, ORBIT_V - 0.015 * HS, 0.235 * M.skull.depth],
+    [0.070 * M.skull.width, 0.135 * HS, 0.070 * M.skull.depth], 2.4);
   const malarL = malar(-1), malarR = malar(1);
+  const rimL = orbitalRim(-1), rimR = orbitalRim(1);
   const rootL = zygRoot(-1), rootR = zygRoot(1);
 
   // The temporal fossa: the shallow dish on the side of the vault between the
@@ -923,6 +946,8 @@ export function buildSkull({ material }) {
     d = smin(d, glabella(x, y, z), 0.022);
     d = smin(d, malarL(x, y, z), 0.028);
     d = smin(d, malarR(x, y, z), 0.028);
+    d = smin(d, rimL(x, y, z), 0.026);
+    d = smin(d, rimR(x, y, z), 0.026);
     d = smin(d, rootL(x, y, z), 0.026);
     d = smin(d, rootR(x, y, z), 0.026);
     d = smin(d, temporals[0](x, y, z), 0.022);
@@ -1228,10 +1253,10 @@ export function buildSkull({ material }) {
   const ARCH_R = 0.026 * HS;
   const ARCH_FLAT = 1.55;               // taller than it is thick, as a real arch is
   const archPath = (side) => new THREE.CatmullRomCurve3([
-    new THREE.Vector3(side * 0.300 * M.skull.width, ORBIT_V - 0.090 * HS, 0.290 * M.skull.depth),
-    new THREE.Vector3(side * 0.408 * M.skull.width, ORBIT_V - 0.120 * HS, 0.180 * M.skull.depth),
-    new THREE.Vector3(side * 0.445 * M.skull.width, ORBIT_V - 0.128 * HS, 0.040 * M.skull.depth),
-    new THREE.Vector3(side * 0.425 * M.skull.width, ORBIT_V - 0.116 * HS, -0.085 * M.skull.depth),
+    new THREE.Vector3(side * 0.300 * M.skull.width, ORBIT_V - 0.180 * HS, 0.272 * M.skull.depth),
+    new THREE.Vector3(side * 0.405 * M.skull.width, ORBIT_V - 0.148 * HS, 0.175 * M.skull.depth),
+    new THREE.Vector3(side * 0.445 * M.skull.width, ORBIT_V - 0.132 * HS, 0.040 * M.skull.depth),
+    new THREE.Vector3(side * 0.425 * M.skull.width, ORBIT_V - 0.118 * HS, -0.085 * M.skull.depth),
     new THREE.Vector3(side * 0.352 * M.skull.width, ORBIT_V - 0.098 * HS, -0.180 * M.skull.depth),
   ], false, 'centripetal', 0.5);
   // How much daylight there is behind the middle of the arch: the bar's inner
