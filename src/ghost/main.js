@@ -7,6 +7,7 @@ import { createTombstone } from './props/tombstones.js';
 import { createFencePanel } from './props/fence/panel.js';
 import { createBrokenPanel } from './props/fence/broken.js';
 import { createDebrisPile, createChipScatter } from './props/fence/debris.js';
+import { createSkeletonRig } from './props/skeleton/model.js';
 
 const canvas = document.getElementById('view');
 const params = new URLSearchParams(location.search);
@@ -97,7 +98,18 @@ scene.add(key.target);
 // 7.3 units from the middle of the frame while the visible floor runs out to
 // 17.9. Half the ground was literally behind the lamp. Standing it well back
 // along the same direction puts the whole scene in front of it.
-const LIGHT_DIR = new THREE.Vector3(3.2, 6.0, 2.4).normalize();
+// Where the key sits also decides whether its shadows can be SEEN. The old
+// (3.2, 6.0, 2.4) put the lamp below and slightly right of frame centre in
+// screen terms, so a shadow travelled 0.66 up the screen per unit of caster
+// height and only 0.09 sideways: it landed directly behind the thing that cast
+// it and was hidden by it at every angle. That, as much as the frustum, is why
+// props looked like they had no shadow at all.
+//
+// From the screen's upper left instead, a shadow moves 0.47 right and 0.24
+// down per unit of height, so it falls clear. It is also the conventional
+// direction for an isometric scene, and it puts the light above the frame
+// rather than under it, which reads better on the carved stone faces.
+const LIGHT_DIR = new THREE.Vector3(-3.0, 6.0, 1.0).normalize();
 const LIGHT_DIST = 26;
 const LIGHT_OFFSET = LIGHT_DIR.clone().multiplyScalar(LIGHT_DIST);
 // Tall enough to hold the skeleton, which stands 2.5.
@@ -151,8 +163,11 @@ function fitShadowToView(aspect) {
   shadowTexel = (c.right - c.left) / key.shadow.mapSize.width;
 }
 
+// The rim moves with the key: it exists to put a cool edge on the side the key
+// does not reach, and with the key swung to screen upper left that side is now
+// the opposite one.
 const rim = new THREE.DirectionalLight(0xc4d4ff, 0.55);
-rim.position.set(-4, 2.5, -3);
+rim.position.set(4, 2.5, 3);
 scene.add(rim);
 
 // --- world ------------------------------------------------------------------
@@ -229,34 +244,58 @@ if (SCENE === 'full') {
     addProp(createPumpkin({ seed: 3 + i * 7 }), x, z, spot.yaw);
   }
 
-  // A run of fence with a breach in the middle. This is the shape the gated
-  // path will take: the ghost hops the intact stretch, and the breach is the
-  // only way through for anything that cannot.
+  // The fence lays the ground out into burial plots with paths between them,
+  // which is what a cemetery actually looks like from above and what turns a
+  // scattering of headstones into somewhere.
   //
-  // Laid along the screen's horizontal rather than along a world axis. A panel
-  // runs down its own local X, so a yaw of PI/4 maps that onto the screen's
-  // right, and stepping the panels through atScreen at a fixed height keeps
-  // them tiling. Run along world X instead and the fence cuts diagonally
-  // across the frame and straight through the pumpkins.
-  const FENCE_UP = 4.7;
-  const FENCE_LEN = 2.0;
-  const RUN = [
-    { at: -2, kind: 'whole', seed: 4 },
-    { at: -1, kind: 'whole', seed: 9 },
-    { at: 0, kind: 'broken', seed: 21, damage: 0.55 },
-    { at: 1, kind: 'broken', seed: 33, damage: 0.95 },
-    { at: 2, kind: 'whole', seed: 12 },
-  ];
-  for (const panel of RUN) {
-    const [x, z] = atScreen(panel.at * FENCE_LEN, FENCE_UP);
-    const part = panel.kind === 'whole'
-      ? createFencePanel({ seed: panel.seed })
-      : createBrokenPanel({ seed: panel.seed, damage: panel.damage });
-    addProp(part, x, z, Math.PI / 4);
+  // Panels run along their own local X, and this camera maps world (1,0,-1) to
+  // screen-right and world (-1,0,-1) to screen-up. So a panel turned PI/4 runs
+  // across the screen and one turned 3*PI/4 runs up it, and a plot laid out in
+  // screen units comes out as a rectangle on screen rather than a lozenge.
+  const PANEL = 2.0;
+  const ACROSS = Math.PI / 4;
+  const UPWARD = (3 * Math.PI) / 4;
+
+  // One side of a plot. `gap` drops a panel to leave a way in, counted from the
+  // start of the run; `broken` swaps one for a wrecked panel instead.
+  function fenceRun({ right, up, along, count, seed, gap = -1, broken = -1 }) {
+    for (let i = 0; i < count; i++) {
+      if (i === gap) continue;
+      const step = (i + 0.5) * PANEL;
+      const r = along === 'across' ? right + step : right;
+      const u = along === 'across' ? up : up + step;
+      const [x, z] = atScreen(r, u);
+      const part = i === broken
+        ? createBrokenPanel({ seed: seed + i * 17, damage: 0.55 + 0.35 * ((i * 7) % 3) / 2 })
+        : createFencePanel({ seed: seed + i * 17 });
+      addProp(part, x, z, along === 'across' ? ACROSS : UPWARD);
+    }
   }
-  const [bx, bz] = atScreen(1.1 * FENCE_LEN, FENCE_UP - 0.35);
-  addProp(createDebrisPile({ seed: 7 }), bx, bz, Math.PI / 4);
-  addProp(createChipScatter({ seed: 7, count: 150 }), bx, bz, Math.PI / 4);
+
+  // A plot, addressed by its near-left corner in screen units. Width and height
+  // are in panels, so the corners always meet.
+  function fencePlot({ right, up, w, h, seed, gates = {}, broken = {} }) {
+    fenceRun({ right, up, along: 'across', count: w, seed, gap: gates.front ?? -1, broken: broken.front ?? -1 });
+    fenceRun({ right, up: up + h * PANEL, along: 'across', count: w, seed: seed + 101, gap: gates.back ?? -1, broken: broken.back ?? -1 });
+    fenceRun({ right, up, along: 'up', count: h, seed: seed + 202, gap: gates.left ?? -1, broken: broken.left ?? -1 });
+    fenceRun({ right: right + w * PANEL, up, along: 'up', count: h, seed: seed + 303, gap: gates.right ?? -1, broken: broken.right ?? -1 });
+  }
+
+  // Two sections with a path up the middle and a path across the front. The
+  // left plot is kept, the right one has lost a stretch of its back fence.
+  fencePlot({ right: -7.0, up: 0.6, w: 3, h: 2, seed: 4, gates: { front: 1 } });
+  fencePlot({ right: 1.0, up: 0.6, w: 3, h: 2, seed: 40, gates: { front: 1 }, broken: { back: 1, right: 0 } });
+
+  // The skeleton, standing in its rest pose so it can be judged before anyone
+  // rigs it. Out on the path between the two plots, turned a little off square
+  // because dead-on hides the depth of the ribcage and the pelvis both.
+  const [skx, skz] = atScreen(-1.0, -1.8);
+  addProp(createSkeletonRig(), skx, skz, Math.PI / 4 + 0.35);
+
+  // The wreckage sits in the breach in the right plot's back fence.
+  const [bx, bz] = atScreen(1.0 + 1.5 * PANEL, 0.6 + 2 * PANEL - 0.35);
+  addProp(createDebrisPile({ seed: 7 }), bx, bz, ACROSS);
+  addProp(createChipScatter({ seed: 7, count: 150 }), bx, bz, ACROSS);
 }
 
 const input = new Input(canvas, camera);
