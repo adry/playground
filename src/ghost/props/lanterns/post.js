@@ -744,7 +744,11 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
     for (let i = 0; i < HR; i++) {
       const a = base + ring * nCols + i;
       const b = base + ring * nCols + i + 1;
-      if (up > 0) target.idx.push(centre, a, b); else target.idx.push(centre, b, a);
+      // Seen from above, increasing angle runs clockwise in the xz plane, so an
+      // up-facing fan is wound (centre, b, a) and a down-facing one the other
+      // way. Backwards, the chamber floor culls and the window shows the
+      // background through the bottom of the head.
+      if (up > 0) target.idx.push(centre, b, a); else target.idx.push(centre, a, b);
     }
   };
   capRing(stone, 0, HEAD.y0, -1, headOuterBase, false);
