@@ -254,7 +254,7 @@ export function buildBodyGeometry({ segments = 84 } = {}) {
     let a = w.rim * 0.55;
     const bite = chipBite(sample, theta);
     a = Math.min(1, a + Math.min(1, bite / 0.03) * 0.5);
-    if (sample.tag === 'plinth') a = Math.max(a, 0.34 * (1 - smoothstep(0.0, 0.72, sample.u)));
+    if (sample.tag === 'plinth') a = Math.max(a, 0.22 * (1 - smoothstep(0.0, 0.72, sample.u)));
     // Bowl interiors sit wet all day and never quite dry out.
     if (sample.tag === 'basin-in' || sample.tag === 'bowl-in' || sample.tag === 'dish-in') {
       a = Math.max(a, 0.30);

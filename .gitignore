@@ -24,6 +24,7 @@ out/
 /*-shot.mjs
 /*-check.mjs
 /*-smoke.mjs
+/*-record.mjs
 /dbg.mjs
 /legs.html
 

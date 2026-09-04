@@ -34,7 +34,7 @@ import * as THREE from 'three';
 
 export const WATER_COLOUR = '#93b2c6';
 
-const RINGS = 40; // steps down the fall
+const RINGS = 44; // steps down the fall
 const CROSS = 8; // steps round the ribbon
 
 // ---------------------------------------------------------------------------
@@ -81,7 +81,10 @@ vec3 flowPoint(float t, float ang) {
   // cosine to a power is what makes the narrow part narrow.
   float w = 0.5 + 0.5 * cos(6.2831853 * uBeadFreq * ph);
   float swell = 0.5 + 0.5 * cos(6.2831853 * uBeadFreq * 0.41 * ph + 1.7);
-  r *= max(0.13, 1.0 - amp * pow(w, 4.0) + 0.20 * amp * swell);
+  // Plus a fine ripple that never stops, so the edge of the strand is never a
+  // straight line even where it is not beading yet.
+  float fine = 0.045 * sin(6.2831853 * uBeadFreq * 2.4 * ph + 0.6);
+  r *= max(0.13, 1.0 - amp * pow(w, 3.5) + 0.20 * amp * swell + fine);
 
   // The foot, where the stream goes into the pool and spreads. Without it the
   // strand ends on a needle point hanging over the water.
@@ -332,8 +335,8 @@ export function createWater({ strands, pools }) {
     uG: { value: 3.4 },
     uBeadAmp: { value: 0.30 },
     uBreakAmp: { value: 0.62 },
-    uBeadFreq: { value: 8.0 },
-    uWaver: { value: 0.0105 },
+    uBeadFreq: { value: 10.5 },
+    uWaver: { value: 0.016 },
     // Rings die back quickly on purpose. Nine ring trains crossing a pool is
     // what really happens and it looked like crumpled foil: the eye reads
     // interference as noise, not as water. Damped, each strand keeps its own
@@ -346,7 +349,7 @@ export function createWater({ strands, pools }) {
     uChop: { value: 0.00055 },
   };
 
-  const strandMat = waterMaterial(0.42, 0.80, true);
+  const strandMat = waterMaterial(0.42, 0.76, true);
   strandMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader

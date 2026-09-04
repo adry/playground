@@ -810,14 +810,14 @@ const GONION_Z = LZ(JAW_STATIONS[7][2]);
 // in (h, w): sweepShape takes the solid's orientation from the section's
 // winding and then measures it, so a clockwise list simply comes out reversed.
 const BROW_SEC = [
-  [-0.150, -0.020],   // bottom, deep inside the frontal
-  [-0.040, -0.038],   // the orbital roof
-  [+0.014, -0.034],   // THE OVERHANGING MARGIN: forward of the socket's rim
-  [+0.040, -0.014],
-  [+0.048, +0.010],   // the ridge's crest, the front-most point of the cranium
-  [+0.032, +0.032],
-  [-0.032, +0.048],   // back up into the forehead
-  [-0.150, +0.032],
+  [-0.155, -0.024],   // bottom, deep inside the frontal
+  [-0.042, -0.044],   // the orbital roof
+  [+0.018, -0.040],   // THE OVERHANGING MARGIN: forward of the socket's rim
+  [+0.046, -0.016],
+  [+0.056, +0.012],   // the ridge's crest, the front-most point of the cranium
+  [+0.038, +0.038],
+  [-0.034, +0.054],   // back up into the forehead
+  [-0.155, +0.036],
 ];
 
 export function buildSkull({ material }) {
@@ -1310,7 +1310,7 @@ export function buildSkull({ material }) {
   // 0.014 of the head's height proud of the skin and its lower lip about 0.03
   // below the socket's upper margin, which is the overhang.
   const BROW_LIFT = 0.024 * HS;
-  const BROW_SINK = 0.030 * HS;
+  const BROW_SINK = 0.034 * HS;
   let browDrop = 0;
   for (const side of [-1, 1]) {
     // kx runs medial to lateral; both sides are swept in the +x direction so
