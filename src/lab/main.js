@@ -211,27 +211,21 @@ async function buildLineup() {
   // world Y instead is how a wide layout ends up overflowing sideways.
   const up = new THREE.Vector3(0, 1, 0).projectOnPlane(CAM_DIR).normalize();
   const right = new THREE.Vector3().crossVectors(CAM_DIR, up).normalize();
+  // Framed from the CELL GRID and a fixed margin, not from the props' bounding
+  // boxes. Fitting on geometry sounds more principled and is worse: one prop
+  // with a generous bound, an instanced particle mesh whose base geometry is
+  // authored large, is enough to push the whole frame out, and the lineup then
+  // sits in the middle of an empty floor at half the size it should be. The
+  // grid is the thing being framed and its extent is known exactly.
   {
-    const box = new THREE.Box3();
-    for (const it of items) box.expandByObject(it.group);
-    const centre = box.getCenter(new THREE.Vector3());
-    target.copy(centre);
-    let halfUp = 0;
-    let halfRight = 0;
-    const corner = new THREE.Vector3();
-    for (let i = 0; i < 8; i++) {
-      corner.set(
-        i & 1 ? box.max.x : box.min.x,
-        i & 2 ? box.max.y : box.min.y,
-        i & 4 ? box.max.z : box.min.z,
-      ).sub(centre);
-      halfUp = Math.max(halfUp, Math.abs(corner.dot(up)));
-      halfRight = Math.max(halfRight, Math.abs(corner.dot(right)));
-    }
-    // Fit on both screen axes, with the horizontal one divided by the aspect
-    // because the frustum is widened by it. A little slack for the labels,
-    // which hang below each item.
-    view = Math.max(halfUp, halfRight / Math.max(0.5, aspect)) * 1.10;
+    const rows = Math.ceil(items.length / COLS);
+    const halfRight = ((COLS - 1) / 2) * CELL + CELL * 0.55;
+    const halfUp = ((rows - 1) / 2) * CELL + CELL * 0.55;
+    // Centre of the grid, in the same screen coordinates the cells are chosen
+    // in, then converted once.
+    const [cx, cz] = atScreen(0, -((rows - 1) / 2) * CELL);
+    target.set(cx - BASE_X, 0.9, cz - BASE_Z);
+    view = Math.max(halfUp, halfRight / Math.max(0.5, aspect));
   }
   const home = { target: target.clone(), view };
 
@@ -275,30 +269,11 @@ async function buildLineup() {
   }
   window.addEventListener('resize', resize);
 
-  // --- labels ---------------------------------------------------------------
-  // HTML rather than textures. The text stays crisp at any zoom, costs no draw
-  // calls, and does not have to be re-baked when a name changes.
-  const layer = document.getElementById('labels');
-  for (const it of items) {
-    const el = document.createElement('div');
-    el.className = 'tag';
-    el.textContent = it.label;
-    layer.appendChild(el);
-    it.el = el;
-  }
-
-  const v = new THREE.Vector3();
-  function positionLabels() {
-    const w = canvas.clientWidth || window.innerWidth;
-    const h = canvas.clientHeight || window.innerHeight;
-    for (const it of items) {
-      v.copy(it.anchor).project(camera);
-      it.el.style.left = `${(v.x * 0.5 + 0.5) * w}px`;
-      it.el.style.top = `${(-v.y * 0.5 + 0.5) * h}px`;
-      // Cull rather than let a label sit on the edge pointing at nothing.
-      it.el.style.opacity = Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05 ? '1' : '0';
-    }
-  }
+  // No captions. Each item still carries a `label`, because the headless probes
+  // below report by name and "the mesh at index 11" is not a useful answer, but
+  // nothing is drawn over the assets: a name under every prop turns an
+  // inspection into a catalogue page, and the things being judged here are
+  // shapes.
 
   // --- controls -------------------------------------------------------------
   // Drag to pan, wheel to zoom, because "inspect" means getting closer to one
@@ -383,7 +358,6 @@ async function buildLineup() {
     if (!live) return;
     advance(Math.min(0.25, (now - last) / 1000));
     last = now;
-    positionLabels();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
@@ -476,7 +450,6 @@ async function buildLineup() {
         spin = at;
         for (const it of items) if (it.spin !== false) it.group.rotation.y = spin;
       }
-      positionLabels();
       renderer.render(scene, camera);
     },
   };

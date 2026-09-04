@@ -217,9 +217,14 @@ const CREEP_TIME = 0.4;
 // finger it sat at 0.93 rad/s with v = 0 for the whole of a nine second clip.
 // Weakening the torque only makes the cycle slower.
 const STALL_TIME = 1.0;
-// What counts as having got lower. The same floor the probe uses for a drop, so
-// progress means a real drop rather than the probe measuring its own noise.
-const STALL_DROP = (energy) => Math.max(MIN_DROP, DROP_FRACTION * energy);
+// And what counts as having got somewhere in that time: metres the centre of
+// mass has to come down, against the lowest it has already reached. A whole
+// millimetre rather than the probe's own tenth of one, because a bone rolling
+// from facet to facet shaves a tenth off its best every time it turns and a
+// finer test therefore sees progress for ever. A millimetre a second is below
+// anything a viewer can wait out, and a bone genuinely toppling clears it by
+// two orders of magnitude on the way over.
+const STALL_PROGRESS = 0.001;
 const MAX_VERTS = 900;         // vertices kept per bone for the exact passes
 const STABLE_STICK = 3;        // once judged settled, this much harder to unsettle again
 const SLEEP_TIME = 0.18;       // seconds of stillness before a bone is retired
@@ -494,18 +499,6 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
           item.probeAge = 0;
           probeStability(item);
         }
-        // Is the settle actually getting anywhere? Only asked while the bone is
-        // slow enough for the energy to have been measured, and only while it
-        // has stopped travelling, so a bone still sliding or bouncing is never
-        // called stalled.
-        if (item.energy < item.best - STALL_DROP(item.energy)) {
-          item.best = item.energy;
-          item.stall = 0;
-        } else if (item.vel.lengthSq() < SLEEP_V * SLEEP_V) {
-          item.stall += h;
-        } else {
-          item.stall = 0;
-        }
       } else {
         // Tumbling too fast for the probe to mean anything. Assume the worst,
         // so nothing can sleep on the strength of a stale answer.
@@ -531,7 +524,24 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
       // In the air, nothing known about the last contact is worth keeping.
       item.unstable = true;
       item.probeAge = PROBE_EVERY;
+    }
+
+    // Is the settle getting anywhere? Asked on the clock rather than on
+    // contact, because a bone rocking under the topple torque hops a couple of
+    // centimetres clear on every cycle and a contact-gated timer is reset by
+    // that before it can ever accumulate. A bone in genuine flight has a
+    // genuine velocity, and that is what resets this instead.
+    //
+    // `best` is the lowest centre of mass the bone has reached; the timer only
+    // restarts when it is beaten by a margin worth watching, so a limit cycle
+    // shaving a fraction of a millimetre off it every turn does not count as
+    // progress.
+    if (item.vel.lengthSq() >= SLEEP_V * SLEEP_V || !Number.isFinite(item.energy)) {
       item.stall = 0;
+    } else {
+      if (item.energy < item.best - STALL_PROGRESS) item.stall = 0;
+      else item.stall += h;
+      if (item.energy < item.best) item.best = item.energy;
     }
 
     const w = item.spin.length();
@@ -666,8 +676,9 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
         spin: toVector(spin, new THREE.Vector3()),
         still: 0,
         creep: 0,
-        // Settle progress: the lowest centre of mass this bone has reached, and
-        // how long it has been failing to beat it. See STALL_TIME.
+        // Settle progress: the lowest centre of mass this bone has reached, the
+        // pose energy the probe last measured, and how long it has been failing
+        // to get any lower. See STALL_TIME.
         best: Infinity,
         energy: Infinity,
         stall: 0,

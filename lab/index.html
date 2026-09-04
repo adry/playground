@@ -44,26 +44,6 @@
   #view:active { cursor: grabbing; }
   #view:focus-visible { outline: 2px solid #5566b8; outline-offset: -4px; }
 
-  /* Asset names. HTML rather than baked textures: crisp at any zoom, no draw
-     calls, and nothing to re-bake when a name changes. The layer never takes a
-     pointer event, because the whole viewport is a drag surface and a label
-     under the cursor would swallow the press that started on it. */
-  #labels {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    font: 500 12px/1 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    letter-spacing: 0.02em;
-    color: #3f444d;
-  }
-  #labels .tag {
-    position: absolute;
-    transform: translate(-50%, 10px);
-    white-space: nowrap;
-    text-transform: lowercase;
-    transition: opacity 120ms linear;
-  }
-
   .hint {
     position: fixed;
     left: max(16px, env(safe-area-inset-left));
@@ -79,7 +59,6 @@
 </head>
 <body data-scene="full">
   <canvas id="view" tabindex="0" aria-label="Every asset in the project, laid out on a floor and turning so each can be seen from all sides. Drag to pan, scroll to zoom."></canvas>
-  <div id="labels" aria-hidden="true"></div>
   <p class="hint">drag to pan &middot; scroll to zoom &middot; space to stop the turn &middot; r to reset &middot; <a href="?play=1">play the scene</a></p>
   <script type="module" src="/src/lab/main.js"></script>
 </body>
