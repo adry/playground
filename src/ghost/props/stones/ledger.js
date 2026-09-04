@@ -56,7 +56,7 @@ const DIP = 0.19;
 const SINK = 0.20;
 // Displaced earth. The floor is #8f949e, so this is the ground a shade darker
 // and nothing new in the palette.
-const EARTH = '#7d838e';
+const EARTH = '#8d929c';
 
 // Lowest point of a geometry once its matrix is applied, walked vertex by
 // vertex. Box3.setFromObject would grow the local box by the rotation and hand
@@ -75,10 +75,12 @@ function lowestVertex(geometry, matrix) {
 
 registerStone('ledger', {
   shape: { halfWidth: HALF_WIDTH, height: LENGTH_Y, depth: THICK, plinth: KERB_H },
-  // Not the default half-round arch: a ledger's far end is a soft corner, not a
-  // dome. Kept a touch rounder than the 0.09 the registry gives the near end,
-  // because the far end is the one the earth is closing over.
-  topRadius: 0.15,
+  // Lying down, "top" and "bottom" are just the far and near long edges, so both
+  // are set and set the same: a ledger is a rounded rectangle, not an arch. A
+  // fifth of the half-width in each corner is as soft as the outline can go
+  // before it turns into a lozenge.
+  topRadius: 0.20,
+  bottomRadius: 0.20,
 
   // One Latin cross running the length of the slab, which is what a real coffin
   // slab carries and, from this camera, the only orientation that keeps the
@@ -103,13 +105,13 @@ registerStone('ledger', {
     ctx.fill();
   },
 
-  extras({ body, material, shape, plinthH, halfWidth, height }) {
+  extras({ body, material, plinthH, halfWidth, height, disposables, stripUV }) {
     const meshes = body.children.filter((o) => o.isMesh);
     // The registry lifts the slab onto the plinth and leaves the plinth at the
     // origin, so the two are told apart by where they sit rather than by the
     // order they happen to arrive in.
     const slab = meshes.find((m) => Math.abs(m.position.y - plinthH) < 1e-6) || meshes[0];
-    const kerb = meshes.find((m) => m !== slab);
+    const ridge = meshes.find((m) => m !== slab);
 
     // Lay it down. Rotating -90 about x puts the carved face up and sends the
     // top of the inscription away from the camera, which is how a ledger is
@@ -126,51 +128,87 @@ registerStone('ledger', {
     slab.position.y -= SINK + lowestVertex(slab.geometry, slab.matrix);
     slab.updateMatrix();
 
+    // Where the floor crosses the carved face. The transform is affine, so the
+    // face's mid-line is linear in x and two samples locate the waterline
+    // exactly. Everything the earth does is placed off this, not off the tip of
+    // the stone, which by now is well under the floor.
+    const faceMid = (x) => new THREE.Vector3(x, height / 2, THICK / 2).applyQuaternion(q).add(slab.position);
+    const y0 = faceMid(0).y;
+    const slope = faceMid(1).y - y0;
+    const waterline = -y0 / slope;
+
     // --- displaced earth ------------------------------------------------------
     //
-    // A slab that simply passes through the floor reads as dropped on it. What
-    // says "went in" is soil heaped along the line where it disappears and, more
-    // than anything else, soil lying OVER the end of the stone: earth on top of
-    // a slab cannot be read as a slab sitting on top of earth.
+    // A slab that simply passes through the floor still reads as dropped on it.
+    // What says "went in" is soil heaped along the line where it disappears and,
+    // more than anything else, soil lying OVER the end of the stone: earth on
+    // top of a slab cannot be read as a slab sitting on top of earth.
     //
     // This is the one place the piece leaves the stone palette, and it leaves it
     // toward the floor rather than away from it: the mounds are the ground's own
     // colour a shade darker, so the set gains no new hue. They keep the stone's
-    // map, which is only a grey mottle at this end of the texture, so they are
-    // dirt-speckled rather than moulded.
+    // map, sampled in the plain strip's grime band, so they are dirt-speckled
+    // rather than moulded. No normal map: the inscription's relief has no
+    // business appearing in a pile of soil.
     const soil = material.clone();
     soil.color = new THREE.Color(EARTH);
     soil.normalMap = null;
+    disposables.push(soil);
 
-    // The registry's plinth, which this stone has no use for standing up, is the
+    // The registry's plinth, which a stone lying down has no use for, is the
     // main ridge: a rounded bar turned across the sunken end and buried to all
     // but a finger's width. Scaled rather than rebuilt, and squashing a rounded
     // profile leaves it rounded.
-    const endX = -halfWidth * Math.cos(DIP);
-    if (kerb) {
-      kerb.material = soil;
-      kerb.rotation.y = Math.PI / 2;
-      kerb.scale.set(0.64, 0.92, 1.5);
-      kerb.position.set(endX + 0.10, -KERB_H * 0.62, 0);
+    // The registry's plinth is a flat-topped bar, which is the one shape soil
+    // never has, so it is parked out of sight under the stone rather than
+    // dressed up. It stays in the scene because dispose() owns its geometry and
+    // because a mesh below the floor is never the nearest thing to the key
+    // light, so it casts nothing.
+    if (ridge) {
+      ridge.rotation.y = Math.PI / 2;
+      ridge.position.set(0, -KERB_H - 0.6, 0);
     }
 
-    // Clods on top of the ridge, two of them riding up onto the stone itself.
-    // One geometry between them, so re-posing the registry's meshes has cost the
-    // stone exactly one resource that its dispose() does not know about.
+    // The berm: one run of overlapping ellipsoids along the waterline, sunk to
+    // the waist. Overlapping matters. Spaced apart they are pebbles, and an
+    // earlier pass at four discrete lumps read as a cartoon paw print beside the
+    // stone; merged into one low swell they read as ground that has been pushed
+    // up. Nothing here is tall enough to hide the stone's own outline running
+    // out at the floor, which is the cue that actually does the work.
+    //
+    // One geometry between them, mapped into the plain strip: a sphere arrives
+    // with its own cylindrical wrap, which would smear the inscription round it.
+    // v runs low at the bottom of each lump and high at the top, so a lump comes
+    // out of the grime band dirty where it meets the floor and clean over the
+    // crown, which is the way round a heap of soil weathers.
     const clod = new THREE.SphereGeometry(1, 20, 14);
-    const clods = [
-      { x: 0.14, z: -0.26, r: 0.20, h: 0.070, over: 0.035 },
-      { x: -0.02, z: 0.06, r: 0.25, h: 0.080, over: 0.030 },
-      { x: 0.17, z: 0.30, r: 0.17, h: 0.062, over: 0.030 },
-      { x: -0.22, z: -0.16, r: 0.15, h: 0.050, over: 0.0 },
+    {
+      const pos = clod.attributes.position;
+      const uv = clod.attributes.uv;
+      for (let i = 0; i < pos.count; i++) {
+        const [u, v] = stripUV(pos.getX(i), pos.getY(i) + 1, 1, 2, 0.95);
+        uv.setXY(i, u, v);
+      }
+      uv.needsUpdate = true;
+    }
+    disposables.push(clod);
+
+    const berm = [
+      { x: 0.03, z: -0.34, rx: 0.24, rz: 0.26, h: 0.034, sink: 0.45 },
+      { x: -0.02, z: 0.00, rx: 0.28, rz: 0.30, h: 0.040, sink: 0.45 },
+      { x: 0.05, z: 0.33, rx: 0.22, rz: 0.24, h: 0.032, sink: 0.45 },
+      { x: -0.16, z: 0.16, rx: 0.18, rz: 0.22, h: 0.028, sink: 0.5 },
     ];
-    for (const c of clods) {
+
+    for (const c of berm) {
       const m = new THREE.Mesh(clod, soil);
-      m.scale.set(c.r * 1.3, c.h, c.r);
-      // Sunk to the waist, so what shows is a run of low swells and not a row
-      // of balls resting on a floor.
-      m.position.set(endX + c.x, c.over - c.h * 0.42, c.z);
-      m.rotation.y = c.z * 1.4;
+      m.scale.set(c.rx, c.h, c.rz);
+      // Sat on the stone it is burying, or on the floor once past the end of it,
+      // and sunk either way, so what shows is a swell and not a ball resting on
+      // a surface.
+      const x = waterline + c.x;
+      m.position.set(x, Math.max(0, faceMid(x).y) - c.h * c.sink, c.z);
+      m.rotation.y = c.z * 0.8;
       m.castShadow = true;
       m.receiveShadow = true;
       body.add(m);

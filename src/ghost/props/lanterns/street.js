@@ -80,11 +80,11 @@ const M = {
   skirt: [
     [0.000, 2.150],
     [0.104, 2.150],
-    [0.132, 2.196],
-    [0.216, 2.278],
-    [0.250, 2.336],
-    [0.248, 2.376],
-    [0.216, 2.398],
+    [0.136, 2.196],
+    [0.226, 2.278],
+    [0.262, 2.336],
+    [0.260, 2.376],
+    [0.226, 2.398],
     [0.000, 2.398],
   ],
   skirtRound: [0.000, 0.030, 0.034, 0.048, 0.030, 0.020, 0.026, 0.000],
@@ -92,11 +92,11 @@ const M = {
   // The glazing. Given a slight belly rather than a straight taper: a straight
   // one reads as a machined tube and the whole set is moulded.
   glass: [
-    [0.208, 2.386],
-    [0.216, 2.470],
-    [0.208, 2.620],
-    [0.190, 2.740],
-    [0.176, 2.802],
+    [0.220, 2.386],
+    [0.229, 2.470],
+    [0.220, 2.620],
+    [0.201, 2.740],
+    [0.186, 2.802],
   ],
   glassRound: [0.000, 0.090, 0.090, 0.070, 0.000],
 
@@ -105,43 +105,61 @@ const M = {
   // corners of that into a drip edge.
   cap: [
     [0.000, 2.792],
-    [0.186, 2.792],
-    [0.206, 2.812],
-    [0.206, 2.856],
-    [0.186, 2.874],
-    [0.262, 2.900],
-    [0.252, 2.944],
-    [0.192, 3.014],
-    [0.118, 3.078],
-    [0.038, 3.126],
-    [0.000, 3.140],
+    [0.196, 2.792],
+    [0.218, 2.812],
+    [0.218, 2.856],
+    [0.200, 2.872],
+    [0.284, 2.892],
+    [0.278, 2.932],
+    [0.152, 3.062],
+    [0.062, 3.152],
+    [0.000, 3.186],
   ],
-  capRound: [0.000, 0.016, 0.014, 0.014, 0.014, 0.022, 0.026, 0.045, 0.045, 0.030, 0.000],
+  capRound: [0.000, 0.016, 0.014, 0.014, 0.014, 0.020, 0.030, 0.042, 0.032, 0.000],
 
   // The finial. Fat by design: a spike here would be the one sharp thing in a
   // set with nothing sharp in it, and it is the highest point in the scene.
   finial: [
-    [0.000, 3.096],
-    [0.042, 3.100],
-    [0.038, 3.140],
-    [0.066, 3.176],
-    [0.066, 3.204],
-    [0.038, 3.238],
-    [0.030, 3.262],
-    [0.020, 3.290],
+    [0.000, 3.100],
+    [0.040, 3.104],
+    [0.036, 3.146],
+    [0.064, 3.184],
+    [0.064, 3.212],
+    [0.036, 3.246],
+    [0.030, 3.266],
+    [0.019, 3.292],
     [0.000, 3.300],
   ],
   finialRound: [0.000, 0.016, 0.014, 0.020, 0.020, 0.018, 0.012, 0.010, 0.000],
+
+  // The burner the flame stands on. Small, and it earns its 300 triangles: the
+  // lantern's floor is 0.2 below a point light and renders as one flat cream
+  // disc, which was the brightest and emptiest thing on the prop. A cup with a
+  // rim breaks that disc into a lit ring, a shaded bowl and a highlight, and it
+  // gives the flame something to be standing on rather than hovering over.
+  burner: [
+    [0.000, 2.398],
+    [0.088, 2.400],
+    [0.092, 2.428],
+    [0.070, 2.460],
+    [0.042, 2.472],
+    [0.038, 2.540],
+    [0.000, 2.548],
+  ],
+  burnerRound: [0.000, 0.016, 0.018, 0.022, 0.016, 0.014, 0.000],
 
   // The four glazing bars. Finger-thick, see the note at the top.
   bar: { radius: 0.026, bottom: 2.372, top: 2.818 },
 
   // How square the head is. 2 is a circle; this is a soft square whose corner
-  // stands 14% further out than its faces, which is enough to read as a
-  // four-sided lantern in silhouette without a single hard edge on it.
-  section: 3.4,
+  // stands 19% further out than its faces. It was 3.4 and that was too round:
+  // seen square on, where the two visible corners are the silhouette, the cap
+  // came out as a dome rather than as a peaked roof and the whole head read as
+  // a jar. At 4.2 the corner ridges are definite enough to draw the roof and
+  // still have a radius on them you could not cut yourself on.
+  section: 4.2,
 
-  flameY: 2.575,
+  flameY: 2.615,
 };
 
 // Tessellation. The post is 0.17 across and never needs 48 steps round; the
@@ -176,10 +194,17 @@ const HUE_MID = 0.912, HUE_GAIN = 1.5;
 // a stripe across the graveyard, and the thing a lantern actually does to a
 // scene, a soft pool of warm on the ground and a warm side on everything near
 // it, is exactly what an unshadowed point light does for free.
-const LAMP = { min: 5.0, max: 10.8 };     // PointLight intensity, 2.16:1
-const INNER = { min: 0.30, max: 0.92 };   // the glass lit from inside
-const WICK = { min: 1.05, max: 2.70 };    // the flame mesh's emissive
-const HALO = { min: 0.26, max: 0.62 };    // the bloom around it
+const LAMP = { min: 2.4, max: 5.2 };      // PointLight intensity, 2.17:1
+const INNER = { min: 0.26, max: 0.80 };   // the glass lit from inside
+const WICK = { min: 0.70, max: 1.70 };    // the flame mesh's emissive
+const HALO = { min: 0.18, max: 0.44 };    // the bloom around it
+const POOL = { min: 0.10, max: 0.26 };    // the warm on the ground under it
+// The halo and the pool composite ADDITIVELY, and additive light saturates to
+// white long before an emissive does. So they get their own pair, a good deal
+// deeper than the plate's, or the flame's core and the pool's middle both come
+// out as cream discs with an orange edge.
+const BLOOM_EMBER = new THREE.Color('#ff5410');
+const BLOOM_FLAME = new THREE.Color('#ff9a35');
 
 // ---------------------------------------------------------------------------
 // profile and surface helpers
@@ -368,6 +393,72 @@ function capsule({ length, r0, r1, segments = 12, capSteps = 5 }) {
   return revolve(rows, { segments });
 }
 
+// The warm on the ground, as a decal rather than as light.
+//
+// This is not laziness about the point light, it is the only way to have both.
+// The lantern is 2.6 up and the scene is broad daylight: a hemisphere at 1.15
+// and a key at 2.1 already put about 2.9 on the floor, so a point light needs
+// to land near 1.0 there before anything reads, and one that does is a hundred
+// times over the top on the glazing bars 0.24 from it. Flattening the decay
+// (see the light below) buys most of the gap and not all of it. So the point
+// light is set where the IRONWORK looks right, and the last of the pool is
+// painted on, the same trick and the same machinery as style.js's contact
+// shadow, which exists for the mirror-image reason.
+//
+// The profile is not a generic gradient. Irradiance from a point at height h on
+// the floor at lateral distance x goes as cos(theta) / d^decay, so it is widest
+// where the lamp is tallest; baked here rather than smoothstepped, the pool
+// reaches about a third of its centre value at x = h, which is what makes it
+// read as thrown from up there and not as a puddle at the foot.
+function lightPool({ radius = 3.0, height = 2.575, decay = 1.25 } = {}) {
+  if (typeof document === 'undefined') {
+    const stub = new THREE.Object3D();
+    stub.userData.dispose = () => {};
+    return stub;
+  }
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  const c = (size - 1) / 2;
+  for (let j = 0; j < size; j++) {
+    for (let i = 0; i < size; i++) {
+      const x = ((i - c) / c) * radius;
+      const z = ((j - c) / c) * radius;
+      const lat = Math.hypot(x, z);
+      const d = Math.hypot(lat, height);
+      let v = (height / d) / Math.pow(d / height, decay);
+      // Taken to zero at the quad's edge, or the decal ends on a visible disc.
+      v *= Math.max(0, 1 - Math.pow(lat / radius, 2.2));
+      const k = (j * size + i) * 4;
+      img.data[k] = img.data[k + 1] = img.data[k + 2] = 255;
+      img.data[k + 3] = Math.round(255 * Math.max(0, Math.min(1, v)));
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    opacity: POOL.min,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: true,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(radius * 2, radius * 2), material);
+  mesh.rotation.x = -Math.PI / 2;
+  // Above the contact patch, which is at 0.004. The two are not fighting: the
+  // patch is 0.44 across and darkens the few centimetres the foot actually
+  // touches, which is ground a lamp cannot light anyway.
+  mesh.position.y = 0.006;
+  mesh.renderOrder = -1;
+  mesh.userData.dispose = () => { texture.dispose(); material.dispose(); mesh.geometry.dispose(); };
+  return mesh;
+}
+
 // ---------------------------------------------------------------------------
 // the glass
 //
@@ -434,7 +525,7 @@ const GLASS_FRAG = `
   // Soot, thickest at the top of the pane where the flame's plume sits against
   // it. It takes the shine off as well as darkening, which is the half that
   // actually reads.
-  float soot = smoothstep(0.52, 1.0, vGT) * 0.62;
+  float soot = smoothstep(0.42, 0.98, vGT) * 0.80;
 
   vec3 h = normalize(wV + uSunDir);
   float glint = pow(max(dot(wN, h), 0.0), uShine);
@@ -475,6 +566,7 @@ export function createStreetLamp({ seed = 1, scale = 1 } = {}) {
     revolve(fillet(M.post, M.postRound), { segments: SEG.post }),
     revolve(fillet(M.skirt, M.skirtRound, 11), { section, segments: SEG.head }),
     revolve(fillet(M.cap, M.capRound, 11), { section, segments: SEG.head }),
+    revolve(fillet(M.burner, M.burnerRound, 8), { segments: SEG.post }),
     revolve(fillet(M.finial, M.finialRound, 10), { segments: SEG.post }),
   ];
 
@@ -487,8 +579,8 @@ export function createStreetLamp({ seed = 1, scale = 1 } = {}) {
       const [cx, cz] = section(Math.PI / 4);
       return Math.hypot(cx, cz) * halfWidth;
     };
-    const rBot = corner(0.208);
-    const rTop = corner(0.178);
+    const rBot = corner(0.220);
+    const rTop = corner(0.188);
     const len = M.bar.top - M.bar.bottom;
     const lean = Math.atan2(rBot - rTop, len);
     const geo = capsule({ length: len / Math.cos(lean), r0: M.bar.radius, r1: M.bar.radius * 0.94, segments: SEG.bar });
@@ -537,13 +629,13 @@ export function createStreetLamp({ seed = 1, scale = 1 } = {}) {
     // Over one on purpose. The fake sky is a flat gradient with no bright spots
     // of its own to find, so a physically honest fresnel leaves the pane's edge
     // barely separated from the iron behind it.
-    uRimGain: { value: 1.85 },
+    uRimGain: { value: 1.62 },
     uGlint: { value: 1.15 },
     uShine: { value: 150.0 },
     uInner: { value: INNER.min },
     // How much of the pane is pane rather than reflection. Low: this is
     // glazing, and the flame behind it has to come through.
-    uBody: { value: 0.20 },
+    uBody: { value: 0.19 },
   };
 
   const glassMat = toyMaterial(GLASS_TINT, {
@@ -583,12 +675,12 @@ varying float vGT;`)
   // leaving a surface and it has to survive being on the shadowed side.
   const flameGeo = revolve(fillet([
     [0.000, 0.000],
-    [0.030, 0.012],
-    [0.036, 0.046],
-    [0.026, 0.086],
-    [0.010, 0.118],
-    [0.000, 0.132],
-  ], [0.000, 0.014, 0.020, 0.026, 0.022, 0.000], 8), { segments: 20 });
+    [0.042, 0.016],
+    [0.050, 0.062],
+    [0.038, 0.120],
+    [0.016, 0.168],
+    [0.000, 0.190],
+  ], [0.000, 0.018, 0.030, 0.036, 0.028, 0.000], 8), { segments: 22 });
   const flameMat = new THREE.MeshStandardMaterial({
     color: 0x110800,
     emissive: PLATE_FLAME.clone(),
@@ -597,7 +689,7 @@ varying float vGT;`)
     metalness: 0.0,
   });
   const flame = new THREE.Mesh(flameGeo, flameMat);
-  flame.position.y = M.flameY - 0.055;
+  flame.position.y = M.flameY - 0.086;
   body.add(flame);
   disposables.push(flameGeo, flameMat);
 
@@ -605,9 +697,9 @@ varying float vGT;`)
   // which on a sphere is a soft radial blob and costs one power function. The
   // lamp is small in frame at this height, and without it the head reads as a
   // dark box with a speck in it.
-  const haloGeo = new THREE.SphereGeometry(0.115, 20, 14);
+  const haloGeo = new THREE.SphereGeometry(0.088, 20, 14);
   const haloMat = new THREE.MeshBasicMaterial({
-    color: PLATE_FLAME.clone(),
+    color: BLOOM_FLAME.clone(),
     transparent: true,
     opacity: HALO.min,
     blending: THREE.AdditiveBlending,
@@ -638,12 +730,20 @@ varying vec3 vHP;`)
   disposables.push(haloGeo, haloMat);
 
   // --- the light -----------------------------------------------------------
-  // Decay is 1.8 rather than the physical 2. From 2.58 up, an inverse square
-  // puts almost everything it has into the two metres directly beneath the post
-  // and nothing on the headstones it is meant to be lighting; the shortfall is
-  // exactly the bounce off ground and air that a scene with no GI does not
-  // have. distance closes it off before it reaches the far side of the plot.
-  const light = new THREE.PointLight(FLAME.clone(), LAMP.min, 12.0, 1.8);
+  // Decay is 1.25, and this is the one number on the prop that is a frank
+  // cheat. A point source in the middle of a lantern is the worst case for
+  // inverse square: the glazing bars are 0.24 from it and the ground is 2.6, so
+  // a physical falloff hands the bars a hundred and twenty times what it hands
+  // the floor. Tuned to light the floor, the bars rendered white hot and lost
+  // their shading entirely, and every version of "turn it down" that fixed the
+  // bars left nothing at all on the ground. Flattening the exponent squeezes
+  // that ratio from 120 to 15, which is the whole fix: the bars come back as
+  // warm bronze with their form intact and the pool under the post still reads.
+  // Physically the shortfall it stands in for is real enough, a lantern's glass
+  // is an area source and this scene has no bounce, and neither of those obeys
+  // an inverse square either. distance closes the light off before it reaches
+  // the far side of the plot.
+  const light = new THREE.PointLight(FLAME.clone(), LAMP.min, 11.0, 1.25);
   light.position.set(0, M.flameY, 0);
   light.castShadow = false;
   body.add(light);
@@ -653,6 +753,12 @@ varying vec3 vHP;`)
   // nothing darkens the ground where the foot actually meets it.
   const patch = contactShadow({ radius: 0.44, opacity: 0.40, softness: 0.5 });
   body.add(patch);
+
+  // The pool goes on the OUTER group, so the post's seeded lean cannot tip it
+  // off the floor and leave one edge cutting into the ground plane.
+  const pool = lightPool({ height: M.flameY });
+  const poolMat = pool.material || null;
+  group.add(pool);
 
   // A hand-set post never stands quite true, and a lamp that does looks
   // dropped in. Small: the silhouette still has to read as vertical over three
@@ -669,7 +775,7 @@ varying vec3 vHP;`)
   // object's matrix, and its intensity is candela against a distance that grows
   // with the prop. So both are corrected here, or a lamp at scale 2 lights a
   // quarter as much ground as one at scale 1.
-  const distance = 12.0 * scale;
+  const distance = 11.0 * scale;
   const lightGain = scale * scale;
   light.distance = distance;
 
@@ -744,6 +850,7 @@ varying vec3 vHP;`)
       glassUniforms.uInner.value = at(INNER);
       flameMat.emissiveIntensity = at(WICK);
       haloMat.opacity = at(HALO);
+      if (poolMat) poolMat.opacity = at(POOL);
 
       // Colour, levered about the level's mean so ember is reachable inside a
       // real gutter rather than only inside a blackout.
@@ -751,7 +858,8 @@ varying vec3 vHP;`)
       mixCol(light.color, k);
       glassUniforms.uFlameCol.value.copy(EMBER).lerp(FLAME, k);
       flameMat.emissive.copy(PLATE_EMBER).lerp(PLATE_FLAME, k);
-      haloMat.color.copy(PLATE_EMBER).lerp(PLATE_FLAME, k);
+      haloMat.color.copy(BLOOM_EMBER).lerp(BLOOM_FLAME, k);
+      if (poolMat) poolMat.color.copy(BLOOM_EMBER).lerp(BLOOM_FLAME, k);
 
       // The flame physically moves while it does the rest, which is the fourth
       // channel and the one that stops the head reading as a bulb on a dimmer.
@@ -772,6 +880,7 @@ varying vec3 vHP;`)
     dispose() {
       for (const d of disposables) d.dispose();
       patch.userData.dispose?.();
+      pool.userData.dispose?.();
       light.dispose?.();
     },
   };

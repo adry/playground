@@ -79,39 +79,50 @@ const URN_SCALE = 1.18;
 // only turned the lid into a melted blob, and the lid and finial are the two
 // features that say "urn" rather than "pot", so they stay bare.
 const CLOAK = [
-  [0.215, 0.208],
-  [0.260, 0.214],
-  [0.300, 0.212],
-  [0.335, 0.199],
-  [0.362, 0.178],
-  [0.386, 0.148],
+  [0.215, 0.222],
+  [0.260, 0.228],
+  [0.300, 0.224],
+  [0.335, 0.207],
+  [0.362, 0.182],
+  [0.386, 0.150],
   [0.398, 0.128], // the rim's own widest point, so the cloth ends at zero here
 ];
 
 const DRAPE = {
-  arcPos: 1.05,   // how far the cloth wraps one way, radians
-  arcNeg: 0.95,   // and the other. Uneven on purpose: a hand-thrown cloth is.
+  arcPos: 1.06,   // how far the cloth wraps one way, radians
+  arcNeg: 0.92,   // and the other. Uneven on purpose: a hand-thrown cloth is.
   folds: 3,       // ridges across the whole span
-  foldDepth: 0.26,
-  hem: 0.252,     // where the cloth ends, on the swell of the belly
-  hemWave: 0.017, // ridges hang lower than the hollows between them. Small: at
+  foldDepth: 0.24,
+  // Where the hem sits. It is written as a TUCK LINE up on the shoulder and a
+  // fall below it, and the fall is scaled by the same fade that thins the cloth
+  // at its ends. Written the other way round -- a hem height with a tilt added
+  // -- the cloth's two ends finished low on the belly exactly where the fade was
+  // taking their thickness to nothing, and a hanging edge with no thickness left
+  // in it pinched into a spiky wing with creases in it. Tied to the fade, the
+  // ends always tuck back up under the shoulder and there is nothing to pinch.
+  tuck: 0.345,
+  fall: 0.055,
+  hemWave: 0.020, // ridges hang lower than the hollows between them. Small: at
                   // the amplitude that looks right up close, three scallops
                   // across the front read from a distance as a painted zigzag.
-  hemTilt: 0.026, // and the whole hem is lower on one side than the other
-  // Height of the rounded hem roll. Short on purpose: at 0.042 the cloth's
-  // free edge was a 35-degree ramp, and a ramp reads as a smudge. A hem has to
-  // be a step with a shadow under it, rounded but short.
-  roll: 0.020,
+  hemTilt: 0.055, // and the whole hem falls further on one side than the other
+  // The free edge of the cloth. Not a ramp and not a cliff: both were tried and
+  // both failed, the ramp as a smudge and the cliff as a crack in the pot with
+  // a hard black line down it. A real hem is a roll, so the cloth swells past
+  // its own thickness just inside the edge and settles back, and it is that
+  // bead catching the key light above its own shadow that says "cloth".
+  roll: 0.045,
+  bead: 0.24,
   // The one corner of cloth that hangs free, down past the belly and over the
   // stem. This is the feature that makes the piece read as draped rather than
   // as a pot with a lumpy shoulder: it is the only place the cloth's edge
   // crosses the urn's own silhouette instead of running along it.
-  tailAt: -0.62,
-  tailWidth: 0.26,
-  tailDrop: 0.125,
+  tailAt: -0.45,
+  tailWidth: 0.30,
+  tailDrop: 0.085,
   // Cloth is never thinner than this where it exists at all, so the hanging
   // corner keeps its body once it is past the belly and the hull runs out.
-  floor: 0.044,
+  floor: 0.050,
 };
 
 const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
@@ -169,17 +180,18 @@ function drapeDisplacer(profile, centre) {
 
     // Soft ends: the cloth has to melt into the urn at its two edges, never
     // stop at a step.
-    const edge = 1 - smooth((Math.abs(q) - 0.80) / 0.20);
+    const edge = 1 - smooth((Math.abs(q) - 0.72) / 0.28);
     const ridge = Math.cos(q * Math.PI * DRAPE.folds);
 
-    const drop = Math.exp(-Math.pow((q - DRAPE.tailAt) / DRAPE.tailWidth, 2));
-    const hem = DRAPE.hem - DRAPE.hemWave * ridge + DRAPE.hemTilt * q - DRAPE.tailDrop * drop;
+    const corner = Math.exp(-Math.pow((q - DRAPE.tailAt) / DRAPE.tailWidth, 2));
+    const fall = DRAPE.fall + DRAPE.hemWave * ridge - DRAPE.hemTilt * q + DRAPE.tailDrop * corner;
+    const hem = DRAPE.tuck - Math.max(0, fall) * edge;
     const above = sample.y - hem;
     if (above <= 0) return [0, 0];
-    // A rounded roll rather than a linear ramp: the hem of a vinyl cloth is a
-    // fat lip that catches the key light, and that lip is the single thing that
-    // tells the eye there is cloth here at all once the piece gets small.
-    const lip = Math.pow(Math.min(1, above / DRAPE.roll), 0.6);
+    const f = above / DRAPE.roll;
+    const rise = f >= 1 ? 1 : Math.sin((f * Math.PI) / 2);
+    const bead = 1 + DRAPE.bead * Math.exp(-Math.pow((f - 1.15) / 0.85, 2));
+    const lip = rise * bead;
 
     return [t * edge * lip * (1 + DRAPE.foldDepth * ridge), 0];
   };

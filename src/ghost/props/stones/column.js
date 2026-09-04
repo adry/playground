@@ -10,16 +10,17 @@ import { Profile, createSink, sinkToGeometry, latheInto } from '../fountain/lath
 // The postmortem's rule is that silhouette carries the identity, and this stone
 // is almost nothing but silhouette, so the whole design is three decisions:
 //
-//   1. It is SHORT. The two tall stones reach 1.56 and 1.52; this one averages
-//      about 1.29 and its high lip touches 1.36. A broken column that stands as
+//   1. It is SHORT. The two tall stones reach 1.56 and 1.52; this one measures
+//      1.24 at the low side of its break and 1.37 at the high, so it sits
+//      between them and little Fred at 1.10. A broken column that stands as
 //      tall as its neighbours has not been broken, it has been built stumpy.
-//   2. The base is heavy and the shaft is not. Plinth plus die is 0.49, nearly
-//      two fifths of the height, which is what a monument's proportions are and
-//      what stops a lone cylinder from reading as a bollard.
-//   3. The break is a SHEAR, not a lid. The top rim swings through 0.15 of
-//      height from its low side to its high one, so from any angle the eye gets
-//      a slanted edge with stone missing above it, and the flutes run straight
-//      off that edge mid-groove.
+//   2. The base is heavy and the shaft is not. Plinth plus die is 0.47, over a
+//      third of the height, which is a monument's proportions and what stops a
+//      lone cylinder from reading as a bollard.
+//   3. The break is a SHEAR, not a lid. The rim swings about 0.12 from its low
+//      side to its high one, a slope near twenty degrees, so the eye gets a
+//      slanted edge with stone missing above it and the flutes run straight off
+//      that edge in the middle of themselves.
 //
 // Construction: the registry's slab IS the die, kept short and square in plan,
 // which buys the rounded box, the grime, the plinth and one small carved date
@@ -28,10 +29,11 @@ import { Profile, createSink, sinkToGeometry, latheInto } from '../fountain/lath
 // what latheInto's displace hook is for, and rubble.js had already proved that
 // a snapped face is the same hook with a wander in y. No second lathe.
 
-// Square in plan, 0.56 by 0.56, so the die reads as a block rather than a slab
-// turned edge on. Face aspect lands at 1.75, which puts the carved region at
-// 1792 px wide: well inside the range the engraving treatment was calibrated
-// for, unlike the narrow faces that sank the last attempt.
+// Square in plan, 0.54 by 0.54, so the die reads as a block rather than as a
+// slab turned edge on, and so it looks the same from all four sides the way the
+// column above it does. Face aspect lands at 1.8, which puts the carved region
+// at 1843 px wide: well above the 500 px floor the engraving treatment needs,
+// unlike the narrow faces that sank the last attempt at new stones.
 const SHAPE = { halfWidth: 0.27, height: 0.30, depth: 0.54, plinth: 0.17 };
 
 // --- the shaft -------------------------------------------------------------
@@ -57,49 +59,45 @@ function fluting(theta) {
 //
 // One big cosine is the whole read: it shears the top of the shaft so the lip
 // is high on one side and low on the other, and that slant is what says
-// "snapped" from across the room. The three harmonics on top are the texture,
-// and they are deliberately low frequency: this is a soft vinyl toy, so a break
-// in it is a lumpy surface, never a jagged one.
+// "snapped" from across the room. The harmonics on top are the texture, and
+// they are deliberately low frequency: this is a soft vinyl toy, so a break in
+// it is a lumpy surface, never a jagged one.
 function breakLip(theta, ph) {
+  // One spur of stone that survived the fall, forty degrees or so wide and set
+  // off to one side of the slant. Without it there is one direction, square on
+  // to the axis the shear tilts about, from which a tilted plane reads as a
+  // level one and the stump looks sawn. The spur means no viewpoint is flat.
+  const d = Math.atan2(Math.sin(theta - ph[0] - 2.0), Math.cos(theta - ph[0] - 2.0));
   return (
     Math.cos(theta - ph[0]) +
     0.28 * Math.sin(2 * theta + ph[1]) +
-    0.13 * Math.sin(3 * theta + ph[2])
+    0.13 * Math.sin(3 * theta + ph[2]) +
+    0.50 * Math.exp(-((d / 0.70) ** 2))
   );
 }
 
-// The face of the break itself. Takes the position across the face as well as
-// the angle, for the reason rubble.js gives: shaped by angle alone, the wander
-// is constant along every radius and the flat top of the stump comes out as a
-// pinwheel of ridges meeting at the middle, which is the one thing a snapped
-// face never looks like. Twisting the angle with the radius and adding a radial
-// wave turns it back into a lump.
-function breakFace(theta, u, ph) {
-  const a = theta + 1.1 * u;
+// The face of the break itself: three plane waves crossing at three angles,
+// summed. Roughly two and a half lumps across the stump, which is as coarse as
+// a break can be and still read as broken rather than as a dent.
+//
+// It is a function of x and z, NOT of the angle, and that is the whole point.
+// rubble.js warns that a wander shaped by angle is constant along every radius,
+// so the top of a stump comes out as a pinwheel of ridges converging on the
+// middle, which is the one thing a snapped face never looks like; it answers
+// that by twisting the angle with the radius. Twisted or not, anything written
+// in polar coordinates still has a singularity at the axis and still shows it.
+// A field in the plane simply has no centre.
+function breakFace(x, z, ph) {
   return (
-    0.40 * Math.sin(4 * a + ph[1]) +
-    0.26 * Math.sin(7 * a + ph[2]) +
-    0.14 * Math.sin(11 * a + ph[0]) +
-    0.20 * Math.sin(5.5 * u + ph[2] * 0.6)
+    0.46 * Math.sin(27 * x + ph[0]) +
+    0.31 * Math.sin(25 * (0.40 * x + 0.92 * z) + ph[1]) +
+    0.21 * Math.sin(45 * (0.85 * x - 0.53 * z) + ph[2])
   );
-}
-
-// The face texture is a face-shaped region on the left of the canvas plus a
-// narrow strip of plain stone on the right that everything non-frontal samples.
-// buildTextures owns those numbers and does not hand them to extras(), so they
-// are recomputed here from the shape. If the registry ever passes the UV
-// helpers through, delete this.
-function stripBand(shape) {
-  const FH = 1024;
-  const STRIP = 160;
-  const FW = Math.round(FH * ((2 * shape.halfWidth) / shape.height));
-  const w = FW + STRIP;
-  return { front: FW / w, strip: STRIP / w };
 }
 
 // ---------------------------------------------------------------------------
 
-function buildColumn({ body, material, shape, rng, plinthH }) {
+function buildColumn({ body, material, shape, rng, plinthH, disposables, stripUV }) {
   const phase = [rng() * 6.283, rng() * 6.283, rng() * 6.283];
 
   const P = new Profile();
@@ -120,21 +118,20 @@ function buildColumn({ body, material, shape, rng, plinthH }) {
   P.lineTo(R, 0.116, 2);
   // Real columns taper, and at this size 8% over the run is enough to see
   // without the shaft looking whittled.
-  P.lineTo(R * 0.92, 0.762, 16);
+  P.lineTo(R * 0.92, 0.782, 16);
   P.setTag('break');
-  // Over the lip on a tight roll, then across a face that dishes slightly in
-  // towards the middle. The roll is the vinyl rounding and it is deliberately
-  // small: rolled generously the stump came out domed, like a candle that had
-  // burned down, and the eye needs an EDGE round the break even if that edge is
-  // soft. No edge on this piece is sharp, the break included.
-  P.curve([[R * 0.905, 0.788], [R * 0.845, 0.808], [R * 0.74, COL_TOP]], 6);
-  // The face barely dishes, and what dishing there is has to come back UP at
-  // the very middle. latheInto decides which way a pole faces by comparing it
-  // with the ring next to it, so a face that keeps falling all the way to the
-  // axis ends in a point whose normal is turned over: one black pinhole,
-  // dead centre, on the most visible surface of the stone.
-  P.curve([[R * 0.52, 0.812], [R * 0.24, 0.813]], 5);
-  P.lineTo(0, 0.817, 2);
+  // Over the lip on a roll about a quarter of the shaft radius, then flat
+  // across. The roll is the vinyl rounding and it is deliberately tight:
+  // rolled generously the stump came out domed, like a candle burned down, and
+  // the eye needs an EDGE round a break even when that edge is soft.
+  P.curve([[R * 0.900, 0.804], [R * 0.840, 0.816], [R * 0.72, COL_TOP]], 6);
+  // The face is flat but for a low mound at the very centre, and the mound is
+  // structural rather than decorative. latheInto decides which way a pole faces
+  // by comparing it with the ring next to it, so a face that keeps falling all
+  // the way to the axis ends in a point whose normal is turned over: one black
+  // pinhole, dead centre, on the most visible surface of the stone.
+  P.curve([[R * 0.50, 0.818], [R * 0.24, 0.818]], 5);
+  P.lineTo(0, 0.823, 2);
   const profile = P.build();
 
   const sink = createSink();
@@ -149,19 +146,21 @@ function buildColumn({ body, material, shape, rng, plinthH }) {
       let dy = 0;
       if (s.tag === 'shaft') {
         // Fade the flutes in over the first sliver of the shaft so they die
-        // into the fillet rather than starting as twelve notches on a rim.
+        // into the fillet rather than starting as ten notches cut in a rim.
         dr += fluting(theta) * smoothstep(0, 0.06, s.u);
       } else if (s.tag === 'break') {
         // Over the break the flutes fade with the RADIUS, not with the run, so
-        // they carry over the lip at full depth and die out on the face: what
-        // says "snapped" up close is twelve grooves stopping in the middle of
+        // they carry over the lip at full depth and die out on the face. What
+        // says "snapped" up close is ten grooves stopping in the middle of
         // themselves.
         dr += fluting(theta) * clamp01((s.r / R - 0.45) / 0.35);
-        // Lumps on the face. Held off the axis, because at r = 0 every angular
-        // column is the same point and giving them different heights builds a
-        // little crown of slivers on the centre of the stump.
-        const b = breakFace(theta, s.u, phase) * clamp01(s.r / (R * 0.45));
-        dy += 0.019 * b * smoothstep(0, 0.25, s.u);
+        // Lumps on the face, sampled where the ring actually sits in plan.
+        // Eased off over the inner third so the low mound the profile leaves in
+        // the middle is not fighting them: the mound is what keeps the pole's
+        // normal pointing up.
+        const b = breakFace(s.r * Math.cos(theta), s.r * Math.sin(theta), phase)
+          * smoothstep(0, 0.24, s.r / R);
+        dy += 0.027 * b * smoothstep(0, 0.30, s.u);
         dr += 0.011 * b * (1 - smoothstep(0.3, 1, s.u));
       }
       // The shear, which is the whole read at a distance. Two things scale it.
@@ -193,12 +192,16 @@ function buildColumn({ body, material, shape, rng, plinthH }) {
   // has to cover the whole circumference, so the mottling comes out stretched
   // around the column. On a weathered shaft that reads as banding, which is
   // what weathering on a column looks like anyway.
-  const band = stripBand(shape);
   const cols = SEGMENTS_A + 1;
   for (let k = 0, i = 0, p = 0; i < sink.uv.length; k++, i += 2, p += 3) {
-    const j = k % cols;
-    sink.uv[i] = band.front + band.strip * (0.14 + 0.72 * (j / SEGMENTS_A));
-    sink.uv[i + 1] = 0.50 + 0.36 * clamp01(sink.pos[p + 1] / COL_TOP);
+    // stripUV wants a point on a face of a given half-width and height, so it
+    // is fed a unit face: the angular column index across it, and a height that
+    // starts a little over halfway up the canvas. Starting at 0 instead would
+    // hand the shaft the grime gradient that belongs to the foot of a stone,
+    // and this piece begins half a unit off the ground.
+    const [u, v] = stripUV(k % cols / SEGMENTS_A - 0.5, 0.55 + 0.45 * clamp01(sink.pos[p + 1] / COL_TOP), 0.5, 1);
+    sink.uv[i] = u;
+    sink.uv[i + 1] = v;
   }
 
   const geometry = sinkToGeometry(sink);
@@ -208,11 +211,7 @@ function buildColumn({ body, material, shape, rng, plinthH }) {
   mesh.receiveShadow = true;
   body.add(mesh);
 
-  // createTombstone's dispose() knows about the slab, the plinth, the material
-  // and the textures, and nothing about whatever extras() built. Materials are
-  // event dispatchers and dispose() fires on them, so hanging the geometry off
-  // that is the one hook available from in here without touching the registry.
-  material.addEventListener('dispose', () => geometry.dispose());
+  disposables.push(geometry);
 }
 
 // ---------------------------------------------------------------------------
@@ -220,8 +219,12 @@ function buildColumn({ body, material, shape, rng, plinthH }) {
 registerStone('column', {
   shape: SHAPE,
   // Square the die off. Left alone the registry gives every slab a half-round
-  // arch, which on a 0.28 half-width would be a dome under the column.
+  // arch, which under a column would be a dome. Both radii are set to the
+  // slab's own edge radius, so the die is a plain rounded box: the default
+  // bottomRadius of 0.09 is a sixth of the height here and pinched the block in
+  // at the foot, which read as a cushion rather than as masonry.
   topRadius: 0.062,
+  bottomRadius: 0.062,
   draw(ctx, w, h) {
     // One small year, low on nothing and centred on the die. The postmortem is
     // blunt that a complex silhouette gets no marking, and this is the most

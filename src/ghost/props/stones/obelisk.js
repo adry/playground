@@ -41,6 +41,23 @@ const PLINTH = 0.18;
 const TAPER = 0.22;
 const scaleAt = (y) => 1 - TAPER * (y / H);
 
+// Where the cap takes over, and how hard the shaft pulls in above it.
+//
+// The pyramidion sleeves down over the top of the shaft, so above TUCK_Y there
+// are two surfaces in the same place. Left exactly parallel they z-fight, and
+// on a 16-bit depth buffer that is not a hairline, it is a band of stipple
+// across the face right under the shoulder. So the shaft narrows from TUCK_Y
+// on: nothing about it is visible, it is only there to open a gap. Because the
+// pull-in starts exactly where the cap's base ring sits and the two surfaces
+// leave that ring in the same direction, the silhouette is continuous through
+// the joint and the gap is a fifth of a millimetre by the time anything could
+// see it.
+const TUCK_Y = H - 0.12;
+const TUCK_C = 1.5;
+const shaftScale = (y) => scaleAt(y) * (1 - TUCK_C * Math.max(0, y - TUCK_Y));
+const shaftScaleD = (y) =>
+  (-TAPER / H) * (1 - TUCK_C * Math.max(0, y - TUCK_Y)) + scaleAt(y) * (y > TUCK_Y ? -TUCK_C : 0);
+
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
 
 // ---------------------------------------------------------------------------
@@ -194,13 +211,13 @@ function roundedBlock({ halfX, halfZ, height, edge, corner, y0, uv }) {
 // is oblong exactly as much as the shaft is and its four faces meet in rounded
 // arrises rather than in corners.
 function pyramidionGeometry({ uv, edge }) {
-  const yBase = H - 0.10; // buried, below where the slab's top starts rounding
-  const sBase = scaleAt(yBase) * 1.006; // a hair proud of the shaft, never inside it
+  const yBase = TUCK_Y; // buried, below where the slab's top starts rounding
+  const sBase = scaleAt(yBase) * 1.0015; // a hair proud of the shaft, never inside it
   const halfX0 = W * sBase;
   const halfZ0 = (D / 2) * sBase;
 
   const th1 = Math.atan(TAPER * W / H); // the shaft's lean, off vertical
-  const th2 = Math.PI / 2 - (48 * Math.PI) / 180; // the pyramid's slope, off vertical
+  const th2 = Math.PI / 2 - (52 * Math.PI) / 180; // the pyramid's slope, off vertical
   const FILLET = 0.16; // the shoulder. Fat on purpose: this is the read.
   const TIP = 0.075; // the apex arc
 
@@ -358,14 +375,14 @@ registerStone('obelisk', {
       const nor = slab.geometry.attributes.normal;
       for (let i = 0; i < pos.count; i++) {
         const y = pos.getY(i);
-        const s = scaleAt(clamp01(y / H) * H);
+        const s = shaftScale(y);
         const x = pos.getX(i) * s;
         const z = pos.getZ(i) * s;
         pos.setXYZ(i, x, y, z);
         const nx = nor.getX(i);
         const ny = nor.getY(i);
         const nz = nor.getZ(i);
-        const my = s * ny + ((TAPER / H) * (x * nx + z * nz)) / s;
+        const my = s * ny - (shaftScaleD(y) / s) * (x * nx + z * nz);
         const l = Math.hypot(nx, my, nz) || 1;
         nor.setXYZ(i, nx / l, my / l, nz / l);
       }
@@ -397,21 +414,20 @@ registerStone('obelisk', {
     // same 0.04, which is what makes three separate blocks read as one built
     // base instead of a stack. It is short: a tall step would start competing
     // with the shaft for the eye, and the shaft is the whole stone.
-    const stepH = 0.115;
+    const stepW = W + 0.035;
     add(
       roundedBlock({
-        halfX: W + 0.035,
+        halfX: stepW,
         halfZ: D / 2 + 0.03,
-        height: stepH,
+        height: 0.115,
         edge: 0.05,
         corner: 0.075,
         y0: 0,
-        uv: (x, y) => stripUV(x, y, W + 0.035),
+        uv: parkUV(stepW),
       }),
-      plinthH,
     );
 
     // --- the cap -------------------------------------------------------------
-    add(pyramidionGeometry({ uv: (x, y) => stripUV(x, y, W) }), plinthH);
+    add(pyramidionGeometry({ uv: parkUV(W), edge }));
   },
 });

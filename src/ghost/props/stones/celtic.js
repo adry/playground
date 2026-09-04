@@ -28,35 +28,38 @@ import { registerStone, inkText } from '../tombstones.js';
 // so the head cannot drift away from the set's grey.
 
 // The die. Wide and low, and square-ish in plan so it reads as a block that the
-// shaft is set into rather than as a slab. 0.47 by 0.30 puts the carved face at
-// 1605 by 1024 px, the same country as column.js's die and well clear of the
+// shaft is set into rather than as a slab. 0.54 by 0.32 puts the carved face at
+// 1728 by 1024 px, the same country as column.js's die and well clear of the
 // range where the groove treatment collapses.
-const SHAPE = { halfWidth: 0.235, height: 0.30, depth: 0.30, plinth: 0.155 };
-const DIE_TOP = SHAPE.plinth + SHAPE.height; // 0.455
+const SHAPE = { halfWidth: 0.27, height: 0.32, depth: 0.33, plinth: 0.16 };
+const DIE_TOP = SHAPE.plinth + SHAPE.height; // 0.48
 
 // --- the cross -------------------------------------------------------------
 
-const TOP = 1.60;         // the whole piece, a shade under the ghost's 1.6
-const ARM = 0.125;        // half thickness of the cross bar, so 0.25 through
-const ARM_L = 0.425;      // half span of the cross bar: 0.04 clear of the ring
-const RING_R = 0.325;     // torus centreline radius
-const RING_T = 0.060;     // tube radius, i.e. inner 0.265 and outer 0.385
-const YC = TOP - RING_R - RING_T - 0.05; // 1.165, the crossing and ring centre
-const HEAD_HZ = 0.103;    // half depth of the head, matched to the shaft there
+const TOP = 1.62;         // the whole piece, near enough the ghost's own 1.6
+const ARM = 0.14;         // half thickness of the cross bar, so 0.28 through
+const ARM_L = 0.47;       // half span of the cross bar: 0.047 clear of the ring
+const RING_R = 0.355;     // torus centreline radius
+const RING_T = 0.068;     // tube radius, i.e. inner 0.287 and outer 0.423
+// The top of the upright stands as far over the ring as the arms stand out
+// past it, so the four ends of the cross match.
+const YC = TOP - RING_R - RING_T - 0.085; // 1.112, the crossing and ring centre
+const HEAD_HZ = 0.118;    // half depth of the head, matched to the shaft there
 const FILLET = 0.048;     // the rounding on every bar edge
 
-const SHAFT_BOTTOM = 0.34; // buried inside the die, so no joint shows
-const HW_BOT = 0.150;      // half width where the shaft leaves the die
-const HW_TOP = 0.1125;     // half width at the top of the upright
-const HZ_BOT = 0.115;      // and the same taper in depth
-const HZ_TOP = 0.0955;
+const SHAFT_BOTTOM = 0.36; // buried inside the die, so no joint shows
+const HW_BOT = 0.170;      // half width where the shaft leaves the die
+const HW_TOP = 0.133;      // half width at the top of the upright
+const HZ_BOT = 0.132;      // and the same taper in depth
+const HZ_TOP = 0.110;
 
-// Clearances the openings depend on, measured rather than eyeballed. The corner
-// where the bars meet sits 0.177 from the crossing, less the fillet, so call it
-// 0.163; the ring's inner wall is at 0.265. Each opening is therefore about
-// 0.10 deep radially and subtends 34 degrees, roughly 0.155 along the arc. At
-// the size a stone occupies in the scene that is a hole of order 35 by 22 px,
-// which still reads as four holes and not as one dark disc.
+// Clearances the openings depend on, measured rather than eyeballed. The shaft
+// is 0.148 half wide where it passes the crossing and the bar is 0.14 half
+// thick, so the rounded corner between them stands 0.183 from the centre; the
+// ring's inner wall is at 0.287. Each opening is therefore 0.10 deep radially
+// and subtends 31 degrees, about 0.155 along the arc. At the size a stone takes
+// up in the scene that is a hole of order 35 by 25 px, which still reads as
+// four holes and not as one dark disc.
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
@@ -80,7 +83,7 @@ function parkUVs(geo, stripUV, y0, y1) {
 }
 
 // A rounded box squeezed linearly as it climbs, which is the taper. The slope
-// is 0.030 in x and 0.016 in z, about a degree and a half off vertical, and the
+// is 0.030 in x and 0.018 in z, about a degree and a half off vertical, and the
 // normals are tilted by that much rather than recomputed: computeVertexNormals
 // on a non-indexed box would replace the rounding's smooth normals with flat
 // per-triangle ones and facet every edge on the piece.
@@ -128,7 +131,7 @@ function buildCross({ body, material, disposables, stripUV }) {
 
   // The ring. A torus is round in section, which is exactly the edge this set
   // wants, but a circular tube 0.12 through would sit visibly shallower than
-  // the 0.21 bars, so it is stretched in z to match them. The stretch goes
+  // the 0.23 bars, so it is stretched in z to match them. The stretch goes
   // through applyMatrix4, so the normals come out right and it stays smooth.
   const ring = new THREE.TorusGeometry(RING_R, RING_T, 20, 80);
   ring.scale(1, 1, HEAD_HZ / RING_T);
@@ -139,11 +142,10 @@ function buildCross({ body, material, disposables, stripUV }) {
   // one soft highlight in the middle of the head so the crossing is not a flat
   // plate. Shallow, 0.03 proud of the face.
   for (const side of [1, -1]) {
-    const boss = new THREE.SphereGeometry(0.082, 32, 20);
-    boss.scale(1, 1, 0.45);
+    const boss = new THREE.SphereGeometry(0.095, 32, 20);
+    boss.scale(1, 1, 0.40);
     add(boss, YC, side * (HEAD_HZ - 0.012));
   }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +162,7 @@ registerStone('celtic', {
     // cross is the most complex silhouette in the set, so the die carries a
     // date and nothing else: a monument's year cut into its base. No cross in
     // the mark, there is already one standing over it.
-    inkText(ctx, '1893', w / 2, h * 0.52, h * 0.34, h * 0.02);
+    inkText(ctx, '1893', w / 2, h * 0.52, h * 0.36, h * 0.02);
   },
   extras: buildCross,
 });

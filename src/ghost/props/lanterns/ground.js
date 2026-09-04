@@ -56,7 +56,7 @@ const H = {
 const R = {
   base: 0.096,         // apothem of the foot before its roll
   glass: 0.082,        // apothem of the glazing at the ends of the barrel
-  bulge: 0.006,        // extra apothem at the waist
+  bulge: 0.014,        // extra apothem at the waist
   rail: 0.092,         // apothem the rails' centreline follows
   tube: 0.015,         // rail and post section
   post: 0.098,         // corner radius the posts stand on
@@ -383,24 +383,32 @@ const GLASS_FRAG = `
   vec3 wV = worldViewDir(vGlassP);
   float ndv = clamp(dot(wN, wV), 0.0, 1.0);
 
-  float F = clamp(fresnelGlass(ndv) * uRimGain, 0.0, 1.0);
-  vec3 refl = skyProbe(reflect(-wV, wN)) + uSunCol * (uGlint * sunGlint(wN, wV, uShine));
-
+  // Soot. A candle lantern's panes are dirtiest where the smoke collects, just
+  // under the cap, and this is most of what stops the glazing reading as a
+  // clean plastic bottle.
+  float soot = uSoot * smoothstep(0.13, 0.21, vGlassY);
   // The candle on the inside face. Strongest low down where the flame is and
   // dying off toward the cap, and warmer at a glancing angle for the same
   // reason A is bigger there: more glass to glow through.
   float lit = exp(-9.0 * max(vGlassY - 0.15, 0.0)) * (0.55 + 0.45 * (1.0 - ndv));
-  // Soot. A candle lantern's panes are dirtiest where the smoke collects, just
-  // under the cap, and this is most of what stops the glazing reading as a
-  // clean plastic bottle.
-  float soot = uSoot * smoothstep(0.14, 0.21, vGlassY);
 
+  // BODY: the pane's own tint over whatever is behind it, thicker at a glancing
+  // angle because the chord through the glass is longer there.
   vec3 body = outgoingLight * (1.0 - 0.75 * soot) + uInnerCol * (uInner * lit);
-  float A = clamp(mix(uBodyA, uBodyA * 2.4, 1.0 - ndv) + 0.55 * soot, 0.0, 1.0);
+  float A = clamp(mix(uBodyA, uBodyA * 3.0, 1.0 - ndv) + 0.55 * soot, 0.0, 1.0);
 
-  float a = A + F * (1.0 - A);
-  gl_FragColor = vec4((body * A + refl * F * (1.0 - A)) / max(a, 1e-4), a);
-  if (uShine > 9000.0) gl_FragColor = vec4(A, F, a, 1.0);
+  // SURFACE: what bounces off the outside, and it goes IN FRONT of the body
+  // rather than being mixed into it. This is the fix the first pass needed: the
+  // key light's highlight was inside three's own outgoingLight, so it was
+  // multiplied by the pane's alpha and vanished along with the body it was
+  // supposed to stand clear of. A highlight on glass is opaque where it lands.
+  float F = clamp(fresnelGlass(ndv) * uRimGain, 0.0, 1.0);
+  float glint = clamp(uGlint * sunGlint(wN, wV, uShine), 0.0, 1.0);
+  float S = F + glint * (1.0 - F);
+  vec3 surf = (skyProbe(reflect(-wV, wN)) * F + uSunCol * (glint * (1.0 - F))) / max(S, 1e-4);
+
+  float a = S + A * (1.0 - S);
+  gl_FragColor = vec4((surf * S + body * A * (1.0 - S)) / max(a, 1e-4), a);
 `;
 
 // ---------------------------------------------------------------------------
@@ -459,10 +467,10 @@ function makeNoise(seed) {
 // in main.js, throws light you cannot see at all. This is what makes the
 // lantern read as a lantern in THIS scene's light. The 2.2 : 1 ratio between
 // the ends is the pumpkin's and is the part that is not stylistic.
-const LAMP = { min: 1.05, max: 2.30 };
+const LAMP = { min: 0.92, max: 2.00 };
 const CORE = { min: 1.70, max: 3.60 };   // flame body, above 1 so ACES clips it
 const HALO = { min: 0.20, max: 0.46 };   // the soft shell around it
-const WASH = { min: 0.55, max: 1.35 };   // the candle on the inside of the pane
+const WASH = { min: 0.90, max: 2.20 };   // the candle on the inside of the pane
 
 // How the flame's colour is mixed between ember and flame. Levered about the
 // level's own mean rather than fed the level straight, because the level lives
@@ -543,25 +551,25 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
   // A stub with a rounded shoulder and a dished top, standing in its own small
   // pool of run wax. Round, not hexagonal: it is the one part of this prop that
   // was not cast in the same mould as the box.
-  const waxTop = H.baseTop + 0.030 + 0.052 * burn;
+  const waxTop = H.baseTop + 0.038 + 0.055 * burn;
   const candleProfile = [];
   {
     const push = (r, y) => candleProfile.push(new THREE.Vector2(r, y));
     push(0, H.baseTop);
-    push(0.050, H.baseTop);
+    push(0.044, H.baseTop);
     // The pool of run wax at the foot, which is what makes it a candle that has
     // been burning rather than one just set down.
     for (let i = 0; i <= 6; i++) {
       const a = (-90 + 90 * (i / 6)) * Math.PI / 180;
-      push(0.044 + 0.006 * Math.cos(a), H.baseTop + 0.007 + 0.007 * Math.sin(a));
+      push(0.038 + 0.006 * Math.cos(a), H.baseTop + 0.007 + 0.007 * Math.sin(a));
     }
-    push(0.040, waxTop - 0.012);
+    push(0.034, waxTop - 0.011);
     // Shoulder and the melted well in the top.
     for (let i = 0; i <= 8; i++) {
       const a = (i / 8) * Math.PI / 2;
-      push(0.040 * Math.cos(a) * 0.86 + 0.040 * 0.14 * Math.cos(a * 0.5), waxTop - 0.012 + 0.012 * Math.sin(a));
+      push(0.034 * Math.cos(a) * 0.86 + 0.034 * 0.14 * Math.cos(a * 0.5), waxTop - 0.011 + 0.011 * Math.sin(a));
     }
-    push(0.012, waxTop - 0.002);
+    push(0.010, waxTop - 0.002);
     push(0, waxTop - 0.004);
   }
   const candleGeo = new THREE.LatheGeometry(candleProfile, SEGMENTS.radial);
@@ -656,19 +664,19 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
     // the second. Linear, because this is composited before tone mapping.
     uSkyHi: { value: new THREE.Color('#d6def0').convertSRGBToLinear() },
     uSkyMid: { value: new THREE.Color('#c4ccda').convertSRGBToLinear() },
-    uSkyLo: { value: new THREE.Color('#868b95').convertSRGBToLinear() },
+    uSkyLo: { value: new THREE.Color('#9aa3b0').convertSRGBToLinear() },
     uSunDir: { value: new THREE.Vector3(3.45, 6.0, 2.4).normalize() },
     uSunCol: { value: new THREE.Color('#fff6ea').convertSRGBToLinear() },
     uInnerCol: { value: new THREE.Color(PALETTE.glow).convertSRGBToLinear() },
-    uInner: { value: 0.9 },
+    uInner: { value: 1.2 },
     // How much of the fresnel to believe. Physically 1.0; over one because the
     // fake sky is a flat gradient with no bright spots of its own to find, so
     // the reflection needs the help to register at all.
-    uRimGain: { value: 1.9 },
-    uGlint: { value: 1.15 },
-    uShine: { value: 99999.0 },
+    uRimGain: { value: 9.0 },
+    uGlint: { value: 1.7 },
+    uShine: { value: 42.0 },
     // How much of what is behind the pane the pane hides, face on.
-    uBodyA: { value: 0.13 },
+    uBodyA: { value: 0.17 },
     uSoot: { value: 0.34 },
   };
   const glassMat = new THREE.MeshStandardMaterial({
@@ -691,6 +699,12 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
       .replace('#include <common>', `#include <common>\n${GLASS_PARS}`)
       .replace('#include <opaque_fragment>', GLASS_FRAG);
   };
+  // Exposed so a lab page can turn the optics knobs between frames. Every one
+  // of the numbers above was found by rendering a sweep and looking at it, and
+  // a rebuild per value is the difference between sweeping ten and sweeping
+  // three.
+  glassMat.userData.optics = glassUniforms;
+
   const glass = new THREE.Mesh(glassGeo, glassMat);
   glass.renderOrder = 2;
 

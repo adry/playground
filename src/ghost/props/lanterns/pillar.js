@@ -111,11 +111,11 @@ const BAR = 0.026;           // corner upright section, and the rail depth
 const RAIL_H = 0.028;        // the horizontal band top and bottom
 const PANE_Z = 0.093;        // glass sits inboard of the frame's outer face
 const PANE_HW = 0.077;       // half width, between the two uprights
-const PANE_BOW = 0.008;      // outward crown on the pane: see the glass note
+const PANE_BOW = 0.013;      // outward crown on the pane: see the glass note
 
 const CAP_Y = BOX_Y + BOX_H;
-const CAP_R = 0.134;         // the eave, overhanging the box by 31mm
-const CAP_H = 0.115;
+const CAP_R = 0.130;         // the eave, overhanging the box by 27mm
+const CAP_H = 0.126;
 const FINIAL_NECK = 0.022;
 const FINIAL_R = 0.031;
 
@@ -134,8 +134,16 @@ const IRON = '#4a4640';
 // cemetery lantern is anyway.
 const IRON_ROUGH = 0.46;
 
-// Old cylinder-drawn glazing, faintly cool and faintly green.
-const GLASS_TINT = '#cadcd8';
+// Old cylinder-drawn glazing: a DARK cool green, and dark is the whole point.
+// The first pass used a pale tint, the colour a sheet of glass looks in the
+// hand, and every pane came out as milk. A MeshStandardMaterial's diffuse does
+// not know it is glass: give it a pale colour and the hemisphere light lifts it
+// to 0.8 luminance, so a pane at even a tenth of an alpha lays a white veil
+// over the lantern's inside and nothing behind it can be seen. Glass has almost
+// no diffuse at all: what you see is the reflection on it, the light through
+// it, and the dark of whatever is behind it. So the body is nearly black with a
+// green in it, and the reflection, the edge and the flame carry everything.
+const GLASS_TINT = '#33443f';
 
 // The flame's two ends, taken from pumpkin.js so the two fires in this scene
 // are the same fire. The point light's colour is converted by hand because it
@@ -183,6 +191,8 @@ const GLASS_OPTICS = `
 uniform vec3 uSkyHi;
 uniform vec3 uSkyMid;
 uniform vec3 uSkyLo;
+uniform vec3 uGlare;
+uniform vec2 uGlareAt;
 uniform vec3 uSunDir;
 uniform vec3 uSunCol;
 uniform vec3 uGlowCol;
@@ -211,7 +221,26 @@ vec3 worldViewDir(vec3 wPos) {
 // horizon: get that band wrong and every pane in the set has a dark outline.
 vec3 skyProbe(vec3 r) {
   vec3 c = mix(uSkyLo, uSkyMid, smoothstep(-0.55, -0.02, r.y));
-  return mix(c, uSkyHi, smoothstep(0.02, 0.62, r.y));
+  c = mix(c, uSkyHi, smoothstep(0.02, 0.62, r.y));
+  // A NARROW BRIGHT BAND in the reflection, and it is the single thing that
+  // makes these panes read as glass at all. Everything above is a gradient, and
+  // a gradient over a pane is still a fill: it has no shape, so nothing in it
+  // says surface. What says surface is a HIGHLIGHT, a small bright thing whose
+  // position depends on the normal, because the eye reads its curve as the
+  // curve of the glass.
+  //
+  // The key light cannot supply one. A pane here is vertical, the key is 55
+  // degrees up, and the half vector between the key and this camera sits 46
+  // degrees above horizontal: no vertical surface in the scene can ever satisfy
+  // it, so a Blinn lobe on these panes returns zero at every angle the diorama
+  // is shot from. Checked before building this, not after.
+  //
+  // So the band is put in the environment instead, at a fixed elevation, and
+  // the pane's 13mm crown sweeps its reflected ray across it. What comes out is
+  // a bright streak that bows the way the glass bows and pinches out at the two
+  // vertical edges where the crown flattens, which is what a cylinder-drawn
+  // pane looks like and what no amount of fresnel gain was buying.
+  return c + uGlare * exp(-pow((r.y - uGlareAt.x) / uGlareAt.y, 2.0));
 }
 
 // Schlick with glass's F0, 0.04. Flat on at this camera's elevation that is
@@ -243,8 +272,11 @@ const GLASS_FRAG = `
   // the yaw it was built at.
   vec3 tX = vec3(cos(vYaw), 0.0, -sin(vYaw));
   vec3 tY = vec3(0.0, 1.0, 0.0);
-  float w1 = sin(vPane.y * 8.9 + vPane.x * 2.3 + uSeed);
-  float w2 = sin(vPane.y * 19.7 - vPane.x * 4.1 + uSeed * 1.7);
+  // Broad and slightly skewed, not fine: at the first frequencies tried the
+  // ripple met the glare band edge-on and cut it into a sunburst of hard rays,
+  // which reads as brushed metal. Rolled glass waves over centimetres.
+  float w1 = sin(vPane.y * 5.4 + vPane.x * 1.4 + uSeed);
+  float w2 = sin(vPane.y * 11.1 - vPane.x * 2.2 + uSeed * 1.7);
   wN = normalize(wN + tX * (uWave * (0.55 * w1 + 0.45 * w2)) + tY * (uWave * 0.35 * w2));
 
   float ndv = clamp(dot(wN, wV), 0.0, 1.0);
@@ -252,24 +284,28 @@ const GLASS_FRAG = `
   // The cut edge of the pane, where the frame grips it. Bright, thin, and
   // brighter on the two vertical edges than the horizontal ones because that is
   // where the glass's thickness is turned toward the light.
-  float ex = smoothstep(0.80, 1.0, abs(vPane.x));
-  float ey = smoothstep(0.84, 1.0, abs(vPane.y));
+  float ex = smoothstep(0.78, 1.0, abs(vPane.x));
+  float ey = smoothstep(0.82, 1.0, abs(vPane.y));
   float edge = clamp(ex + 0.65 * ey, 0.0, 1.0);
 
-  float F = clamp(fresnelGlass(ndv) * uRimGain + edge * 0.34, 0.0, 1.0);
+  float F = clamp(fresnelGlass(ndv) * uRimGain + edge * 0.55, 0.0, 1.0);
   // A back-facing pane is seen through the front one and through the lantern's
   // own interior, so it must not mirror the sky at full strength or the box
   // fills up with grey.
   F *= mix(1.0, 0.30, back);
 
-  vec3 refl = skyProbe(reflect(-wV, wN)) + uSunCol * (uGlint * sunGlint(wN, wV, uShine));
+  // The cut edge conducts a little of the flame out sideways as well as
+  // catching the sky, so it is warmed rather than left the colour of the day.
+  vec3 refl = skyProbe(reflect(-wV, wN))
+    + uSunCol * (uGlint * sunGlint(wN, wV, uShine))
+    + mix(uSkyHi, uGlowCol, 0.40) * (edge * 0.55);
 
   // What the flame pushes out through the pane. Centred low, because the flame
   // sits in the bottom third of the box, and squeezed a little horizontally so
   // it reads as a source behind the glass rather than as a wash over it. A back
   // pane gets more of it: you are looking at its lit inside face.
   float d = length(vec2(vPane.x * 0.85, (vPane.y + 0.42) * 1.05));
-  float lit = exp(-d * d * 1.75) * mix(1.0, 1.55, back);
+  float lit = exp(-d * d * 4.20) * mix(1.0, 1.55, back);
 
   vec3 body = outgoingLight + uGlowCol * (uGlow * lit);
 
@@ -506,6 +542,22 @@ function cageGeometry() {
     ring: 30,
   }));
 
+  // The burner. A flame floating a centimetre off a flat plate reads as a bug,
+  // and a wax candle would need a second material and a second draw call for
+  // something 24mm across seen through glass. A turned iron burner cup is the
+  // same iron as everything else in this merge, so it is free.
+  parts.push(loftY({
+    y0: BOX_Y + 0.014,
+    y1: BOX_Y + 0.034,
+    at: (y) => {
+      const h = y - (BOX_Y + 0.014);
+      const r = 0.025 - 0.007 * smoothstep(0.004, 0.020, h) - fillet(0.020 - h, 0.005);
+      return [Math.max(1e-4, r), Math.max(1e-4, r), 1.0];
+    },
+    rows: 10,
+    ring: 20,
+  }));
+
   return mergeGeometries(parts, false);
 }
 
@@ -514,17 +566,28 @@ function cageGeometry() {
 // a piece of folded and soldered sheet actually does, and both give the key
 // light somewhere to run along, which a flat facet does not.
 function capGeometry() {
+  // The apex is rounded by the same fillet() every other end here uses, taken
+  // off a cone whose tip is already TIP wide rather than off a true point. That
+  // matters: rounding a real point means intersecting the slope with a sphere,
+  // and the two only agree at one radius, so every other radius leaves a crease
+  // ringing the cap a third of the way down. Blunting the cone first makes the
+  // fillet tangent by construction and the dome comes out in one surface.
+  const TIP = 0.030;
   const at = (y) => {
     const t = clamp01((y - CAP_Y) / CAP_H);
-    let r = CAP_R * (1 - t) + 0.085 * CAP_R * Math.sin(Math.PI * t);
-    // The drip lip: the eave stands a hair proud of the slope above it.
+    let r = (CAP_R - TIP) * (1 - t) + TIP + 0.085 * CAP_R * Math.sin(Math.PI * t);
+    // The drip lip: the eave stands a hair proud of the slope above it, which
+    // is what a folded and soldered sheet does and what gives the key light a
+    // line to run along at the widest part of the whole lantern.
     r += 0.010 * (1 - smoothstep(0.0, 0.13, t));
     r -= fillet(y - CAP_Y, 0.010);
-    // Round the apex off rather than running it to a point.
-    r = Math.min(r, Math.sqrt(Math.max(1e-6, 0.028 * 0.028 - Math.max(0, y - (CAP_Y + CAP_H - 0.028)) ** 2)) + 0.004);
+    r -= fillet(CAP_Y + CAP_H - y, TIP);
     return [Math.max(1e-4, r), Math.max(1e-4, r), P_METAL];
   };
-  return loftY({ y0: CAP_Y, y1: CAP_Y + CAP_H, at, rows: 40, ring: 36 });
+  // Stopped 2mm short of the apex: the last ring would be a degenerate fan and
+  // computeVertexNormals cannot normalise a zero-area triangle. The finial's
+  // neck is wider than the ring left behind and swallows it.
+  return loftY({ y0: CAP_Y, y1: CAP_Y + CAP_H - 0.002, at, rows: 40, ring: 36 });
 }
 
 // Neck and ball. Round in section, not square: it is the one turned part on the
@@ -637,9 +700,9 @@ function makeNoise(seed) {
 // these do not flicker at two different depths. The absolute level is a
 // stylistic call: against a hemisphere at 1.15 and a key at 2.1 a truthful
 // candle is invisible, and this is what makes the lantern read as lit.
-const LAMP = { min: 1.45, max: 3.12 };
-const GLASS_GLOW = { min: 0.11, max: 0.36 };
-const WICK = { min: 0.9, max: 2.6 };
+const LAMP = { min: 0.195, max: 0.42 };
+const GLASS_GLOW = { min: 0.18, max: 0.46 };
+const WICK = { min: 0.95, max: 2.10 };
 const HUE_MID = 0.88, HUE_GAIN = 1.5;
 
 // -----------------------------------------------------------------------------
@@ -681,7 +744,21 @@ export function createPillarLantern({ seed = 1, scale = 1 } = {}) {
     // the second. Linear, because this composites before tone mapping.
     uSkyHi: { value: new THREE.Color('#dbe3f3').convertSRGBToLinear() },
     uSkyMid: { value: new THREE.Color('#c6cedc').convertSRGBToLinear() },
-    uSkyLo: { value: new THREE.Color('#8a8f99').convertSRGBToLinear() },
+    // The LOW band is not the floor's own #8f949e, and that is a correction the
+    // renders forced. Work out where a pane actually looks: it is vertical, the
+    // diorama's camera is 29 degrees up, so the reflected ray leaves 29 degrees
+    // DOWN, and the nearest thing 29 degrees down from a lantern pane is the
+    // pillar's own pale cornice a hand's breadth below it, not the floor eight
+    // times further away. Set to the floor colour the reflection was a dark
+    // grey that vanished under the warm interior at every gain tried, which is
+    // exactly the flat tinted rectangle this file is trying not to be.
+    uSkyLo: { value: new THREE.Color('#989b9c').convertSRGBToLinear() },
+    // Amplitude, then where the band sits and how wide it is, in the reflected
+    // ray's own y. -0.22 puts it across the upper third of a pane at this
+    // camera's elevation, and 0.13 makes it about a fifth of the pane deep: any
+    // wider and it is a gradient again.
+    uGlare: { value: new THREE.Color('#f2f6ff').convertSRGBToLinear().multiplyScalar(1.95) },
+    uGlareAt: { value: new THREE.Vector2(-0.22, 0.155) },
     // Between the key in main.js and the one in the preview harness.
     uSunDir: { value: new THREE.Vector3(3.45, 6.0, 2.4).normalize() },
     uSunCol: { value: new THREE.Color('#fff6ea').convertSRGBToLinear() },
@@ -691,20 +768,23 @@ export function createPillarLantern({ seed = 1, scale = 1 } = {}) {
     // gradient with no bright spots of its own to find, so a correct fresnel
     // over it returns a correct amount of nothing. Same argument, and the same
     // fix, as fountain/water.js.
-    uRimGain: { value: 3.10 },
-    uGlint: { value: 1.55 },
-    uShine: { value: 150.0 },
+    uRimGain: { value: 4.20 },
+    uGlint: { value: 1.70 },
+    uShine: { value: 95.0 },
     // How much of the pane is glass and how much is air. Low: you have to see
     // the flame and the far frame through it, and everything that makes it read
     // as a surface is in the reflection and the edge rather than in the body.
-    uBodyA: { value: 0.135 },
-    uWave: { value: 0.055 },
+    uBodyA: { value: 0.155 },
+    uWave: { value: 0.048 },
     uSeed: { value: rand() * 6.283 },
   };
 
   const glassMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(GLASS_TINT),
-    roughness: 0.07,
+    // Not mirror-smooth. A 0.07 lobe is so tight it misses the key entirely at
+    // most of the angles this prop is seen from, and a pane with no highlight on
+    // it at all is the flat rectangle this whole section exists to avoid.
+    roughness: 0.15,
     metalness: 0.0,
     transparent: true,
     opacity: 1.0,
@@ -750,7 +830,7 @@ varying float vYaw;`)
     metalness: 0.0,
   });
   const flame = new THREE.Mesh(flameGeo, flameMat);
-  flame.position.set(0, BOX_Y + 0.018, 0);
+  flame.position.set(0, BOX_Y + 0.031, 0);
   flame.castShadow = false;
   flame.receiveShadow = false;
   flame.renderOrder = 1;
@@ -770,8 +850,18 @@ varying float vYaw;`)
   // replace. The cap being solid is instead paid for by placing the light low
   // in the box and letting the ironwork's own cast shadow, which the key light
   // is already drawing, do the shaping.
-  const light = new THREE.PointLight(FLAME.clone(), 0, 3.2 * scale, 2);
-  light.position.set(0, BOX_Y + 0.055, 0);
+  //
+  // DECAY IS 1, NOT 2, and that is the one deliberately unphysical number in
+  // the file. A lantern hung 1.1 above the ground has its own cornice 0.19
+  // away and the floor 1.1 away, a six to one range, which inverse square turns
+  // into thirty six to one. There is no intensity that survives that: set so
+  // the floor takes a warm pool and the cornice is a white hole with no colour
+  // in it, set so the cornice is warm cream and nothing reaches the ground at
+  // all. Measured both, kept neither. At decay 1 the same six to one range
+  // costs six to one, the cornice sits at about 2.1 against a key of 2.1 and
+  // the pool on the floor is still plainly there two-thirds of a unit out.
+  const light = new THREE.PointLight(FLAME.clone(), 0, 3.4 * scale, 1);
+  light.position.set(0, BOX_Y + 0.130, 0);
   light.castShadow = false;
   const lightHome = light.position.clone();
 

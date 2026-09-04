@@ -78,9 +78,9 @@ const BLOB_FLAME = new THREE.Color('#ffc271');
 // top of the flicker. All three ride one value, which is the whole reason the
 // light and the glass read as the same flame rather than as two effects.
 // 2.15:1, the ratio the pumpkin's flicker was tuned to.
-const LAMP = { min: 0.58, max: 1.25 };    // PointLight intensity
-const BLOB = { min: 1.30, max: 3.60 };    // flame blob emissiveIntensity
-const INNER = { min: 0.22, max: 0.62 };   // flame washing the inside of the pane
+const LAMP = { min: 0.54, max: 1.16 };    // PointLight intensity
+const BLOB = { min: 1.05, max: 2.30 };    // flame blob brightness
+const INNER = { min: 0.34, max: 0.98 };   // flame washing the inside of the pane
 // The level spends its life in the top eighth of its range, so the colour mix
 // is levered about the level's measured mean rather than taken off it straight:
 // fed through raw, ember is only reachable in a gutter deep enough to have put
@@ -101,17 +101,17 @@ const BAR_NOSE = 0.030;   // shaft radius at the hook's tip
 
 const POST_TOP = 1.185;   // where the straight shaft stops and the hook starts
 const HOOK_R = 0.175;     // the hook's radius, so the crown lands at 1.360
-const HOOK_END = -30;     // degrees past the horizontal that the nose curls to
+const HOOK_END = -18;     // degrees past the horizontal that the nose curls to
 
 const FOOT_R = 0.112;     // the domed foot, and the prop's whole footprint
 
 // The lantern, measured down from the hanging point.
-const RING_R = 0.030;     // the ring threaded over the nose
-const BAIL_R = 0.046;     // the hoop on the lantern's roof
-const GLASS_H = 0.180;
-const GLASS_R = 0.062;    // at the waist; it barrels out a little in the middle
-const ROOF_H = 0.078;
-const BASE_H = 0.052;
+const RING_R = 0.042;     // the ring threaded over the nose
+const BAIL_R = 0.070;     // the hoop on the lantern's roof
+const GLASS_H = 0.170;
+const GLASS_R = 0.070;    // at the waist; it barrels out a little in the middle
+const ROOF_H = 0.086;
+const BASE_H = 0.056;
 
 // ---------------------------------------------------------------------------
 // small deterministic PRNG and 1D value noise. Same construction the pumpkin
@@ -413,48 +413,60 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
   pivot.position.copy(HANG);
   stand.add(pivot);
 
-  // The ring, threaded over the nose. Its plane is perpendicular to the bar at
-  // the nose, which is the only way a ring can sit on a rod, and it is what
-  // sets the bail below it square to the swing.
+  // The ring, threaded over the nose.
+  //
+  // Its plane is NOT perpendicular to the bar, which is the first thing that
+  // was tried and is wrong twice over. A ring hanging loose on a rod is held up
+  // by the rod and pulled down by gravity, so it settles in a VERTICAL plane
+  // perpendicular to the rod's horizontal direction, not to the rod itself.
+  // Squared to the tangent instead it came out canted thirty degrees off plumb,
+  // which reads as a link that has been welded on rather than one that hangs,
+  // and it dragged the whole lantern under it out of square as well.
   const noseTangent = spine.getTangent(1);
-  const ringGeo = stripUV(new THREE.TorusGeometry(RING_R, 0.0105, 10, 28));
-  {
-    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), noseTangent);
-    const m = new THREE.Matrix4().makeRotationFromQuaternion(q);
-    m.setPosition(0, -RING_R + BAR_NOSE * 0.55, 0);
-    ringGeo.applyMatrix4(m);
-  }
+  const ringN = new THREE.Vector3(noseTangent.x, 0, noseTangent.z).normalize();
+  // The bail is threaded through the ring, so its plane is the other one: still
+  // vertical, and at right angles to the ring's.
+  const bailN = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), ringN).normalize();
 
-  // The bail: a hoop over the roof, threaded through the ring, so it lies in
-  // the plane perpendicular to the ring. Half a torus, with the two ends
-  // running down into the roof.
-  const bailTop = -RING_R * 2 + BAR_NOSE * 0.55;
-  const bailGeo = stripUV(new THREE.TorusGeometry(BAIL_R, 0.0105, 10, 30, Math.PI));
-  {
+  const inPlane = (normal, y) => {
     const m = new THREE.Matrix4().makeRotationFromQuaternion(
-      new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), noseTangent),
+      new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal),
     );
-    m.setPosition(0, bailTop - BAIL_R, 0);
-    bailGeo.applyMatrix4(m);
-  }
+    m.setPosition(0, y, 0);
+    return m;
+  };
 
-  const roofTop = bailTop - BAIL_R * 0.30;
+  const ringGeo = stripUV(new THREE.TorusGeometry(RING_R, 0.0125, 10, 28));
+  ringGeo.applyMatrix4(inPlane(ringN, -RING_R + BAR_NOSE * 0.55));
+  const ringBottom = -RING_R * 2 + BAR_NOSE * 0.55;
+
+  // The bail: a big hoop over the roof, hanging in the ring. Half a torus, so
+  // its two feet are at its own centre height, and BAIL_DROP is how far down
+  // the roof's shoulder they have to land to actually touch it. That number is
+  // read off the roof profile below rather than guessed: at BAIL_R = 0.070 the
+  // ogee is 46mm below its apex, and getting it wrong by a centimetre is the
+  // difference between a bail bolted to a lantern and a bail floating over one.
+  const BAIL_DROP = 0.046;
+  const roofTop = ringBottom - (BAIL_R - BAIL_DROP);
+  const bailGeo = stripUV(new THREE.TorusGeometry(BAIL_R, 0.0125, 10, 30, Math.PI));
+  bailGeo.applyMatrix4(inPlane(bailN, roofTop - BAIL_DROP));
+
   // The roof. An ogee: it leaves the finial almost flat, steepens, and flares
   // out again at the eaves, which is what stops a cone from reading as a cone.
   const roofGeo = softLathe([
     [0.000, roofTop],
-    [0.012, roofTop - 0.002],
-    [0.030, roofTop - 0.012],
-    [0.052, roofTop - 0.030],
-    [0.072, roofTop - 0.052],
-    [0.088, roofTop - ROOF_H * 0.92],
-    [0.098, roofTop - ROOF_H],
-    [0.094, roofTop - ROOF_H - 0.014],
-    [0.074, roofTop - ROOF_H - 0.020],
+    [0.013, roofTop - 0.002],
+    [0.034, roofTop - 0.013],
+    [0.058, roofTop - 0.033],
+    [0.081, roofTop - 0.058],
+    [0.099, roofTop - ROOF_H * 0.92],
+    [0.110, roofTop - ROOF_H],
+    [0.105, roofTop - ROOF_H - 0.015],
+    [0.083, roofTop - ROOF_H - 0.022],
   ], 46);
   // A small knob on top, because the ogee has to end somewhere and a lathe that
   // closes to a point at the axis is a spike.
-  const finialGeo = stripUV(new THREE.SphereGeometry(0.020, 24, 16));
+  const finialGeo = stripUV(new THREE.SphereGeometry(0.022, 24, 16));
   finialGeo.translate(0, roofTop + 0.006, 0);
 
   const glassTop = roofTop - ROOF_H - 0.016;
@@ -466,12 +478,12 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
   const baseTop = glassBottom + 0.010;
   const baseGeo = softLathe([
     [0.000, baseTop - BASE_H],
-    [0.044, baseTop - BASE_H],
-    [0.070, baseTop - BASE_H + 0.008],
-    [0.086, baseTop - BASE_H + 0.026],
-    [0.090, baseTop - 0.014],
-    [0.082, baseTop],
-    [0.062, baseTop + 0.004],
+    [0.050, baseTop - BASE_H],
+    [0.078, baseTop - BASE_H + 0.009],
+    [0.096, baseTop - BASE_H + 0.028],
+    [0.100, baseTop - 0.015],
+    [0.091, baseTop],
+    [0.070, baseTop + 0.004],
   ], 44);
 
   // The cage: four fat uprights following the pane's barrel, standing a couple
@@ -492,7 +504,7 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
     pts.unshift(new THREE.Vector3(Math.cos(a) * (glassRadius(0) + 0.009), glassBottom - 0.020, Math.sin(a) * (glassRadius(0) + 0.009)));
     pts.push(new THREE.Vector3(Math.cos(a) * (glassRadius(1) + 0.009), glassTop + 0.016, Math.sin(a) * (glassRadius(1) + 0.009)));
     const c = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5);
-    cageParts.push(stripUV(new THREE.TubeGeometry(c, 24, 0.0105, 10, false)));
+    cageParts.push(stripUV(new THREE.TubeGeometry(c, 24, 0.0120, 10, false)));
   }
 
   const lampIronMat = toyMaterial(IRON_DARK, { roughness: 0.62, metalness: 0.06 });
@@ -524,12 +536,12 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
     // How much of the fresnel to believe. Physically 1.0; it is over one
     // because the fake sky is a flat gradient with no bright spots of its own
     // to find, and needs the help to register against pale stone.
-    uRimGain: { value: 1.55 },
-    uGlint: { value: 0.85 },
+    uRimGain: { value: 2.20 },
+    uGlint: { value: 1.10 },
     uShine: { value: 150.0 },
     // How much of what is behind the pane the pane hides. Low, because the
     // whole job of this glass is that you can see a flame through it.
-    uBodyA: { value: 0.34 },
+    uBodyA: { value: 0.40 },
     uInner: { value: INNER.min },
     uInnerCol: { value: new THREE.Color('#ffb268').convertSRGBToLinear() },
   };
@@ -570,29 +582,46 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
   // box.
   const candleGeo = softLathe([
     [0.000, glassBottom + 0.004],
-    [0.020, glassBottom + 0.004],
-    [0.026, glassBottom + 0.010],
-    [0.026, glassBottom + 0.048],
-    [0.021, glassBottom + 0.056],
-    [0.010, glassBottom + 0.059],
-    [0.000, glassBottom + 0.060],
+    [0.019, glassBottom + 0.004],
+    [0.024, glassBottom + 0.010],
+    [0.024, glassBottom + 0.042],
+    [0.019, glassBottom + 0.050],
+    [0.009, glassBottom + 0.053],
+    [0.000, glassBottom + 0.054],
   ], 26, 24);
   const candleMat = toyMaterial(WAX, { roughness: 0.74 });
   const candle = new THREE.Mesh(candleGeo, candleMat);
   candle.castShadow = false;
   pivot.add(candle);
 
-  const flameY = glassBottom + 0.082;
-  const blobGeo = new THREE.SphereGeometry(1, 18, 14);
+  const flameY = glassBottom + 0.054;
+
+  // The flame. A lathe rather than a scaled sphere, because a scaled sphere is
+  // an egg: symmetric top to bottom, and it read as a light bulb sitting on a
+  // plinth. A flame is a teardrop, wide and round at the wick and drawn to a
+  // point at the top, and the asymmetry is most of what says fire at fifteen
+  // pixels tall.
+  const blobGeo = softLathe([
+    [0.0000, 0.000],
+    [0.0080, 0.003],
+    [0.0125, 0.010],
+    [0.0135, 0.020],
+    [0.0115, 0.031],
+    [0.0070, 0.040],
+    [0.0025, 0.046],
+    [0.0000, 0.048],
+  ], 26, 20);
   const blobMat = new THREE.MeshBasicMaterial({
     color: new THREE.Color('#ffd9a0'),
     toneMapped: true,
   });
-  // MeshBasic rather than Standard: the flame is a light source, not a lit
-  // surface, and a Standard material here would be shaded by its own PointLight
-  // sitting inside it. Its colour carries the flicker directly.
+  // MeshBasic rather than Standard: the flame IS the light source, and a lit
+  // material here would be shaded by its own PointLight sitting inside it. Its
+  // colour carries the flicker directly, and it is deliberately kept off the
+  // white ceiling: ACES desaturates as it brightens, so a blob pushed hard
+  // enough to clip comes out as a white pill with a warm rim rather than as a
+  // flame, which is exactly what the first pass did.
   const flame = new THREE.Mesh(blobGeo, blobMat);
-  flame.scale.set(0.021, 0.034, 0.021);
   flame.position.set(0, flameY, 0);
   flame.renderOrder = 1;
   pivot.add(flame);
@@ -603,9 +632,16 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
   // A PointLight, no shadow, parented into `pivot` so it travels with the
   // lantern for free. Distance is set past where inverse-square has already
   // finished the job, so the cutoff fades rather than stops.
+  //
+  // It sits a little ABOVE the visible flame, and that is not an accident. At
+  // the wick it is four centimetres from the cage bars and eighty from the
+  // ground, and inverse square over that ratio makes the ironwork four hundred
+  // times brighter than the pool it is supposed to be casting. Lifting it into
+  // the top of the flame costs nothing on the floor and takes the worst of that
+  // off the bars.
   const lamp = new THREE.PointLight(new THREE.Color(PALETTE.glow), LAMP.min, 2.6, 2);
   lamp.castShadow = false;
-  lamp.position.set(0, flameY, 0);
+  lamp.position.set(0, flameY + 0.030, 0);
   pivot.add(lamp);
 
   const flameHome = lamp.position.clone();
@@ -783,10 +819,10 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
       const into = 0.006 * swing(0.61, 2.7);
       const rise = 0.004 * swing(1.3, 8.1) + 0.014 * flare - 0.011 * dip;
       lamp.position.set(flameHome.x + across, flameHome.y + rise, flameHome.z + into);
-      flame.position.copy(lamp.position);
+      flame.position.set(across, flameY + rise, into);
       // The blob stands up on a flare and sinks in a gutter, the same way the
       // light does, so the two cannot disagree about what the fire is doing.
-      flame.scale.set(0.021, 0.034 * (0.86 + 0.28 * level), 0.021);
+      flame.scale.set(0.94 + 0.10 * level, 0.80 + 0.34 * level, 0.94 + 0.10 * level);
 
       // --- the swing ---------------------------------------------------------
       const w = time + windPhase;

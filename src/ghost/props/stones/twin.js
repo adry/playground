@@ -170,11 +170,11 @@ function buildCrownGeometry({ outline, depth, edge: e, uv, fanY }) {
 function inkHeart(ctx, cx, cy, width) {
   const s = width / 2;
   ctx.beginPath();
-  ctx.moveTo(cx, cy + s * 0.98);
-  ctx.bezierCurveTo(cx - s * 0.58, cy + s * 0.44, cx - s, cy + s * 0.02, cx - s, cy - s * 0.40);
-  ctx.bezierCurveTo(cx - s, cy - s * 0.92, cx - s * 0.40, cy - s * 1.06, cx, cy - s * 0.52);
-  ctx.bezierCurveTo(cx + s * 0.40, cy - s * 1.06, cx + s, cy - s * 0.92, cx + s, cy - s * 0.40);
-  ctx.bezierCurveTo(cx + s, cy + s * 0.02, cx + s * 0.58, cy + s * 0.44, cx, cy + s * 0.98);
+  ctx.moveTo(cx, cy + s * 0.75);
+  ctx.bezierCurveTo(cx - s * 0.95, cy + s * 0.10, cx - s, cy - s * 0.55, cx - s * 0.55, cy - s * 0.80);
+  ctx.bezierCurveTo(cx - s * 0.20, cy - s, cx, cy - s * 0.68, cx, cy - s * 0.42);
+  ctx.bezierCurveTo(cx, cy - s * 0.68, cx + s * 0.20, cy - s, cx + s * 0.55, cy - s * 0.80);
+  ctx.bezierCurveTo(cx + s, cy - s * 0.55, cx + s * 0.95, cy + s * 0.10, cx, cy + s * 0.75);
   ctx.closePath();
   ctx.fill();
 }
@@ -193,20 +193,24 @@ registerStone('twin', {
   draw(ctx, w, h) {
     // Each block sits under its own arch's apex rather than in the middle of
     // its half of the face; a hair inboard, which is where the eye puts them.
-    const ax = (ARCH.centre / (2 * SHAPE.halfWidth)) * w;
-    // Letters end up 0.115 world tall, between fred's 0.094 and cross's 0.122.
-    // Matching the set's letter SIZE matters more than matching its ink
-    // percentage: this face is half as tall again as it is wide, so the same
-    // letters cover less of it, and the failure being guarded against is a
-    // stone that reads dark and busy, not one that reads clean.
-    const size = h * 0.19;
+    // Each block sits in the middle of its own half of the face rather than
+    // under its dome's apex, which is a little further in: the apexes are close
+    // enough together that centring on them ran the two inscriptions into one
+    // paragraph across the middle of the stone.
+    const ax = w * 0.26;
+    // Letters end up 0.106 world tall, inside the set's own range of 0.094 on
+    // fred and 0.122 on cross. Matching the set's letter SIZE matters more than
+    // matching its ink percentage: this face is half as wide again as it is
+    // tall, so the same letters cover less of it, and the failure being guarded
+    // against is a stone that reads dark and busy, not one that reads clean.
+    const size = h * 0.175;
     const spacing = size * 0.05;
-    const rows = [h * 0.355, h * 0.565];
+    const rows = [h * 0.375, h * 0.575];
     inkText(ctx, 'OUR', w / 2 - ax, rows[0], size, spacing);
     inkText(ctx, 'MA', w / 2 - ax, rows[1], size, spacing);
     inkText(ctx, 'OUR', w / 2 + ax, rows[0], size, spacing);
     inkText(ctx, 'PA', w / 2 + ax, rows[1], size, spacing);
-    inkHeart(ctx, w / 2, h * 0.135, w * 0.075);
+    inkHeart(ctx, w / 2, h * 0.13, w * 0.105);
   },
 
   extras({ body, material, shape, plinthH, halfWidth: W, height: H, edge, slabUV, disposables }) {

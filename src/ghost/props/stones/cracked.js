@@ -52,7 +52,7 @@ const SHAPE = {
 // --- the chip ---------------------------------------------------------------
 //
 // Circles subtracted from the slab's outline, positioned on the arch. `deg` is
-// where on the arch the circle sits (90 is top centre, 180 is the left side),
+// where on the arch the circle sits (90 is top centre, 0 is the right side),
 // `bite` is how far inside the outline it reaches, `r` is how broad the scoop
 // is. Three of them, unequal and overlapping, because one circle is a bite out
 // of an apple and three are a chip.
@@ -66,11 +66,41 @@ const SHAPE = {
 // as a triangular shard and stopped reading as a headstone at all. A corner is
 // a corner. The crown has to survive, or the silhouette is spent, which is
 // exactly what the postmortem says killed the last set.
+//
+// The two outer circles are the ones that make it vinyl rather than flint. A
+// circle that cuts deep meets the arch at a steep angle, and that junction is a
+// spike: the second render came back with a little horn standing up where the
+// scoop started. So the ends of the chip are wide, shallow circles that barely
+// break the surface, and they feather the scoop into the intact outline over
+// twenty-odd degrees instead of meeting it at a point. Nothing on this stone is
+// allowed to be sharper than the arch.
+//
+// On the RIGHT shoulder, and that is a decision about the camera rather than
+// about the stone. The set is lit and viewed from front right, so a break put
+// on the left shoulder shows only as a notch in the far silhouette and its
+// scoop, the whole point of it, faces away into shade. Rendered on the left it
+// read as a wonky arch; the same numbers mirrored read as a corner knocked off,
+// because the key light rakes straight into the dish.
+// Two lobes rather than one scoop, and the depths deliberately do not run in
+// order. Three circles of gently increasing depth union into a single lens,
+// which came back as a long straight bevel: the stone read as a shouldered
+// design rather than a damaged one. A deep lobe, a shallower waist and a second
+// deep lobe is what makes it lumpy, which is what a chipped bath toy is.
 const CHIP = [
-  { deg: 141, r: 0.115, bite: 0.070 },
-  { deg: 161, r: 0.135, bite: 0.100 },
-  { deg: 182, r: 0.105, bite: 0.072 },  // past the arch, onto the straight side
+  { deg: 68, r: 0.200, bite: 0.030 },   // feather, into the crown
+  { deg: 55, r: 0.140, bite: 0.078 },
+  { deg: 40, r: 0.175, bite: 0.130 },   // the deep lobe
+  { deg: 22, r: 0.130, bite: 0.080 },   // the waist between them
+  { deg: 6, r: 0.150, bite: 0.110 },    // the second lobe
+  { deg: -16, r: 0.230, bite: 0.028 },  // feather, out onto the straight side
 ];
+// A bite deeper than its own circle puts that circle's centre INSIDE the stone,
+// and then the subtraction is a hole rather than a scoop: the outline has no
+// way to express it and the vertices fold out through the face as a flap. It is
+// unmistakable in a render and worth failing quietly instead, so the depth is
+// clamped here rather than trusted from the table above. A deep scoop is
+// therefore also a wide one, which is true of real chips as well.
+const MAX_BITE = 0.8;   // of the circle's own radius
 // How far the three circles melt into each other. Zero leaves two visible
 // creases where they cross, which is the one hard edge this piece must not
 // have.
@@ -85,12 +115,12 @@ const CHIP_BLEND = 0.055;
 // it. So the total is this plus up to about 0.022 either way, which is the
 // point: this stone is still a member of the set, it has just been leaning for
 // a century longer.
-const LEAN_Z = 0.105;   // about 6 degrees sideways
+const LEAN_Z = 0.125;   // about 7 degrees sideways
 const LEAN_X = -0.035;  // and a little more of the backward tip the set already has
 // Leaning about the foot lifts one corner of the plinth clear of the ground, so
 // the whole thing is sunk by roughly what the lean lifts. It reads as settled
 // rather than as floating, which is what an old stone does anyway.
-const SINK = 0.042;
+const SINK = 0.052;
 
 // ---------------------------------------------------------------------------
 // the face
@@ -111,20 +141,30 @@ const SERIF_SIZE = 0.135;   // of face height, the cross stone's own number
 // Points are fractions of the face. It starts at the lip of the missing corner,
 // which is the whole story of the piece in one line: the stone broke, and the
 // break ran on down through it.
+//
+// The run matters more than the width. Drawn first as a long sweep from the
+// break down the left side and away to the right edge, it cut a triangle off
+// the bottom-left corner of the face, and a mark that fences off a corner stops
+// being a line and becomes the boundary between two planes: the render came
+// back with what looked like a peeled flap, which is the postmortem's
+// competing-planes failure done in ink instead of geometry. Down and across,
+// leaving the face in two big pieces and running off the bottom edge, it is a
+// crack again.
 const CRACK = [
-  [0.300, 0.245],
-  [0.252, 0.400],
-  [0.222, 0.552],
-  [0.302, 0.716],
-  [0.520, 0.848],
-  [0.782, 0.966],
+  [0.838, 0.284],
+  [0.778, 0.392],
+  [0.732, 0.520],
+  [0.704, 0.652],
+  [0.628, 0.790],
+  [0.530, 0.918],
+  [0.452, 1.020],
 ];
 // A short second leg off the main run. One branch, not three: a net of cracks
 // is a shattered windscreen, and this stone is meant to be old, not hit.
 const BRANCH = [
-  [0.268, 0.512],
-  [0.372, 0.596],
-  [0.452, 0.628],
+  [0.724, 0.556],
+  [0.804, 0.658],
+  [0.870, 0.724],
 ];
 
 // Where the inscription has gone. Soft erasers, hand placed rather than
@@ -133,17 +173,19 @@ const BRANCH = [
 // fraction of its radius; `a` is how much it takes at full strength, so a value
 // under 1 thins a mark instead of removing it.
 //
-// The damage is all down the left of the face, with the crack and the missing
+// The damage is all down the right of the face, with the crack and the missing
 // corner: one side of this stone took the weather, which is what makes it look
-// like a thing that happened rather than a texture that was applied.
+// like a thing that happened rather than a texture that was applied. What is
+// left of R.I.P. is R.I., which is the read: enough to know what it said and
+// not enough to have said it.
 const WEAR = [
-  { x: 0.255, y: 0.545, r: 0.150, soft: 0.20, a: 1.00 },  // the R, gone
-  { x: 0.352, y: 0.560, r: 0.085, soft: 0.35, a: 0.85 },  // and the stop after it
-  { x: 0.700, y: 0.556, r: 0.090, soft: 0.30, a: 0.70 },  // the P, half eaten
-  { x: 0.398, y: 0.300, r: 0.095, soft: 0.30, a: 0.90 },  // the cross's left arm
+  { x: 0.700, y: 0.545, r: 0.135, soft: 0.22, a: 1.00 },  // the P, gone
+  { x: 0.610, y: 0.560, r: 0.080, soft: 0.35, a: 0.90 },  // and the stop before it
+  { x: 0.300, y: 0.556, r: 0.090, soft: 0.30, a: 0.70 },  // the R, half eaten
+  { x: 0.602, y: 0.300, r: 0.095, soft: 0.30, a: 0.90 },  // the cross's right arm
   { x: 0.500, y: 0.395, r: 0.080, soft: 0.35, a: 0.75 },  // the foot of it
-  { x: 0.560, y: 0.196, r: 0.070, soft: 0.40, a: 0.55 },  // a thin patch at the head
-  { x: 0.606, y: 0.500, r: 0.055, soft: 0.45, a: 0.45 },  // a nibble, low contrast
+  { x: 0.440, y: 0.196, r: 0.070, soft: 0.40, a: 0.55 },  // a thin patch at the head
+  { x: 0.394, y: 0.500, r: 0.055, soft: 0.45, a: 0.45 },  // a nibble, low contrast
 ];
 
 // Catmull-Rom through the control points, so the crack curves instead of
@@ -215,13 +257,6 @@ function carve(ctx, w, h) {
   inkCross(ctx, w / 2, h * 0.28, h * 0.22);
   inkText(ctx, 'R.I.P.', w / 2, h * 0.55, h * SERIF_SIZE, h * 0.011);
 
-  // The crack. Widest at about 3% of the face, which is a little over twenty
-  // texels: under seventeen the groove's two lips overlap and a cut reads as a
-  // smudge, so the middle of the run has to clear that even though the tips
-  // deliberately do not.
-  ribbon(ctx, CRACK, w, h, w * 0.030, 0.0);
-  ribbon(ctx, BRANCH, w, h, w * 0.017, 2.3);
-
   // The weather. destination-out with a soft edge, so a mark does not vanish at
   // an outline: it thins, goes shallow, and then it is gone, which is what a
   // worn carving does. Anything left at partial alpha comes out of the
@@ -239,6 +274,17 @@ function carve(ctx, w, h) {
   }
   ctx.globalCompositeOperation = 'source-over';
   ctx.fillStyle = '#000000';
+
+  // The crack last, so the weather does not eat it. Wear is a century of rain
+  // on a carving; the crack is what happened to the stone itself, and it is the
+  // one mark on this face that is meant to be crisp.
+  //
+  // Widest at about 2.5% of the face, a shade over eighteen texels: under
+  // seventeen the groove's two lips overlap and a cut reads as a smudge, so the
+  // middle of the run has to clear that even though the tips deliberately do
+  // not.
+  ribbon(ctx, CRACK, w, h, w * 0.025, 0.0);
+  ribbon(ctx, BRANCH, w, h, w * 0.016, 2.3);
 }
 
 // ---------------------------------------------------------------------------
@@ -295,31 +341,16 @@ function insetAt(z, hz, e) {
   return e * (1 - Math.sqrt(1 - cc * cc));
 }
 
-function chipSlab(slab, W, H, D) {
+function chipSlab(slab, { W, H, D, e, slabUV }) {
   const geo = slab.geometry;
   const pos = geo.getAttribute('position');
   const nor = geo.getAttribute('normal');
   const uv = geo.getAttribute('uv');
   const hz = D / 2;
-
-  // The two numbers this needs from the slab, read off the slab rather than
-  // restated from tombstones.js, where they are private and free to change.
-  // The front cap ring sits at z = hz inset by the edge radius, so its widest
-  // vertex is at x = W - e; and the cap's centre vertex is mapped at half the
-  // face's share of the texture, so its u is frontFrac / 2.
-  let e = 0;
-  let frontFrac = 1;
-  for (let i = 0; i < pos.count; i++) {
-    if (Math.abs(pos.getZ(i) - hz) > 1e-6) continue;
-    e = Math.max(e, W - Math.abs(pos.getX(i)));
-    if (Math.abs(pos.getX(i)) < 1e-6 && nor.getZ(i) > 0.99) frontFrac = uv.getX(i) * 2;
-  }
-  if (!(e > 1e-4)) return; // not the slab this file was written against
-
   const archY = H - W;
   const circles = CHIP.map((c) => {
     const a = (c.deg * Math.PI) / 180;
-    const dist = W + c.r - c.bite;
+    const dist = W + c.r - Math.min(c.bite, c.r * MAX_BITE);
     return { x: Math.cos(a) * dist, y: archY + Math.sin(a) * dist, r: c.r };
   });
 
@@ -359,9 +390,11 @@ function chipSlab(slab, W, H, D) {
     // Front-mapped vertices carry the inscription's planar UVs, and a vertex
     // that has moved has to be remapped or it drags the texture into the break.
     // Everything else is parked in the plain strip and does not care.
-    const wasFront = Math.abs(uv.getX(i) - ((x0 + W) / (2 * W)) * frontFrac) < 1e-4
-      && Math.abs(uv.getY(i) - y0 / H) < 1e-4;
-    if (wasFront) uv.setXY(i, ((x + W) / (2 * W)) * frontFrac, y / H);
+    const was = slabUV(x0, y0, true);
+    if (Math.abs(uv.getX(i) - was[0]) < 1e-5 && Math.abs(uv.getY(i) - was[1]) < 1e-5) {
+      const now = slabUV(x, y, true);
+      uv.setXY(i, now[0], now[1]);
+    }
   }
 
   pos.needsUpdate = true;
@@ -373,9 +406,11 @@ function chipSlab(slab, W, H, D) {
 registerStone('cracked', {
   shape: SHAPE,
   draw: carve,
-  extras({ body, shape, halfWidth, height }) {
-    const slab = body.children.find((m) => m.isMesh && m.position.y > 1e-6) || body.children[0];
-    if (slab && slab.isMesh) chipSlab(slab, halfWidth, height, shape.depth);
+  extras({ body, shape, halfWidth, height, edge, slabUV }) {
+    // The slab is the mesh standing on the plinth; the plinth itself is at zero
+    // and keeps every corner it was cast with.
+    const slab = body.children.find((m) => m.isMesh && m.position.y > 1e-6);
+    if (slab) chipSlab(slab, { W: halfWidth, H: height, D: shape.depth, e: edge, slabUV });
 
     // The lean. A group slipped in under body, because body's own rotation is
     // set after this returns and would overwrite anything put on it here.
