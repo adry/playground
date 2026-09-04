@@ -56,7 +56,7 @@ const DIP = 0.19;
 const SINK = 0.20;
 // Displaced earth. The floor is #8f949e, so this is the ground a shade darker
 // and nothing new in the palette.
-const EARTH = '#8d929c';
+const EARTH = '#9aa0aa';
 
 // Lowest point of a geometry once its matrix is applied, walked vertex by
 // vertex. Box3.setFromObject would grow the local box by the rotation and hand

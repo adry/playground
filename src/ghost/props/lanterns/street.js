@@ -16,13 +16,14 @@ import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from '../style.js';
 // tall thing". The camera is framed for a 1.6 ghost, so the top end matters as
 // much: at 3.6 the head leaves the frame in the scene's standard three-quarter
 // shot, and a lantern you cannot see is not worth 3.6 units of post. 3.30 also
-// puts the flame at 2.58, which is above the skeleton's skull and below the
+// puts the flame at 2.62, which is above the skeleton's skull and below the
 // top of the frame, so the brightest point in the prop sits where the eye is
 // already looking. See out/street/ for the renders it was chosen on.
 //
-// GIRTH: the shaft is 0.17 across at the foot of its taper and 0.13 at the
-// neck, which is roughly one part in twenty of the height. A real cast iron
-// column is nearer one part in forty and it looks like wire at this size. The
+// GIRTH: the shaft is 0.20 across where its taper starts, 0.17 at its middle
+// and 0.12 at the neck, so at its thinnest it is one part in twenty seven of
+// the height. A real cast iron column is nearer one part in forty, and at this
+// size that renders as bent wire and disappears entirely at a distance. The
 // rule that kept it honest is the brief's: anything that would be a rod on a
 // real lamp is a finger-thick rounded bar here, so the four glazing bars round
 // the head are 0.052 across rather than the 0.015 the reference has, and there
@@ -152,7 +153,7 @@ const M = {
   bar: { radius: 0.026, bottom: 2.372, top: 2.818 },
 
   // How square the head is. 2 is a circle; this is a soft square whose corner
-  // stands 19% further out than its faces. It was 3.4 and that was too round:
+  // stands 20% further out than its faces. It was 3.4 and that was too round:
   // seen square on, where the two visible corners are the silhouette, the cap
   // came out as a dome rather than as a peaked roof and the whole head read as
   // a jar. At 4.2 the corner ridges are definite enough to draw the roof and
@@ -190,7 +191,7 @@ const HUE_MID = 0.912, HUE_GAIN = 1.5;
 // One PointLight and no shadow map, which is the budget rule and is also the
 // right answer here. Six pumpkins already put six point lights into every
 // fragment shader's loop; a seventh is the whole allowance. A shadow-casting
-// spot from 2.58 up would spend its entire map on the lamp's own post drawn as
+// spot from 2.62 up would spend its entire map on the lamp's own post drawn as
 // a stripe across the graveyard, and the thing a lantern actually does to a
 // scene, a soft pool of warm on the ground and a warm side on everything near
 // it, is exactly what an unshadowed point light does for free.

@@ -39,24 +39,16 @@ const PLINTH = 0.18;
 // is still quiet in silhouette but it survives being 200px tall on screen,
 // which 2 did not.
 const TAPER = 0.22;
-const scaleAt = (y) => 1 - TAPER * (y / H);
 
-// Where the cap takes over, and how hard the shaft pulls in above it.
-//
-// The pyramidion sleeves down over the top of the shaft, so above TUCK_Y there
-// are two surfaces in the same place. Left exactly parallel they z-fight, and
-// on a 16-bit depth buffer that is not a hairline, it is a band of stipple
-// across the face right under the shoulder. So the shaft narrows from TUCK_Y
-// on: nothing about it is visible, it is only there to open a gap. Because the
-// pull-in starts exactly where the cap's base ring sits and the two surfaces
-// leave that ring in the same direction, the silhouette is continuous through
-// the joint and the gap is a fifth of a millimetre by the time anything could
-// see it.
-const TUCK_Y = H - 0.12;
-const TUCK_C = 1.5;
-const shaftScale = (y) => scaleAt(y) * (1 - TUCK_C * Math.max(0, y - TUCK_Y));
-const shaftScaleD = (y) =>
-  (-TAPER / H) * (1 - TUCK_C * Math.max(0, y - TUCK_Y)) + scaleAt(y) * (y > TUCK_Y ? -TUCK_C : 0);
+// The taper has to be linear in y and this is not a stylistic choice. The slab
+// has vertices only where its outline curves -- the two corner arcs -- so its
+// long straight sides are one quad from the bottom arc to the top one. Any
+// profile applied to those vertices is linearly interpolated between them, so a
+// straight taper comes out exact and anything with a knee in it comes out
+// smeared over the whole shaft. A first pass tried to pinch the last 0.12 of
+// the shaft in under the cap and instead re-tapered the entire stone and left
+// the cap standing 0.02 proud of it.
+const scaleAt = (y) => 1 - TAPER * (y / H);
 
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
 
@@ -211,7 +203,16 @@ function roundedBlock({ halfX, halfZ, height, edge, corner, y0, uv }) {
 // is oblong exactly as much as the shaft is and its four faces meet in rounded
 // arrises rather than in corners.
 function pyramidionGeometry({ uv, edge }) {
-  const yBase = TUCK_Y; // buried, below where the slab's top starts rounding
+  // The cap's base ring sits exactly where the slab's top starts rounding over,
+  // and this is the whole trick of the joint. Below that line only the shaft
+  // exists; above it the shaft's own top arc curls away inward at the edge
+  // radius while the cap carries straight on, so the two surfaces separate
+  // immediately -- 0.003 within a centimetre, 0.05 by the top of the shaft --
+  // and the shaft's rounded top is swallowed whole. Landing the ring anywhere
+  // lower leaves the two running parallel a hair apart, and a hair apart on a
+  // 16-bit depth buffer is not a hairline: it is a band of stipple straight
+  // across the face under the shoulder.
+  const yBase = H - edge;
   const sBase = scaleAt(yBase) * 1.0015; // a hair proud of the shaft, never inside it
   const halfX0 = W * sBase;
   const halfZ0 = (D / 2) * sBase;
@@ -375,14 +376,14 @@ registerStone('obelisk', {
       const nor = slab.geometry.attributes.normal;
       for (let i = 0; i < pos.count; i++) {
         const y = pos.getY(i);
-        const s = shaftScale(y);
+        const s = scaleAt(y);
         const x = pos.getX(i) * s;
         const z = pos.getZ(i) * s;
         pos.setXYZ(i, x, y, z);
         const nx = nor.getX(i);
         const ny = nor.getY(i);
         const nz = nor.getZ(i);
-        const my = s * ny - (shaftScaleD(y) / s) * (x * nx + z * nz);
+        const my = s * ny + ((TAPER / H) / s) * (x * nx + z * nz);
         const l = Math.hypot(nx, my, nz) || 1;
         nor.setXYZ(i, nx / l, my / l, nz / l);
       }

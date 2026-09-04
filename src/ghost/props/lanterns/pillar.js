@@ -105,17 +105,17 @@ const BOLT_AT = 0.100;       // mid-face radius of the four bolt heads
 const BOLT_R = 0.013;
 
 const BOX_Y = STONE_H - FLANGE_BED + FLANGE_H + COLLAR_H;   // 0.996
-const BOX_R = 0.103;         // half-extent over the frame
-const BOX_H = 0.300;
+const BOX_R = 0.112;         // half-extent over the frame
+const BOX_H = 0.315;
 const BAR = 0.026;           // corner upright section, and the rail depth
 const RAIL_H = 0.028;        // the horizontal band top and bottom
-const PANE_Z = 0.093;        // glass sits inboard of the frame's outer face
-const PANE_HW = 0.077;       // half width, between the two uprights
+const PANE_Z = 0.102;        // glass sits inboard of the frame's outer face
+const PANE_HW = 0.086;       // half width, between the two uprights
 const PANE_BOW = 0.013;      // outward crown on the pane: see the glass note
 
 const CAP_Y = BOX_Y + BOX_H;
-const CAP_R = 0.130;         // the eave, overhanging the box by 27mm
-const CAP_H = 0.126;
+const CAP_R = 0.141;         // the eave, overhanging the box by 29mm
+const CAP_H = 0.132;
 const FINIAL_NECK = 0.022;
 const FINIAL_R = 0.031;
 
@@ -443,6 +443,46 @@ function placed(geo, { x = 0, y = 0, z = 0, ry = 0, rx = 0, rz = 0 } = {}) {
 // -----------------------------------------------------------------------------
 // the parts
 
+// The stone's dirt, carried in a vertex colour attribute.
+//
+// It is here because of a side-by-side render, not on principle. Next to a
+// tombstone the plain pillar read as a WHITER material than the headstone even
+// though both are PALETTE.stone: the headstone carries a painted mottle and a
+// band of ground grime along its foot, and against that a clean flat block of
+// the same hue looks like new concrete beside old limestone.
+//
+// Vertex colours rather than a canvas texture, for two reasons. The prop has to
+// build head-less (style.js's contactShadow already carries a stub for exactly
+// that case, and a document.createElement here would throw), and the shapes are
+// lofts with no UV layout to paint into. What a vertex colour cannot do is fine
+// detail; what it is asked for here is a slow mottle and three soft washes,
+// which is all a block this size needs.
+function stoneTint(geo, rand) {
+  const pos = geo.attributes.position;
+  const s1 = rand() * 9, s2 = rand() * 9, s3 = rand() * 9, s4 = rand() * 9, s5 = rand() * 9;
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    const m =
+      0.55 * Math.sin(x * 11.3 + y * 4.1 + z * 7.9 + s1) * Math.sin(z * 9.7 - y * 3.3 + s2) +
+      0.30 * Math.sin(x * 23.1 - z * 19.4 + s3) * Math.sin(y * 17.5 + x * 6.2 + s4) +
+      0.15 * Math.sin(x * 41.0 + z * 37.0 + s5);
+    let t = 1 + 0.055 * m;
+    // Ground grime up the first 180mm, the band that stops a block from
+    // looking as though it were set down this morning.
+    t *= 1 - 0.15 * smoothstep(0.18, 0.02, y);
+    // Two soft occlusions, in the two places a pillar has a re-entrant corner:
+    // under the cornice's overhang and in the shoulder above the plinth. The
+    // scene's one shadow-casting light comes in at an angle and cannot put
+    // anything in either of them.
+    t *= 1 - 0.10 * Math.exp(-(((y - (CORNICE_Y + 0.018)) / 0.038) ** 2));
+    t *= 1 - 0.08 * Math.exp(-(((y - (PLINTH_H + 0.014)) / 0.030) ** 2));
+    col[i * 3] = t; col[i * 3 + 1] = t; col[i * 3 + 2] = t;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return geo;
+}
+
 function stoneGeometry() {
   const at = (y) => {
     const t = clamp01((y - PLINTH_H) / (STONE_H - PLINTH_H));
@@ -700,8 +740,8 @@ function makeNoise(seed) {
 // these do not flicker at two different depths. The absolute level is a
 // stylistic call: against a hemisphere at 1.15 and a key at 2.1 a truthful
 // candle is invisible, and this is what makes the lantern read as lit.
-const LAMP = { min: 0.195, max: 0.42 };
-const GLASS_GLOW = { min: 0.18, max: 0.46 };
+const LAMP = { min: 0.395, max: 0.85 };
+const GLASS_GLOW = { min: 0.30, max: 0.80 };
 const WICK = { min: 0.95, max: 2.10 };
 const HUE_MID = 0.88, HUE_GAIN = 1.5;
 
@@ -714,11 +754,11 @@ export function createPillarLantern({ seed = 1, scale = 1 } = {}) {
   const group = new THREE.Group();
 
   // --- stone ---------------------------------------------------------------
-  const stoneGeo = stoneGeometry();
+  const stoneGeo = stoneTint(stoneGeometry(), rand);
   // The headstones' colour exactly, because it is the same quarry. Only the
   // roughness moves, and only a little: a pillar is a bigger, wetter block than
   // a headstone and takes a slightly broader sheen.
-  const stoneMat = toyMaterial(PALETTE.stone, { roughness: 0.86 });
+  const stoneMat = toyMaterial(PALETTE.stone, { roughness: 0.86, vertexColors: true });
   const stone = new THREE.Mesh(stoneGeo, stoneMat);
   stone.castShadow = true;
   stone.receiveShadow = true;
@@ -861,7 +901,7 @@ varying float vYaw;`)
   // costs six to one, the cornice sits at about 2.1 against a key of 2.1 and
   // the pool on the floor is still plainly there two-thirds of a unit out.
   const light = new THREE.PointLight(FLAME.clone(), 0, 3.4 * scale, 1);
-  light.position.set(0, BOX_Y + 0.130, 0);
+  light.position.set(0, BOX_Y + 0.155, 0);
   light.castShadow = false;
   const lightHome = light.position.clone();
 

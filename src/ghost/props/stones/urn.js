@@ -79,12 +79,12 @@ const URN_SCALE = 1.18;
 // only turned the lid into a melted blob, and the lid and finial are the two
 // features that say "urn" rather than "pot", so they stay bare.
 const CLOAK = [
-  [0.215, 0.222],
-  [0.260, 0.228],
-  [0.300, 0.224],
-  [0.335, 0.207],
-  [0.362, 0.182],
-  [0.386, 0.150],
+  [0.215, 0.212],
+  [0.260, 0.216],
+  [0.300, 0.206],
+  [0.335, 0.188],
+  [0.362, 0.164],
+  [0.386, 0.142],
   [0.398, 0.128], // the rim's own widest point, so the cloth ends at zero here
 ];
 
@@ -178,9 +178,12 @@ function drapeDisplacer(profile, centre) {
     const q = a / (a >= 0 ? DRAPE.arcPos : DRAPE.arcNeg);
     if (q <= -1 || q >= 1) return [0, 0];
 
-    // Soft ends: the cloth has to melt into the urn at its two edges, never
-    // stop at a step.
-    const edge = 1 - smooth((Math.abs(q) - 0.72) / 0.28);
+    // The cloth's thickness across its span, a bell rather than a plateau with
+    // a fade at the sides. The fade version put a 0.1-unit drop in radius into
+    // the four angular columns nearest each end, and a cliff that steep between
+    // adjacent columns came out as a spiky flap with creases fanning off it. A
+    // bell has no cliff anywhere and its slope goes to zero at both ends.
+    const edge = Math.pow(0.5 + 0.5 * Math.cos(q * Math.PI), 0.7);
     const ridge = Math.cos(q * Math.PI * DRAPE.folds);
 
     const corner = Math.exp(-Math.pow((q - DRAPE.tailAt) / DRAPE.tailWidth, 2));
@@ -243,7 +246,7 @@ registerStone('urn', {
     const urnStart = sink.pos.length;
     latheInto(sink, {
       profile,
-      segments: 96,
+      segments: 128,
       displace: drapeDisplacer(profile, centre),
     });
     // Scaled up as a whole and sunk a little into the cornice, so no seam opens

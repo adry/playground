@@ -154,8 +154,11 @@ registerStone('celtic', {
   shape: SHAPE,
   // Square the die off. Left alone the registry gives every slab a half-round
   // arch, which on a die this wide would be a dome with a cross growing out of
-  // it rather than a block the shaft is set into.
+  // it rather than a block the shaft is set into. Top and bottom get the same
+  // radius, a hair under the slab's own 0.062 edge, so it reads as one block
+  // and not as a slab with a rounder foot than head.
   topRadius: 0.06,
+  bottomRadius: 0.06,
   draw(ctx, w, h) {
     // One short line, low and centred on the die. The postmortem is blunt that
     // a complex silhouette gets no second thing competing with it, and a ringed
