@@ -225,6 +225,11 @@ const STALL_TIME = 1.0;
 // anything a viewer can wait out, and a bone genuinely toppling clears it by
 // two orders of magnitude on the way over.
 const STALL_PROGRESS = 0.001;
+// And how far off the floor still counts as trying to settle rather than
+// flying. Four times the settle's own reach: high enough to cover the hop of a
+// bone rocking on its own torque, low enough that anything actually in the air
+// is excluded.
+const STALL_REACH = 4 * SETTLE_REACH;
 const MAX_VERTS = 900;         // vertices kept per bone for the exact passes
 const STABLE_STICK = 3;        // once judged settled, this much harder to unsettle again
 const SLEEP_TIME = 0.18;       // seconds of stillness before a bone is retired
@@ -526,24 +531,6 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
       item.probeAge = PROBE_EVERY;
     }
 
-    // Is the settle getting anywhere? Asked on the clock rather than on
-    // contact, because a bone rocking under the topple torque hops a couple of
-    // centimetres clear on every cycle and a contact-gated timer is reset by
-    // that before it can ever accumulate. A bone in genuine flight has a
-    // genuine velocity, and that is what resets this instead.
-    //
-    // `best` is the lowest centre of mass the bone has reached; the timer only
-    // restarts when it is beaten by a margin worth watching, so a limit cycle
-    // shaving a fraction of a millimetre off it every turn does not count as
-    // progress.
-    if (item.vel.lengthSq() >= SLEEP_V * SLEEP_V || !Number.isFinite(item.energy)) {
-      item.stall = 0;
-    } else {
-      if (item.energy < item.best - STALL_PROGRESS) item.stall = 0;
-      else item.stall += h;
-      if (item.energy < item.best) item.best = item.energy;
-    }
-
     const w = item.spin.length();
     if (w > 1e-7) {
       _q.setFromAxisAngle(_v.copy(item.spin).divideScalar(w), w * h);
@@ -595,6 +582,32 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
           item.spin.addScaledVector(_v2.sub(item.spin), ROLL_COUPLE * hit);
         }
       }
+    }
+
+    // Is the settle getting anywhere?
+    //
+    // `best` is the lowest centre of mass the bone has reached, and the timer
+    // only restarts when that is beaten by a margin worth watching, so a limit
+    // cycle shaving a tenth of a millimetre off it on every turn does not count
+    // as progress.
+    //
+    // What the timer is NOT allowed to depend on is contact or vertical speed,
+    // and both of those took a version to learn. A bone rocking under the
+    // topple torque leaves the floor by a centimetre or two on every cycle, so
+    // a contact-gated timer is reset before it can accumulate; and once it is
+    // clear of the floor, gravity alone puts it past SLEEP_V downward inside a
+    // single substep, so a timer gated on total speed is reset by the same
+    // hops. What actually distinguishes a bone that is getting somewhere is
+    // that it is TRAVELLING: horizontal speed, and height off the floor.
+    const goingSomewhere =
+      item.vel.x * item.vel.x + item.vel.z * item.vel.z >= SLEEP_V * SLEEP_V ||
+      low > floorY + STALL_REACH;
+    if (goingSomewhere || !Number.isFinite(item.energy)) {
+      item.stall = 0;
+    } else {
+      if (item.energy < item.best - STALL_PROGRESS) item.stall = 0;
+      else item.stall += h;
+      if (item.energy < item.best) item.best = item.energy;
     }
 
     // Stationary is not the same as settled. Without the stability term a
