@@ -627,16 +627,16 @@ varying float vFlameH;`)
       return g;
     };
 
-    let waxGeo;
-    if (J.tipped) {
-      // The stub in the fallen jar has slid down against the wall it is lying
-      // on. Built lying down in jar space rather than tipped with the jar, so
-      // its own axis stays with the jar's and it simply rests off centre.
-      waxGeo = new THREE.LatheGeometry(candleProfile(rIn, J.waxTop), Math.round(AROUND * 0.7));
-      waxGeo.translate(rIn * 0.32, 0, 0);
-    } else {
-      waxGeo = new THREE.LatheGeometry(candleProfile(rIn, J.waxTop), Math.round(AROUND * 0.7));
-    }
+    // The stub in the fallen jar has slid across and come to rest against the
+    // wall it is lying on. Offset in the jar's OWN frame and then tipped with
+    // it, so the stub stays parallel to the jar it is loose inside. The sign is
+    // the whole point and it is easy to get backwards: the jar is laid down by
+    // a rotation of a quarter turn about z, which sends the jar's own +x to
+    // world up, so the stub has to be offset along -x to end up lying on the
+    // low side rather than stuck to the ceiling.
+    const slide = J.tipped ? -rIn * 0.32 : 0;
+    const waxGeo = new THREE.LatheGeometry(candleProfile(rIn, J.waxTop), Math.round(AROUND * 0.7));
+    if (slide) waxGeo.translate(slide, 0, 0);
     waxParts.push(tag(waxGeo, i, 1, J.lit ? waxCol : spentCol));
 
     // Two millimetres of dark, and it matters: without it the flame floats a
@@ -644,7 +644,7 @@ varying float vFlameH;`)
     const wickGeo = new THREE.CapsuleGeometry(0.0021, 0.0075, 3, 8);
     const wm = new THREE.Matrix4()
       .makeRotationZ(J.lit ? 0.2 : 0.9)
-      .setPosition(J.tipped ? rIn * 0.32 : 0, J.waxTop + 0.001, 0);
+      .setPosition(slide, J.waxTop + 0.001, 0);
     wickGeo.applyMatrix4(wm);
     waxParts.push(tag(wickGeo, i, 0, wickCol));
   });

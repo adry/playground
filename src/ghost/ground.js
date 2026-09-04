@@ -110,8 +110,8 @@ export function createGround({
         uniform vec4 uHoleShape[${holes.length}];
 
         // Signed distance to a rounded rectangle, negative inside.
-        float groundHoleSD(vec2 p, vec2 half, float r) {
-          vec2 q = abs(p) - (half - vec2(r));
+        float groundHoleSD(vec2 p, vec2 ext, float r) {
+          vec2 q = abs(p) - (ext - vec2(r));
           return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
         }
 

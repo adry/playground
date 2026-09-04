@@ -190,14 +190,19 @@ export function blobGeometry({ detail = 3, lobes = [], scaleY = 1, fit } = {}) {
       if (pos[i + 2] < minZ) minZ = pos[i + 2]; if (pos[i + 2] > maxZ) maxZ = pos[i + 2];
     }
     const buried = fit.buried || 0;
-    const sxz = fit.width / Math.max(maxX - minX, maxZ - minZ);
+    const big = Math.max(maxX - minX, maxZ - minZ);
+    const sx = fit.width / big;
+    // Separate depth so a plant is not a body of revolution seen from above. On
+    // a fixed isometric camera an axisymmetric footprint is the one thing that
+    // makes two seeds of the same prop look like the same prop turned round.
+    const sz = (fit.depth === undefined ? fit.width : fit.depth) / big;
     const sy = (fit.height + buried) / (maxY - minY);
     const cx = (minX + maxX) / 2;
     const cz = (minZ + maxZ) / 2;
     for (let i = 0; i < pos.length; i += 3) {
-      pos[i] = (pos[i] - cx) * sxz;
+      pos[i] = (pos[i] - cx) * sx;
       pos[i + 1] = (pos[i + 1] - minY) * sy - buried;
-      pos[i + 2] = (pos[i + 2] - cz) * sxz;
+      pos[i + 2] = (pos[i + 2] - cz) * sz;
     }
   }
 

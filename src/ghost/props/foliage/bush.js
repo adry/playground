@@ -54,6 +54,7 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   // nobody has been round with the shears for a few years.
   const H = 0.575 + rand() * 0.100;          // visible height above y = 0
   const W = H * (1.20 + rand() * 0.24);      // widest point
+  const D = W * (0.80 + rand() * 0.20);      // and its depth, so it is not round
   const BURIED = H * 0.17;                   // how much of the dome is underground
 
   // --- the mass -------------------------------------------------------------
@@ -74,7 +75,7 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
     detail: 4,
     lobes: massLobes,
     scaleY: 0.90,
-    fit: { width: W, height: H, buried: BURIED },
+    fit: { width: W, depth: D, height: H, buried: BURIED },
   });
   // The mass is only ever seen through the gaps between clumps, which are the
   // deepest part of the bush, so it is darkened hard.
@@ -92,46 +93,25 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   // clump always sits on the surface that is actually there: an analytic
   // placement drifted off the deeper hollows of the lobe field and left clumps
   // floating a centimetre out in front of the bush.
-  // Three tiers, and the third one is what finally stopped this reading as a
-  // heap of olives. Two tiers give a lumpy surface; the eye resolves each lump,
-  // sees a smooth ovoid with its own highlight on it, and calls the whole thing
-  // fruit. A third tier of much smaller lumps riding on the tips of the second
-  // breaks every one of those highlights up, and detail that keeps going as you
-  // look closer is most of what "fluffy" means.
   //
-  // The fuzz is placed on the tufts rather than on the mass, and inherits its
-  // parent tuft's wind phase from the vertex it was placed at, so a tuft and
-  // its fuzz quiver as one piece instead of shimmering against each other.
+  // Two tiers of tuft, not three. A third tier of fine fuzz riding on the tips
+  // of the second was built and thrown away: it cost nine thousand triangles and
+  // at the size this prop is actually seen in the yard, where the whole bush is
+  // a couple of hundred pixels, every one of those lumps was two pixels across
+  // and contributed aliasing rather than detail. The texture it was after is
+  // bought for nothing instead, by giving each tuft a second, tighter set of
+  // lobes: same triangles, same silhouette work, bumps at a quarter of the
+  // scale. Detail you cannot resolve is not detail.
   const tuftSites = clumpPlacements(massGeo, {
     rand, W, H,
-    limit: 140,
+    limit: 150,
     yMin: 0.11,
-    size: (r) => r,
-    big: [0.050, 0.026],
-    small: [0.028, 0.019],
+    big: [0.055, 0.028],
+    small: [0.030, 0.020],
     bigOdds: 0.34,
     gap: 0.44,
   });
-  const tuftParts = buildTufts(tuftSites, { rand, W, H, stretch: [0.55, 0.55] });
-
-  // Built once to place the fuzz on, then thrown away and rebuilt with the fuzz
-  // in it. Cheap, and much simpler than an analytic guess at where the tips of
-  // a hundred and forty lozenges ended up.
-  const tuftOnly = mergeLumps(tuftParts);
-  const fuzzSites = clumpPlacements(tuftOnly, {
-    rand, W, H,
-    limit: 150,
-    yMin: 0.13,
-    big: [0.019, 0.008],
-    small: [0.013, 0.007],
-    bigOdds: 0.4,
-    gap: 0.62,
-    parentPhase: tuftOnly.userData.windPhase,
-  });
-  const fuzzParts = buildTufts(fuzzSites, { rand, W, H, stretch: [0.30, 0.35], detail: 1 });
-  tuftOnly.dispose();
-
-  const clumpGeo = mergeLumps(tuftParts.concat(fuzzParts));
+  const clumpGeo = mergeLumps(buildTufts(tuftSites, { rand, W, H }));
   bakeFoliageTint(clumpGeo, { top: H, floor: 0.40, ceil: 1.34, down: 0.52, root: 0.34, spread: 0.26, rand });
   bakeWind(clumpGeo, { top: H * 0.90, base: 0, power: 1.8 });
   disposables.push(clumpGeo);
@@ -168,7 +148,7 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   body.rotation.z = (rand() - 0.5) * 0.10;
   body.rotation.x = (rand() - 0.5) * 0.08;
 
-  const patch = contactShadow({ radius: W * 0.40, opacity: 0.34, softness: 0.62 });
+  const patch = contactShadow({ radius: (W + D) * 0.20, opacity: 0.34, softness: 0.62 });
   group.add(patch);
   disposables.push({ dispose: () => patch.userData.dispose?.() });
 
@@ -195,7 +175,7 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
 // leave a bald patch on one flank about a third of the time, and a bald flank on
 // a bush is very visible at a fixed camera azimuth.
 // One tier of tufts, from a list of sites.
-function buildTufts(sites, { rand, W, H, stretch = [0.55, 0.55], detail = null }) {
+function buildTufts(sites, { rand, W, H, stretch = [0.55, 0.55] }) {
   const parts = [];
   const up = new THREE.Vector3(0, 1, 0);
   const q = new THREE.Quaternion();
@@ -207,8 +187,12 @@ function buildTufts(sites, { rand, W, H, stretch = [0.55, 0.55], detail = null }
     // small ones nestled between them are a dozen pixels across at the scale
     // this prop is seen and would pay four times the triangles for an outline
     // nobody can resolve.
-    const d = detail === null ? (c.r > W * 0.042 ? 2 : 1) : detail;
+    const d = c.r > W * 0.044 ? 2 : 1;
+    // Broad lobes give the tuft its shape. The tight ones are the texture, and
+    // they only go on tufts fine enough to resolve them: on a 42-vertex sphere a
+    // lobe at tight 7 falls between samples and comes out as a random dent.
     const lobes = makeLobes(rand, { count: 5, amp: [0.16, 0.44], tight: [1.4, 3.0], yBias: 0.10 });
+    if (d >= 2) lobes.push(...makeLobes(rand, { count: 5, amp: [0.09, 0.20], tight: [5.0, 9.0], yBias: 0.1 }));
     // Elongated, and this is the change that moved the prop from "heap of soap
     // bubbles" to foliage: round lumps of two sizes read as foam whatever you do
     // to their shading, because nothing in a heap of spheres has a direction.

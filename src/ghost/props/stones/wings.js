@@ -80,35 +80,20 @@ const CROWN_SINK = 0.26;
 // The central boss: the roundel where the skull would be. Its circle reaches
 // well below the top of the slab, so it is a dome standing out of the stone
 // rather than a ball balanced on it.
-const BOSS = { r: 0.18, y: 1.18 };
+const BOSS = { r: 0.18, y: 1.18, seat: -6 };
 
 const WING = {
   cove: 0.09, // the shoulder cove the wing flares out of
-  // Where on the shaft the wings spring from. Below the slab's own shoulder, so
-  // the crown swallows the slab's top corners and the shaft runs up into the
-  // wings rather than stopping under them.
-  spring: 0.78,
-  // How far round the cove the wing is carried, in degrees. It is also the
-  // angle the underside leaves the shaft at, measured off vertical, so a small
-  // value grows the wing straight up the side and 90 sends it out flat.
-  flare: 62,
-  // The lobes of the underside, inner to outer, the last of them the wingtip.
-  // The first is placed by its tangency with the cove; each of the others sits
-  // `step` from the one before, `rake` degrees above horizontal. The rake
-  // steepens down the wing, so the wing goes OUT first and UP after, which is
-  // what puts the lift at the tip where the eye reads it.
+  spring: 0.80,
+  flare: 60,
   lobes: [
-    { r: 0.110 },
-    { r: 0.100, step: 0.175, rake: 20 },
-    { r: 0.085, step: 0.165, rake: 34 },
+    { r: 0.100 },
+    { r: 0.095, step: 0.160, rake: 18 },
+    { r: 0.090, step: 0.160, rake: 33 },
   ],
-  notch: 0.022, // the cleft fillet between two lobes
-  // The top edge: one long shallow convex arc, tangent to the wingtip lobe from
-  // the INSIDE, so the tip's tight roll runs into it without a join. `touch` is
-  // where on the tip lobe it starts, in degrees, and the radius is what makes
-  // the edge a long sweep rather than a dome.
-  sweep: { r: 0.62, touch: 105 },
-  valley: 0.10, // the cove between that sweep and the boss
+  notch: 0.020,
+  valley: 0.10,
+  sweep: 0.60,
 };
 
 // ---------------------------------------------------------------------------
@@ -143,6 +128,19 @@ function fillet(c1, r1, c2, r2, rf, side) {
   const a = (R1 * R1 - R2 * R2 + d * d) / (2 * d);
   const h = Math.sqrt(Math.max(0, R1 * R1 - a * a));
   return { x: c1.x + (a * dx - side * h * dy) / d, y: c1.y + (a * dy + side * h * dx) / d };
+}
+
+// The upper intersection of two circles, used to seat the sweep: it has to be
+// (sweep r - valley r) from the valley centre, which puts the valley INSIDE it
+// and tangent, and (sweep r + tip r) from the wingtip, which puts the tip
+// outside it and tangent.
+function meet(c1, r1, c2, r2) {
+  const dx = c2.x - c1.x;
+  const dy = c2.y - c1.y;
+  const d = Math.hypot(dx, dy);
+  const a = (r1 * r1 - r2 * r2 + d * d) / (2 * d);
+  const h = Math.sqrt(Math.max(0, r1 * r1 - a * a));
+  return { x: c1.x + (a * dx - h * dy) / d, y: c1.y + (a * dy + h * dx) / d };
 }
 
 // A convex arc is walked counter-clockwise and a concave one clockwise, so both
@@ -190,39 +188,26 @@ function halfOutline(W, H, edge) {
     lobes.push({ c, r: l.r });
   }
 
-  // The clefts, the top sweep and the valley. Every fillet rests on the AIR
-  // side of the crease it fills, which is the right hand side walking the
-  // outline counter-clockwise.
+  // The clefts, the valley and the top sweep.
   const clefts = lobes.slice(1).map((l, i) => fillet(lobes[i].c, lobes[i].r, l.c, l.r, WING.notch, -1));
   const tip = lobes[lobes.length - 1];
   const boss = { x: 0, y: BOSS.y };
-  // The sweep contains the tip lobe rather than meeting it: two circles tangent
-  // from the inside share their tangent direction at the touch point, so the
-  // wingtip's roll flows into the long top edge with nothing but a change of
-  // curvature. A fillet there instead would put a notch in the one line on the
-  // piece that has to stay unbroken.
-  const t = WING.sweep.touch * D;
-  const sweep = {
-    x: tip.c.x - (WING.sweep.r - tip.r) * Math.cos(t),
-    y: tip.c.y - (WING.sweep.r - tip.r) * Math.sin(t),
-  };
-  const valley = fillet(sweep, WING.sweep.r, boss, BOSS.r, WING.valley, -1);
+  const seat = BOSS.seat * D;
+  const valley = { x: (BOSS.r + WING.valley) * Math.cos(seat), y: BOSS.y + (BOSS.r + WING.valley) * Math.sin(seat) };
+  const sweep = meet(valley, WING.sweep - WING.valley, tip.c, WING.sweep + tip.r);
 
   const out = [
-    // The buried corner, and the straight side that falls out for free between
-    // it and the cove: both end tangent to x = W, so the run between them is
-    // vertical and its normals already agree.
     bulge({ x: W - rb, y: yb + rb }, rb, -Math.PI / 2, 0),
     scoop(cove, WING.cove, Math.PI, ang(cove, lobes[0].c)),
   ];
   lobes.forEach((l, i) => {
     const before = i === 0 ? cove : clefts[i - 1];
     const last = i === lobes.length - 1;
-    out.push(bulge(l.c, l.r, ang(l.c, before), last ? t : ang(l.c, clefts[i])));
+    out.push(bulge(l.c, l.r, ang(l.c, before), last ? ang(l.c, sweep) : ang(l.c, clefts[i])));
     if (!last) out.push(scoop(clefts[i], WING.notch, ang(clefts[i], l.c), ang(clefts[i], lobes[i + 1].c)));
   });
-  out.push(bulge(sweep, WING.sweep.r, t, ang(sweep, valley)));
-  out.push(scoop(valley, WING.valley, ang(valley, sweep), ang(valley, boss)));
+  out.push(scoop(sweep, WING.sweep, ang(sweep, tip.c), ang(sweep, valley)));
+  out.push(scoop(valley, WING.valley, ang(sweep, valley), ang(valley, boss)));
   return { arcs: out, bossA: ang(boss, valley) };
 }
 

@@ -82,7 +82,7 @@ const COAL_FLAME = new THREE.Color('#ff7a24');
 // front of it, so it needs less than the street lamp's number to land more on
 // the ground, and its swing is the widest of the three (2.5 : 1 against their
 // 2.17 and 2.2) because an open fire in the wind is not a candle in a box.
-const LAMP = { min: 2.10, max: 5.30 };
+const LAMP = { min: 2.35, max: 5.95 };
 const CORE = { min: 1.90, max: 3.90 };   // the flame body, above 1 so it clips
 const TONGUE = { min: 0.62, max: 1.45 }; // the licks around it, additive
 const HALO = { min: 0.46, max: 1.05 };   // the shell around the core, additive
@@ -623,7 +623,7 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
 
   // Tongues. Three, at three sizes and three offsets, so no two are ever at the
   // same height at the same moment and the fire never looks symmetrical.
-  const tongueGeo = flameGeometry(0.092, 0.270, {
+  const tongueGeo = flameGeometry(0.104, 0.225, {
     rows: 20, segments: 18,
     fade: { floor: 0.0, power: 1.35, heat: 0.55 },
     section: (a, t) => 1 + 0.075 * Math.cos(2 * a + 3.1 * t),
@@ -643,12 +643,12 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
     const t = new THREE.Mesh(tongueGeo, tongueMat);
     const a = (i / 3) * Math.PI * 2 + rand() * 0.8;
     t.userData.home = new THREE.Vector3(
-      Math.cos(a) * 0.112,
-      FIRE_Y + 0.055 + i * 0.030,
-      Math.sin(a) * 0.112,
+      Math.cos(a) * 0.086,
+      FIRE_Y + 0.035 + i * 0.034,
+      Math.sin(a) * 0.086,
     );
     t.userData.dir = a;
-    t.userData.size = 0.72 + i * 0.24;
+    t.userData.size = 0.66 + i * 0.26;
     t.userData.phase = rand() * 10;
     t.position.copy(t.userData.home);
     t.renderOrder = 3;
@@ -887,7 +887,7 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
         const sway = 0.030 * wobble(4.1 + i * 1.3, 0.7, p * 7);
         T.position.set(
           T.userData.home.x + across * 1.5 + dirX * lick * 0.028 + sway * dirZ,
-          T.userData.home.y + rise + lick * 0.085,
+          T.userData.home.y + rise + lick * 0.062,
           T.userData.home.z + into * 1.5 + dirZ * lick * 0.028 - sway * dirX,
         );
         const s = T.userData.size * (0.62 + 0.30 * level);

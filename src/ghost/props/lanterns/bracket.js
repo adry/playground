@@ -43,10 +43,10 @@ import { PALETTE, SEGMENTS, toyMaterial } from '../style.js';
 // Those are picked off the two things it is likely to be bolted to. A fence
 // post (fence/metrics.js) is 0.86 tall and 0.155 square: mounted at 0.72 the
 // plate's 0.236 height sits inside the post's top with a little to spare, the
-// plate's 0.116 width leaves 20mm of post showing on each side, and
-// the lantern's foot lands at 0.25, clear of the ground and clear of the top
+// plate's 0.116 width leaves 20mm of post showing on each side, and the
+// lantern's foot lands at 0.25, clear of the ground and clear of the top
 // rail at 0.52. A shed wall (shed/metrics.js) has its eaves at 1.40 and its
-// door head at 1.05: mounted at 1.22 the lantern hangs its flame at 0.89, just
+// door head at 1.05: mounted at 1.22 the lantern hangs its flame at 0.83, just
 // over the door, which is what a bracket lantern is for.
 //
 // The plate is BEDDED 9mm: its back face sits at z = -0.009, behind the origin
@@ -593,9 +593,12 @@ function armGeometry(rand) {
 
 // The eye at the tip of the arm: a closed fat ring in the x = 0 plane, so its
 // hole faces along X and the bail's apex, which runs along X, threads it.
-// A 30mm ring rolled from a 29mm bar leaves a 15.5mm hole and the bail is
-// 13.5mm, so there is 2mm of daylight round it: enough to read as a hole at the
-// diorama's camera, which is the whole reason the eye is worth its triangles.
+// A ring of 30mm radius rolled from a 29mm bar leaves a hole 31mm across, and
+// the bail through it is 27 by 23, so the two touch the way two links of a
+// chain touch rather than rattling in each other. What matters is that the hole
+// is a hole: it is 31mm at a camera where the whole lantern is 210mm, so a
+// pixel of daylight shows through it and the joint reads as hung rather than
+// welded, which is the only reason the eye is worth its triangles.
 function eyeGeometry() {
   const pts = [];
   for (let i = 0; i < 12; i++) {
@@ -720,7 +723,7 @@ function cageGeometry() {
 
   // The REFLECTOR: the wall-facing face, sheet iron rather than glass. See the
   // note on glassGeometry for why. It is flush with the corner uprights' outer
-  // face and it laps 7mm into each of them, so no seam of daylight can open at
+  // face and it laps 14mm into each of them, so no seam of daylight can open at
   // the two back corners, which is the one way this could have gone wrong.
   //
   // It is a rounded slab and not a plane: a plane has no thickness to catch the

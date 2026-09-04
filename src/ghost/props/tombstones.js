@@ -757,7 +757,24 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
   // in extras, so every registered stone leaked its own additions. Push
   // anything with a dispose() onto it.
   const disposables = [];
+
+  // The lean and the sink are decided HERE, before extras runs, and applied
+  // after. Three stones needed to know them and could not: the registry used to
+  // assign body.rotation and body.position.y after extras returned, so a long
+  // piece could not compensate. On the chest tomb's 1.63 base the lean alone
+  // lifts a far corner 18 mm clear of the floor and the 12 mm sink does not
+  // cover it, and the kerbed plot at 2.35 had to test its own sink over eight
+  // seeds to be sure it never floated. A stone may now read `lean` and add to
+  // `lean.sink`, or set `lean.enabled = false` and pose itself.
+  const lean = {
+    enabled: true,
+    z: (rng() - 0.5) * 0.045,
+    x: -0.012 - rng() * 0.02,
+    sink: -0.012,
+  };
+
   def?.extras?.({
+    lean,
     body,
     // The two meshes by name. Three stones were finding the slab by filtering
     // body.children for the one whose position.y equalled plinthH, which is a
@@ -781,9 +798,11 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
 
   // A hand-placed stone never stands perfectly true. Small enough that the
   // silhouette still reads upright; sunk a hair so no gap opens under the lean.
-  body.rotation.z = (rng() - 0.5) * 0.045;
-  body.rotation.x = -0.012 - rng() * 0.02;
-  body.position.y = -0.012;
+  if (lean.enabled) {
+    body.rotation.z = lean.z;
+    body.rotation.x = lean.x;
+  }
+  body.position.y = lean.sink;
 
   // --- ground contact -------------------------------------------------------
   //

@@ -826,6 +826,12 @@ export function createHurricaneLamp({ seed = 1, scale = 1 } = {}) {
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
+    // A transparent double-sided material is TWO draw calls by default: three
+    // renders its back faces and then its front faces so they composite in
+    // order. Measured, that was the prop's eighth call for one small blob. It
+    // is bought back for nothing here because this shell composites ADDITIVELY,
+    // and addition does not care what order it happens in.
+    forceSinglePass: true,
   });
   const core = new THREE.Mesh(coreGeo, coreMat);
   const halo = new THREE.Mesh(haloGeo, haloMat);

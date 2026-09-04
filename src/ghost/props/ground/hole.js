@@ -31,17 +31,18 @@ import { addGroundHole } from '../../ground.js';
 // shows its floor, and a floor you can see is a floor you have to light.
 const MOUTH_X = 1.0;
 const MOUTH_Z = 0.45;
-const CORNER = 0.24;
+const CORNER = 0.20;
 const DEPTH = 1.15;
 
 // How far outside the mouth the floor is cut. The skirt reaches 0.40 out, so
 // 0.18 of it always rests on solid floor and covers the discard edge.
-const CUT_MARGIN = 0.22;
+const CUT_MARGIN = 0.16;
 
 const TURF = new THREE.Color('#8f949e'); // the floor's own colour
-const SPOIL = new THREE.Color('#7c6350'); // broken earth at the lip
-const EARTH = new THREE.Color('#6d5340'); // wall
-const DEEP = new THREE.Color('#241b15'); // bottom
+const SPOIL = new THREE.Color('#93715a'); // broken earth at the lip
+const EARTH = new THREE.Color('#7a5c46'); // upper wall
+const SUB = new THREE.Color('#59402e'); // wall below the light
+const DEEP = new THREE.Color('#231a13'); // bottom
 
 // --- small deterministic noise ----------------------------------------------
 
@@ -120,17 +121,17 @@ function profile(depth) {
   // Turf skirt: sits a few millimetres above the floor and blends to its
   // colour, so the discarded edge underneath is never on screen. Ortho depth
   // is linear, so 4mm of clearance is thousands of depth units: no z-fight.
-  push(0.40, 0.004, { rim: 1 });
-  push(0.33, 0.009);
-  push(0.26, 0.018);
-  push(0.17, 0.034);
-  push(0.09, 0.046);
+  push(0.30, 0.004, { rim: 1 });
+  push(0.24, 0.010);
+  push(0.175, 0.022);
+  push(0.115, 0.038);
+  push(0.065, 0.049);
   // The lip: a rolled clay edge, not a knife cut.
-  push(0.048, 0.051, { cut: 0.35 });
-  push(0.016, 0.048, { cut: 0.8 });
-  push(-0.010, 0.037, { cut: 1, spade: 0.25 });
-  push(-0.030, 0.018, { cut: 1, spade: 0.55 });
-  push(-0.044, -0.010, { cut: 1, spade: 0.85 });
+  push(0.032, 0.054, { cut: 0.4 });
+  push(0.008, 0.050, { cut: 0.9 });
+  push(-0.012, 0.038, { cut: 1 });
+  push(-0.030, 0.018, { cut: 1, spade: 0.35 });
+  push(-0.042, -0.010, { cut: 1, spade: 0.75 });
   // Wall. A slight inward taper, which is both how a pit is dug and what keeps
   // the far wall catching a little more light than the near one.
   const wallTop = -0.05;

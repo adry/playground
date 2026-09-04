@@ -64,10 +64,15 @@ export const HEAP = { length: 1.8, spread: 0.9, height: 0.5, scatter: 1.2 };
 // (which ground.js does, correctly, because it feeds a raw shader uniform) is
 // what turned the first clod pass into chocolate.
 const EARTH = {
-  top: new THREE.Color('#c8b493'),
-  side: new THREE.Color('#a4907a'),
-  crevice: new THREE.Color('#75675a'),
+  top: new THREE.Color('#c2a67a'),
+  side: new THREE.Color('#8f7757'),
+  crevice: new THREE.Color('#544435'),
 };
+// Per-clod tone. A heap of one colour reads as a heap of dough whatever shape
+// the lumps are: some clods came off the wet bottom of the hole and some off
+// the dry top, and half a stop between them is what makes it a heap of separate
+// things rather than one moulded object.
+const TONE = { lo: 0.80, hi: 1.10 };
 // The base colour the vertex colours multiply. White would blow the tan out
 // under this key, so the map carries the value and the vertex colours carry
 // the modelling.
@@ -103,10 +108,10 @@ function lumpGeometry(rng, seg) {
     v.fromBufferAttribute(p, i);
     const n = v.clone().multiplyScalar(2); // unit direction
     const k = 1
-      + 0.150 * Math.sin(2.3 * n.x + ph[0])
-      + 0.125 * Math.sin(2.7 * n.y + ph[1])
-      + 0.110 * Math.sin(2.1 * n.z + ph[2])
-      + 0.075 * Math.sin(3.7 * (n.x - n.z) + ph[3]);
+      + 0.190 * Math.sin(2.3 * n.x + ph[0])
+      + 0.160 * Math.sin(2.7 * n.y + ph[1])
+      + 0.145 * Math.sin(2.1 * n.z + ph[2])
+      + 0.095 * Math.sin(3.7 * (n.x - n.z) + ph[3]);
     p.setXYZ(i, v.x * k, v.y * k, v.z * k);
   }
   geo.computeVertexNormals();
@@ -122,7 +127,7 @@ function lumpGeometry(rng, seg) {
 // (1 - r^2)^Q. Q under a half is what makes the crest broad and the skirt
 // short, which is the whole of point 2 above: a broad crest is surface pointing
 // at the sky.
-const CORE_Q = 0.50;
+const CORE_Q = 0.44;
 
 function coreGeometry({ a, c, h, rng }) {
   const geo = new THREE.SphereGeometry(0.5, 30, 12, 0, Math.PI * 2, 0, Math.PI / 2);
@@ -171,24 +176,29 @@ function placed(geo, { pos, scale, euler }) {
 // heap it sits, and this is half of why the piece reads: it runs the same way
 // the light does, so a clod's crown and the crevice beside it are separated
 // twice over.
-function paint(geo, { rng, height, crevice = 0 }) {
+function paint(geo, { rng, height, crevice = 0, tone = 1 }) {
   const p = geo.attributes.position;
   const n = geo.attributes.normal;
   const col = new Float32Array(p.count * 3);
   const c = new THREE.Color();
+  const ph = rng() * 6.283;
   for (let i = 0; i < p.count; i++) {
     const ny = n.getY(i);
     const y = p.getY(i);
+    const x = p.getX(i), z = p.getZ(i);
     // Up-facing to the light tan, sideways to the mid brown, under-facing all
     // the way down into the crevice colour.
     if (ny >= 0) c.copy(EARTH.side).lerp(EARTH.top, smoothstep(0.05, 0.85, ny));
     else c.copy(EARTH.side).lerp(EARTH.crevice, smoothstep(0.0, -0.6, ny));
     // Everything low in the heap loses a little: a fake occlusion that keeps
     // the foot from competing with the crest.
-    const deep = 1 - 0.26 * (1 - smoothstep(0.02, height * 0.75, y));
+    const deep = 1 - 0.34 * (1 - smoothstep(0.02, height * 0.75, y));
     // ...and the core is pushed further down still, so where it shows between
     // two clods it reads as the gap between them.
-    const k = deep * (1 - crevice) * (0.94 + 0.12 * rng());
+    // Mottling: a coherent wave through the surface rather than per-vertex
+    // white noise, which on a smooth-shaded lump comes out as static.
+    const mott = 1 + 0.055 * Math.sin(11 * x + ph) * Math.sin(9 * z - ph) + 0.04 * Math.sin(17 * y + ph);
+    const k = deep * (1 - crevice) * tone * mott;
     c.multiplyScalar(k);
     col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
   }
@@ -285,7 +295,7 @@ export function createDirtPile({
   // Sampled over the footprint rather than over a ring, with the count set so
   // the core is covered: nowhere on the heap may there be a patch of smooth
   // falloff big enough for the eye to read as a dome.
-  const BODY = 34;
+  const BODY = 46;
   for (let i = 0; i < BODY; i++) {
     // Square-root radius so the samples spread evenly over the area instead of
     // bunching at the crest, and a golden-angle spin so no two land on top of
@@ -296,17 +306,24 @@ export function createDirtPile({
     const z = c * rho * Math.sin(th);
     // Bigger lumps low down, where the barrow tipped and the big stuff rolled;
     // finer material stays up on the crest.
-    const r = (0.062 + 0.072 * rho) * (0.85 + rng() * 0.4);
-    const y = coreHeight(x, z, core) - r * 0.42;
+    // A wide spread of sizes, because a heap of one size is gravel. Bigger
+    // lumps low down, where the barrow tipped and the coarse stuff rolled.
+    const r = (0.058 + 0.062 * rho) * (0.62 + rng() * rng() * 1.5);
+    // How deep the clod is sunk into the core is the difference between soil
+    // and a cairn: a run of clods all showing their equator reads as stacked
+    // stones, while a mixture, some proud and most with only a crown out, reads
+    // as earth with lumps in it.
+    const sink = 0.30 + 0.75 * rng() * rng();
+    const y = coreHeight(x, z, core) - r * (0.9 + sink);
     const geo = lumpGeometry(rng, [12, 8]);
     placed(geo, {
-      pos: new THREE.Vector3(x, Math.max(y, r * 0.30), z),
+      pos: new THREE.Vector3(x, Math.max(y, -r * 0.55), z),
       // Flattened: a clod that has been dropped sits wider than it is tall, and
       // a flattened lump turns more of itself at the sky.
-      scale: new THREE.Vector3(r * 2.15, r * 1.55, r * 2.0),
+      scale: new THREE.Vector3(r * 2.25, r * 1.45, r * 2.0),
       euler: new THREE.Euler(rng() * 0.7 - 0.35, rng() * 6.283, rng() * 0.7 - 0.35),
     });
-    parts.push(paint(geo, { rng, height }));
+    parts.push(paint(geo, { rng, height, tone: TONE.lo + (TONE.hi - TONE.lo) * rng() }));
   }
 
   // --- the spill: loose clods on the floor round the foot -------------------
@@ -324,10 +341,10 @@ export function createDirtPile({
     const geo = lumpGeometry(rng, [10, 7]);
     placed(geo, {
       pos: new THREE.Vector3(x, r * 0.62, z),
-      scale: new THREE.Vector3(r * 2.2, r * 1.5, r * 2.05),
+      scale: new THREE.Vector3(r * 2.3, r * 1.45, r * 2.05),
       euler: new THREE.Euler(rng() * 0.6 - 0.3, rng() * 6.283, rng() * 0.6 - 0.3),
     });
-    parts.push(paint(geo, { rng, height }));
+    parts.push(paint(geo, { rng, height, tone: TONE.lo + (TONE.hi - TONE.lo) * rng() }));
   }
 
   // --- crumbs --------------------------------------------------------------
@@ -347,7 +364,7 @@ export function createDirtPile({
       scale: new THREE.Vector3(r * 2.3, r * 1.5, r * 2.1),
       euler: new THREE.Euler(0, rng() * 6.283, 0),
     });
-    parts.push(paint(geo, { rng, height }));
+    parts.push(paint(geo, { rng, height, tone: TONE.lo + (TONE.hi - TONE.lo) * rng() }));
   }
 
   const geometry = mergeGeometries(parts, false);

@@ -105,15 +105,19 @@ const STEP = 0.11;
 // --- the texture -----------------------------------------------------------
 
 // Side of one tile of gravel, in world units, and the texture resolution used
-// for it. 0.72 m at 512 is 1.4 mm per texel, so a 2.5 cm chip is eighteen
-// texels across: enough for a rounded cap rather than a blob.
-const TILE = 0.72;
+// for it. A metre at 512 is 2 mm per texel.
+const TILE = 1.0;
 const TEX = 512;
-// Chip radius in world units. Real path chippings run 10 to 20 mm; these are a
-// touch larger because the house style rounds everything and a rounded 8 mm
-// pebble at this camera distance is a texel of noise, which is the one thing
-// this surface must not look like.
-const CHIP_R = [0.0085, 0.0165];
+// Chip radius in world units, and this is the number the first render was lost
+// on. Real path chippings are 10 to 20 mm across, and at 10 mm they came out
+// THREE PIXELS WIDE at the distance this prop is actually seen from, which is
+// not gravel, it is film grain, which the house style forbids outright. So the
+// chips are scaled up until they read: 4 to 8 cm across is coarse shingle in
+// real life, and on screen it is a rounded pebble you can see the shape of.
+// This is the same call every other prop on this shelf has made: the fence's
+// grain and the marble's veining are both coarser than life for the same
+// reason.
+const CHIP_R = [0.020, 0.040];
 // A chip's height as a fraction of its own radius. Chippings settle; they are
 // not ball bearings sitting on a floor.
 const CHIP_FLAT = 0.52;
@@ -136,10 +140,10 @@ const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); retu
 // be tellable apart at a glance, and hue is what does that at this size, not
 // detail. Everything here is a desaturated blue-grey; nothing in it is warm.
 const GRAVEL = {
-  base: '#a9aeb8',
-  pale: '#c0c5cd',   // the top of a chip catching the key
-  dark: '#7c828e',   // a chip that has sat wet, and the shade in the crevices
-  crevice: '#666c78', // the gap between chips, which is where all the depth is
+  base: '#b2b7c0',
+  pale: '#c6cad2',   // the top of a chip catching the key
+  dark: '#989ea9',   // a chip that has sat wet
+  crevice: '#7d8390', // the gap between chips, which is where the depth is
 };
 
 // One tile of packed chippings, as an albedo map and a normal map.
@@ -161,7 +165,7 @@ function gravelTextures(seed) {
   // pi r^2; three times over is what stops bald patches showing through where
   // the draw happens to leave a hole.
   const rMid = (CHIP_R[0] + CHIP_R[1]) * 0.5 * (TEX / TILE);
-  const count = Math.round((3.1 * TEX * TEX) / (Math.PI * rMid * rMid));
+  const count = Math.round((2.6 * TEX * TEX) / (Math.PI * rMid * rMid));
 
   const tint = [];
   for (let i = 0; i < count; i++) {
@@ -206,21 +210,25 @@ function gravelTextures(seed) {
   // every contact, which at distance aliases into exactly the film grain this
   // surface is not allowed to have. The blur rounds the contact into a valley,
   // which is also what the house style wants: no hard edges anywhere.
-  const blurred = new Float32Array(n);
-  for (let y = 0; y < TEX; y++) {
-    const ym = ((y - 1 + TEX) % TEX) * TEX;
-    const y0 = y * TEX;
-    const yp = ((y + 1) % TEX) * TEX;
-    for (let x = 0; x < TEX; x++) {
-      const xm = (x - 1 + TEX) % TEX;
-      const xp = (x + 1) % TEX;
-      blurred[y0 + x] = (
-        height[ym + xm] + 2 * height[ym + x] + height[ym + xp] +
-        2 * height[y0 + xm] + 4 * height[y0 + x] + 2 * height[y0 + xp] +
-        height[yp + xm] + 2 * height[yp + x] + height[yp + xp]
-      ) / 16;
+  const blur = (src) => {
+    const dst = new Float32Array(n);
+    for (let y = 0; y < TEX; y++) {
+      const ym = ((y - 1 + TEX) % TEX) * TEX;
+      const y0 = y * TEX;
+      const yp = ((y + 1) % TEX) * TEX;
+      for (let x = 0; x < TEX; x++) {
+        const xm = (x - 1 + TEX) % TEX;
+        const xp = (x + 1) % TEX;
+        dst[y0 + x] = (
+          src[ym + xm] + 2 * src[ym + x] + src[ym + xp] +
+          2 * src[y0 + xm] + 4 * src[y0 + x] + 2 * src[y0 + xp] +
+          src[yp + xm] + 2 * src[yp + x] + src[yp + xp]
+        ) / 16;
+      }
     }
-  }
+    return dst;
+  };
+  const blurred = blur(blur(height));
 
   // Normalise the field to 0..1 so the crevice term below has a fixed meaning
   // whatever the chip sizes come out at.
@@ -259,12 +267,13 @@ function gravelTextures(seed) {
       const nz = 1;
       const inv = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
       nx *= inv; ny *= inv;
+      const nzn = nz * inv;
       const o = k * 4;
-      normal[o] = (nx * inv * 0 + nx * 0.5 + 0.5) * 255;
+      normal[o] = (nx * 0.5 + 0.5) * 255;
       // Green is +v, which for the UVs built below runs along +Z. OpenGL
       // convention, which is what three expects.
       normal[o + 1] = (ny * 0.5 + 0.5) * 255;
-      normal[o + 2] = (nz * inv * 0.5 + 0.5) * 255;
+      normal[o + 2] = (nzn * 0.5 + 0.5) * 255;
       normal[o + 3] = 255;
 
       // --- albedo ---
@@ -273,13 +282,13 @@ function gravelTextures(seed) {
       const t = who < 0 ? 0.5 : tint[who];
       // Each chip gets one colour off the ramp, so a chip reads as one stone.
       c.copy(base);
-      if (t < 0.42) c.lerp(dark, (0.42 - t) / 0.42 * 0.85);
-      else c.lerp(pale, (t - 0.42) / 0.58 * 0.75);
+      if (t < 0.45) c.lerp(dark, ((0.45 - t) / 0.45) * 0.80);
+      else c.lerp(pale, ((t - 0.45) / 0.55) * 0.70);
       // Then the crevices go down. This is contact occlusion baked in, and it
       // is doing most of the work: at a glancing angle the key light barely
       // separates one chip from the next, and without a dark line between them
       // the surface flattens back into a stain.
-      c.lerp(crev, (1 - smoothstep(0.18, 0.62, h)) * 0.80);
+      c.lerp(crev, (1 - smoothstep(0.10, 0.52, h)) * 0.55);
       albedo[o] = c.r * 255;
       albedo[o + 1] = c.g * 255;
       albedo[o + 2] = c.b * 255;
@@ -455,9 +464,10 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
     const lv = Math.hypot(vx, vz) || 1;
     const cross = (ux * vz - uz * vx) / (lu * lv);
     const turn = Math.asin(clamp(cross, -1, 1));
-    // cross > 0 means turning toward -n; sign chosen so that a positive curve
-    // means the +n side is the inner one.
-    curve[i] = (-turn / ((lu + lv) * 0.5)) * -1;
+    // n is (tz, -tx), so a positive cross product turns AWAY from n and the
+    // inner side of that turn is -n. Negating gives the convention used below:
+    // a positive curvature means the +n side is the inner one.
+    curve[i] = -turn / ((lu + lv) * 0.5);
   }
   curve[0] = curve[1] || 0;
   curve[N - 1] = curve[N - 2] || 0;
@@ -517,10 +527,9 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
       // arc length. This is why there is no stretch at a bend and no seam
       // between segments: the texture is nailed to the ground, not to the
       // ribbon's parameterisation, so a corner cannot smear it.
-      const extra = (arc[j] - arcMid) - off * Math.sign(u || 1) * Math.sign(u || 1);
-      const ux = cx + nx[i] * (off + (arc[j] - arcMid - Math.abs(off)) * Math.sign(u || 1));
-      const uz = cz + nz[i] * (off + (arc[j] - arcMid - Math.abs(off)) * Math.sign(u || 1));
-      void extra;
+      const across = arc[j] - arcMid;
+      const ux = cx + nx[i] * across;
+      const uz = cz + nz[i] * across;
       const p = (i * cols + j) * 2;
       uv[p] = ux / TILE;
       uv[p + 1] = uz / TILE;
@@ -579,8 +588,8 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
 
-  const hasDOM = typeof document !== 'undefined' || typeof THREE.DataTexture === 'function';
-  const tex = hasDOM ? gravelTextures(seed) : null;
+  // DataTexture, not a canvas, so this works headless as well as in a page.
+  const tex = gravelTextures(seed);
 
   const material = new THREE.MeshStandardMaterial({
     color: tex ? '#ffffff' : GRAVEL.base,
@@ -588,7 +597,7 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
     normalMap: tex?.normalMap || null,
     // Strong enough that the chips read at a glancing angle, short of the point
     // where the crevices go black and the surface stops being a matte toy.
-    normalScale: tex ? new THREE.Vector2(0.85, 0.85) : undefined,
+    normalScale: tex ? new THREE.Vector2(0.60, 0.60) : undefined,
     roughness: 0.93,
     metalness: 0,
     polygonOffset: true,
@@ -673,7 +682,7 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
       if (rand() < 0.76) u = side * (0.88 + Math.pow(rand(), 1.4) * 0.28);
       else u = side * Math.pow(rand(), 0.8) * 0.82;
 
-      const r = 0.0085 + Math.pow(rand(), 1.9) * 0.013;
+      const r = 0.018 + Math.pow(rand(), 1.7) * 0.020;
       sc.set(r * (0.85 + rand() * 0.5), r * CHIP_FLAT * (0.8 + rand() * 0.6), r * (0.85 + rand() * 0.5));
 
       const off = u * halfWidth;
@@ -691,8 +700,8 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
 
       const t = rand();
       col.copy(base);
-      if (t < 0.45) col.lerp(dark, ((0.45 - t) / 0.45) * 0.7);
-      else col.lerp(pale, ((t - 0.45) / 0.55) * 0.85);
+      if (t < 0.45) col.lerp(dark, ((0.45 - t) / 0.45) * 0.8);
+      else col.lerp(pale, ((t - 0.45) / 0.55) * 0.55);
       chips.setColorAt(i, col);
     }
     chips.instanceMatrix.needsUpdate = true;

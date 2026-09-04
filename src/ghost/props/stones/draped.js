@@ -384,9 +384,9 @@ registerStone('draped', {
   // there is about two thirds of a face to work in and the block sits below the
   // deepest the hem ever falls, corners included.
   draw(ctx, w, h) {
-    const lines = ['IN', 'LOVING', 'MEMORY'];
-    const size = h * 0.104;
-    lines.forEach((line, i) => inkText(ctx, line, w / 2, h * (0.645 + (i - 1) * 0.145), size, size * 0.05));
+    const lines = ['GONE', 'TO', 'REST'];
+    const size = h * 0.128;
+    lines.forEach((line, i) => inkText(ctx, line, w / 2, h * (0.660 + (i - 1) * 0.150), size, size * 0.05));
   },
 
   extras({ body, material, shape, rng, plinthH, halfWidth, height, edge, disposables, stripUV }) {
