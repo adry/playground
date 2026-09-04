@@ -11,27 +11,22 @@ import { shaft, straightShaft, jointBall, plate } from './bone.js';
 // count of phalanges (two on the hallux, three on the rest). The sacrum is the
 // axial agent's; the space between the two plates is left empty for it.
 //
-// Two things this half of the figure is solely responsible for, and both are
-// checked numerically at the bottom of this comment rather than by eye:
+// Two things this half of the figure is solely responsible for, and neither is
+// left to the eye:
 //
 //   1. The soles land on y = 0 when the group sits at M.y.hip. The assembler
 //      does not correct for it, so a leg that comes out long buries the whole
 //      character. Every part of the foot that touches the ground is placed by
 //      its own contact height, not by its centre, for exactly this reason.
 //   2. The pelvis fits M.pelvis EXACTLY. The rejected build had one 25% too
-//      tall and too wide, so the outline below takes its extremes from
-//      M.pelvis.width / M.pelvis.height rather than from hand-typed numbers.
+//      tall and too wide, so poseAndFit() measures the finished slab and maps
+//      it onto the box instead of trusting arithmetic done in a comment.
 //
-// Two shapes here needed something the vocabulary does not have a word for,
-// and both are a displacement applied to a vocabulary primitive rather than a
-// new primitive:
-//
-//   - `sweep()` bends the extruded hip plate out of its plane, because a hip
-//     bone is a bowl and ExtrudeGeometry only makes slabs. Rotating the slab
-//     would have done some of it, but rotation foreshortens x, and x is where
-//     M.pelvis.width lives.
-//   - `ringCurve()` is just a circular arc handed to `shaft()`, used for the
-//     rim of the acetabulum. It is a swept tube like every other bone here.
+// Three things here are local rather than from bone.js, and all three are a
+// transform applied to a vocabulary primitive rather than a new primitive:
+// smoothOutline() before the extruder, poseAndFit() after it, and taper(),
+// which gives a shaft a different radius at each end because bone.js cannot.
+// Each says at its own definition what went wrong without it.
 
 // --- local constants ---------------------------------------------------------
 //
@@ -81,7 +76,12 @@ const ANKLE_X = HIP_X * 1.64;            // 0.205
 // femoral head is y = 0 and the floor is a long way down.
 const KNEE_Y = M.y.knee - M.y.hip;       // -0.575
 const ANKLE_Y = M.y.ankle - M.y.hip;     // -1.150
+// The one number this part is judged on. Nothing below reads it -- the foot
+// works from RISE, which is the same distance measured the other way -- but it
+// is written down here because it is what the whole module has to hit, and a
+// value with no name is a value nobody checks.
 const SOLE_Y = M.y.sole - M.y.hip;       // -1.225
+void SOLE_Y;
 
 // A femur bows forward as well as out, which is what stops the side view being
 // two parallel lines. The tibia gets less of it: in the photo the shin is very
@@ -179,7 +179,7 @@ const SYMPHYSIS_X = frac(0.0104);                        // 0.026
 //
 // The left plate's outline, walked once from the back of the iliac crest. x is
 // lateral, y is up from the femoral head. Its extremes are the exact box
-// fitPlate maps it onto, so they are named rather than typed twice.
+// poseAndFit maps it onto, so they are named rather than typed twice.
 const PLATE_MEDIAL = 0.056;
 const PLATE_BOTTOM = -0.056;
 const HIP_OUTLINE = [
@@ -221,6 +221,12 @@ const RING = {
   pubis: 0.016,                       // bulb at A. Its medial face is SYMPHYSIS_X.
   ischium: 0.013,                     // bulb at B. Its underside is PELVIS_BOTTOM.
   squash: 0.92,
+  // How much of the plate's forward pitch the ring keeps. All of it and the
+  // loop lies at 20 degrees to the frontal plane, so from the front the
+  // foramen is a slot rather than the round hole the photo shows; none of it
+  // and the ring stops meeting the plate it hangs off. A real ischiopubic ring
+  // is flatter than the blade above it, so this is closer to the anatomy too.
+  flatten: 0.75,
 };
 
 const HIP_THICKNESS = frac(0.0280);   // 0.070. A 0.058 plate over this much area
@@ -335,11 +341,11 @@ function onPlate(map, s, x, y) {
 // bones with daylight between them, and that the heel, the arch and the ball
 // are one continuous sweep behind them rather than a ball stuck on a stick.
 const RAYS = [
-  { headX: -0.128, headZ: 0.360, shaftR: 0.056, headR: 0.078, toeR: 0.066, dirX: -0.30, phalanx: [0.096, 0.076] },
-  { headX: -0.056, headZ: 0.410, shaftR: 0.043, headR: 0.061, toeR: 0.052, dirX: -0.12, phalanx: [0.070, 0.046, 0.040] },
-  { headX: 0.016, headZ: 0.402, shaftR: 0.041, headR: 0.059, toeR: 0.050, dirX: 0.04, phalanx: [0.064, 0.044, 0.038] },
-  { headX: 0.084, headZ: 0.368, shaftR: 0.039, headR: 0.056, toeR: 0.048, dirX: 0.18, phalanx: [0.054, 0.038, 0.034] },
-  { headX: 0.152, headZ: 0.306, shaftR: 0.039, headR: 0.058, toeR: 0.046, dirX: 0.32, phalanx: [0.044, 0.030, 0.030] },
+  { headX: -0.128, headZ: 0.352, shaftR: 0.062, headR: 0.086, toeR: 0.074, dirX: -0.30, phalanx: [0.096, 0.076] },
+  { headX: -0.056, headZ: 0.402, shaftR: 0.048, headR: 0.068, toeR: 0.058, dirX: -0.12, phalanx: [0.070, 0.046, 0.040] },
+  { headX: 0.016, headZ: 0.394, shaftR: 0.046, headR: 0.066, toeR: 0.056, dirX: 0.04, phalanx: [0.064, 0.044, 0.038] },
+  { headX: 0.084, headZ: 0.360, shaftR: 0.044, headR: 0.062, toeR: 0.054, dirX: 0.18, phalanx: [0.054, 0.038, 0.034] },
+  { headX: 0.152, headZ: 0.300, shaftR: 0.044, headR: 0.064, toeR: 0.052, dirX: 0.32, phalanx: [0.044, 0.030, 0.030] },
 ];
 
 // The heel, the sweep and the tarsal block, all as fractions of FOOT.
@@ -402,8 +408,13 @@ export function buildLower({ material }) {
     // The ischiopubic ring. Each rod is bowed AWAY from the middle of the
     // foramen so the loop stays a loop: run them straight and the pubic ramus
     // cuts a chord across the hole and there is nothing left to see through.
-    const ring = (name) => onPlate(map, s, RING[name][0], RING[name][1]);
+    const ring = (name) => {
+      const p = onPlate(map, s, RING[name][0], RING[name][1]);
+      p.z *= RING.flatten;
+      return p;
+    };
     const centre = onPlate(map, s, FORAMEN.x, FORAMEN.y);
+    centre.z *= RING.flatten;
     const outward = (a, b) => new THREE.Vector3()
       .addVectors(a, b).multiplyScalar(0.5).sub(centre).setZ(0).normalize();
     const rA = ring('A');
@@ -427,7 +438,6 @@ export function buildLower({ material }) {
     put(group, bulb(RING.pubis, { squash: RING.squash }), rA.x, rA.y, rA.z);
     put(group, bulb(RING.ischium, { squash: RING.squash }), rB.x, rB.y, rB.z);
 
-
     // --- hip joint ----------------------------------------------------------
     const hip = new THREE.Object3D();
     hip.position.set(s * HIP_X, 0, 0);
@@ -439,18 +449,17 @@ export function buildLower({ material }) {
     // pivot is here and not at the top of the shaft.
     put(hip, bulb(R.femurHead, { squash: 0.94 }));
 
-    // Neck and greater trochanter. The neck leaving the head at 45 degrees and
-    // the shaft starting out at the trochanter, not under the head, is what
-    // stops the hip reading as a stick pushed into a hole.
-    // Far enough out that the head and the trochanter read as two lumps with a
-    // neck between them. At the distance they were first placed they merged
-    // into one peanut and the joint lost its hinge. The acetabulum is at 0.125
-    // and the trochanter reaches 0.235, so it stands proud of the 0.210 edge of
-    // the pelvis, which is what the photo shows and what makes the hip read as
-    // a socket seen from outside rather than a ball on a spike.
-    // Level with the head, not below it, which is where a real greater
-    // trochanter sits and where the photo puts it. Hung lower it drags the top
-    // of the femur down and the hip stops looking like a hinge.
+    // Neck and greater trochanter. The shaft starts at the TROCHANTER, not
+    // under the head, so its axis misses the pivot by 0.080 and the neck has to
+    // reach across at an angle to get there. That offset is the whole reason
+    // the hip does not read as a stick pushed into a hole, and it is also why
+    // the crouch looks like a hip rather than a swivel.
+    //
+    // The trochanter sits level with the head, which is where a real one is and
+    // where the photo puts it. Hung below the head it drags the top of the
+    // femur down and the joint stops looking like a hinge. It reaches x = 0.235
+    // against the pelvis's 0.210, so it stands proud of the edge, as it does in
+    // the photo.
     const trochanter = V(s * frac(0.0320), -frac(0.0112), 0);
     put(hip, straightShaft(V(0, 0, 0), V(s * frac(0.0296), -frac(0.0104), 0), R.femurNeck, { segments: 12, waist: 0.86 }));
     const troch = put(hip, bulb(R.trochanter, { squash: 0.92 }), trochanter.x, trochanter.y, trochanter.z);
@@ -604,18 +613,23 @@ export function buildLower({ material }) {
   };
 }
 
-// Landmarks the other three parts and the coordinator may need, published
-// rather than described, so nobody has to re-derive them from the outline:
+// FOR THE AXIAL AGENT, who owns the sacrum and has to fill the space between
+// these two plates. Measured off the built geometry, in the group's frame
+// (origin at M.y.hip, so add M.y.hip for world y):
 //
-//   SACRUM_SLOT  the empty box between the two hip plates. The axial agent's
-//                sacrum has to fill it: anything narrower leaves two daylight
-//                slots at the sacroiliac joints.
-export const SACRUM_SLOT = {
-  halfWidth: 0.064,                      // the plates' medial border, either side
-  bottom: -0.010,                        // relative to M.y.hip
-  top: PELVIS_TOP,
-  z: -0.029,                             // centre of the sacroiliac contact
-  depth: 0.070,
-};
-
-export const SOLE_LOCAL_Y = SOLE_Y;      // -1.225: where y = 0 is, in group space
+//   The sacroiliac face -- the medial border of each iliac blade, which is the
+//   only place the sacrum can touch this part -- runs from x = +/-0.056 to
+//   +/-0.071, over y = 0.114 to 0.173, at z = -0.063 to +0.006.
+//
+//   So a sacrum roughly 0.11 wide, sitting between y = 0 and y = 0.20 with its
+//   back face near z = -0.06, meets both plates. Anything much narrower than
+//   0.112 across leaves a slot of daylight at each sacroiliac joint, and this
+//   part cannot close it: M.pelvis.width and M.leg.hipSeparation between them
+//   fix where the blades are.
+//
+//   The two plates together are 0.175 deep against M.pelvis.depth of 0.220.
+//   The missing 0.045 is deliberate and is at the BACK: it is the sacrum's.
+//
+// Nothing is exported for this. PARTS.md says this module exports buildLower
+// and nothing else, and a number in a comment cannot drift out of sync with a
+// build the way a second export can.

@@ -194,12 +194,12 @@ export function buildArm({ material, side }) {
   add(shaft(new THREE.CatmullRomCurve3(clavicle, false, 'catmullrom', 0.5), A.clavicleR, {
     endBias: 0.45,
   }), group, 'clavicle');
-  add(jointBall(A.clavicleR * 1.15), group, 'sternoclavicular')
+  add(jointBall(A.clavicleR * 1.15, { squash: 1 }), group, 'sternoclavicular')
     .position.copy(clavicle[4]);
   // The clavicle ends exactly on the tip of the acromion and one bulb caps
   // both. Two balls a few thousandths apart read as a bunch of grapes on the
   // top of the shoulder, which the photo very much does not have.
-  add(jointBall(A.acromionR * 1.15), group, 'acromioclavicular')
+  add(jointBall(A.acromionR * 1.15, { squash: 1 }), group, 'acromioclavicular')
     .position.copy(clavicle[0]);
 
   // Scapula. Two nested holders rather than one Euler triple, because the wrap
@@ -248,8 +248,20 @@ export function buildArm({ material, side }) {
   // at three-quarter behind that reads as a chip out of the bone. Every free end
   // in this file is closed: these two, the two ends of the clavicle, and the tip
   // of the coracoid. Everything else terminates inside a joint bulb already.
-  add(jointBall(A.scapSpineR * 0.72), blade, 'scapularSpineEnd').position.copy(spineA);
-  add(jointBall(A.scapSpineR * 0.85), blade, 'acromialAngle').position.copy(spineB);
+  //
+  // Two things decide whether a cap really covers the ring it is over, and both
+  // bit this file once. First, the ball has to be BIGGER than the tube: the
+  // argument to jointBall() is multiplied by M.jointBallScale, so a cap at
+  // 0.72x the shaft radius is a ball smaller than the pipe it is meant to plug.
+  // Second, jointBall squashes along Y by default, and a horizontal bone's end
+  // ring stands up vertically, straight through the flattened axis. So every
+  // cap on a bone that does not hang downward is unsquashed and at least
+  // 1.05x its shaft. The near-vertical bones are safe either way: their rings
+  // lie flat, where the ball is at its widest.
+  add(jointBall(A.scapSpineR * 1.05, { squash: 1 }), blade, 'scapularSpineEnd')
+    .position.copy(spineA);
+  add(jointBall(A.acromionR * 1.15, { squash: 1 }), blade, 'acromialAngle')
+    .position.copy(spineB);
 
   // The acromion carries on from the ridge and roofs the humeral head, and the
   // clavicle then lands on top of the acromion the way it really does. Authored
@@ -268,11 +280,11 @@ export function buildArm({ material, side }) {
   // absence is felt from three-quarter front, where the space between the
   // clavicle and the humeral head otherwise reads as a hole.
   add(shaft(new THREE.QuadraticBezierCurve3(
-    V(-sx * f(0.020), -f(0.002), f(0.004)),
-    V(-sx * f(0.016), f(0.006), f(0.016)),
+    V(-sx * f(0.014), -f(0.002), f(0.002)),   // buried inside the glenoid bulb
+    V(-sx * f(0.014), f(0.006), f(0.016)),
     V(-sx * f(0.005), f(0.005), f(0.030)),
   ), A.coracoidR, { endBias: 0.6 }), group, 'coracoid');
-  add(jointBall(A.coracoidR), group, 'coracoidTip')
+  add(jointBall(A.coracoidR * 1.15, { squash: 1 }), group, 'coracoidTip')
     .position.set(-sx * f(0.005), f(0.005), f(0.030));
 
   // The socket itself, a static bulb just medial to the head. It exists so the
@@ -365,7 +377,7 @@ export function buildArm({ material, side }) {
     .position.copy(radius[0]);
   // Ulnar styloid: the ulna does not reach the carpals, it stops just short and
   // beside them, and this bulb is what closes that end so nothing frays.
-  add(jointBall(A.styloidBulb), elbow, 'ulnarStyloid')
+  add(jointBall(A.styloidBulb * 1.15), elbow, 'ulnarStyloid')
     .position.copy(ulna[3]);
   // The distal radius is the wrist's other half: it is the bulb the carpal
   // block turns inside, and it stays on the forearm side of the hinge so that
@@ -449,7 +461,7 @@ export function buildArm({ material, side }) {
   for (const fg of FINGERS) {
     const kx = sx * fg.x * STEP;
     const knuckle = V(kx, -fg.y, h(0.018));
-    const base = V(kx * 0.38, -h(0.090), 0);
+    const base = V(kx * 0.30, -h(0.090), 0);   // well inside the carpal block
 
     // Metacarpal, bowing toward the back of the hand so the palm is hollow.
     add(straightShaft(base, knuckle, META_R, {
@@ -469,7 +481,7 @@ export function buildArm({ material, side }) {
 
   // Thumb. Two phalanges, on a metacarpal that swings medially and toward the
   // palm rather than lying in the row with the others.
-  const thumbBase = V(-sx * h(0.070), -h(0.055), -h(0.025));
+  const thumbBase = V(-sx * h(0.055), -h(0.050), -h(0.020));
   const thumbKnuckle = V(-sx * h(0.235), -h(0.265), -h(0.085));
   add(straightShaft(thumbBase, thumbKnuckle, META_R * 1.06, { waist: 0.80 }), wrist, 'metacarpal0');
   add(jointBall(META_R * 0.98), wrist, 'metacarpalHead0').position.copy(thumbKnuckle);

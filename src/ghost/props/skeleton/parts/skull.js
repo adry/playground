@@ -49,7 +49,6 @@ const Y_CHIN = M.y.chin - ATLAS_Y;            // lowest point of the mandible
 const Y_BITE = Y_CHIN + M.skull.jawHeight;
 
 const HW = M.skull.width / 2;
-const HD = M.skull.depth / 2;
 
 // --- the vault -------------------------------------------------------------
 // Bottom sits a hair below the condyle plane so the skull base is a shallow
@@ -61,8 +60,8 @@ const VAULT_BASE = -0.012 * M.skull.height;
 // the other fault in the previous build. 54/46 is as far back as it takes.
 const Z_BACK = -0.54 * M.skull.depth;
 const Z_FACE = Z_BACK + M.skull.depth;        // front of the maxilla
-// The vault itself stops short of the face: the last 7% of the depth is the
-// brow and cheek riding on top of it.
+// The vault itself stops short of the face: the last tenth of the depth is the
+// brow, the cheek and the maxilla riding on the front of it.
 const Z_VAULT_FRONT = Z_BACK + 0.90 * M.skull.depth;
 
 // --- the face --------------------------------------------------------------
@@ -98,9 +97,6 @@ const RAMUS_R = 0.052 * M.skull.height;
 // buried in the skull base there so the joint has somewhere to be.
 const HINGE_Y = 0.096 * M.skull.height;
 const HINGE_Z = -0.080 * M.skull.depth;
-// Tucked in. At 0.355 and again at 0.300 the two rami stood clear of the jaw
-// bar in the front view and read as a pair of handles on the sides of the head.
-const HINGE_X = 0.272 * M.skull.width;
 const FORAMEN_Z = -0.150 * M.skull.depth;
 
 // --- the glare -------------------------------------------------------------
@@ -134,8 +130,9 @@ const ORBIT_V = Y_CROWN - 0.495 * M.skull.height;
 const ORBIT_DEPTH = 0.52 * M.skull.socket.height;
 
 // The nasal aperture is not in metrics.js. Written against the socket so the
-// two stay in proportion; measured off the photo it is about a third of the
-// socket's width and half its height.
+// two stay in proportion. Bigger than the photo's third-of-a-socket measures,
+// because the teardrop only fills about half of the box it is given and at the
+// measured size the finished hole came out a third narrower than the photo's.
 const NASAL_W = 0.66 * M.skull.socket.width;
 const NASAL_H = 0.66 * M.skull.socket.height;
 const NASAL_V = Y_CROWN - 0.625 * M.skull.height;
@@ -147,13 +144,14 @@ const NASAL_DEPTH = 0.62 * NASAL_H;
 // is honest where it matters and only slightly stretched elsewhere.
 const FACE_R = 0.45 * M.skull.width;
 
-// Where the sphere grid is centred. Deep inside the vault, so every ray out of
-// it crosses the surface exactly once.
+// Where the sphere grid is centred. Deep inside the vault, so that every ray
+// out of it reaches the surface without leaving the solid on the way.
 const P0 = new THREE.Vector3(0, 0.335 * M.skull.height, 0);
 
-// Tessellation. The dark edge of a socket is a hard line and it lands on this
-// grid, so the count around is high; 96 was tried and the socket rims came out
-// visibly stepped at the head crop.
+// Tessellation. The count is set by the sockets, not by the silhouette: the
+// vault is smooth at a third of this, but the painted edge of a socket is a
+// contour crossing the grid at an arbitrary angle, and it can only be as clean
+// as the grid it lands on. At 96 rows it stepped visibly in a head crop.
 const NTH = 176;
 const NPH = 120;
 
@@ -371,16 +369,19 @@ export function buildSkull({ material }) {
   const maxilla = blob(
     [0, (MAX_TOP + MAX_BOTTOM) / 2, (Z_FACE + MAX_BACK) / 2],
     [MAX_HALF_W, (MAX_TOP - MAX_BOTTOM) / 2, (Z_FACE - MAX_BACK) / 2],
+    // Rounded in plan, flat underneath. Boxy both ways (3.6) put a hard
+    // vertical corner where the face plane met the side of the head.
     2.8, 4.0,
   );
   const base = (x, y, z) => smin(vault(x, y, z), maxilla(x, y, z), 0.055);
 
-  // The brow ridges, laid along the top edge of each socket and lifted a
+  // The brow ridges, laid along the top edge of each socket and standing a
   // little proud of it. This is the other half of the glare: the socket alone
   // is a dark hole, the socket with a ridge hanging over it is a scowl.
-  // The brow hugs the top edge of the socket. Lifted 0.030 and fattened to
-  // 0.068 it stopped being a brow and became a wedge: the two ridges met over
-  // the nose in a raised triangle that read as a snout.
+  //
+  // It hugs that edge and no more. Lifted 0.030 clear and fattened to 0.068 it
+  // stopped being a brow and became a wedge, the two ridges meeting over the
+  // nose in a raised triangle that read as a snout.
   const BROW_LIFT = 0.016 * M.skull.height;
   const BROW_R = 0.054 * M.skull.height;
   const BROW_INSET = 0.024 * M.skull.height;
@@ -396,10 +397,11 @@ export function buildSkull({ material }) {
     return tube(pts, BROW_R);
   });
 
-  // The zygomatic arches, running back from the outer orbital rim to the ear.
-  // Same trick: the path is a bearing and a height, the radius comes off the
-  // vault, so the arch hugs whatever shape the vault happens to be.
-  // Kept short and low. Run back to 103 degrees and stood 0.013 proud it
+  // The zygomatic arches, running back from the outer orbital rim toward the
+  // ear. Same trick: the path is a bearing and a height, the radius comes off
+  // the vault, so the arch hugs whatever shape the vault happens to be.
+  //
+  // Kept short and low. Carried back to 103 degrees and standing 0.013 proud it
   // stopped being a cheekbone and became a moulding seam running right round
   // the side of the head.
   const ZYG_R = 0.038 * M.skull.height;
@@ -471,8 +473,8 @@ export function buildSkull({ material }) {
   const count = NTH * (NPH + 1);
   const position = new Float32Array(count * 3);
   const color = new Float32Array(count * 3);
-  // Nothing on this head is further than this from P0; the bisection needs a
-  // bracket it is certain straddles the surface.
+  // Nothing on this head is further than this from P0, so the walk below can
+  // stop here and be certain it has left the solid.
   const T_MAX = M.skull.depth * 1.6;
 
   // Pass one: the undented vault. A ray out of P0 is walked until the field
@@ -668,6 +670,9 @@ export function buildSkull({ material }) {
   // it instead of revealing the inside of the head.
   const cavityMat = new THREE.MeshStandardMaterial({ color: 0x241b14, roughness: 0.95, metalness: 0 });
   materials.push(cavityMat);
+  // Sized to sit just inside both tooth arches and just under the palate: any
+  // bigger and it pushes a black bubble out through the cheek or the roof of
+  // the mouth, any smaller and the ajar gap between the rows lights up.
   const cavityGeo = track(new THREE.SphereGeometry(1, 20, 14));
   cavityGeo.scale(0.187 * M.skull.width, 0.101 * M.skull.height, 0.187 * M.skull.depth);
   cavityGeo.translate(0, Y_BITE - 0.059 * M.skull.height, 0.155 * M.skull.depth);
@@ -682,8 +687,6 @@ export function buildSkull({ material }) {
   ));
   const up = new THREE.Vector3(0, 1, 0);
   const placeRow = (curve, geo, n, parent) => {
-    const len = curve.getLength();
-    void len;
     const tan = new THREE.Vector3();
     const nrm = new THREE.Vector3();
     const m = new THREE.Matrix4();
@@ -727,11 +730,13 @@ export function buildSkull({ material }) {
   const bodyCurve = archCurve(
     { halfW: LOWER_ARCH.halfW * 1.01, front: LOWER_ARCH.front, back: LOWER_ARCH.back },
     0,
-    { inset: JAW_R, extend: 1.62, rise: JAW_R * 0.38 },
+    { inset: JAW_R, extend: 1.62, rise: JAW_R * 0.28 },
   );
-  // waist near 1: shaft() thins the middle of a bone, and the middle of this
-  // one is the chin, which is the last place that should be thin.
-  const bodyGeo = track(shaft(bodyCurve, JAW_R, { waist: 0.93, endBias: 0.85, segments: 48 }));
+  // No waist at all: shaft() thins the middle of a bone, and the middle of this
+  // one is the chin. At 0.93 the chin sat 0.6% of the head's height short of
+  // M.y.chin, which is small but it is the wrong direction on the one dimension
+  // the previous build got wrong.
+  const bodyGeo = track(shaft(bodyCurve, JAW_R, { waist: 1, endBias: 0.85, segments: 48 }));
   bodyGeo.scale(1, JAW_SQUASH, 1);
   bodyGeo.translate(0, (bodyTop + Y_CHIN) / 2, 0);
   jawRoot.add(add(bodyGeo, material));
@@ -739,16 +744,26 @@ export function buildSkull({ material }) {
   // Rami and condyles. The gonion is wherever the body curve ends, so the
   // ramus always lands on the bone rather than near it.
   const gonion = bodyCurve.getPoint(1);
-  const gonionY = (bodyTop + Y_CHIN) / 2 - JAW_R * 0.2;
+  const gonionX = Math.abs(gonion.x);
+  const gonionY = gonion.y * JAW_SQUASH + (bodyTop + Y_CHIN) / 2;
   for (const side of [-1, 1]) {
-    const a = new THREE.Vector3(side * HINGE_X, gonionY, gonion.z);
-    const b = new THREE.Vector3(side * HINGE_X, HINGE_Y, HINGE_Z);
+    // The angle of the jaw. It caps the swept bar, which like every tube out of
+    // bone.js has no end cap of its own: uncapped, the bar's back end showed as
+    // a scoop out of the jaw from any three-quarter view. It also thickens the
+    // gonion, which is what a real one does anyway.
+    const cap = track(jointBall(JAW_R * 1.06, { squash: 1 }));
+    cap.scale(1, JAW_SQUASH * 0.88, 1);
+    cap.translate(side * gonionX, gonionY, gonion.z);
+    jawRoot.add(add(cap, material));
+
+    const a = new THREE.Vector3(side * gonionX, gonionY - JAW_R * 0.35, gonion.z);
+    const b = new THREE.Vector3(side * gonionX, HINGE_Y, HINGE_Z);
     const ramus = track(straightShaft(a, b, RAMUS_R, { waist: 0.80, segments: 20 }));
     // Both ends share an x, so the plate can be squeezed about that plane
     // without dragging the condyle off the hinge axis.
-    ramus.translate(-side * HINGE_X, 0, 0);
-    ramus.scale(0.60, 1, 1.25);
-    ramus.translate(side * HINGE_X, 0, 0);
+    ramus.translate(-side * gonionX, 0, 0);
+    ramus.scale(0.68, 1, 1.05);
+    ramus.translate(side * gonionX, 0, 0);
     jawRoot.add(add(ramus, material));
     const ball = track(jointBall(RAMUS_R * 0.80));
     ball.translate(b.x, b.y, b.z);

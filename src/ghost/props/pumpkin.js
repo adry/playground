@@ -72,7 +72,7 @@ const RINGS = SEGMENTS.height * 4;
 // A candle does not swing three to one. The old 1.05..3.10 pumped the pool on
 // the floor hard enough to read as a light being turned up and down; this is
 // still plainly alive at the far end of the swing without doing that.
-const LAMP = { min: 1.20, max: 2.60 };     // SpotLight intensity
+const LAMP = { min: 2.90, max: 6.30 };     // SpotLight intensity
 // Brought down hard, and this is the fix the report was actually asking for.
 // At 1.18..1.82 the plate tone-mapped to a flat #f3e0aa -- 95% luminance,
 // brighter than anything else in frame -- and the cut wall built at such
@@ -1029,11 +1029,113 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // base is behind it rather than under it. The pool now starts a little clear
   // of the pumpkin and washes forward, which is what was wanted anyway.
   const LIGHT_DISTANCE = 3.2;
+  const CONE_ANGLE = 0.52;  // half-cone: the lower edge clears the base disc by a few centimetres
+
+  // --- What the light throws -------------------------------------------------
+  // A bare cone puts a smooth featureless ellipse on the floor, and a lit
+  // pumpkin does not do that. The light leaves through three carved openings,
+  // so what lands in front of it carries their shape, and that shape is one of
+  // the most recognisable things about the object.
+  //
+  // three projects a texture through a spotlight's cone if you hand it
+  // light.map, and it refreshes the light's matrix whenever a map is present
+  // whether or not the light casts shadows -- WebGLLights calls
+  // shadow.updateMatrices() off light.map alone. That is what makes this
+  // usable here, because the shell has no holes as far as a shadow map is
+  // concerned and turning shadows on would block the light rather than shape
+  // it.
+  //
+  // The mask is rasterised from CUTS, the same outlines the shell was cut with,
+  // so the projection follows the carving by construction. A freehand face
+  // painted into a canvas would drift the first time anyone moves an eye.
+  //
+  // It is laid out in face space (X across the surface, Y up it) rather than
+  // projected from the lamp's own viewpoint. Projecting properly was tried
+  // first and cannot work: the lamp sits a couple of centimetres behind the
+  // face, so from where it stands the openings fill better than 120 degrees,
+  // the eyes are almost square beside the cone's axis and fall apart in the
+  // perspective divide, and the cone is 60 degrees wide in the first place.
+  // The three cuts also sit at different heights on a curved shell, which no
+  // single planar gobo holds anyway. So this is the carving's own stencil,
+  // framed into the cone: the shapes, their spacing and the curve of the grin
+  // are the outlines', the overall scale is chosen.
+  const GOBO_SIZE = 256;
+  // How much of the texture's width the face fills, and how hard it is squashed
+  // along the cone's axis. The squash is not a taste call: the cone meets the
+  // floor at a glancing 24 degrees, which stretches everything along its axis
+  // by roughly two and a half to one, and unsquashed the face lands as a long
+  // smear with nothing readable in it.
+  const GOBO_SPAN = 0.80, GOBO_SQUASH = 0.42;
+  // The openings are not pinholes and the shell is SHELL_T thick, so the edges
+  // are already soft by the time the light is outside the pumpkin. A crisp
+  // stencil reads as a decal lying on the floor.
+  const GOBO_BLUR = 3;
+  // and the cone still carries a wash under all of it. A real pumpkin throws a
+  // glow with the shapes inside it, not three cutouts on unlit ground.
+  const GOBO_FLOOR = 0.32;
+
+  const goboMap = (() => {
+    // Props are built head-less in tests; with no canvas there is no mask and
+    // the lamp falls back to its plain cone.
+    if (typeof document === 'undefined') return null;
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const cut of CUTS) {
+      minX = Math.min(minX, cut.minX); maxX = Math.max(maxX, cut.maxX);
+      minY = Math.min(minY, cut.minY); maxY = Math.max(maxY, cut.maxY);
+    }
+    const k = (GOBO_SPAN * GOBO_SIZE) / Math.max(1e-6, maxX - minX);
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    // Canvas y runs down and the texture is uploaded flipped, so subtracting
+    // puts face-up at the top of the cone -- the rays that travel furthest.
+    // Face +X runs the opposite way round the body from the cone's own +x, so
+    // that one is subtracted too and the grin is not thrown mirrored.
+    const toPx = (X, Y) => [
+      GOBO_SIZE / 2 - (X - cx) * k,
+      GOBO_SIZE / 2 - (Y - cy) * k * GOBO_SQUASH,
+    ];
+
+    const shapes = document.createElement('canvas');
+    shapes.width = shapes.height = GOBO_SIZE;
+    const sc = shapes.getContext('2d');
+    sc.fillStyle = '#ffffff';
+    for (const cut of CUTS) {
+      sc.beginPath();
+      for (let i = 0; i < cut.pts.length; i++) {
+        const [px, py] = toPx(cut.pts[i][0], cut.pts[i][1]);
+        if (i) sc.lineTo(px, py); else sc.moveTo(px, py);
+      }
+      sc.closePath();
+      sc.fill();
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = GOBO_SIZE;
+    const ctx = canvas.getContext('2d');
+    const floor = Math.round(GOBO_FLOOR * 255);
+    ctx.fillStyle = `rgb(${floor},${floor},${floor})`;
+    ctx.fillRect(0, 0, GOBO_SIZE, GOBO_SIZE);
+    // Added rather than drawn over, at exactly the headroom the wash leaves, so
+    // the middle of an opening reaches 1.0 and nothing clips.
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 1 - GOBO_FLOOR;
+    ctx.filter = `blur(${GOBO_BLUR}px)`;
+    ctx.drawImage(shapes, 0, 0);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    // Left raw on purpose: three multiplies the light's colour by this sample
+    // with no colour-space decode, so the canvas is a linear multiplier and not
+    // a picture. Run through sRGB it would come out far too dark in the wash.
+    tex.colorSpace = THREE.NoColorSpace;
+    if (typeof window !== 'undefined') window.__gobo = canvas.toDataURL();
+    return tex;
+  })();
+
   const light = new THREE.SpotLight(
     new THREE.Color(PALETTE.glow),
     (LAMP.min + LAMP.max) / 2,
     LIGHT_DISTANCE * scale,
-    0.52,  // half-cone: the lower edge clears the base ring by a few centimetres
+    CONE_ANGLE,
     0.92,  // penumbra: nearly all edge, so the pool has no rim to read as a stain
     // Gentler than inverse-square. Three openings scattering light is a soft
     // source, and a steep decay is exactly what made the near field explode.
@@ -1041,6 +1143,14 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   );
   light.position.copy(FLAME_AT);
   light.castShadow = false;
+  light.map = goboMap;
+  // three tests the projected coordinate against the shadow camera's whole
+  // frustum and leaves anything outside it UNMASKED, depth included. The
+  // default near plane is 0.5 and the near edge of the pool lands 0.40 from the
+  // lamp, so without this the nearest slice of floor comes back unmasked and
+  // the mask ends in a hard arc across it.
+  light.shadow.camera.near = 0.02;
+  light.shadow.camera.updateProjectionMatrix();
 
   // The target is parented to the group, so the cone turns with the pumpkin
   // instead of staying pinned to a world direction.
@@ -1124,6 +1234,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     dispose() {
       for (const g of [shellGeo, wallGeo, faceGeo, stemGeo]) g.dispose();
       for (const m of [shellMat, wallMat, faceMat, stemMat]) m.dispose();
+      goboMap?.dispose();
       group.clear();
     },
   };
