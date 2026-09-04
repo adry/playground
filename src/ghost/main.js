@@ -4,6 +4,9 @@ import { createGround } from './ground.js';
 import { Input } from './input.js';
 import { createPumpkin } from './props/pumpkin.js';
 import { createTombstone } from './props/tombstones.js';
+import { createFencePanel } from './props/fence/panel.js';
+import { createBrokenPanel } from './props/fence/broken.js';
+import { createDebrisPile, createChipScatter } from './props/fence/debris.js';
 
 const canvas = document.getElementById('view');
 const params = new URLSearchParams(location.search);
@@ -50,6 +53,7 @@ function resize() {
   camera.bottom = -VIEW_SIZE;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h, false);
+  fitShadowToView(aspect);
 }
 
 // --- lighting ---------------------------------------------------------------
@@ -77,6 +81,76 @@ key.shadow.radius = 3;
 scene.add(key);
 scene.add(key.target);
 
+// The shadow camera has to cover what is on screen, and the visible ground is
+// far bigger than it looks. An orthographic camera 6.2 half-heights tall,
+// looking down at 29 degrees, lays the floor out so its far corners sit about
+// 16 units from the middle of the frame: 32 units of ground across, against
+// the 16 the old fixed -8..8 box covered. Every prop past that simply stopped
+// casting, which is why shadows vanished toward the edges of the scene, and
+// worse, which props were past it changed as the camera followed the ghost.
+//
+// So the box is fitted to the visible ground instead of guessed. The light's
+// direction never changes, only its position, so the extents depend on aspect
+// alone and this runs on resize rather than per frame.
+// Direction only. Where a directional light SITS does not change its shading,
+// but it does decide what its shadow camera can see, and the old position was
+// 7.3 units from the middle of the frame while the visible floor runs out to
+// 17.9. Half the ground was literally behind the lamp. Standing it well back
+// along the same direction puts the whole scene in front of it.
+const LIGHT_DIR = new THREE.Vector3(3.2, 6.0, 2.4).normalize();
+const LIGHT_DIST = 26;
+const LIGHT_OFFSET = LIGHT_DIR.clone().multiplyScalar(LIGHT_DIST);
+// Tall enough to hold the skeleton, which stands 2.5.
+const CAST_HEIGHT = 3.0;
+let shadowTexel = 1;
+
+function fitShadowToView(aspect) {
+  // Ground corners of the view frustum, as offsets from whatever the camera is
+  // looking at. Orthographic, so they do not depend on where that is.
+  const probe = new THREE.OrthographicCamera(
+    -VIEW_SIZE * aspect, VIEW_SIZE * aspect, VIEW_SIZE, -VIEW_SIZE, 0.1, 100,
+  );
+  probe.position.copy(CAM_DIR).multiplyScalar(20);
+  probe.lookAt(0, 0, 0);
+  probe.updateMatrixWorld(true);
+  probe.updateProjectionMatrix();
+  const dir = CAM_DIR.clone().negate();
+
+  // A Camera, not a plain Object3D. Object3D.lookAt points +Z AT the target
+  // while a camera points -Z at it, so a plain Object3D here silently flips
+  // the depth axis and every near and far plane comes out inside out.
+  const rig = new THREE.Camera();
+  rig.position.copy(LIGHT_OFFSET);
+  rig.lookAt(0, 0, 0);
+  rig.updateMatrixWorld(true);
+  const toLight = rig.matrixWorld.clone().invert();
+
+  const box = new THREE.Box3();
+  const corner = new THREE.Vector3();
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      corner.set(sx, sy, -1).unproject(probe);
+      const onGround = corner.clone().addScaledVector(dir, -corner.y / dir.y);
+      for (const h of [0, CAST_HEIGHT]) {
+        box.expandByPoint(new THREE.Vector3(onGround.x, h, onGround.z).applyMatrix4(toLight));
+      }
+    }
+  }
+
+  const c = key.shadow.camera;
+  c.left = box.min.x; c.right = box.max.x;
+  c.bottom = box.min.y; c.top = box.max.y;
+  // The camera looks down -z in its own space, so a point in front of it has
+  // negative z and its distance is -z. Nearest is -box.max.z, furthest is
+  // -box.min.z. Getting this inverted is what clipped the middle of the scene
+  // out of the shadow map and made the ghost's own shadow vanish.
+  c.near = Math.max(0.05, -box.max.z - CAST_HEIGHT);
+  c.far = -box.min.z + CAST_HEIGHT;
+  c.updateProjectionMatrix();
+
+  shadowTexel = (c.right - c.left) / key.shadow.mapSize.width;
+}
+
 const rim = new THREE.DirectionalLight(0xc4d4ff, 0.55);
 rim.position.set(-4, 2.5, -3);
 scene.add(rim);
@@ -94,7 +168,13 @@ scene.add(ghost.mesh);
 // --- props ------------------------------------------------------------------
 // This camera projects +X to screen-right-down and +Z to screen-left-down, so
 // a yaw of PI/4 turns a prop's local +Z face toward the viewer.
-
+//
+// The page decides how much of the world to build. /ghostly/ is the version
+// that goes out to people, and it is deliberately just the ghost and the
+// floor: nothing half-finished, nothing that might be mid-rework. /lab/ loads
+// everything currently being built. The two share this file rather than
+// forking it, so the public page never drifts away from what is being tested.
+const SCENE = document.body.dataset.scene === 'minimal' ? 'minimal' : 'full';
 const props = [];
 
 function addProp(prop, x, z, yaw = Math.PI / 4) {
@@ -130,9 +210,11 @@ const GRAVES = [
   { variant: 'bat', right: 4.4, up: 3.0, yaw: Math.PI / 4 - 0.60 },
 ];
 
-for (const [i, g] of GRAVES.entries()) {
-  const [x, z] = atScreen(g.right, g.up);
-  addProp(createTombstone({ variant: g.variant, seed: 11 + i * 13 }), x, z, g.yaw);
+if (SCENE === 'full') {
+  for (const [i, g] of GRAVES.entries()) {
+    const [x, z] = atScreen(g.right, g.up);
+    addProp(createTombstone({ variant: g.variant, seed: 11 + i * 13 }), x, z, g.yaw);
+  }
 }
 
 const PUMPKINS = [
@@ -141,9 +223,40 @@ const PUMPKINS = [
   { right: 3.9, up: 0.5, yaw: Math.PI / 4 + 0.08 },
 ];
 
-for (const [i, spot] of PUMPKINS.entries()) {
-  const [x, z] = atScreen(spot.right, spot.up);
-  addProp(createPumpkin({ seed: 3 + i * 7 }), x, z, spot.yaw);
+if (SCENE === 'full') {
+  for (const [i, spot] of PUMPKINS.entries()) {
+    const [x, z] = atScreen(spot.right, spot.up);
+    addProp(createPumpkin({ seed: 3 + i * 7 }), x, z, spot.yaw);
+  }
+
+  // A run of fence with a breach in the middle. This is the shape the gated
+  // path will take: the ghost hops the intact stretch, and the breach is the
+  // only way through for anything that cannot.
+  //
+  // Laid along the screen's horizontal rather than along a world axis. A panel
+  // runs down its own local X, so a yaw of PI/4 maps that onto the screen's
+  // right, and stepping the panels through atScreen at a fixed height keeps
+  // them tiling. Run along world X instead and the fence cuts diagonally
+  // across the frame and straight through the pumpkins.
+  const FENCE_UP = 4.7;
+  const FENCE_LEN = 2.0;
+  const RUN = [
+    { at: -2, kind: 'whole', seed: 4 },
+    { at: -1, kind: 'whole', seed: 9 },
+    { at: 0, kind: 'broken', seed: 21, damage: 0.55 },
+    { at: 1, kind: 'broken', seed: 33, damage: 0.95 },
+    { at: 2, kind: 'whole', seed: 12 },
+  ];
+  for (const panel of RUN) {
+    const [x, z] = atScreen(panel.at * FENCE_LEN, FENCE_UP);
+    const part = panel.kind === 'whole'
+      ? createFencePanel({ seed: panel.seed })
+      : createBrokenPanel({ seed: panel.seed, damage: panel.damage });
+    addProp(part, x, z, Math.PI / 4);
+  }
+  const [bx, bz] = atScreen(1.1 * FENCE_LEN, FENCE_UP - 0.35);
+  addProp(createDebrisPile({ seed: 7 }), bx, bz, Math.PI / 4);
+  addProp(createChipScatter({ seed: 7, count: 150 }), bx, bz, Math.PI / 4);
 }
 
 const input = new Input(canvas, camera);
@@ -160,8 +273,16 @@ function follow(dt) {
   camTarget.z += (ghost.pos.z - camTarget.z) * k;
   placeCamera();
 
-  key.position.copy(camTarget).add(new THREE.Vector3(3.2, 6.0, 2.4));
-  key.target.position.copy(camTarget);
+  // Snap the light's target to whole shadow texels. Without it the map slides
+  // continuously under the geometry as the camera follows the ghost, and every
+  // shadow edge crawls and shimmers the whole time he is moving.
+  const snap = Math.max(1e-4, shadowTexel);
+  key.target.position.set(
+    Math.round(camTarget.x / snap) * snap,
+    0,
+    Math.round(camTarget.z / snap) * snap,
+  );
+  key.position.copy(key.target.position).add(LIGHT_OFFSET);
   key.target.updateMatrixWorld();
 
   ground.userData.uniforms.uFocus.value.copy(camTarget);
@@ -192,6 +313,23 @@ function tick(now) {
 // input, so cloth behaviour can be checked without a human at the keyboard.
 
 window.__ghost = {
+  // Shadow coverage is invisible until something stops casting, and then it is
+  // hard to tell a frustum miss from a lighting bug. This reports the fitted
+  // box and whether a given world point would land inside it.
+  shadow(points = []) {
+    const c = key.shadow.camera;
+    c.updateMatrixWorld(true);
+    const m = new THREE.Matrix4().multiplyMatrices(c.projectionMatrix, c.matrixWorldInverse);
+    const v = new THREE.Vector3();
+    return {
+      box: { left: c.left, right: c.right, top: c.top, bottom: c.bottom, near: c.near, far: c.far },
+      target: key.target.position.toArray(),
+      inside: points.map((p) => {
+        v.set(p[0], p[1], p[2]).applyMatrix4(m);
+        return Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1 && v.z >= -1 && v.z <= 1;
+      }),
+    };
+  },
   step(dt, axis) {
     step(dt, { x: axis?.x ?? 0, y: axis?.y ?? 0, jump: !!axis?.jump });
   },

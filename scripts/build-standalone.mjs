@@ -19,7 +19,11 @@ const dist = path.join(root, 'dist');
 
 await build({ logLevel: 'warn' });
 
-const html = await readFile(path.join(dist, 'ghostly', 'index.html'), 'utf8');
+// Which page to inline. Defaults to the public ghost-only build; pass `lab`
+// to inline the work-in-progress scene instead, which is what gets published
+// as an artifact for review.
+const page = process.argv[2] === 'lab' ? 'lab' : 'ghostly';
+const html = await readFile(path.join(dist, page, 'index.html'), 'utf8');
 const assets = await readdir(path.join(dist, 'assets'));
 // The demo is the only page with a script, so the build emits exactly one
 // chunk. Anything else means a second page started shipping JS or the bundle
@@ -46,7 +50,20 @@ await writeFile(path.join(dist, 'standalone.html'), standalone);
 
 // Strip the document skeleton for hosts that wrap the page themselves.
 const head = standalone.match(/<head>([\s\S]*?)<\/head>/)[1];
-const body = standalone.match(/<body>([\s\S]*?)<\/body>/)[1];
+// The body tag carries attributes now (data-scene picks which world to build),
+// so this cannot match a bare <body>. Failing loudly beats returning null and
+// blowing up two lines later with nothing to say.
+const bodyMatch = standalone.match(/<body([^>]*)>([\s\S]*?)<\/body>/);
+if (!bodyMatch) throw new Error('no <body> found in the built page');
+// Which world to build is a data attribute ON the body tag, and an artifact
+// host supplies its own body, so that attribute does not survive the trip.
+// Restate it as a line of script instead: losing it silently would put the
+// whole work-in-progress scene into a page meant to carry only the ghost.
+const sceneAttr = /data-scene="([^"]+)"/.exec(bodyMatch[1]);
+const sceneShim = sceneAttr
+  ? `<script>document.body.dataset.scene=${JSON.stringify(sceneAttr[1])}</script>\n`
+  : '';
+const body = sceneShim + bodyMatch[2];
 const keptHead = head
   .split('\n')
   .filter((l) => !/<meta charset|<meta name="viewport"/.test(l))

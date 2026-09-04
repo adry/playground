@@ -12,6 +12,7 @@ export default defineConfig({
       input: {
         main: 'index.html',
         ghostly: 'ghostly/index.html',
+        lab: 'lab/index.html',
       },
       // There is deliberately no manualChunks here. It used to force everything
       // into one chunk so the standalone build could inline a single file, but

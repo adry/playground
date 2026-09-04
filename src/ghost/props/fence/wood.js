@@ -26,6 +26,12 @@ export function woodMaterial(options = {}) {
 // look the SAME hand-built every reload, or a captured video will not loop.
 export function rng(seed) {
   let a = (seed * 2654435761) >>> 0;
+  // Zero is a fixed point of xorshift: every shift and xor of 0 is 0, so
+  // rng(0) returned 0 forever and any piece seeded from an index starting at
+  // zero came out with no variation at all. Only the degenerate state is
+  // remapped, so every other seed's stream is byte for byte what it was and
+  // nothing already tuned against one shifts.
+  if (a === 0) a = 0x9e3779b9;
   return () => {
     a ^= a << 13; a >>>= 0;
     a ^= a >> 17;

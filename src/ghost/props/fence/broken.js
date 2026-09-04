@@ -14,17 +14,24 @@ import {
 // and the shortest barely a nub, all leaning a little off the board's axis and
 // tapering to points.
 //
-// Things that were tried and are wrong:
+// Things that were tried and are wrong, in the order they cost time:
 //  - A flat cap on the stump. Reads as a saw cut, every time.
 //  - An even zigzag across the end. Reads as stone, or as a cartoon crack.
 //  - Spikes scattered as separate sticks with air between them. Reads as a
 //    brush, because a real tear is a PARTITION of the cross section: every
 //    fibre bundle is still touching its neighbours at the root, and the ragged
 //    silhouette comes from their different lengths, not from gaps.
+//  - One partition for the whole thickness. Correct from the front, a single
+//    flat slab from the side, which is the angle the isometric camera works at.
+//  - Spikes built a shade oversize all round so they meet cleanly. A hundredth
+//    of a unit proud of the board's face is enough to catch the key light and
+//    lay a hard shadow line right round the break, and that line reads as a
+//    cut however good the spikes above it are.
 //
-// So the spray below starts from the cross section and cuts it up, rather than
-// starting from a spike and repeating it. That is the difference between torn
-// timber and a stamp.
+// So the spray below starts from the cross section and cuts it up, in two or
+// three independent layers through the thickness, rather than starting from a
+// spike and repeating it. That is the difference between torn timber and a
+// stamp.
 
 // --- how a tear is shaped --------------------------------------------------
 
