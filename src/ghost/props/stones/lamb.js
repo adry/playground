@@ -33,13 +33,13 @@ import { registerStone, inkText } from '../tombstones.js';
 // The plinth is the registry's own slab with its arch squared off, so the block
 // gets the family rim, the family mottle and the family engraving treatment,
 // and the inscription needs no special handling at all. It is a low, wide,
-// nearly cubic die: 0.68 by 0.34 by 0.34 on a 0.12 pad. Standing 0.87 to the
+// nearly cubic die: 0.72 by 0.34 by 0.34 on a 0.12 pad. Standing 0.87 to the
 // top of the head, this belongs with bench at 0.81 and book at 0.81, at the
 // bottom of the set, which is the point. It is a child's grave.
 
 // --- the plinth -------------------------------------------------------------
 
-const W = 0.34;      // half width of the die, so 0.68 along the lamb
+const W = 0.36;      // half width of the die, so 0.72 along the lamb
 const H = 0.34;      // its height
 const D = 0.34;      // and its depth, just enough for the ears to sit over
 const PLINTH = 0.12; // the pad under it
@@ -64,47 +64,58 @@ const PARTS = [
   // The foot: a low wide swell right at the block's top face. Never seen as a
   // shape of its own, but it is what puts a fillet all the way round where the
   // animal meets the stone.
-  { c: [-0.030, 0.010, 0], r: [0.235, 0.070, 0.135], k: 0.075 },
+  { c: [-0.040, 0.010, 0], r: [0.225, 0.070, 0.130], k: 0.075 },
 
   // The barrel. One ellipsoid, and every other part on the body is a swelling
   // hung off it.
-  { c: [-0.050, 0.130, 0], r: [0.200, 0.125, 0.120], k: 0.070 },
+  { c: [-0.055, 0.128, 0], r: [0.190, 0.122, 0.116], k: 0.070 },
 
   // The hind legs, folded against the flanks. They are not legs, they are the
   // two biggest lumps on the piece: on a couchant animal the hind quarter is a
-  // single mass with a knee somewhere in it, and carving it as anything more
-  // is how a lamb turns into a deer.
-  { c: [-0.150, 0.100, 0.088], r: [0.140, 0.098, 0.070], k: 0.055 },
-  { c: [-0.150, 0.100, -0.088], r: [0.140, 0.098, 0.070], k: 0.055 },
+  // single mass with a knee somewhere in it, and carving it as anything more is
+  // how a lamb turns into a deer. Blended tighter than the fleece so the flank
+  // keeps an edge to catch the key light.
+  { c: [-0.145, 0.105, 0.088], r: [0.135, 0.100, 0.064], k: 0.045 },
+  { c: [-0.145, 0.105, -0.088], r: [0.135, 0.100, 0.064], k: 0.045 },
 
   // The fleece: three swells along the back, biggest over the rump, smallest
   // over the shoulder, so the topline falls from tail to neck the way a real
-  // one does.
-  { c: [-0.160, 0.180, 0], r: [0.120, 0.100, 0.118], k: 0.065 },
-  { c: [-0.030, 0.196, 0], r: [0.108, 0.086, 0.110], k: 0.065 },
-  { c: [0.078, 0.180, 0], r: [0.096, 0.080, 0.104], k: 0.065 },
+  // one does, with a shallow dip behind the shoulder. Three and not thirty:
+  // curls disappear at the seventy pixels this prop occupies and take the read
+  // with them, so what has to survive is a big soft lump and the valley beside
+  // it.
+  { c: [-0.165, 0.196, 0], r: [0.115, 0.104, 0.114], k: 0.048 },
+  { c: [-0.035, 0.176, 0], r: [0.100, 0.080, 0.108], k: 0.048 },
+  { c: [0.062, 0.168, 0], r: [0.090, 0.078, 0.100], k: 0.048 },
 
   // The chest, and the forelegs tucked under it. The foreleg is one long low
   // roll along the base with a knee at the front of it: from above, which is
-  // where this camera lives, that is all a folded foreleg ever shows.
-  { c: [0.110, 0.115, 0], r: [0.108, 0.108, 0.106], k: 0.060 },
-  { c: [0.070, 0.048, 0.076], r: [0.155, 0.048, 0.054], k: 0.050 },
-  { c: [0.070, 0.048, -0.076], r: [0.155, 0.048, 0.054], k: 0.050 },
-  { c: [0.182, 0.058, 0.072], r: [0.058, 0.058, 0.052], k: 0.045 },
-  { c: [0.182, 0.058, -0.072], r: [0.058, 0.058, 0.052], k: 0.045 },
+  // where this camera lives, that is all a folded foreleg ever shows. The knee
+  // gets the tightest blend on the animal after the muzzle, because it is the
+  // one place the light has to find a shadow under something.
+  { c: [0.100, 0.130, 0], r: [0.102, 0.100, 0.100], k: 0.055 },
+  { c: [0.070, 0.052, 0.078], r: [0.150, 0.050, 0.056], k: 0.040 },
+  { c: [0.070, 0.052, -0.078], r: [0.150, 0.050, 0.056], k: 0.040 },
+  { c: [0.180, 0.064, 0.072], r: [0.062, 0.062, 0.055], k: 0.035 },
+  { c: [0.180, 0.064, -0.072], r: [0.062, 0.062, 0.055], k: 0.035 },
 
   // Neck and head. The one gap on the whole animal is the notch between the
   // back of the head and the shoulder fleece, and it is the feature that says
-  // "head up" rather than "asleep": the neck is kept narrow and the shoulder
-  // lump kept behind it so the blend cannot fill that notch in.
-  { c: [0.172, 0.238, 0.012], r: [0.082, 0.108, 0.084], k: 0.060 },
-  { c: [0.196, 0.330, 0.036], r: [0.090, 0.082, 0.080], yaw: 0.36, k: 0.050 },
-  // The muzzle, blended tighter than anything else so the head keeps a brow.
-  { c: [0.252, 0.298, 0.062], r: [0.076, 0.055, 0.056], yaw: 0.36, pitch: -0.14, k: 0.042 },
-  // The ears, laid out and back along the skull. Flat lugs, not leaves: 0.15
-  // long, 0.096 across and 0.064 thick, which is as thin as this style goes.
-  { c: [0.150, 0.324, 0.106], r: [0.075, 0.032, 0.048], yaw: 2.10, pitch: -0.20, k: 0.038 },
-  { c: [0.150, 0.324, -0.106], r: [0.075, 0.032, 0.048], yaw: -2.10, pitch: -0.20, k: 0.038 },
+  // "head up" rather than "asleep": the neck is kept narrow, the shoulder lump
+  // is kept behind it, and the head is carried high enough that the notch
+  // survives the blend.
+  { c: [0.158, 0.252, 0.012], r: [0.074, 0.112, 0.080], k: 0.050 },
+  { c: [0.192, 0.352, 0.038], r: [0.088, 0.080, 0.078], yaw: 0.36, k: 0.048 },
+  // The muzzle. Short and blunt: a lamb's is, and anything longer immediately
+  // reads as a horse. Blended tighter than anything else so the head keeps a
+  // brow above it.
+  { c: [0.242, 0.318, 0.064], r: [0.060, 0.050, 0.052], yaw: 0.40, pitch: -0.10, k: 0.036 },
+  // The ears, dropped along the cheeks rather than held out. Held out they
+  // caught the key light along their whole length and read as horns from the
+  // set's own camera. Flat lugs, not leaves: 0.14 long, 0.096 across and 0.064
+  // thick, which is as thin as this style goes.
+  { c: [0.148, 0.330, 0.098], r: [0.070, 0.032, 0.048], yaw: 2.35, pitch: -0.50, k: 0.036 },
+  { c: [0.148, 0.330, -0.098], r: [0.070, 0.032, 0.048], yaw: -2.35, pitch: -0.50, k: 0.036 },
 ];
 
 // Where the implicit surface is cut off flat. 25mm below the block's top face,
@@ -407,7 +418,7 @@ function contour(parts) {
 // no explaining and this face is small: at the set's own letter height, which
 // is 0.10 world units of cap, a five letter word already runs into the rolled
 // rim of a 0.68 wide face.
-const NAMES = ['LILY', 'MARY', 'NELL', 'ADA'];
+const NAMES = ['ADA', 'AMY', 'IDA', 'EVA', 'TOM'];
 
 registerStone('lamb', {
   // A low die rather than a headstone. topRadius just clear of the rim radius
@@ -421,7 +432,7 @@ registerStone('lamb', {
   // The 0.135 of face height is 0.046 world of font, which is the set's own
   // 0.095 world of cap height once the serif's metrics are accounted for.
   draw(ctx, w, h, rng) {
-    const size = h * 0.28;
+    const size = h * 0.40;
     inkText(ctx, NAMES[Math.floor(rng() * NAMES.length) % NAMES.length], w / 2, h * 0.47, size, size * 0.05);
   },
 

@@ -533,79 +533,79 @@ registerStone('cairn', {
 
     const roll = (rng() - 0.5) * 0.07;
     const yaw = (rng() - 0.5) * 0.09;
-    // Foot of the slate, on the ground at the mouth of the notch. The solver
-    // moves it forward from here, never back, so starting inside the pile is
-    // safe and starting outside it is not.
-    const foot = new THREE.Vector3(0, 0, 0);
-    const probeAt = (tip) => new THREE.Matrix4()
-      .makeTranslation(foot.x, foot.y, foot.z)
+    // The slate is turned about its own bottom BACK edge, which is the edge it
+    // actually pivots on when somebody leans it against a heap of stones, and
+    // that edge starts at the origin. The solver only ever pushes it forward
+    // from there, so a candidate that starts inside the pile is safe and one
+    // that starts outside it could never find the pile at all.
+    const poseAt = (tip, dz = 0, dy = 0) => new THREE.Matrix4()
+      .makeTranslation(0, dy, dz)
       .multiply(new THREE.Matrix4().makeRotationY(yaw))
       .multiply(new THREE.Matrix4().makeRotationZ(roll))
       .multiply(new THREE.Matrix4().makeRotationX(-tip))
       .multiply(new THREE.Matrix4().makeTranslation(0, 0, SLATE.depth / 2));
 
-    // The angle is chosen rather than picked. For each candidate the slate is
-    // pushed forward until nothing of it is inside the pile, and then the gap
-    // left at its TOP edge is measured. The winner is the tip that closes that
-    // gap, which is the difference between a slate leaning on the cairn and a
-    // slate standing near one. Nine candidates, each a rasterise of a slab, is
-    // a few milliseconds at build time.
+    // The angle is solved rather than picked. For each candidate the slate is
+    // pushed forward until no part of it is inside the pile, and then the gap
+    // still left at its TOP edge is measured. What is wanted is the most
+    // upright slate that still touches: tipping it further only walks its foot
+    // out into the open, and a slate whose top does not touch is a slate
+    // standing near a cairn rather than leaning on one. Nine candidates, each
+    // one rasterise of a slab, is a couple of milliseconds at build time.
+    const CLOSE = 0.015;
     let best = null;
     for (let k = 0; k <= 8; k++) {
       const tip = lerp(TIP.lo, TIP.hi, k / 8);
       const probe = slab.geometry.clone();
-      probe.applyMatrix4(probeAt(tip));
-      const backField = makeField({ ...fdims, init: Infinity });
-      splat(backField, probe, 0, 1, 2, false);
-      const push = clearance(front, backField);
-      // Where the top quarter of the slate ends up once that push is applied.
+      probe.applyMatrix4(poseAt(tip));
+      const back = makeField({ ...fdims, init: Infinity });
+      splat(back, probe, 0, 1, 2, false);
+      const push = clearance(front, back);
+      // The top band of the slate, once that push is applied.
       const p = probe.attributes.position.array;
       let head = -Infinity;
       for (let i = 1; i < p.length; i += 3) if (p[i] > head) head = p[i];
       let gap = Infinity;
       for (let j = 0; j < fdims.nv; j++) {
-        const y = fdims.v0 + (j + 0.5) * CELL;
-        if (y < head - 0.16) continue;
+        if (fdims.v0 + (j + 0.5) * CELL < head - 0.16) continue;
         for (let i = 0; i < fdims.nu; i++) {
           const f = front.data[j * fdims.nu + i];
-          const b = backField.data[j * fdims.nu + i];
+          const b = back.data[j * fdims.nu + i];
           if (f === -Infinity || b === Infinity) continue;
           const g = b + push - f;
           if (g < gap) gap = g;
         }
       }
       probe.dispose();
-      backField.data = null;
-      if (gap === Infinity) continue;
+      if (!Number.isFinite(gap) || !Number.isFinite(push)) continue;
       if (!best || gap < best.gap) best = { tip, push, gap };
+      if (gap <= CLOSE) break; // the first one that lands is the one to keep
     }
     // A pile is never so tidy that no candidate reaches it, but if one ever
     // were the slate still stands, upright and clear, rather than vanishing.
     const tip = best ? best.tip : TIP.lo;
-    const push = best ? best.push : 0.35;
+    const push = (best ? best.push : 0.42) - SLATE_BITE;
 
-    slab.position.set(0, 0, push - SLATE_BITE);
-    slab.quaternion.setFromRotationMatrix(probeAt(tip));
-    slab.updateMatrix();
-    // Its own placement matrix, not Box3.setFromObject: that grows the local
-    // box by the rotation and hands back a tumbling cube's corner, which on a
-    // slab tipped a quarter of a radian is wrong by most of its depth.
-    {
-      const m = new THREE.Matrix4()
-        .makeTranslation(slab.position.x, slab.position.y, slab.position.z)
-        .multiply(probeAt(tip));
-      const p = slab.geometry.attributes.position;
-      const v = new THREE.Vector3();
-      let low = Infinity;
-      for (let i = 0; i < p.count; i++) {
-        v.fromBufferAttribute(p, i).applyMatrix4(m);
-        if (v.y < low) low = v.y;
-      }
-      slab.position.y = -low - SLATE_SINK;
-      // The slab's own matrix is a translation times the probe's rotation, and
-      // the probe's rotation is about a point that is not the origin, so the
-      // position has to carry the probe's translation too.
-      slab.position.x += m.elements[12] - slab.position.x - 0;
+    // Seated on its own vertices under its own matrix. Box3.setFromObject is
+    // the wrong tool here: it grows the local box by the rotation and hands
+    // back a tumbling cube's corner, which on a slab tipped a quarter of a
+    // radian is wrong by most of its depth.
+    const seat = poseAt(tip, push);
+    const p = slab.geometry.attributes.position;
+    const v = new THREE.Vector3();
+    let low = Infinity;
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i).applyMatrix4(seat);
+      if (v.y < low) low = v.y;
     }
+    // The pose is a rotation about a point that is not the origin, so it is a
+    // translation as well as a turn and cannot be split into a position and a
+    // quaternion by hand. Decompose does it exactly, and the result is a rigid
+    // transform, so the scale that comes back is 1.
+    poseAt(tip, push, -low - SLATE_SINK).decompose(slab.position, slab.quaternion, slab.scale);
+
+    // What the layout generator needs, measured rather than guessed, and left
+    // on the group so footprints-probe.mjs and a lab can both read it.
+    body.userData.cairn = { tip, push, height: wanted, stones: stones.length };
   },
 });
