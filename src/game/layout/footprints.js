@@ -42,31 +42,39 @@ export const STONES = {
   fred:    { halfU: 0.448, halfV: 0.193, height: 1.098 },
   heart:   { halfU: 0.388, halfV: 0.182, height: 1.080 },
   scroll:  { halfU: 0.809, halfV: 0.203, height: 0.983 },
-  ledger:  { halfU: 0.797, halfV: 0.452, height: 0.290 },
-  bench:   { halfU: 0.728, halfV: 0.288, height: 0.830 },
-  chest:   { halfU: 0.832, halfV: 0.408, height: 0.831 },
-  urn:     { halfU: 0.348, halfV: 0.258, height: 1.552 },
-  column:  { halfU: 0.349, halfV: 0.340, height: 1.381 },
+  ledger:  { halfU: 0.797, halfV: 0.452, height: 0.336 },
+  bench:   { halfU: 0.730, halfV: 0.290, height: 0.833 },
+  book:    { halfU: 0.666, halfV: 0.500, height: 0.871 },
+  chest:   { halfU: 0.834, halfV: 0.393, height: 0.831 },
+  urn:     { halfU: 0.350, halfV: 0.258, height: 1.551 },
+  column:  { halfU: 0.349, halfV: 0.340, height: 1.389 },
   pyramid: { halfU: 0.579, halfV: 0.518, height: 1.213 },
   wheel:   { halfU: 0.469, halfV: 0.203, height: 1.448 },
-  stump:   { halfU: 0.440, halfV: 0.438, height: 1.349 },
-  cracked: { halfU: 0.622, halfV: 0.235, height: 1.376 },
+  stump:   { halfU: 0.440, halfV: 0.448, height: 1.349 },
+  cracked: { halfU: 0.642, halfV: 0.235, height: 1.376 },
   twin:    { halfU: 0.739, halfV: 0.239, height: 1.485 },
+  wings:   { halfU: 0.685, halfV: 0.208, height: 1.544 },
+  draped:  { halfU: 0.479, halfV: 0.302, height: 1.599 },
   celtic:  { halfU: 0.498, halfV: 0.233, height: 1.613 },
   gothic:  { halfU: 0.419, halfV: 0.203, height: 1.696 },
   obelisk: { halfU: 0.379, halfV: 0.318, height: 1.848 },
 };
+
+// The registry grows: stones/index.js is what a scene imports and other people
+// keep adding to it. Anything registered but not listed above is simply not
+// placed, which is the safe way round, and `kerb` is left out on purpose: it is
+// a 4.3 long plot border rather than a headstone and wants its own motif.
 
 // Upright headstones, tall enough to read as a stone in a row. Sorted by
 // height, because a row is laid out short at the front and tall at the back and
 // the motifs walk this list rather than sorting one of their own.
 export const UPRIGHT = [
   'heart', 'fred', 'pyramid', 'stump', 'cracked', 'column', 'wheel',
-  'twin', 'bat', 'urn', 'cross', 'celtic', 'gothic', 'obelisk',
+  'twin', 'bat', 'wings', 'urn', 'cross', 'draped', 'celtic', 'gothic', 'obelisk',
 ];
 // Low stones. They go at the front of a plot, where a tall one would hide
 // whatever is behind it.
-export const LOW = ['ledger', 'chest', 'scroll'];
+export const LOW = ['ledger', 'chest', 'scroll', 'book'];
 
 // --- pumpkins --------------------------------------------------------------
 // Round in plan to within a millimetre, so a disc. The design doc's 0.16 / 0.40
@@ -118,7 +126,7 @@ export const MISC = {
   // which is a 4.0 cell to itself with 0.07 to spare, exactly as rule 6 says.
   shed: { shape: 'disc', r: 1.93, height: 2.139 },
 
-  bush: { shape: 'disc', r: 0.640, height: 0.813 },
+  bush: { shape: 'disc', r: 0.600, height: 0.813 },
 
   // ground/hole.js: MOUTH_X 1.0, MOUTH_Z 0.45, long axis along local X. The
   // turf skirt reaches 0.40 further out but it is flat ground that a headstone
@@ -127,7 +135,7 @@ export const MISC = {
 
   // ground/dirtpile.js: HEAP.length 1.8 along local X, spread 0.9, and loose
   // clods out to scatter 1.2. Measured over the clods: 2.0 by 1.29.
-  dirt: { shape: 'box', halfU: 1.0, halfV: 0.643, height: 0.495 },
+  dirt: { shape: 'box', halfU: 1.0, halfV: 0.643, height: 0.571 },
 };
 
 // Every footprint, addressed as the props list addresses them.

@@ -167,21 +167,35 @@ export function buildMaze({ cellsX, cellsZ, rng, maxPlotCells = 3, density = 1 }
     const pair = key(dir, i, j) === key(...mirror) ? [[dir, i, j]] : [[dir, i, j], mirror];
     if (pair.some(([d, ii, jj]) => locked.has(key(d, ii, jj)) || !isOpen(d, ii, jj))) continue;
 
-    // Would the merged plots be too big? Checked before the graph work, since
-    // it is the cheaper of the two and refuses more often.
-    const roots = new Map();
-    let tooBig = false;
+    // Would either closure make a plot too big? Checked before the graph work,
+    // since it is the cheaper of the two and refuses more often.
+    //
+    // The two ribs of a mirrored pair usually merge two plots each on opposite
+    // sides of the level, and sometimes both merge INTO THE SAME plot, when the
+    // pair straddles the middle. So the sizes cannot be summed over the pair
+    // and cannot be taken per rib either: the merge is played out on a little
+    // union-find over the handful of plots involved, and every component that
+    // comes out of it has to be inside the cap.
+    const local = new Map();
+    const lfind = (r) => {
+      let x = r;
+      while (local.get(x).up !== x) x = local.get(x).up;
+      return x;
+    };
     for (const [d, ii, jj] of pair) {
       for (const c of between(d, ii, jj)) {
         const r = find(c);
-        if (!roots.has(r)) roots.set(r, size[r]);
+        if (!local.has(r)) local.set(r, { up: r, size: size[r] });
       }
     }
-    // Both ribs of a mirrored pair can touch the same plot, so the sizes are
-    // summed over distinct roots rather than per rib.
-    let merged = 0;
-    for (const s of roots.values()) merged += s;
-    if (merged > maxPlotCells) tooBig = true;
+    for (const [d, ii, jj] of pair) {
+      const [p, q] = between(d, ii, jj).map(find).map(lfind);
+      if (p === q) continue;
+      local.get(q).up = p;
+      local.get(p).size += local.get(q).size;
+    }
+    let tooBig = false;
+    for (const [r, entry] of local) if (lfind(r) === r && entry.size > maxPlotCells) tooBig = true;
     if (tooBig) continue;
 
     for (const [d, ii, jj] of pair) set(d, ii, jj, false);

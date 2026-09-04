@@ -40,10 +40,11 @@ export const CAM_ELEV = Math.atan2(CAM_DIR.y, Math.SQRT2);
 //
 //     height1 >= height2 + (d1 - d2) * OCCLUSION
 //
-// In grid terms d1 - d2 = sqrt(2) * (v2 - v1), so a stone one unit further
-// forward may be 0.55 taller before it swallows the one behind it.
+// In the screen frame d1 - d2 works out as sqrt(2) * (v2 - v1), so a stone one
+// unit further down the screen may be 0.55 taller before it swallows the one
+// behind it. The test itself is always done in world x + z, never in v: the
+// grid's axes are the camera's only in the screen frame.
 export const OCCLUSION = CAM_DIR.y / 2;
-export const OCCLUSION_PER_V = OCCLUSION * Math.SQRT2;
 
 export function makeFrame(kind = 'screen') {
   if (kind === 'axis') {
