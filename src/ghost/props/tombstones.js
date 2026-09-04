@@ -37,7 +37,8 @@ export const VARIANTS = ['cross', 'bat', 'fred'];
 //     shape: { halfWidth: 0.30, height: 1.60, depth: 0.28, plinth: 0.20 },
 //     topRadius: 0.04,          // optional, defaults to a half-round arch
 //     draw(ctx, w, h) { ... },  // optional, the carved mark, black on clear
-//     extras({ body, material, shape, rng }) { ... },  // optional, more meshes
+//     bottomRadius: 0.09,       // optional, same clamp as topRadius
+//     extras({ body, material, disposables, stripUV, slabUV, ... }) { ... },
 //   })
 //
 // `draw` is handed the FACE canvas in pixels, origin top left, with fillStyle
@@ -555,7 +556,7 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
     height: H,
     depth: shape.depth,
     edge,
-    bottomRadius: 0.09,
+    bottomRadius: Math.max(edge, Math.min(W, def?.bottomRadius ?? 0.09)),
     // Arch by default: a true half-round, tangent to the sides. A registered
     // stone may ask for less, down to the edge radius, which squares the top
     // off. Above W the outline stops being convex and the sweep folds.
@@ -591,7 +592,35 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
   // It runs before the lean is applied, so an extra sits on the stone rather
   // than beside it, and it is handed the same material so a new piece cannot
   // drift away from the set's colour.
-  def?.extras?.({ body, material, shape, rng, plinthH, halfWidth: W, height: H });
+  // The UV mapping goes with it. Without it an extra mesh drawn with the shared
+  // material samples whatever its own geometry generator produced, which for a
+  // capsule or a lathe is a cylindrical wrap, and the inscription ends up
+  // smeared round the outside of it. The first stone built on this registry had
+  // to reconstruct frontFrac and stripFrac from the texture's pixel size and
+  // rediscover the strip width to avoid that, which is exactly the kind of
+  // guesswork a contract exists to remove. `stripUV` parks a point in the plain
+  // strip; `slabUV` is the front-face mapping the slab itself uses.
+  //
+  // `disposables` is the other half: dispose() below frees the slab, the
+  // plinth, the material and the textures, and knew nothing about geometry made
+  // in extras, so every registered stone leaked its own additions. Push
+  // anything with a dispose() onto it.
+  const disposables = [];
+  def?.extras?.({
+    body,
+    material,
+    shape,
+    rng,
+    plinthH,
+    halfWidth: W,
+    height: H,
+    edge,
+    disposables,
+    stripUV,
+    slabUV,
+    frontFrac,
+    stripFrac,
+  });
 
   // A hand-placed stone never stands perfectly true. Small enough that the
   // silhouette still reads upright; sunk a hair so no gap opens under the lean.
@@ -620,6 +649,7 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
     dispose() {
       slabGeo.dispose();
       plinthGeo.dispose();
+      for (const d of disposables) d.dispose?.();
       material.dispose();
       if (tex) {
         tex.map.dispose();
