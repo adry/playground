@@ -105,6 +105,13 @@ const MAX_ROLL = 0.13;
 // off this value, so tightening it tightens the pile.
 const FIELD_CELL = 0.012;
 
+// The ground is a plane at y = 0 and a board lying dead flat all but shares it.
+// A fifth of a millimetre of air costs nothing, takes z-fighting off the table
+// for good, and makes the do-not-sink guarantee a strict one: without it the
+// floor contacts come out at zero plus or minus the last bit of a double, which
+// is a fine answer for a renderer and an annoying one to have to defend.
+const CONTACT_BIAS = 0.0002;
+
 const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
 
 // --- the height field ------------------------------------------------------
@@ -338,13 +345,13 @@ export function createDebrisPile({ seed = 1, radius = 0.55, planks = 10, scale =
   }
   specs.sort((a, b) => b.length - a.length);
 
-  // Two of them are meant to end up propped. The nestling rule below is good
+  // Three of them are meant to end up propped. The nestling rule below is good
   // at its job -- left to itself it lays every plank into the lowest hollow it
   // can find and the pile comes out a flat mat, which is the other failure the
-  // reference rules out. So two pieces, chosen from the second half of the
-  // sequence (by then there is a heap for them to catch on) go the other way
-  // and keep the candidate that leans HARDEST. Those are the two that give the
-  // pile its skyline; everything else settles.
+  // reference rules out. So three pieces, spread through the
+  // second half of the sequence (by then there is a heap for them to catch on)
+  // go the other way and keep the candidate that leans HARDEST. Those are what
+  // give the pile its skyline; everything else settles.
   const propped = new Set(
     specs.length >= 6
       ? [Math.floor(specs.length * 0.45), Math.floor(specs.length * 0.65), Math.floor(specs.length * 0.85)]
@@ -405,10 +412,10 @@ export function createDebrisPile({ seed = 1, radius = 0.55, planks = 10, scale =
     // is what the reference actually shows.
     const spread = radius * 0.82 * (1 - 0.22 * k);
 
-    // Four candidate places, and the plank takes the one it sits LOWEST in.
+    // Three candidate places, and the plank takes the one it sits LOWEST in.
     //
     // This is the difference between a pile and a cairn, and it is worth the
-    // four passes. Dropped at the first spot it is offered, a plank quite often
+    // three passes. Dropped at the first spot it is offered, a plank quite often
     // comes down across the peak of the heap, balances on it like a see-saw and
     // holds both of its own ends -- and everything that lands on it after --
     // up in the air. Trying a few spots and keeping the lowest is what a board
@@ -483,7 +490,7 @@ export function createDebrisPile({ seed = 1, radius = 0.55, planks = 10, scale =
 
     euler.set(LIE_FLAT + best.roll, best.yaw, best.lean, 'YZX');
     m.makeRotationFromEuler(euler);
-    m.setPosition(best.cx, -best.drop, best.cz);
+    m.setPosition(best.cx, CONTACT_BIAS - best.drop, best.cz);
 
     // Paint it, and write its top into the field for whatever lands next. Both
     // need the vertex in WORLD space, so they happen together; the attributes
@@ -554,29 +561,30 @@ export function createDebrisPile({ seed = 1, radius = 0.55, planks = 10, scale =
 
 // --- the scatter -----------------------------------------------------------
 
-// Chip and speck sizes are multiples of the thinnest thing the fence is made
-// of, F.picket.thickness. A chip is a piece of a board; there is no separate
+// The chip every speck in the scatter is an instance of, sized in real units
+// rather than as a unit box, and it is worth saying why.
+//
+// woodPanelMaterial reads the grain off OBJECT space, and instancing does not
+// touch object space: the instance matrix is applied after it. So a unit-box
+// chip stretched down to a centimetre would carry twenty grain cycles across a
+// piece three pixels wide, which is not grain, it is a moire pattern with a
+// shimmer on it. Built at the size it is actually seen, a chip gets a quarter
+// of a cycle across its width -- one soft streak, or none -- which is what a
+// splinter off a board should have.
+//
+// The dimensions are multiples of F.picket.thickness, the thinnest thing the
+// fence is made of. A chip is a piece of a board; there is no separate
 // measurement for one and there should not be.
-// The draws are skewed by `bias`: with an even draw every chip comes out
-// middling and the litter reads as one repeated object. Squared, the short
-// stubby ones outnumber the long slivers the way they do in the reference.
-const CHIP = {
-  length: [0.75, 3.1],   // short chips through to long slivers
-  width: [0.30, 1.15],
-  thick: [0.22, 0.70],
-  bias: 2.0,
-};
-const GRIT = {
-  length: [0.30, 0.85],  // sawdust and grit, below the size where shape means anything
-  width: [0.18, 0.42],
-  thick: [0.09, 0.20],
-  bias: 1.5,
-};
+const CHIP_STOCK = { length: 1.6, width: 0.36, thickness: 0.12 };
 
-// The ground is a plane at y = 0 and a chip lying dead flat all but shares it.
-// A fifth of a millimetre of air costs nothing and takes z-fighting off the
-// table for good.
-const CONTACT_BIAS = 0.0002;
+// Per-instance multipliers on that. `bias` skews the draw: with an even draw
+// every chip comes out middling and the litter reads as one object repeated.
+// Squared, the short stubby ones outnumber the long slivers, which is the way
+// round the reference has it.
+const CHIP = { length: [0.5, 2.1], width: [0.45, 1.7], thick: [0.5, 1.7], bias: 2.0 };
+// Sawdust and grit: below the size where shape means anything, and flatter,
+// because dust settles rather than lands.
+const GRIT = { length: [0.20, 0.58], width: [0.25, 0.62], thick: [0.18, 0.45], bias: 1.5 };
 
 export function createChipScatter({ seed = 1, radius = 1.4, count = 40, scale = 1 } = {}) {
   const rand = rng(seed);
@@ -585,59 +593,82 @@ export function createChipScatter({ seed = 1, radius = 1.4, count = 40, scale = 
   // things to draw. Chips still have a readable grain direction; grit is dust
   // and dirt. The split is fixed rather than exposed: the ratio IS what litter
   // looks like, and a caller who wants denser litter wants more of both. The
-  // cost of the whole scatter is two draw calls at any count.
+  // whole scatter is two draw calls at any count.
   const chipCount = Math.max(1, Math.round(count * 0.28));
   const gritCount = Math.max(1, count - chipCount);
 
-  // One unit piece, scaled per instance. Non-uniform instance scale skews the
-  // rounding of the section slightly, which at a centimetre across is not a
-  // thing anybody can see, and it is the reason this is two draw calls rather
-  // than a hundred. Three segments and an eight-sided ring: a speck needs a
-  // silhouette, not a surface.
-  const unit = board({ length: 1, width: 0.5, thickness: 0.28, round: 0.55, segments: 3, ring: 8 });
-  unit.translate(0, -0.5, 0);
+  const T = F.picket.thickness;
+  // Laid down the way a rail is, and no further, for the same reason the planks
+  // are: object space has to stay a board the grain shader recognises. The
+  // quarter turn onto its face is in the instance rotation.
+  //
+  // Three segments and an eight-sided ring. A speck needs a silhouette, not a
+  // surface, and there may be several hundred of them.
+  const unit = board({
+    length: T * CHIP_STOCK.length,
+    width: T * CHIP_STOCK.width,
+    thickness: T * CHIP_STOCK.thickness,
+    round: 0.5,
+    segments: 3,
+    ring: 8,
+  });
+  unit.translate(0, -(T * CHIP_STOCK.length) / 2, 0);
   unit.rotateZ(-Math.PI / 2);
-  unit.rotateX(Math.PI / 2);
   unit.computeBoundingSphere();
 
   // A white colour attribute, and it is not optional. three only multiplies
   // instanceColor into the fragment under USE_COLOR, which is
-  // material.vertexColors -- and switching that on with no colour attribute
-  // present leaves the shader reading the disabled attribute's default of
-  // (0, 0, 0) and every instance renders black. So: white attribute, white
-  // material colour, and the instance colours below carry the whole look.
-  const white = new Float32Array(unit.attributes.position.count * 3).fill(1);
-  unit.setAttribute('color', new THREE.BufferAttribute(white, 3));
+  // material.vertexColors -- and woodPanelMaterial switches that on. Switching
+  // it on with no colour attribute present leaves the shader reading the
+  // disabled attribute's default of (0, 0, 0), and every instance renders
+  // black. So: white attribute, white material colour, and the instance colours
+  // below carry the whole look.
+  const n = unit.attributes.position.count;
+  unit.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+  // One phase for all of them. Every chip carrying the same streak in the same
+  // place is invisible at a centimetre across, and a per-chip phase would mean
+  // a geometry per chip, which is the whole thing instancing is here to avoid.
+  const grain = new Float32Array(n * 2);
+  const phase = rand() * Math.PI * 2;
+  for (let i = 0; i < n; i++) {
+    grain[i * 2] = phase;
+    grain[i * 2 + 1] = GRAIN_ALONG_X;
+  }
+  unit.setAttribute('aGrain', new THREE.BufferAttribute(grain, 2));
 
-  const T = F.picket.thickness;
-  const span = ([lo, hi], bias) => T * (lo + (hi - lo) * Math.pow(rand(), bias));
+  const span = ([lo, hi], bias) => lo + (hi - lo) * Math.pow(rand(), bias);
 
   // Density has to FALL OFF, not stop. A disc filled evenly and cut at `radius`
   // reads as a texture with an edge on it; the reference thins outward for
   // several board-lengths and there is no line anywhere in it. So the radius is
-  // drawn as the radius of a 2D normal: density is highest in the middle, falls
-  // smoothly outward, and has no edge at all. `radius` is the nominal extent;
-  // a handful of pieces land at half as far again, and the eye reads that as
-  // stuff thrown outward rather than stuff placed in a circle.
-  //
-  // The 0.18 is a hole in the middle, where the pile itself stands.
+  // drawn as the radius of a 2D normal: density highest in the middle, falling
+  // smoothly outward, no edge at all. `radius` is the nominal extent, and a
+  // handful of pieces land half as far again beyond it, which is what the eye
+  // reads as stuff thrown outward rather than stuff placed in a circle.
   const throwRadius = (reach) => {
     // Box-Muller's radius. The floor on u is what stops one unlucky draw
-    // landing a speck ten metres away.
+    // putting a speck ten metres away; the 0.14 is a hole in the middle of the
+    // scatter, where the pile itself stands.
     const u = 0.02 + 0.98 * rand();
     return reach * (0.14 + 0.38 * Math.sqrt(-2 * Math.log(u)));
   };
 
-  const material = woodMaterial({ color: 0xffffff, vertexColors: true });
+  // Same material as the pile and the panel, so a chip is a chip off the same
+  // wood. White base, because the instance colours multiply against it.
+  const material = woodPanelMaterial();
 
   const pale = new THREE.Color(F.wood.pale);
   const torn = new THREE.Color(F.wood.torn);
   const shade = new THREE.Color(F.wood.shade);
   // Sawdust and grit are the same timber seen as a shadow rather than a face:
-  // no light gets back out of a speck of dust. Derived by taking the palette's
-  // shade colour down in the working space rather than by inventing a brown,
-  // so the litter can never drift off the fence's palette. F has no colour for
-  // this; if one is ever wanted it belongs in metrics.js as wood.dust.
+  // next to no light gets back out of a speck of dust. Taken down from the
+  // palette's shade colour in the working space rather than invented as a
+  // brown, so the litter cannot drift off the fence's palette. There is no F
+  // colour for this; if one is ever wanted it belongs in metrics as wood.dust.
+  //
+  // NOT .convertSRGBToLinear(). The constructor has already left sRGB; a second
+  // conversion is the bug that turned an earlier prop in this project near
+  // black, and on a warm tone it lands on a saturated tan instead.
   const dust = new THREE.Color(F.wood.shade).multiplyScalar(0.30);
 
   const euler = new THREE.Euler();
@@ -647,15 +678,17 @@ export function createChipScatter({ seed = 1, radius = 1.4, count = 40, scale = 
   const m = new THREE.Matrix4();
   const p = new THREE.Vector3();
   const col = new THREE.Color();
+  const verts = unit.attributes.position;
 
-  const build = (n, size, reach, tipChance, colorFor) => {
-    const mesh = new THREE.InstancedMesh(unit, material, n);
-    const verts = unit.attributes.position;
+  const build = (howMany, size, reach, tipChance, colorFor) => {
+    const mesh = new THREE.InstancedMesh(unit, material, howMany);
 
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < howMany; i++) {
       const a = rand() * Math.PI * 2;
       const r = throwRadius(reach);
-      sc.set(span(size.length, size.bias), span(size.thick, size.bias), span(size.width, size.bias));
+      // Object axes after the lay-down: X is the length, Y the width, Z the
+      // thickness. Scaling those is why this is one geometry and not a hundred.
+      sc.set(span(size.length, size.bias), span(size.width, size.bias), span(size.thick, size.bias));
 
       const yaw = rand() * Math.PI * 2;
       // Flat, mostly. One piece in eight or so is tipped up on an edge or
@@ -663,7 +696,7 @@ export function createChipScatter({ seed = 1, radius = 1.4, count = 40, scale = 
       // reading as printed on the floor.
       const lean = rand() < tipChance ? 0.35 + rand() * 0.5 : rand() * 0.09;
       const about = rand() * Math.PI * 2;
-      euler.set(Math.sin(about) * lean, yaw, Math.cos(about) * lean, 'YZX');
+      euler.set(LIE_FLAT + Math.sin(about) * lean, yaw, Math.cos(about) * lean, 'YZX');
       quat.setFromEuler(euler);
 
       pos.set(Math.cos(a) * r, 0, Math.sin(a) * r);
@@ -689,18 +722,18 @@ export function createChipScatter({ seed = 1, radius = 1.4, count = 40, scale = 
   };
 
   const chips = build(chipCount, CHIP, radius, 0.13, (c, t) =>
-    // Freshly broken, so chips run warm. Then two things pull them back down.
-    // A wide random draw toward the weathered shade, because a scatter of
+    // Freshly broken, so chips run warm. Then two things pull them back down. A
+    // wide random draw toward the weathered shade, because a scatter of
     // identically pale flecks reads as spilled rice; and distance, because the
-    // ones that landed furthest are the ones that have been out there longest,
-    // and dimming them is most of what makes the litter fade rather than end.
+    // ones that landed furthest have been out there longest, and dimming them
+    // is most of what makes the litter fade rather than end.
     c.copy(pale).lerp(torn, 0.25 + rand() * 0.55).lerp(shade, 0.15 + rand() * 0.45 + clamp(t, 0, 1) * 0.3));
   chips.castShadow = true;
   chips.receiveShadow = true;
 
-  // Grit is thrown further than chips are -- dust carries. And it does not cast:
-  // a two-millimetre speck's shadow is a shadow-map artefact rather than a
-  // shadow, and there are a lot of them.
+  // Grit is thrown further than chips are, because dust carries. And it does
+  // not cast: a two-millimetre speck's shadow is a shadow-map artefact rather
+  // than a shadow, and there are a lot of them.
   const grit = build(gritCount, GRIT, radius * 1.25, 0.04, (c) =>
     c.copy(dust).lerp(shade, rand() * 0.45));
   grit.castShadow = false;

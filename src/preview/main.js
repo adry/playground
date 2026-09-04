@@ -34,6 +34,38 @@ const PROPS = {
     }
     return rig;
   },
+  // The whole fence set in one frame: two intact panels tiling, a broken one,
+  // and the wreckage. Laid out as a run rather than a row of samples, because
+  // these pieces exist to sit next to each other and the joints are the thing
+  // most likely to be wrong.
+  fence: async () => {
+    const [p, b, d] = await Promise.all([
+      import('../ghost/props/fence/panel.js'),
+      import('../ghost/props/fence/broken.js'),
+      import('../ghost/props/fence/debris.js'),
+    ]);
+    const group = new THREE.Group();
+    const parts = [];
+    const put = (part, x, z = 0) => {
+      part.group.position.set(x, 0, z);
+      group.add(part.group);
+      parts.push(part);
+      return part;
+    };
+    const L = p.PANEL_LAYOUT?.length ?? 2.0;
+    put(p.createFencePanel({ seed: 4 }), -1.5 * L);
+    put(p.createFencePanel({ seed: 9 }), -0.5 * L);
+    put(b.createBrokenPanel({ seed: 21, damage: 0.55 }), 0.5 * L);
+    put(b.createBrokenPanel({ seed: 33, damage: 0.9 }), 1.5 * L);
+    put(d.createDebrisPile({ seed: 7 }), 0.9 * L, 0.28);
+    put(d.createChipScatter({ seed: 7, count: 140 }), 0.9 * L, 0.28);
+    return {
+      group,
+      update: (time, dt) => parts.forEach((x) => x.update?.(time, dt)),
+      dispose: () => parts.forEach((x) => x.dispose?.()),
+    };
+  },
+
   tombstones: async () => {
     const m = await import('../ghost/props/tombstones.js');
     // Lay the variants out in a row so one render shows the whole set.
