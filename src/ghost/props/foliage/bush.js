@@ -133,9 +133,9 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   // bushes out would then overlap them by.
   const { width, depth } = measureExtent(massGeo, clumpGeo);
 
-  bakeFoliageTint(massGeo, { top: TALL, floor: 0.30, ceil: 0.84, down: 0.66, rand });
+  bakeFoliageTint(massGeo, { top: TALL, floor: 0.38, ceil: 0.86, down: 0.68, rand });
   bakeWind(massGeo, { top: TALL * 0.86, base: 0, power: 1.8, flutter: 0 });
-  bakeFoliageTint(clumpGeo, { top: TALL, floor: 0.40, ceil: 1.34, down: 0.52, root: 0.34, spread: 0.26, rand });
+  bakeFoliageTint(clumpGeo, { top: TALL, floor: 0.50, ceil: 1.34, down: 0.56, root: 0.36, spread: 0.26, rand });
   bakeWind(clumpGeo, { top: TALL * 0.86, base: 0, power: 1.8 });
 
   const clumpMat = foliageMaterial(FOLIAGE.mid);
@@ -170,7 +170,7 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   body.rotation.z = (rand() - 0.5) * 0.10;
   body.rotation.x = (rand() - 0.5) * 0.08;
 
-  const patch = contactShadow({ radius: (width + depth) * 0.26, opacity: 0.34, softness: 0.62 });
+  const patch = contactShadow({ radius: (width + depth) * 0.21, opacity: 0.22, softness: 0.74 });
   group.add(patch);
   disposables.push({ dispose: () => patch.userData.dispose?.() });
 

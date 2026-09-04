@@ -195,12 +195,12 @@ function buildPit({ seed, depth }) {
         // its own reach down the wall, so no two are the same and none of them
         // runs the full depth. Lobe is 0 on the ridge between cuts, 1 in the
         // middle of one.
-        const s = t * scoops;
+        const s = t * scoops + depthF * 0.06;
         const idx = Math.floor(s) % scoops;
         const lobe = 0.5 - 0.5 * Math.cos((s - Math.floor(s)) * Math.PI * 2);
         const bite = 0.35 + 0.9 * hash2(idx, 7, seed);
-        const reach = 0.45 + 0.55 * hash2(idx, 19, seed);
-        const start = 0.06 * hash2(idx, 31, seed);
+        const reach = 0.62 + 0.55 * hash2(idx, 19, seed);
+        const start = 0.02 + 0.05 * hash2(idx, 31, seed);
         const along = THREE.MathUtils.smoothstep(depthF, start, start + 0.10)
           * (1 - THREE.MathUtils.smoothstep(depthF, reach - 0.20, reach + 0.12));
         d += ring.spade * 0.075 * bite * lobe * along;
@@ -236,8 +236,8 @@ function buildPit({ seed, depth }) {
       // wall. The darkening is doing the work a single key light cannot: it is
       // what turns a lit box into a hole.
       c.copy(EARTH)
-        .lerp(SUB, THREE.MathUtils.smoothstep(depthF, 0.12, 0.78))
-        .lerp(DEEP, THREE.MathUtils.smoothstep(depthF, 0.72, 1.15));
+        .lerp(SUB, THREE.MathUtils.smoothstep(depthF, 0.22, 0.85))
+        .lerp(DEEP, THREE.MathUtils.smoothstep(depthF, 0.80, 1.25));
       c.lerp(SPOIL, THREE.MathUtils.smoothstep(ring.inset, -0.02, 0.05));
       // The turf blend is pushed well out, so the part of the skirt that tilts
       // up into the key is earth. A raised ring of floor-coloured turf catches
@@ -246,7 +246,12 @@ function buildPit({ seed, depth }) {
       // Ambient occlusion, and not much of it: the wall has to stay lit enough
       // to show what it is made of. The dark comes from the ramp above and
       // from the near lip's own cast shadow, not from painting the pit black.
-      const shade = 1 - 0.24 * THREE.MathUtils.smoothstep(depthF, 0.08, 1.0);
+      let shade = 1 - 0.24 * THREE.MathUtils.smoothstep(depthF, 0.08, 1.0);
+      // The lip rolls over and hangs a little into the pit, so there is a real
+      // occlusion line under it. Drawing it is what makes the edge read as a
+      // rolled clay lip rather than a printed outline.
+      shade *= 1 - 0.26 * THREE.MathUtils.smoothstep(depthF, 0.004, 0.055)
+        * (1 - THREE.MathUtils.smoothstep(depthF, 0.06, 0.24));
       c.multiplyScalar(shade * (0.95 + 0.10 * ringNoise(t, depthF * 6.0, 9.0, seed + 13)));
       color[k] = c.r;
       color[k + 1] = c.g;
@@ -327,9 +332,11 @@ export function createGraveHole({ seed = 1, scale = 1 } = {}) {
     polygonOffsetUnits: -1,
   });
   const mesh = new THREE.Mesh(geometry, material);
-  // It casts onto itself: the near lip is what puts the far wall's foot in
-  // shadow, and that is most of why the pit reads as deep.
-  mesh.castShadow = true;
+  // It does not cast: nothing here stands more than 4cm off the floor, and the
+  // key light is steep enough that the near lip's shadow lands below anything
+  // the camera can see. Rendering it into the shadow map bought one more draw
+  // and an A/B pair that were the same image.
+  mesh.castShadow = false;
   mesh.receiveShadow = true;
   inner.add(mesh);
 

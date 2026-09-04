@@ -179,9 +179,10 @@ function buildTextures(rng, f) {
   // One thing a kerb has that a headstone does not: a crown that boots and rain
   // have kept clean. Narrow, and keyed to world height like everything else, so
   // it lands on the top few centimetres of every stone however deep it sits.
+  const k = f.v / TEX_V; // the run's scale, recovered from the frame
   const worn = cc.createLinearGradient(
-    0, rowAt(h, KERB.reveal * f.v / TEX_V + 0.02, f),
-    0, rowAt(h, KERB.reveal * f.v / TEX_V - 0.055, f),
+    0, rowAt(h, (KERB.reveal + 0.020) * k, f),
+    0, rowAt(h, (KERB.reveal - 0.055) * k, f),
   );
   worn.addColorStop(0, 'rgba(255,253,250,0.30)');
   worn.addColorStop(1, 'rgba(255,253,250,0)');
@@ -245,7 +246,7 @@ function stoneGeometry({ length, width, height }) {
 
 // Lay the map on in world units.
 //
-// u runs along the stone, v runs up it from V_BELOW under the ground, so the
+// u runs along the stone, v runs up it from frame.below under the ground, so the
 // grime band lands at the right absolute height whatever the stone is doing.
 // The |n| terms are the whole trick: with a plain planar map the top face has
 // one v for its entire 16cm width and every blob smears into a stripe along the

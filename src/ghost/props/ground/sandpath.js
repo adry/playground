@@ -524,12 +524,12 @@ function buildMaps(rng, width, length) {
 
   // 2. Broad patches of dirt walked into the sand. Colour only, and long
   //    wavelength on purpose: a lot of small ones is grain.
-  for (let i = 0; i < Math.round(length * 2.2) + 5; i++) {
+  for (let i = 0; i < Math.round(length * 2.6) + 6; i++) {
     const x = rng() * w;
     const y = rng() * h;
-    const r = (0.12 + rng() * 0.26) * Math.min(w, pxV * 1.5);
+    const r = (0.16 + rng() * 0.34) * Math.min(w, pxV * 1.6);
     const dark = rng() < 0.5;
-    blot(cc, x, y, r, r * (0.6 + rng() * 0.9), rng() * Math.PI, dark ? DAMP : DRY, 0.13);
+    blot(cc, x, y, r, r * (0.7 + rng() * 1.1), rng() * Math.PI, dark ? DAMP : DRY, 0.2);
   }
 
   // 3. The two wheel hollows. The geometry already sinks them; this is the dirt

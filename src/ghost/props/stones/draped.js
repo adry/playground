@@ -88,8 +88,8 @@ const CLOTH = {
   bead: 0.30, // and how far it swells past its own thickness just inside it
 
   endOver: 0.070, // hang down the ENDS of the stone, below the shoulder roll
-  fallMid: 0.330, // hang down the front, at the middle
-  swag: 0.130, // the middle of the front hem dips this much further again,
+  fallMid: 0.300, // hang down the front, at the middle
+  swag: 0.115, // the middle of the front hem dips this much further again,
   // which is the swag: the hem sweeps UP from there to the two shoulders
   // and the cloth reads as hung between them rather than laid on top
   tailFrom: 0.38, // and past the shoulder it plunges: the corner of the pall,
@@ -118,7 +118,7 @@ const CLOTH = {
   hemWave: 0.030, // how much lower the hem hangs under a ridge
   // Folds gather at the bottom of a hanging cloth and are pulled out of it over
   // the shoulder, so they open downwards rather than running as parallel pipes.
-  foldBase: 0.50,
+  foldBase: 0.70,
   foldFrom: 0.090,
   foldTo: 0.430,
 
@@ -268,7 +268,7 @@ function buildDrape({ halfWidth: W, height: H, depth: D, edge: e, rng }) {
       // Cloth is pulled thin over what it is lying on and gathers where it
       // hangs free. Without this the shoulder carried the full thickness and
       // the drape turned the top of the stone into a loaf.
-      const cling = 0.58 + 0.42 * smooth((s - 0.02) / 0.30);
+      const cling = 0.40 + 0.60 * smooth((s - 0.01) / 0.28);
       const t = CLOTH.thick * cling * hemRoll(fu) * hemRoll(fv) * (1 + CLOTH.foldDepth * fold + swell);
       const gap = CLOTH.gapMin + (CLOTH.gapMax - CLOTH.gapMin) * smooth(Math.min(fu, fv));
 
