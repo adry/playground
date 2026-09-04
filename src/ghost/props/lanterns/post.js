@@ -332,7 +332,7 @@ function buildTextures(rng) {
 // so the two read as the same candle at different distances. The absolute
 // levels are this file's own: there is one light here doing every job the
 // pumpkin splits between a gobo spot and an omni glow.
-const LAMP = { min: 1.55, max: 3.35 };     // the one PointLight
+const LAMP = { min: 0.40, max: 0.86 };     // the one PointLight
 const FLAME_EM = { min: 1.95, max: 4.20 }; // the visible tongue of flame
 // The interior, and it is held well under the flame on purpose. Taken up until
 // the chamber reads as a lightbox, the tongue of flame in front of it goes to a
@@ -983,7 +983,16 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   // shaped light is where it can be seen without one: on the arch walls, on the
   // lit interior behind them and on the flame showing through. What this light
   // does is the soft warm pool that a lantern lays around itself.
-  const lamp = new THREE.PointLight(new THREE.Color(PALETTE.glow), 0, 3.1, 2);
+  // decay 1 rather than 2, and it is the only number in this file chosen
+  // against physics. The wall of an opening is 20cm from the flame and the
+  // ground it has to pool on is a metre away: under an inverse square that is
+  // 25 to 1, so any intensity that lays a pool on the floor renders the inside
+  // of every arch as flat white and takes the roll of its lip with it. At
+  // decay 1 the same two distances are 5 to 1, the wall glows warm instead of
+  // clipping, and the pool is still a pool. The cutoff then does the far end of
+  // the job: the wash is gone by two metres rather than trailing across the
+  // graveyard the way a 1/d falloff would on its own.
+  const lamp = new THREE.PointLight(new THREE.Color(PALETTE.glow), 0, 2.4, 1);
   lamp.position.set(0, FLAME_Y, 0);
   lamp.castShadow = false;
 

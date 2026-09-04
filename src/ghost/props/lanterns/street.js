@@ -36,6 +36,13 @@ import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from '../style.js';
 // procedural sky sampled off the reflected normal, a Schlick fresnel deciding
 // how much of it you see, and one tight Blinn lobe for the key light. See
 // GLASS_OPTICS.
+//
+// WHAT IT COSTS: six draw calls and 19,100 triangles. Four of the calls are
+// the ironwork merged into one geometry, the glazing, the flame and its bloom;
+// the other two are the two floor decals, the contact patch and the light pool.
+// The ironwork is 17k of the triangles and it is where any further saving is:
+// the head runs at 40 steps round and the post at 28, and both were checked at
+// a close-up the prop will never actually be seen at.
 
 // ---------------------------------------------------------------------------
 // metrics

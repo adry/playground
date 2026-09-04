@@ -85,7 +85,15 @@ function mulberry32(seed) {
 // radii minus d". Every ring of the sweep is therefore the same outline shape
 // with smaller corner radii, and the normal at every vertex is known
 // analytically -- no computeVertexNormals, no faceting, no seams.
-function buildSlabGeometry({ halfWidth: W, height: H, depth: D, edge: e, bottomRadius: rb, topRadius: rt, uv }) {
+// Exported for registered stones. The obelisk reimplemented about ninety lines
+// of this to get a rounded block and a rounded pyramid before anyone noticed it
+// was private.
+//
+// One thing to know before deforming what it returns: the outline only places
+// vertices where it CURVES, so a straight side is one quad end to end. Anything
+// applied per vertex must therefore be linear in y, or a profile with a knee in
+// it gets smeared over the whole stone.
+export function buildSlabGeometry({ halfWidth: W, height: H, depth: D, edge: e, bottomRadius: rb, topRadius: rt, uv }) {
   const hz = D / 2;
   const segSmall = Math.max(5, Math.round(SEGMENTS.curve * 0.35));
   // The arch is the piece the eye reads as "round", so it gets the full budget.

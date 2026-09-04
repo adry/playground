@@ -47,13 +47,18 @@ const TILT = 0.15;
 // The subsidence, and it is the real one: a roll along the length that carries
 // the -x end down into the earth. Nine degrees.
 const DIP = 0.19;
-// How far below the floor the deepest vertex sits. Set by the thing that has to
-// be true: the floor must cut across the carved FACE near the low end, not just
-// hide the underside of it. Sink the stone by less than its own thickness and
-// every square inch of the face stays above ground, which is exactly how a slab
-// resting on a lawn looks. The registry adds its own small lean and a -0.012
-// drop after `extras` runs, so the seating is only ever deeper than this.
-const SINK = 0.20;
+// The stone is seated by the one number a viewer can actually see: where the
+// floor crosses the carved face, as a fraction of the half-length in from the
+// low end. Sinking by a depth instead is guesswork, and sinking by less than the
+// slab's own thickness buries nothing but the underside, which is exactly how a
+// slab resting on a lawn looks. At 0.46 rather better than a quarter of the
+// stone is gone, the cut runs where the sides are parallel so it reads as a cut
+// and not as the stone's own rounded end, and it takes the foot of the cross
+// with it: a mark walking into the ground says buried in a way no heap of soil
+// beside the stone managed to.
+const WATERLINE = -0.46;
+// ...and the depth is then checked, not assumed. Nothing may be left hovering.
+const MIN_BURY = 0.05;
 
 // Lowest point of a geometry once its matrix is applied, walked vertex by
 // vertex. Box3.setFromObject would grow the local box by the rotation and hand
@@ -121,9 +126,24 @@ registerStone('ledger', {
     // Centre the slab on the plot: its own middle is half way up the face.
     const centre = new THREE.Vector3(0, height / 2, 0).applyQuaternion(q);
     slab.position.set(-centre.x, -centre.y, -centre.z);
+
+    // Drop it until the floor crosses the face where it is meant to. The
+    // transform is affine, so the mid-line of the face is linear in x and one
+    // sample of it is the whole answer.
+    const faceMid = (x) => new THREE.Vector3(x, height / 2, THICK / 2).applyQuaternion(q).add(slab.position);
+    slab.position.y -= faceMid(WATERLINE * halfWidth).y;
     slab.updateMatrix();
-    slab.position.y -= SINK + lowestVertex(slab.geometry, slab.matrix);
-    slab.updateMatrix();
+
+    // Now check rather than trust. The deepest point of a rotated slab is not
+    // the corner of its bounding box, and Box3.setFromObject would grow the
+    // local box by the rotation and hand back a tumbling cube's corner, so this
+    // walks the vertices. If the pose ever left the low end grazing the floor
+    // instead of through it, the stone goes down until it is not.
+    const low = lowestVertex(slab.geometry, slab.matrix);
+    if (low > -MIN_BURY) {
+      slab.position.y -= MIN_BURY + low;
+      slab.updateMatrix();
+    }
 
     // The registry's plinth goes. A ledger is not set on anything, and there is
     // no honest job left for a flat-topped bar: dressed as soil it reads as a

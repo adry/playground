@@ -105,8 +105,8 @@ const COLLAR_H = 0.040;
 // window is narrow: at 0.100 the heads sat exactly where the collar springs
 // from the plate and were swallowed whole, which is a bolt that costs 720
 // triangles and cannot be seen.
-const BOLT_AT = 0.120;       // mid-face radius of the four bolt heads
-const BOLT_R = 0.010;
+const BOLT_AT = 0.117;       // mid-face radius of the four bolt heads
+const BOLT_R = 0.013;
 
 const BOX_Y = STONE_H - FLANGE_BED + FLANGE_H + COLLAR_H;   // 0.996
 const BOX_R = 0.108;         // half-extent over the frame
@@ -522,8 +522,17 @@ function flangeGeometry() {
   const base = STONE_H - FLANGE_BED;
   const at = (y) => {
     const h = y - base;
-    // Plate, then a cavetto in to the collar the box stands on.
-    let r = FLANGE_R + (COLLAR_R - FLANGE_R) * smoothstep(FLANGE_H, FLANGE_H + 0.016, h);
+    // A plate, a LEDGE, then the collar the box stands on. The ledge is a real
+    // horizontal annulus and not a slope, and that is what the second version
+    // of this function is about: at first the plate ran into the collar as a
+    // 16mm cavetto, which left nowhere flat for a bolt to sit and buried all
+    // four heads inside solid metal. Rolled to a 5mm step here, so 32mm of flat
+    // plate stands out all the way round with the bolts on it. Worth knowing
+    // that this ledge IS visible from the diorama's camera even though the box
+    // overhangs it: the camera looks down from +x +z, so the ray off a bolt on
+    // a near face travels outward and clears the box, and only the two far
+    // faces' bolts are hidden.
+    let r = FLANGE_R + (COLLAR_R - FLANGE_R) * smoothstep(FLANGE_H - 0.0025, FLANGE_H + 0.0025, h);
     // The plate's own top and bottom arrises. The bottom one is buried in the
     // stone, which is the point of FLANGE_BED.
     r -= fillet(h, 0.007) + fillet(FLANGE_H + COLLAR_H - h, 0.006);
@@ -537,7 +546,7 @@ function flangeGeometry() {
     const a = (k * Math.PI) / 2;
     const head = loftY({
       y0: -BOLT_R * 0.55,
-      y1: BOLT_R * 0.62,
+      y1: BOLT_R * 0.75,
       at: (y) => {
         const s = Math.sqrt(Math.max(0, BOLT_R * BOLT_R - y * y)) * 0.92;
         return [Math.max(1e-4, s), Math.max(1e-4, s), 0.62];
@@ -545,10 +554,11 @@ function flangeGeometry() {
       rows: 10,
       ring: 18,
     });
+    // Sunk 3mm, so what stands proud is a dome and not a ball on a plate.
     parts.push(placed(head, {
       x: Math.cos(a) * BOLT_AT,
       z: Math.sin(a) * BOLT_AT,
-      y: base + FLANGE_H - 0.004,
+      y: base + FLANGE_H - 0.003,
     }));
   }
   return mergeGeometries(parts, false);

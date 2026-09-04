@@ -239,7 +239,7 @@ registerStone('gothic', {
     inkText(ctx, '1666', w / 2, h * 0.56, h * 0.1, h * 0.012);
   },
 
-  extras({ body, material, shape, plinthH, halfWidth, height, edge, disposables, frontFrac, stripFrac }) {
+  extras({ body, material, shape, plinthH, halfWidth, height, edge, disposables, stripUV, frontFrac }) {
     const halfW = halfWidth + EPS;
     const ySpring = height - halfWidth; // where the slab's own round top starts
     const { ring, yApex } = archCore({
@@ -255,17 +255,13 @@ registerStone('gothic', {
     // the arch. Everything that is not the front face goes to the plain strip,
     // same as the slab's sides.
     const faceV = (y) => (y <= height ? y / height : 2 - y / height);
-    // The sides and back take the plain strip, but across the DEPTH rather than
-    // across x. stripUV keys u to x, which on the slab's vertical sides means
-    // one texel column smeared over the whole side wall: uv then has no
-    // gradient at all in the depth direction, the tangent frame the normal map
-    // needs is degenerate there, and the profile's rings come back as stripes
-    // down the moulding. Running u along the sweep instead gives the side a
-    // real two-dimensional patch of the same plain stone, and the stripes go.
-    const uv = (x, y, front, t) =>
+    // Everything that is not the front face goes to the plain strip on exactly
+    // the slab's own terms, so the head's sides and back are the same stone as
+    // the slab's sides and back.
+    const uv = (x, y, front) =>
       front
         ? [((x + halfWidth) / (2 * halfWidth)) * frontFrac, faceV(y)]
-        : [frontFrac + stripFrac * (0.15 + 0.7 * t), Math.min(1, Math.max(0, faceV(y)))];
+        : stripUV(x, Math.min(1, Math.max(0, faceV(y))) * height, halfW, height);
 
     const geo = buildArchGeometry({
       ring,
