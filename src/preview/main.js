@@ -12,7 +12,27 @@ const PROPS = {
   },
   skeleton: async () => {
     const m = await import('../ghost/props/skeleton/model.js');
-    return m.createSkeletonRig();
+    const rig = m.createSkeletonRig();
+    // ?pose=crouch bends the figure hard. The spine's seams only have to hold
+    // while it is bent, and this character's first seconds are spent hauling
+    // itself out of the ground, so a rest-pose-only check proves nothing.
+    if (params.get('pose') === 'crouch') {
+      const j = rig.joints;
+      j.spineLower.rotation.set(0.80, 0.25, 0.10);
+      j.spineUpper.rotation.set(-0.90, -0.30, -0.12);
+      j.neck.rotation.set(0.60, 0.35, 0);
+      j.head.rotation.set(-0.65, -0.25, 0);
+      j.jaw.rotation.x = 0.55;
+      for (const side of ['L', 'R']) {
+        j[`shoulder${side}`].rotation.set(-1.10, 0, side === 'L' ? 0.35 : -0.35);
+        j[`elbow${side}`].rotation.x = 1.60;
+        j[`hip${side}`].rotation.x = -1.20;
+        j[`knee${side}`].rotation.x = 1.70;
+        j[`ankle${side}`].rotation.x = 0.40;
+      }
+      rig.group.position.y = 0.35;
+    }
+    return rig;
   },
   tombstones: async () => {
     const m = await import('../ghost/props/tombstones.js');

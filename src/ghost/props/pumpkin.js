@@ -33,19 +33,22 @@ const FACE_YAW = Math.PI / 4;
 // Tessellation. SEGMENTS is sized for plain round surfaces; a lobed one needs
 // several times that many steps around, or the grooves stair-step, so the
 // counts here scale the house numbers up rather than reusing them blind.
-const RINGS = SEGMENTS.height * 3;
+const RINGS = SEGMENTS.height * 4;
 
 // What the lamp, the carving and its bloom look like at the bottom and the top
 // of the flicker's swing. All three are driven off the one value, which is what
 // makes the light and the face read as the same flame.
 const LAMP = { min: 1.05, max: 3.10 };     // PointLight intensity
-const GLOW = { min: 0.88, max: 1.38 };     // face emissiveIntensity
-// Raised from 0.09/0.32 once the mouth was measured properly. The reference's
-// cuts are chamfered, and that bevel catches enough light to read as part of the
-// opening: measure the reference's grin by its glow alone and it is no taller
-// than ours, but measure it by eye and it is half again as deep. The bloom is
-// the only thing we have standing in for the chamfer, so it has to carry it.
-const BLOOM = { min: 0.14, max: 0.42 };    // halo opacity
+// Raised once the interior was recessed. Sunk a shell thickness behind a wall,
+// the plate lost the light the old flush patch caught, and at game size the
+// faces went dim. The reference's openings are close to white anyway.
+const GLOW = { min: 1.18, max: 1.82 };     // face emissiveIntensity
+// The cuts are real holes with a real wall now, so what used to be a painted
+// bloom on the skin is instead a faint emissive on that wall: the flame washing
+// the inside of the opening. Kept low, because the hemisphere light is what
+// gives the cut its shape -- ceiling dark, lower lip catching the sky -- and a
+// strong emissive would flatten exactly that.
+const WASH = { min: 0.07, max: 0.20 };      // flame washing the inside of the cuts
 
 // The flame's two ends: a dull ember at the bottom of a gutter, bright flame at
 // the top of a flare.
@@ -137,73 +140,6 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     return target.crossVectors(tmpA, tmpC).normalize();
   };
 
-  // --- Shell mesh ----------------------------------------------------------
-  const radial = Math.max(lobes * 18, SEGMENTS.radial);
-  const shellGeo = (() => {
-    const verts = [];
-    const colors = [];
-    const idx = [];
-    const p = new THREE.Vector3();
-
-    const skin = new THREE.Color(PALETTE.pumpkinSkin).convertSRGBToLinear();
-    const shade = new THREE.Color(PALETTE.pumpkinShade).convertSRGBToLinear();
-    const c = new THREE.Color();
-
-    const pushColor = (a, s) => {
-      // Paint the grooves with the palette's shade colour. Real shading already
-      // darkens them; this keeps them readable when the key light is head-on.
-      const g = Math.pow(0.5 - 0.5 * Math.cos(lobes * a), 0.9);
-      c.copy(skin).lerp(shade, g * 0.20);
-      // A touch more shade in the last of the underside, standing in for the
-      // contact occlusion a prop this simple gets no other way. Kept small:
-      // overdoing it turns the palette's orange into a muddy red.
-      const low = Math.max(0, -s - 0.55) / 0.45;
-      c.lerp(shade, low * low * 0.12);
-      colors.push(c.r, c.g, c.b);
-    };
-
-    // Bottom pole (index 0).
-    surface(0, -1, p); verts.push(p.x, p.y, p.z); pushColor(0, -1);
-
-    // s is distributed by angle so the fast-changing shoulders get the samples.
-    for (let j = 1; j < RINGS; j++) {
-      const s = -Math.cos((Math.PI * j) / RINGS);
-      for (let i = 0; i < radial; i++) {
-        const a = (i / radial) * Math.PI * 2;
-        surface(a, s, p);
-        verts.push(p.x, p.y, p.z);
-        pushColor(a, s);
-      }
-    }
-
-    // Top pole (last index).
-    surface(0, 1, p); verts.push(p.x, p.y, p.z); pushColor(0, 1);
-    const top = verts.length / 3 - 1;
-
-    const ring = (j, i) => 1 + (j - 1) * radial + (i % radial);
-    for (let i = 0; i < radial; i++) idx.push(0, ring(1, i + 1), ring(1, i));
-    for (let j = 1; j < RINGS - 1; j++) {
-      for (let i = 0; i < radial; i++) {
-        const a0 = ring(j, i), a1 = ring(j, i + 1);
-        const b0 = ring(j + 1, i), b1 = ring(j + 1, i + 1);
-        idx.push(a0, a1, b0, a1, b1, b0);
-      }
-    }
-    for (let i = 0; i < radial; i++) idx.push(ring(RINGS - 1, i), ring(RINGS - 1, i + 1), top);
-
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    g.setIndex(idx);
-    g.computeVertexNormals(); // shared vertices, wrapped seam -> no visible facets
-    return g;
-  })();
-
-  // Vertex colours carry the whole hue, so the material's own colour is white.
-  const shellMat = toyMaterial('#ffffff', { vertexColors: true, roughness: 0.78 });
-  const shell = new THREE.Mesh(shellGeo, shellMat);
-  shell.castShadow = true;
-  shell.receiveShadow = true;
 
   // --- Mapping face coordinates onto the shell -----------------------------
   // Face shapes are authored in (X across the surface, Y height above ground)
@@ -225,12 +161,25 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     return S_LO + ((S_HI - S_LO) * (lo + f)) / S_N;
   };
 
-  // Sit the carving 3mm proud of the shell. Because the patches are tessellated
-  // finely enough that their own chord error is under a tenth of a millimetre,
-  // this only has to clear the shell's polygonal approximation -- and staying
-  // this tight matters: any more and the carving breaks the silhouette when the
-  // face is seen edge-on.
-  const FACE_LIFT = 0.003;
+  // The glowing interior sits at the BOTTOM of the cut, one shell thickness in,
+  // not on the skin. Laid on the skin it was a sticker: at three quarters the
+  // glow met the outer surface with nothing in between, and no amount of
+  // shading on a coplanar patch fixes that. SHELL_T is what the wall built
+  // below spans, so plate and wall meet exactly.
+  // 7% of the body radius. The reference reads thicker, nearer a tenth, but the
+  // grin is only 0.086 tall from lip to lip and a wall that deep swallowed it:
+  // seen from three quarters the near lip occluded more than the whole band and
+  // the mouth broke into fragments. This is as thick as the thinnest feature on
+  // the face can carry.
+  const SHELL_T = 0.028;
+  const WALL_TAPER = 0.005; // how much narrower the cut is at its bottom
+  // The wall's top ring laps this far back over the skin, a hair proud of it,
+  // rather than meeting the hole edge exactly. Meeting exactly is correct and
+  // fragile: at three quarters the far eye, seen nearly edge on, opened a crack
+  // of daylight at its sharpest corner. Lapping the joint shuts that for good,
+  // and the sliver of darker wall it leaves on the skin reads as the lip of the
+  // cut, which the reference has anyway.
+  const WALL_LIP = 0.007, WALL_PROUD = 0.0006;
   // The seed rescales the shell a few percent in each axis, so the face has to
   // ride that scale instead of sitting at fixed heights. Authored absolutely,
   // the eyes -- which sit high on the shoulder -- ran off the crown of a
@@ -335,10 +284,13 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   //
   // Widths and heights below are the re-measured reference: tips at dx 243 of a
   // 862px body, upper edge flat near y 635 and lower near y 705, both taken back
-  // through this camera.
+  // through this camera, and then opened up about a tenth. The reference's
+  // chamfer is shallow where ours is a real wall a tenth of a body radius deep,
+  // and that wall eats into the band from both sides; measured exactly, the
+  // glow left between the lips came out thinner than the photograph's.
   const MW = 0.2300;      // half width
-  const M_TOP = 0.2665;   // upper edge across the middle
-  const M_BOT = 0.1800;   // lower edge across the middle
+  const M_TOP = 0.2710;   // upper edge across the middle
+  const M_BOT = 0.1735;   // lower edge across the middle
   const M_TIP = 0.2940;   // where the two edges meet, at the lifted corners
   // The lower edge is not level: on the reference it hangs about 0.009 deeper
   // halfway out than it does at the centre, which is what gives the grin its two
@@ -363,9 +315,8 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     return t * t * (3 - 2 * t);
   };
   // Tooth sizes are absolute, not fractions of the band: they all sit in the
-  // flat middle where the band barely changes, and absolute depths let the bloom
-  // outline be derived by simple inset. Both are under half the band's 0.086 on
-  // purpose. Measured off the reference the upper teeth bite about 40% of the
+  // flat middle where the band barely changes. Both are under half the band's
+  // 0.086 on purpose. Measured off the reference the upper teeth bite about 40% of the
   // way down; past a half and the channel of light behind them closes, which is
   // what turned the first grin into five separate boxes.
   const TOOTH_X = 0.122, TOOTH_HW = 0.046, TOOTH_DEPTH = 0.042, TOOTH_RAMP = 0.16;
@@ -377,61 +328,496 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // whatever the numbers above are nudged to.
   const CLEAR = 0.22;
 
-  // bleed = 0 is the cut itself; bleed = 1 is the outline the bloom uses. The
-  // bloom cannot be the usual scaled copy here, because scaling a shape with
-  // notches in it scales the notches too: the bloom's teeth came out wider than
-  // the real teeth and offset outward, so additive glow landed on the inner
-  // third of every tooth and the teeth rendered at barely half their true width.
-  // What is wanted is a dilation, and for a tooth that means insetting it while
-  // the outline pushes out.
-  const BLEED = 0.016;
-  const mouthAt = (bleed) => {
-    const g = BLEED * bleed;
-    const mw = MW + g * 1.6;
-    const top1 = M_TOP + g;
-    const bot1 = M_BOT - g;
-    const tip1 = M_TIP + g;
-    // Half the outline's bleed, not all of it: a full inset here shaved the
-    // whole bleed off every tooth's tip and flanks, and the teeth rendered a
-    // third shorter and a quarter narrower than they are cut.
-    const depth = TOOTH_DEPTH - g * 0.45;
-    const domeH = DOME_H - g * 0.45;
-    const thw = TOOTH_HW - g * 0.40;
-    const lhw = LOW_HW - g * 0.40;
-    return (u, v) => {
-      const x = -mw + 2 * mw * u;
-      const q = Math.abs(x) / mw;
-      const top0 = top1 + (tip1 - top1) * Math.pow(q, 2.4);
-      const sag = Math.max(0, 1 - Math.pow((q - 0.5) / 0.5, 2));
-      const bot0 = bot1 - M_SAG * sag + (tip1 - bot1) * Math.pow(q, 3.8);
-      const gap = top0 - bot0;
-      // Two teeth hang down from the upper edge, just inside the eyes.
-      let bite = 0;
-      for (const tx of [-TOOTH_X, TOOTH_X]) {
-        bite += depth * block(Math.abs(x - tx) / thw, TOOTH_RAMP);
-      }
-      // One broad tooth rises from the lower edge in the middle.
-      const dLow = Math.min(1, Math.abs(x) / lhw);
-      const grow = domeH * Math.pow(1 - dLow * dLow, LOW_ROUND);
-      const room = Math.max(0, gap * (1 - CLEAR));
-      const top = top0 - Math.min(bite, room);
-      const bottom = bot0 + Math.min(grow, room);
-      return [x, top + (bottom - top) * v];
-    };
+  const mouth = (u, v) => {
+    const x = -MW + 2 * MW * u;
+    const q = Math.abs(x) / MW;
+    const top0 = M_TOP + (M_TIP - M_TOP) * Math.pow(q, 2.4);
+    const sag = Math.max(0, 1 - Math.pow((q - 0.5) / 0.5, 2));
+    const bot0 = M_BOT - M_SAG * sag + (M_TIP - M_BOT) * Math.pow(q, 3.8);
+    const gap = top0 - bot0;
+    // Two teeth hang down from the upper edge, just inside the eyes.
+    let bite = 0;
+    for (const tx of [-TOOTH_X, TOOTH_X]) {
+      bite += TOOTH_DEPTH * block(Math.abs(x - tx) / TOOTH_HW, TOOTH_RAMP);
+    }
+    // One broad tooth rises from the lower edge in the middle.
+    const dLow = Math.min(1, Math.abs(x) / LOW_HW);
+    const grow = DOME_H * Math.pow(1 - dLow * dLow, LOW_ROUND);
+    const room = Math.max(0, gap * (1 - CLEAR));
+    const top = top0 - Math.min(bite, room);
+    const bottom = bot0 + Math.min(grow, room);
+    return [x, top + (bottom - top) * v];
   };
-  const mouth = mouthAt(0);
 
   // The mouth needs the samples: at 96 across, a tooth flank fell inside a
   // single column and its shoulders came out as a staircase. 240 puts two or
   // three columns in the flank, which is enough for the smoothstep to read.
   const FACE_SHAPES = [
-    { nx: 12, ny: 12, sampler: eye(-1), cx: -0.1462, cy: 0.4216 },
-    { nx: 12, ny: 12, sampler: eye(1), cx: 0.1462, cy: 0.4216 },
-    { nx: 8, ny: 8, sampler: nose, cx: 0, cy: 0.3474 },
-    { nx: 240, ny: 10, sampler: mouth, cx: 0, cy: 0.2233, halo: mouthAt(1) },
+    { nx: 14, ny: 14, sampler: eye(-1) },
+    { nx: 14, ny: 14, sampler: eye(1) },
+    { nx: 10, ny: 10, sampler: nose },
+    { nx: 240, ny: 10, sampler: mouth },
   ];
 
-  const faceGeo = patchGeometry(FACE_SHAPES, FACE_LIFT);
+
+  // --- Cutting the openings --------------------------------------------------
+  // The face used to be emissive patches lying on the skin. Head on that passes;
+  // at three quarters it is plainly a sticker, because a real cut has a wall and
+  // a wall is the whole of the depth cue. Turned away from the camera it shows a
+  // band of shaded orange between skin and glow, turned toward it that band
+  // pinches to nothing, and the near lip hides part of the interior. None of
+  // that can be painted on, and every attempt to shade it in falls apart at
+  // exactly the angle that matters.
+  //
+  // No general CSG is needed for it. The shell is already a grid over (a, s) and
+  // every face shape is already a closed outline in face space, so an opening is
+  // just a region of that grid: drop the quads whose centres fall inside, pull
+  // the vertices left on the rim onto the true outline so the edge does not
+  // staircase along grid lines, and extrude that rim inward along the surface
+  // normal to build the wall.
+
+  // Face-space position of a grid vertex: the inverse of what facePoint does.
+  const faceOf = (a, s) => {
+    const aw = a > Math.PI ? a - Math.PI * 2 : a;
+    return [(aw * bodyR * profileR(s)) / FACE_SX, (profileY(s) + yBase) / FACE_SY];
+  };
+
+  // Each cut's outline, walked off the shape's own sampler rather than written
+  // out again, so the hole, its wall and the emissive plate at the bottom of it
+  // are the same curve by construction instead of by three sets of numbers
+  // agreeing with each other.
+  const outlineOf = (sampler, n) => {
+    const pts = [];
+    const add = (u, v) => {
+      const q = sampler(u, v);
+      const last = pts[pts.length - 1];
+      if (!last || Math.abs(q[0] - last[0]) + Math.abs(q[1] - last[1]) > 1e-7) pts.push(q);
+    };
+    for (let i = 0; i <= n; i++) add(i / n, 0);
+    for (let i = 1; i <= n; i++) add(1, i / n);
+    for (let i = 1; i <= n; i++) add(1 - i / n, 1);
+    for (let i = 1; i < n; i++) add(0, 1 - i / n);
+    // Triangles are authored as grids with the top edge collapsed, so the walk
+    // above revisits the apex; drop whatever doubles back onto the start.
+    while (pts.length > 2) {
+      const f = pts[0], l = pts[pts.length - 1];
+      if (Math.abs(f[0] - l[0]) + Math.abs(f[1] - l[1]) < 1e-7) pts.pop(); else break;
+    }
+    // Wound counter-clockwise, so "into the cut" is one fixed rotation of the
+    // edge tangent everywhere. Aiming at the shape's centroid instead would
+    // point the wrong way down the flank of a tooth.
+    let area = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const f = pts[i], g = pts[(i + 1) % pts.length];
+      area += f[0] * g[1] - g[0] * f[1];
+    }
+    if (area < 0) pts.reverse();
+    return pts;
+  };
+
+  const CUTS = FACE_SHAPES.map(({ sampler }) => {
+    const pts = outlineOf(sampler, 160);
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const q of pts) {
+      if (q[0] < minX) minX = q[0];
+      if (q[0] > maxX) maxX = q[0];
+      if (q[1] < minY) minY = q[1];
+      if (q[1] > maxY) maxY = q[1];
+    }
+    return { pts, minX, maxX, minY, maxY };
+  });
+
+  // Crossing count, bounding box first. Without the box this runs over every
+  // grid vertex against every outline point and costs more than the mesh.
+  const inCut = (cut, X, Y) => {
+    if (X < cut.minX || X > cut.maxX || Y < cut.minY || Y > cut.maxY) return false;
+    const pts = cut.pts;
+    let hit = false;
+    for (let i = 0, k = pts.length - 1; i < pts.length; k = i++) {
+      const yi = pts[i][1], yk = pts[k][1];
+      if ((yi > Y) !== (yk > Y) && X < ((pts[k][0] - pts[i][0]) * (Y - yi)) / (yk - yi) + pts[i][0]) hit = !hit;
+    }
+    return hit;
+  };
+  const cutAt = (X, Y) => {
+    for (const cut of CUTS) if (inCut(cut, X, Y)) return cut;
+    return null;
+  };
+
+  // Nearest point on an outline, and the inward normal of the segment it landed
+  // on. That normal is what the wall is built against, so no loop tracing is
+  // needed: each rim vertex carries its own direction into the cut.
+  const snapTo = (cut, X, Y) => {
+    const pts = cut.pts;
+    let best = null;
+    let bestD = Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      const f = pts[i], g = pts[(i + 1) % pts.length];
+      const ex = g[0] - f[0], ey = g[1] - f[1];
+      const len2 = ex * ex + ey * ey || 1e-12;
+      const t = Math.min(1, Math.max(0, ((X - f[0]) * ex + (Y - f[1]) * ey) / len2));
+      const cx = f[0] + ex * t, cy = f[1] + ey * t;
+      const d = (X - cx) * (X - cx) + (Y - cy) * (Y - cy);
+      if (d < bestD) {
+        bestD = d;
+        const inv = 1 / (Math.hypot(ex, ey) || 1);
+        best = { X: cx, Y: cy, nx: -ey * inv, ny: ex * inv };
+      }
+    }
+    return best;
+  };
+
+  // --- Shell mesh ----------------------------------------------------------
+  // Denser than the plain shell needed. The grid is now the thing being cut, so
+  // its cell has to be small next to a tooth flank; at the old 180 x 96 a whole
+  // tooth was three cells wide and snapping could not rescue the outline.
+  const radial = Math.max(lobes * 22, SEGMENTS.radial * 2);
+  const shellVerts = [];
+  const shellNors = [];
+  const shellColors = [];
+  const shellIdx = [];
+  const wallVerts = [];
+  const wallNors = [];
+  const wallColors = [];
+  const wallIdx = [];
+
+  (() => {
+    const p = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    const skin = new THREE.Color(PALETTE.pumpkinSkin).convertSRGBToLinear();
+    const shade = new THREE.Color(PALETTE.pumpkinShade).convertSRGBToLinear();
+    const c = new THREE.Color();
+
+    const colorAt = (a, s) => {
+      // Paint the grooves with the palette's shade colour. Real shading already
+      // darkens them; this keeps them readable when the key light is head-on.
+      const g = Math.pow(0.5 - 0.5 * Math.cos(lobes * a), 0.9);
+      c.copy(skin).lerp(shade, g * 0.20);
+      // A touch more shade in the last of the underside, standing in for the
+      // contact occlusion a prop this simple gets no other way. Kept small:
+      // overdoing it turns the palette's orange into a muddy red.
+      const low = Math.max(0, -s - 0.55) / 0.45;
+      return c.lerp(shade, low * low * 0.12);
+    };
+
+    // Ring vertices are stored in (a, s) first so the rim ones can be moved
+    // before any position is baked.
+    const nRing = RINGS - 1;
+    const va = new Float64Array(nRing * radial);
+    const vs = new Float64Array(nRing * radial);
+    const rimNX = new Float64Array(nRing * radial);
+    const rimNY = new Float64Array(nRing * radial);
+    const isRim = new Uint8Array(nRing * radial);
+    const vk = (j, i) => (j - 1) * radial + ((i % radial) + radial) % radial;
+
+    for (let j = 1; j < RINGS; j++) {
+      const s = -Math.cos((Math.PI * j) / RINGS);
+      for (let i = 0; i < radial; i++) {
+        const k = vk(j, i);
+        va[k] = (i / radial) * Math.PI * 2;
+        vs[k] = s;
+      }
+    }
+
+    // Quad (j, i) spans rings j..j+1 and columns i..i+1, for j = 1..RINGS-2, and
+    // is dropped when its centre falls inside a cut. Testing all four corners
+    // instead keeps the hole strictly inside the outline, which is safer, but it
+    // also blunts every corner by a whole cell: the nose came out a hexagon.
+    // Centre testing keeps the shape and the two guards below cover what it
+    // costs -- the rim snap is clamped so no surviving quad can turn itself
+    // inside out, and the emissive plate carries a skirt wider than a cell so
+    // there is always something behind an overshoot.
+    const nQuad = RINGS - 2;
+    const qcut = new Array(nQuad * radial).fill(null);
+    const qk = (j, i) => (j - 1) * radial + ((i % radial) + radial) % radial;
+    for (let j = 1; j <= nQuad; j++) {
+      const s0 = -Math.cos((Math.PI * j) / RINGS);
+      const s1 = -Math.cos((Math.PI * (j + 1)) / RINGS);
+      const sm = (s0 + s1) * 0.5;
+      for (let i = 0; i < radial; i++) {
+        const am = ((i + 0.5) / radial) * Math.PI * 2;
+        const f = faceOf(am, sm);
+        qcut[qk(j, i)] = cutAt(f[0], f[1]);
+      }
+    }
+    // A vertex is on the rim when it touches both a dropped quad and a kept one.
+    const quadOf = (j, i) => (j < 1 || j > nQuad ? null : qcut[qk(j, i)]);
+    for (let j = 1; j < RINGS; j++) {
+      for (let i = 0; i < radial; i++) {
+        const around = [quadOf(j - 1, i - 1), quadOf(j - 1, i), quadOf(j, i - 1), quadOf(j, i)];
+        let cut = null;
+        let open = false;
+        for (const q of around) {
+          if (q) cut = q; else open = true;
+        }
+        if (!cut || !open) continue;
+        const k = vk(j, i);
+        const f = faceOf(va[k], vs[k]);
+        const hit = snapTo(cut, f[0], f[1]);
+        // Clamp the pull to under a cell in each direction. A rim vertex is
+        // shared with the quads that survive, and one dragged clean across a
+        // neighbour turns it inside out: it back-face culls and leaves a cell of
+        // background showing through the pumpkin, which is exactly the speck
+        // that appeared at the outer corner of each eye.
+        const cellX = ((Math.PI * 2) / radial) * bodyR * profileR(vs[k]) / FACE_SX;
+        const cellY = (bodyH * (Math.PI / RINGS) * Math.sin((Math.PI * j) / RINGS)) / FACE_SY;
+        const hx = f[0] + Math.max(-0.55 * cellX, Math.min(0.55 * cellX, hit.X - f[0]));
+        const hy = f[1] + Math.max(-0.55 * cellY, Math.min(0.55 * cellY, hit.Y - f[1]));
+        hit.X = hx;
+        hit.Y = hy;
+        const sNew = sOfY(hit.Y * FACE_SY);
+        const aNew = (hit.X * FACE_SX) / Math.max(0.05, bodyR * profileR(sNew));
+        va[k] = aNew < 0 ? aNew + Math.PI * 2 : aNew;
+        vs[k] = sNew;
+        rimNX[k] = hit.nx;
+        rimNY[k] = hit.ny;
+        isRim[k] = 1;
+      }
+    }
+
+    // Bottom pole (index 0).
+    surface(0, -1, p);
+    surfaceNormal(0, -1, n);
+    shellVerts.push(p.x, p.y, p.z);
+    shellNors.push(n.x, n.y, n.z);
+    const c0 = colorAt(0, -1);
+    shellColors.push(c0.r, c0.g, c0.b);
+
+    for (let j = 1; j < RINGS; j++) {
+      for (let i = 0; i < radial; i++) {
+        const k = vk(j, i);
+        surface(va[k], vs[k], p);
+        // Analytic normals rather than computeVertexNormals: with quads missing
+        // around every opening, averaged face normals would dish the skin at the
+        // rim, and the wall needs its own normals anyway so the lip stays a
+        // crisp edge instead of smearing into the skin.
+        surfaceNormal(va[k], vs[k], n);
+        shellVerts.push(p.x, p.y, p.z);
+        shellNors.push(n.x, n.y, n.z);
+        const cc = colorAt(va[k], vs[k]);
+        shellColors.push(cc.r, cc.g, cc.b);
+      }
+    }
+
+    surface(0, 1, p);
+    surfaceNormal(0, 1, n);
+    shellVerts.push(p.x, p.y, p.z);
+    shellNors.push(n.x, n.y, n.z);
+    const c1 = colorAt(0, 1);
+    shellColors.push(c1.r, c1.g, c1.b);
+    const topIdx = shellVerts.length / 3 - 1;
+
+    const ring = (j, i) => 1 + vk(j, i);
+    for (let i = 0; i < radial; i++) shellIdx.push(0, ring(1, i + 1), ring(1, i));
+    for (let j = 1; j <= nQuad; j++) {
+      for (let i = 0; i < radial; i++) {
+        if (qcut[qk(j, i)]) continue;
+        const a0 = ring(j, i), a1 = ring(j, i + 1);
+        const b0 = ring(j + 1, i), b1 = ring(j + 1, i + 1);
+        shellIdx.push(a0, a1, b0, a1, b1, b0);
+      }
+    }
+    for (let i = 0; i < radial; i++) shellIdx.push(ring(RINGS - 1, i), ring(RINGS - 1, i + 1), topIdx);
+
+    // --- The cut walls -------------------------------------------------------
+    // One ribbon quad per grid edge that has a dropped quad on one side and a
+    // kept one on the other. The rim vertices are already snapped onto the
+    // outline, so the ribbon follows the true curve; extruding each of them back
+    // along its own surface normal by SHELL_T lands exactly where the emissive
+    // plate's boundary is, so wall and plate meet with no seam.
+    const wallLap = new THREE.Color().copy(skin);  // the lapped ring must not read at all
+    const wallSkin = new THREE.Color().copy(skin).lerp(shade, 0.30);
+    const wallDeep = new THREE.Color().copy(skin).lerp(shade, 0.85);
+    const P0 = new THREE.Vector3(), P1 = new THREE.Vector3();
+    const N0 = new THREE.Vector3(), N1 = new THREE.Vector3();
+    const W0 = new THREE.Vector3(), W1 = new THREE.Vector3();
+    const e = new THREE.Vector3(), d = new THREE.Vector3(), g3 = new THREE.Vector3();
+    const tmp = new THREE.Vector3();
+
+    // The 3D direction that a face-space step of (nx, ny) points in, flattened
+    // into the surface's tangent plane. This is the wall's normal: it comes off
+    // the outline rather than off the quad, so neighbouring wall quads sharing a
+    // rim vertex agree and the ribbon shades smoothly round a curve.
+    const wallNormal = (k, N, out) => {
+      const f = faceOf(va[k], vs[k]);
+      const eps = 2e-3;
+      facePoint(f[0] + rimNX[k] * eps, f[1] + rimNY[k] * eps, 0, out);
+      facePoint(f[0], f[1], 0, tmp);
+      out.sub(tmp);
+      out.addScaledVector(N, -out.dot(N));
+      const len = out.length();
+      return len > 1e-9 ? out.divideScalar(len) : out.copy(N);
+    };
+
+    const pushWall = (kA, kB, cut) => {
+      surface(va[kA], vs[kA], P0);
+      surface(va[kB], vs[kB], P1);
+      surfaceNormal(va[kA], vs[kA], N0);
+      surfaceNormal(va[kB], vs[kB], N1);
+      wallNormal(kA, N0, W0);
+      wallNormal(kB, N1, W1);
+      e.copy(P1).sub(P0);
+      d.copy(N0).multiplyScalar(-SHELL_T);
+      g3.crossVectors(e, d);
+      const flip = g3.dot(W0) < 0;
+      const first = flip ? P1 : P0;
+      const second = flip ? P0 : P1;
+      const nFirst = flip ? W1 : W0;
+      const nSecond = flip ? W0 : W1;
+      const iFirst = flip ? N1 : N0;
+      const iSecond = flip ? N0 : N1;
+      const base = wallVerts.length / 3;
+      // Three rings, not two. The outer one laps back over the skin carrying the
+      // SKIN's normal, so it shades as skin and simply is not visible; that is
+      // the ring that shuts the crack. The middle one sits on the hole edge and
+      // carries the wall's normal, and the jump between the two is the lip. Give
+      // the lapped ring the wall's normal instead and it lights side-on against
+      // the skin, drawing a bright wire round every opening.
+      const push = (pt, nr, nm, ring) => {
+        if (ring === 0) tmp.copy(pt).addScaledVector(nr, -WALL_LIP).addScaledVector(nm, WALL_PROUD);
+        else if (ring === 1) tmp.copy(pt);
+        else tmp.copy(pt).addScaledVector(nr, WALL_TAPER).addScaledVector(nm, -SHELL_T);
+        wallVerts.push(tmp.x, tmp.y, tmp.z);
+        const nn = ring === 0 ? nm : nr;
+        wallNors.push(nn.x, nn.y, nn.z);
+        const col = ring === 0 ? wallLap : ring === 1 ? wallSkin : wallDeep;
+        wallColors.push(col.r, col.g, col.b);
+      };
+      for (let ring = 0; ring < 3; ring++) {
+        push(first, nFirst, iFirst, ring);
+        push(second, nSecond, iSecond, ring);
+      }
+      for (let ring = 0; ring < 2; ring++) {
+        const b = base + ring * 2;
+        wallIdx.push(b, b + 1, b + 3, b, b + 3, b + 2);
+      }
+      return cut;
+    };
+
+    for (let j = 1; j <= nQuad; j++) {
+      for (let i = 0; i < radial; i++) {
+        const here = qcut[qk(j, i)];
+        // Vertical grid edge shared with the quad to the left.
+        const left = quadOf(j, i - 1);
+        if (!!here !== !!left) pushWall(vk(j, i), vk(j + 1, i), here || left);
+        // Horizontal grid edge shared with the quad below.
+        const below = quadOf(j - 1, i);
+        if (!!here !== !!below) pushWall(vk(j, i), vk(j, i + 1), here || below);
+      }
+    }
+  })();
+
+  const shellGeo = new THREE.BufferGeometry();
+  shellGeo.setAttribute('position', new THREE.Float32BufferAttribute(shellVerts, 3));
+  shellGeo.setAttribute('normal', new THREE.Float32BufferAttribute(shellNors, 3));
+  shellGeo.setAttribute('color', new THREE.Float32BufferAttribute(shellColors, 3));
+  shellGeo.setIndex(shellIdx);
+  shellGeo.computeBoundingSphere();
+
+  const wallGeo = new THREE.BufferGeometry();
+  wallGeo.setAttribute('position', new THREE.Float32BufferAttribute(wallVerts, 3));
+  wallGeo.setAttribute('normal', new THREE.Float32BufferAttribute(wallNors, 3));
+  wallGeo.setAttribute('color', new THREE.Float32BufferAttribute(wallColors, 3));
+  wallGeo.setIndex(wallIdx);
+  wallGeo.computeBoundingSphere();
+
+  // Vertex colours carry the whole hue, so the material's own colour is white.
+  const shellMat = toyMaterial('#ffffff', { vertexColors: true, roughness: 0.78 });
+  const shell = new THREE.Mesh(shellGeo, shellMat);
+  shell.castShadow = true;
+  shell.receiveShadow = true;
+
+  // The wall is its own material so it can carry the flame's wash without the
+  // skin picking it up, and its own geometry so its normals never average into
+  // the skin's at the lip.
+  const wallMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    roughness: 0.88,
+    metalness: 0,
+    emissive: new THREE.Color(PALETTE.glow),
+    emissiveIntensity: (WASH.min + WASH.max) / 2,
+  });
+  const wall = new THREE.Mesh(wallGeo, wallMat);
+  wall.castShadow = false;   // it faces into a hole; a caster here is only acne
+  wall.receiveShadow = true;
+
+  // The glowing plate, plus a skirt of the same emissive running a little way
+  // out from the outline underneath the skin. The skirt is never meant to be
+  // seen: it is there so that where the grid's hole overshoots the outline by a
+  // fraction of a cell there is still something behind it. Sunk a whole shell
+  // thickness and only a cell and a half wide, the skin covers it from every
+  // angle the prop is ever seen from.
+  const faceGeo = (() => {
+    // A hair below the bottom of the wall rather than exactly level with it.
+    // Level, the plate and the wall's inner ring are coplanar and their shared
+    // edge speckles.
+    const PLATE = SHELL_T + 0.0012;
+    const g = patchGeometry(FACE_SHAPES, -PLATE);
+    const pos = Array.from(g.getAttribute('position').array);
+    const idx = Array.from(g.getIndex().array);
+    const p = new THREE.Vector3();
+    const SKIRT = 0.030;
+    const COLLAR_TOP = 0.011;   // deep enough that the collar never grazes the skin
+    const put = (X, Y, lift) => {
+      facePoint(X, Y, lift === undefined ? -PLATE : lift, p);
+      pos.push(p.x, p.y, p.z);
+      return pos.length / 3 - 1;
+    };
+    for (const cut of CUTS) {
+      const pts = cut.pts;
+      const outs = pts.map((f, i) => {
+        const h = pts[(i + 1) % pts.length];
+        const ex = h[0] - f[0], ey = h[1] - f[1];
+        const inv = 1 / (Math.hypot(ex, ey) || 1);
+        // Outward is the reverse of the counter-clockwise inward normal.
+        return [ey * inv, -ex * inv];
+      });
+      for (let i = 0; i < pts.length; i++) {
+        const f = pts[i], h = pts[(i + 1) % pts.length];
+        const o = outs[i];
+        const b0 = put(f[0], f[1]);
+        const b1 = put(h[0], h[1]);
+        const b2 = put(h[0] + o[0] * SKIRT, h[1] + o[1] * SKIRT);
+        const b3 = put(f[0] + o[0] * SKIRT, f[1] + o[1] * SKIRT);
+        idx.push(b0, b1, b2, b0, b2, b3);
+        // Fan across the corner. Two neighbouring strips point their offsets in
+        // different directions, and at a convex corner that leaves a wedge of
+        // nothing behind the sharpest part of the outline. It is exactly where
+        // the last of the see-through specks were: at the outer corner of each
+        // eye, which is the sharpest turn on the whole face.
+        const q = outs[(i + 1) % pts.length];
+        const c0 = put(h[0], h[1]);
+        const c1 = put(h[0] + o[0] * SKIRT, h[1] + o[1] * SKIRT);
+        const c2 = put(h[0] + q[0] * SKIRT, h[1] + q[1] * SKIRT);
+        idx.push(c0, c1, c2);
+        // A collar standing up from the skirt's outer edge to just under the
+        // skin, so the plug behind each cut is a closed box rather than a floor.
+        // Without it a sight line almost parallel to the skin could still slip
+        // between a stray grid cell and the wall and come out the far side, and
+        // it did: one pixel of daylight at the sharpest corner of the far eye,
+        // only ever at three quarters.
+        const d0 = put(f[0] + o[0] * SKIRT, f[1] + o[1] * SKIRT, -COLLAR_TOP);
+        const d1 = put(h[0] + o[0] * SKIRT, h[1] + o[1] * SKIRT, -COLLAR_TOP);
+        const d2 = put(h[0] + o[0] * SKIRT, h[1] + o[1] * SKIRT);
+        const d3 = put(f[0] + o[0] * SKIRT, f[1] + o[1] * SKIRT);
+        idx.push(d0, d1, d2, d0, d2, d3);
+        // and a post across the corner, for the same reason the floor needed a
+        // fan there: two neighbouring collar panels lean apart at a convex turn.
+        const e0 = put(h[0] + o[0] * SKIRT, h[1] + o[1] * SKIRT, -COLLAR_TOP);
+        const e1 = put(h[0] + q[0] * SKIRT, h[1] + q[1] * SKIRT, -COLLAR_TOP);
+        const e2 = put(h[0] + q[0] * SKIRT, h[1] + q[1] * SKIRT);
+        const e3 = put(h[0] + o[0] * SKIRT, h[1] + o[1] * SKIRT);
+        idx.push(e0, e1, e2, e0, e2, e3);
+      }
+    }
+    const out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    out.setIndex(idx);
+    out.computeVertexNormals();
+    g.dispose();
+    return out;
+  })();
 
   // Emissive, so it ignores the scene lights entirely and reads as light on its
   // way out rather than as an orange sticker. Its intensity is driven by the
@@ -450,36 +836,6 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   face.castShadow = false;
   face.receiveShadow = false;
 
-  // A wider, fainter copy sitting just under the bright one. Additive, so it
-  // spills warmth onto the shell around each cut, the way light leaking out of
-  // a real carving lifts the skin around the hole.
-  const haloGeo = patchGeometry(
-    FACE_SHAPES.map(({ nx, ny, sampler, cx, cy, halo }) => ({
-      nx,
-      ny,
-      sampler: halo || ((u, v) => {
-        const [X, Y] = sampler(u, v);
-        // 1.24, not the 1.5 this started at. The bloom is a scaled copy, so its
-        // width grows with the shape it surrounds; once the face was resized to
-        // the reference, 1.5 stopped reading as light spilling round a cut and
-        // started reading as a thick orange outline drawn on the shell -- worst
-        // at the eyes, where scaling a triangle about its centroid pulls the
-        // apex out into a spike.
-        return [cx + (X - cx) * 1.24, cy + (Y - cy) * 1.24];
-      }),
-    })),
-    FACE_LIFT * 0.45,
-  );
-  const haloMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(PALETTE.glow),
-    transparent: true,
-    opacity: (BLOOM.min + BLOOM.max) / 2,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-  const halo = new THREE.Mesh(haloGeo, haloMat);
-  halo.renderOrder = 1;
 
   // --- Stem ----------------------------------------------------------------
   // A swept tube with its own radius profile rather than a CylinderGeometry:
@@ -564,7 +920,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // contact is the only thing holding the pumpkin down, and a pumpkin meets the
   // floor on a small ring rather than over its whole width.
   const contact = contactShadow({ radius: 0.42, opacity: 0.52, softness: 0.62 });
-  group.add(shell, face, halo, stem, light, lightTarget, contact);
+  group.add(shell, wall, face, stem, light, lightTarget, contact);
   group.scale.setScalar(scale);
 
   const lightHome = light.position.clone();
@@ -596,7 +952,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
       // trick. The carving's range is shallower because a real cut-out stays
       // near saturation even as the spill on the ground drops away.
       faceMat.emissiveIntensity = at(GLOW);
-      haloMat.opacity = at(BLOOM);
+      wallMat.emissiveIntensity = at(WASH);
       // A guttering flame reddens as it drops, so the colour rides the same
       // value rather than sitting at a fixed warm white.
       light.color.copy(EMBER).lerp(FLAME, level);
@@ -610,8 +966,8 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
       );
     },
     dispose() {
-      for (const g of [shellGeo, faceGeo, haloGeo, stemGeo]) g.dispose();
-      for (const m of [shellMat, faceMat, haloMat, stemMat]) m.dispose();
+      for (const g of [shellGeo, wallGeo, faceGeo, stemGeo]) g.dispose();
+      for (const m of [shellMat, wallMat, faceMat, stemMat]) m.dispose();
       contact.userData.dispose();
       group.clear();
     },

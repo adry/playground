@@ -323,10 +323,10 @@ function plateGeometry(outline, holes, { depth = 0.04, bevel = 0.012, samples = 
 // the face reads as a muzzle. The superellipse exponent fixes the first and the
 // maxilla push fixes the second.
 const SKULL = {
-  cy: 0.206, cz: -0.018,     // centre, relative to the atlas at Y.head
-  rx: 0.178, ry: 0.178, rz: 0.178,   // width 0.142 of height; photo 0.141
-  eyeX: 0.077, eyeY: 0.158,  // socket centres, measured off the reference
-  eyeA: 0.057, eyeB: 0.058,  // half-extents of the oval before the slant trims it
+  cy: 0.216, cz: 0.020,      // centre, relative to the atlas at Y.head
+  rx: 0.178, ry: 0.168, rz: 0.163,   // width 0.142 of height; photo 0.141
+  eyeX: 0.077, eyeY: 0.170,  // socket centres, measured off the reference
+  eyeA: 0.062, eyeB: 0.060,  // half-extents of the oval before the slant trims it
   noseY: 0.100,
   toothY: 0.058,             // the alveolar arch the upper teeth hang from
 };
@@ -342,7 +342,7 @@ function skullBase(u, v, out) {
   // and the mouth ends up half the width it should be.
   // 2.30 at the crown rather than 2.05: the photo's cranium has a flatter top
   // than a plain ellipsoid gives, and at 2.05 ours read as a balloon.
-  const n = 2.30 + 0.75 * smoothstep(0.25, -0.35, h);
+  const n = 2.55 + 1.05 * smoothstep(0.25, -0.35, h);
   const ring = Math.pow(Math.max(0, 1 - Math.pow(Math.abs(h), n)), 1 / n);
 
   let y = S.cy + S.ry * h;
@@ -351,7 +351,7 @@ function skullBase(u, v, out) {
   const front = Math.cos(u);                   // -1 occiput .. +1 face
 
   // The face is narrower than the braincase.
-  x *= 1 - 0.19 * smoothstep(0.215, 0.055, y);
+  x *= 1 - 0.12 * smoothstep(0.215, 0.055, y);
 
   // Carry the maxilla forward so the profile from brow to teeth is close to
   // vertical rather than falling away into a muzzle.
@@ -360,13 +360,13 @@ function skullBase(u, v, out) {
   // through the palate.
   const fr = Math.max(0, front);
   z += Math.pow(fr, 1.4) * clamp01(ring / 0.55) *
-    (0.055 * smoothstep(0.160, 0.030, y) + 0.012 * smoothstep(0.265, 0.130, y));
+    (0.028 * smoothstep(0.160, 0.030, y) + 0.010 * smoothstep(0.265, 0.130, y));
   // The occiput hangs back and down behind the ear, but the back of the crown
   // above it is flattened: on the photo the rear of the skull is a plane, not a
   // continuation of the dome.
   const back = Math.max(0, -front);
   z -= 0.020 * Math.pow(back, 1.6) * smoothstep(0.310, 0.100, y);
-  z += 0.020 * back * back * smoothstep(0.130, 0.330, y);
+  z += 0.014 * back * back * smoothstep(0.120, 0.320, y);
 
   // Cheekbones. Small, but without them the face below the sockets is a
   // featureless sheet and the whole head goes soft.
@@ -410,19 +410,23 @@ function buildSkullGeometry() {
     // it implies runs clean over the top of the skull and turns the cranium
     // into a teardrop.
     const slantTop = 0.32 + 0.60 * ax;
+    const rho = Math.hypot(ax, by);
     const socket =
-      smoothstep(0, 1, clamp01((1 - Math.hypot(ax, by)) / 0.26)) *
-      smoothstep(0, 1, clamp01((slantTop - by) / 0.28)) * gate;
+      smoothstep(0, 1, clamp01((1 - rho) / 0.32)) *
+      smoothstep(0, 1, clamp01((slantTop - by) / 0.32)) * gate;
     // Shallow. A deeper well folds the surface back through itself and the
     // shading tears into black streaks along the rim.
-    d -= 0.030 * socket;
-    dark = Math.max(dark, smoothstep(0.10, 0.40, socket));
+    d -= 0.028 * socket;
+    // The ink is a separate, much wider ramp rather than the dent's own mask.
+    // Reusing the mask puts the whole light-to-black transition inside two or
+    // three vertices and it fringes into spikes however dense the grid is.
+    dark = Math.max(dark, smoothstep(1.00, 0.80, rho) * smoothstep(0.26, 0.02, by - slantTop) * gate);
 
     // Brow ridge, riding just above the slant. The two sides meet in a V over
     // the nose bridge; that V is what the reference's scowl actually is.
-    d += 0.018 *
-      Math.exp(-Math.pow((by - (slantTop + 0.44)) / 0.50, 2)) *
-      clamp01((1.25 - Math.abs(ax)) / 0.40) * gate;
+    d += 0.011 *
+      Math.exp(-Math.pow((by - (slantTop + 0.40)) / 0.42, 2)) *
+      clamp01((1.15 - Math.abs(ax)) / 0.35) * gate;
 
     // Nose: a rounded triangle, apex up, its base notched into a shallow heart
     // the way the reference's is.
@@ -432,8 +436,8 @@ function buildSkullGeometry() {
     const nose =
       smoothstep(0, 1, clamp01((((1 - nby) / 2) - Math.abs(nax)) / 0.30)) *
       smoothstep(0, 1, clamp01((nby - nBase) / 0.30)) * gate;
-    d -= 0.021 * nose;
-    dark = Math.max(dark, smoothstep(0.04, 0.62, nose));
+    d -= 0.026 * nose;
+    dark = Math.max(dark, smoothstep(0.02, 0.26, nose));
 
     // Nasal bridge between the sockets.
     d += 0.010 * Math.exp(-Math.pow(x / 0.028, 2)) *
@@ -446,7 +450,52 @@ function buildSkullGeometry() {
   // and at 144 around it fell across two or three vertices and fringed into
   // black spikes. This is a static head on a hero prop; the triangles are cheap
   // next to getting the one feature everybody looks at to hold together.
-  return blobGeometry(148, 224, point, (u, v, p, c) => c.copy(bone).lerp(hollow, dark));
+  return blobGeometry(124, 184, point, (u, v, p, c) => c.copy(bone).lerp(hollow, dark));
+}
+
+// --- Spine -----------------------------------------------------------------
+// One curve for the whole column, sacrum to atlas, carrying the real double
+// bend: the lumbar hollow forward, the thoracic rounded back, the cervical
+// forward again. In profile that S is most of what makes a skeleton read as a
+// skeleton; the first pass had a few loose drums parented to three different
+// joints and from the side there was simply no backbone there at all.
+//
+// World coordinates, before the root offset is taken out.
+const SPINE = [
+  [0, 1.392, -0.064],   // top of the sacrum
+  [0, 1.448, -0.040],
+  [0, 1.512, -0.030],   // lumbar hollow, the most forward point
+  [0, 1.580, -0.054],
+  [0, 1.660, -0.098],
+  [0, 1.742, -0.126],
+  [0, 1.822, -0.136],   // thoracic apex, the most rearward point
+  [0, 1.898, -0.126],
+  [0, 1.958, -0.100],
+  [0, 2.030, -0.064],
+  [0, 2.116, -0.038],   // the atlas
+];
+
+// Vertebrae are barrels: fattest at the middle, waisted at both ends, and
+// spaced at a pitch well under their own height so consecutive ones
+// INTERPENETRATE at the waist. A chain that only touches opens a crack the
+// instant a joint bends, which is exactly what went wrong the first time.
+const VERT = { pitch: 0.0295, height: 0.052 };
+
+// A vertebral body. The waist is what makes the overlap invisible and the
+// segmentation visible at the same time: neighbours meet where the bone is
+// thin, so the silhouette reads as a row of bumps rather than one smooth pipe.
+function vertebraGeometry(r, h) {
+  const pts = [];
+  const n = 22;
+  const shape = (t) => 0.44 + 0.56 * Math.pow(Math.max(0, 1 - Math.pow(2 * t - 1, 2)), 0.30);
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    // Round the two ends off rather than leaving them as open discs; a bent
+    // column shows the end of a vertebra and a flat disc there reads as a cut.
+    const cap = Math.sqrt(Math.max(0, 1 - Math.pow(Math.max(0, Math.abs(2 * t - 1) - 0.84) / 0.16, 2)));
+    pts.push(new THREE.Vector2(Math.max(1e-4, r * shape(t) * cap), h * (t - 0.5)));
+  }
+  return new THREE.LatheGeometry(pts, 26);
 }
 
 // --- Ribcage ---------------------------------------------------------------
@@ -455,42 +504,54 @@ function buildSkullGeometry() {
 // The top five close on the sternum, the last three are left free and their
 // tips describe the costal margin.
 //
-// Columns: spine attachment height (chest-local), lateral half-width, half
-// depth, how much of a half turn the rib sweeps, and how far it drops between
-// the spine and its front end.
+// Every rib now STARTS on its vertebra: its first control point is a lateral
+// offset from the spine curve at that height, and the ellipse it then sweeps is
+// sized so that its rearmost point sits just behind that vertebra. Before this
+// the ribs began in mid air and the cage was open at the back.
+//
+// Columns: spine attachment height (world), lateral half-width, how much of a
+// half turn the rib sweeps, how far it drops front to back, and whether it
+// reaches the sternum.
 const RIBS = [
-  [0.360, 0.122, 0.130, 0.93, 0.045, true],
-  [0.330, 0.164, 0.145, 0.93, 0.060, true],
-  [0.296, 0.191, 0.152, 0.93, 0.073, true],
-  [0.258, 0.207, 0.157, 0.93, 0.086, true],
-  [0.220, 0.215, 0.159, 0.93, 0.099, true],
-  [0.182, 0.214, 0.155, 0.80, 0.132, false],
-  [0.146, 0.205, 0.146, 0.70, 0.162, false],
-  [0.112, 0.188, 0.131, 0.60, 0.190, false],
+  [1.918, 0.112, 0.93, 0.042, true],
+  [1.893, 0.152, 0.93, 0.062, true],
+  [1.861, 0.176, 0.93, 0.078, true],
+  [1.829, 0.191, 0.93, 0.094, true],
+  [1.797, 0.198, 0.93, 0.110, true],
+  [1.765, 0.197, 0.80, 0.140, false],
+  [1.732, 0.189, 0.70, 0.170, false],
+  [1.706, 0.173, 0.60, 0.182, false],
 ];
-const RIB_Z = -0.012;   // where the barrel is centred front to back
+const STERNUM_Z = 0.146;   // where the front of the cage closes
+const RIB_ANGLE = 0.032;   // how far behind its vertebra a rib's back sweep goes
 
-function ribGeometry(side, [ySpine, halfW, halfD, arc, drop, attached]) {
-  const pts = [];
-  const N = 16;
+function ribGeometry(side, [ySpine, halfW, arc, drop, attached], zSpine) {
+  // Sized from the vertebra, so the cage always closes on the column whatever
+  // the spine curve is doing at that height.
+  const back = zSpine - RIB_ANGLE;
+  const halfD = (STERNUM_Z - back) / 2;
+  const zc = STERNUM_Z - halfD;
+
+  const pts = [[side * 0.015, ySpine + 0.007, zSpine]];   // head and neck of the rib
+  const N = 18;
   for (let k = 0; k <= N; k++) {
     const a = Math.PI * arc * (k / N);
     pts.push([
       side * halfW * Math.sin(a),
       ySpine - drop * (1 - Math.cos(a)) / 2,
-      RIB_Z - halfD * Math.cos(a),
+      zc - halfD * Math.cos(a),
     ]);
   }
   const radius = (t) => {
-    const base = 0.0205 - 0.0068 * t;
-    const head = 1 + 0.45 * Math.exp(-Math.pow(t / 0.11, 2));   // the rib head
+    const base = 0.0200 - 0.0064 * t;
+    const head = 1 + 0.55 * Math.exp(-Math.pow(t / 0.10, 2));   // the rib head
     // A free rib needs a real rounded tip; an attached one is buried in the
     // sternum, so it only needs enough of a roll-off to close cleanly.
     const w = attached ? 0.04 : 0.13;
     const over = Math.max(0, t - (1 - w)) / w;
     return base * head * Math.sqrt(Math.max(0.02, 1 - over * over));
   };
-  return sweepTube(curveThrough(pts), radius, { along: 40, around: 16 });
+  return sweepTube(curveThrough(pts), radius, { along: 44, around: 16 });
 }
 
 // --- Pelvis ----------------------------------------------------------------
@@ -537,12 +598,12 @@ const HIP_HOLE = [
 // Shoulder blade: a rounded triangle, point down. As a lens it read as a
 // pancake stuck on the ribs; the corners are what make it a scapula.
 const SCAPULA_OUTLINE = [
-  [-0.052, 0.062],
-  [0.020, 0.078],
-  [0.062, 0.046],
+  [-0.054, 0.062],
+  [0.021, 0.079],
+  [0.062, 0.045],
   [0.048, -0.024],
-  [0.012, -0.080],
-  [-0.030, -0.030],
+  [0.012, -0.082],
+  [-0.032, -0.031],
 ];
 
 const SACRUM_OUTLINE = [
@@ -599,13 +660,21 @@ export function createSkeletonRig({ scale = 1 } = {}) {
 
   // Pelvis local space has its origin at the hip line, so the outline's y is
   // offset up by the distance from the hip socket to the pelvis centre.
-  const pelvis = node(root, 'pelvis', [0, 0.050, -0.010]);
+  // Squashed vertically against the photo, and swung further open than the
+  // first pass so that the bowl has some depth when the figure is seen from
+  // the side rather than reading as a flat signboard.
+  const PELVIS_Y = 0.79;
+  const flatten = (loop) => loop.map(([x, y]) => [x, y * PELVIS_Y]);
+  const pelvis = node(root, 'pelvis', [0, 0.048, -0.014]);
 
   for (const side of [-1, 1]) {
     // Mirrored by reversing the loops rather than by negating x in place: a
     // straight negate flips the winding and the extruder triangulates the
     // result inside out.
-    const flip = (loop) => (side < 0 ? loop.map(([x, y]) => [-x, y]).reverse() : loop);
+    const flip = (loop) => {
+      const f = flatten(loop);
+      return side < 0 ? f.map(([x, y]) => [-x, y]).reverse() : f;
+    };
     const half = plateGeometry(
       flip(HIP_OUTLINE),
       [flip(HIP_HOLE)],
@@ -616,11 +685,26 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     // flat cap non planar, at which point its very coarse triangulation starts
     // showing as facets right across the widest, flattest surface on the model.
     // Rotating leaves the cap planar and the pelvis reads as the same bowl.
-    const PIVOT = 0.100;
+    const PIVOT = 0.094;
     half.translate(-side * PIVOT, 0, 0);
     const blade = mesh(half, pelvis);
     blade.position.x = side * PIVOT;
-    blade.rotation.y = -side * 0.34;
+    blade.rotation.y = -side * 0.50;
+
+    const crest = mesh(
+      sweepTube(
+        curveThrough(
+          flatten([[0.040, 0.146], [0.112, 0.176], [0.176, 0.152], [0.208, 0.094], [0.212, 0.040]])
+            .map(([x, y]) => [side * x - side * PIVOT, y, 0]),
+        ),
+        (t) => 0.0135 * (1 - 0.28 * t) *
+          Math.sqrt(Math.max(0.06, 1 - Math.pow(Math.max(0, Math.abs(2 * t - 1) - 0.86) / 0.14, 2))),
+        { along: 26, around: 14 },
+      ),
+      pelvis,
+    );
+    crest.position.copy(blade.position);
+    crest.rotation.copy(blade.rotation);
   }
 
   // Sacrum: a wedge at the back of the midline, deliberately oversized so the
@@ -628,49 +712,115 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   // Sacrum: broad at the top where the blades bury into it, tapering to the
   // tail. A ball was quicker and read as a pudding sitting in the bowl.
   const sacrum = mesh(
-    plateGeometry(SACRUM_OUTLINE, [], { depth: 0.044, bevel: 0.015, samples: 90 }),
+    plateGeometry(flatten(SACRUM_OUTLINE), [], { depth: 0.046, bevel: 0.015, samples: 90 }),
     pelvis,
   );
-  sacrum.position.set(0, 0.040, -0.052);
-  sacrum.rotation.x = -0.20;
+  sacrum.position.set(0, 0.036, -0.056);
+  sacrum.rotation.x = -0.22;
 
   // --- Spine ---------------------------------------------------------------
-  const spineLower = node(root, 'spineLower', [0, Y.waist - Y.hip, -0.026]);
-  joints.spineLower = spineLower;
-  const spineUpper = node(spineLower, 'spineUpper', [0, Y.chest - Y.waist, 0.012]);
-  joints.spineUpper = spineUpper;
+  // Everything above the pelvis hangs off one curve. The joints the contract
+  // names are placed ON that curve rather than at arbitrary heights, and the
+  // vertebrae are instanced along it at even arc length, so the column is
+  // continuous by construction instead of by three separate stacks lining up.
+  const spine = curveThrough(SPINE);
+  const spineLen = spine.getLength();
 
-  // Lumbar: fat drums with a knob out each side, which the reference shows
-  // clearly because nothing sits in front of them.
-  for (let i = 0; i < 4; i++) {
-    const t = i / 3;
-    const y = 0.008 + i * 0.040;
-    const v = mesh(drumGeometry(0.044 - 0.004 * t, 0.028, 0.011), spineLower);
-    v.position.set(0, y, 0.004 * i);
-    for (const s of [-1, 1]) {
-      const knob = mesh(ballGeometry(0.013, 1, 0.7, 1.5), spineLower);
-      knob.position.set(s * 0.042, y + 0.004, -0.010 + 0.004 * i);
+  // Where on the curve each named joint sits. Solved for a target height
+  // rather than hard-coded, so moving a control point cannot silently leave a
+  // joint hanging off the column.
+  const uAtHeight = (targetY) => {
+    const p = new THREE.Vector3();
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 34; i++) {
+      const m = (lo + hi) / 2;
+      spine.getPointAt(m, p);
+      if (p.y < targetY) lo = m; else hi = m;
+    }
+    return (lo + hi) / 2;
+  };
+  const uLower = uAtHeight(Y.waist);
+  const uUpper = uAtHeight(Y.chest);
+  const uNeck = uAtHeight(Y.neck);
+
+  const at = (u) => spine.getPointAt(u, new THREE.Vector3());
+  const pLower = at(uLower);
+  const pUpper = at(uUpper);
+  const pNeck = at(uNeck);
+  const pHead = at(1);
+
+  const spineLower = node(root, 'spineLower', [0, pLower.y - Y.hip, pLower.z]);
+  joints.spineLower = spineLower;
+  const spineUpper = node(spineLower, 'spineUpper', [0, pUpper.y - pLower.y, pUpper.z - pLower.z]);
+  joints.spineUpper = spineUpper;
+  const neck = node(spineUpper, 'neck', [0, pNeck.y - pUpper.y, pNeck.z - pUpper.z]);
+  joints.neck = neck;
+  const head = node(neck, 'head', [0, pHead.y - pNeck.y, pHead.z - pNeck.z]);
+  joints.head = head;
+
+  // The joint each stretch of curve belongs to, and where that joint sits in
+  // world space so a bead can be placed in its local frame.
+  const owners = [
+    { u: 0, joint: root, origin: new THREE.Vector3(0, Y.hip, 0) },
+    { u: uLower, joint: spineLower, origin: pLower },
+    { u: uUpper, joint: spineUpper, origin: pUpper },
+    { u: uNeck, joint: neck, origin: pNeck },
+    { u: 1.0001, joint: head, origin: pHead },
+  ];
+
+  // A bead sits exactly on every joint pivot as well as at the regular pitch.
+  // That is the whole trick for keeping the column together under a hard bend:
+  // rotating a joint turns its own bead about that bead's centre, so the
+  // distance from it to the bead below never changes and the overlap at the
+  // seam survives any angle. Beads elsewhere in a stretch are rigid with each
+  // other, so they cannot separate either.
+  const beadU = [];
+  const count = Math.round(spineLen / VERT.pitch);
+  for (let i = 0; i <= count; i++) beadU.push(i / count);
+  for (const o of owners) if (o.u > 0.002 && o.u < 0.998) beadU.push(o.u);
+  beadU.sort((p, q) => p - q);
+
+  const tangent = new THREE.Vector3();
+  const axis = new THREE.Vector3();
+  for (const u of beadU) {
+    // Owner is the last joint whose stretch has started.
+    let own = owners[0];
+    for (const o of owners) if (u >= o.u - 1e-6 && o.u <= 1) own = o;
+    const p = at(u);
+    spine.getTangentAt(Math.min(0.9999, u), tangent);
+
+    // Lumbar bodies are fat and cervical ones slim; the taper is what stops the
+    // neck reading as the same pipe as the waist.
+    const r = 0.0345 - 0.0145 * smoothstep(0.30, 1.0, u);
+    const v = mesh(vertebraGeometry(r, VERT.height), own.joint);
+    v.position.copy(p).sub(own.origin);
+    v.quaternion.setFromUnitVectors(axis.set(0, 1, 0), tangent);
+
+    // Spinous process: down and back off the body. These are what actually
+    // draw the backbone from behind; without them the back of the ribcage is
+    // an empty shell.
+    if (u < 0.90) {
+      const sp = mesh(
+        sweepTube(
+          curveThrough([[0, 0, 0], [0, -0.012, -0.026], [0, -0.030, -0.048]]),
+          (t) => (0.0125 - 0.0045 * t) * Math.sqrt(Math.max(0.05, 1 - Math.pow(Math.max(0, t - 0.70) / 0.30, 2))),
+          { along: 12, around: 12 },
+        ),
+        own.joint,
+      );
+      sp.position.copy(v.position);
+      sp.quaternion.copy(v.quaternion);
+      // Transverse knobs, which the reference shows clearly on the lumbar run
+      // because nothing sits in front of them.
+      if (u < 0.34) {
+        for (const sd of [-1, 1]) {
+          const knob = mesh(ballGeometry(0.012, 1, 0.7, 1.4), own.joint);
+          knob.position.copy(v.position).addScaledVector(axis.set(1, 0, 0), sd * (r + 0.006));
+          knob.position.z -= 0.010;
+        }
+      }
     }
   }
-
-  // Thoracic: inside the ribcage and only really seen from behind, so they are
-  // plain drums sitting where the rib heads land.
-  for (let i = 0; i < 8; i++) {
-    const t = i / 7;
-    const v = mesh(drumGeometry(0.036 - 0.007 * t, 0.026, 0.010), spineUpper);
-    v.position.set(0, 0.012 + i * 0.048, -0.150 + 0.090 * t * t);
-    const spine = mesh(ballGeometry(0.015, 0.8, 1.3, 1.7), spineUpper);
-    spine.position.set(0, 0.002 + i * 0.048, -0.186 + 0.104 * t * t);
-  }
-
-  const neck = node(spineUpper, 'neck', [0, Y.neck - Y.chest, -0.058]);
-  joints.neck = neck;
-  for (let i = 0; i < 4; i++) {
-    const v = mesh(drumGeometry(0.031 - 0.002 * i, 0.029, 0.011), neck);
-    v.position.set(0, 0.010 + i * 0.043, 0.002 * i);
-  }
-  const head = node(neck, 'head', [0, Y.head - Y.neck, 0.018]);
-  joints.head = head;
 
   // --- Head ----------------------------------------------------------------
   mesh(buildSkullGeometry(), head, matSkull);
@@ -697,13 +847,13 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   const UPPER_TEETH = 11;
   const upperArch = [];
   for (let i = 0; i < UPPER_TEETH; i++) {
-    const u = -0.82 + (1.64 * i) / (UPPER_TEETH - 1);
+    const u = -0.86 + (1.72 * i) / (UPPER_TEETH - 1);
     skullBase(u, toothV, probe);
     const dx = probe.x;
     const dz = probe.z - SKULL.cz;
     const len = Math.hypot(dx, dz) || 1;
-    const x = probe.x - (dx / len) * 0.005;
-    const z = probe.z - (dz / len) * 0.005;
+    const x = probe.x - (dx / len) * 0.009;
+    const z = probe.z - (dz / len) * 0.009;
     const yaw = Math.atan2(dx, dz);
     upperArch.push([x, z, yaw]);
     const t = mesh(nubGeometry(0.0090, 0.0155, 0.0070), head, matTooth);
@@ -715,7 +865,7 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   // gap between the rows is a couple of millimetres and all it needs is
   // something dark sitting just behind it.
   const cavity = mesh(ballGeometry(1, 0.064, 0.030, 0.058), head, matHollow);
-  cavity.position.set(0, 0.018, 0.076);
+  cavity.position.set(0, 0.018, 0.102);
   cavity.castShadow = false;
 
   // Jaw. Hinged at the condyles, separate geometry, so it can drop.
@@ -725,7 +875,7 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   // so the rotation that swings it down is a POSITIVE rotation.x; negative
   // rotation.x drives the chin up into the skull. Positive is what is
   // implemented, and userData records it so a caller does not have to guess.
-  const jaw = node(head, 'jaw', [0, 0.077, -0.050]);
+  const jaw = node(head, 'jaw', [0, 0.077, -0.012]);
   jaw.userData.openAxis = 'x';
   jaw.userData.openSign = 1;
   joints.jaw = jaw;
@@ -736,17 +886,17 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   // the lower crowns account for all but 0.008 of it. Deepening the jaw to make
   // it read from the game's high camera pushed the head 11% over the
   // reference's, which is the single thing that made the figure look wrong.
-  const JW = 0.102;    // half-width of the mandible at the angle of the jaw
+  const JW = 0.094;    // half-width of the mandible at the angle of the jaw
   const jawBody = curveThrough([
-    [-JW, -0.0930, 0.043],
-    [-0.098, -0.0962, 0.113],
-    [-0.077, -0.0982, 0.171],
-    [-0.040, -0.0992, 0.199],
-    [0, -0.0996, 0.2075],
-    [0.040, -0.0992, 0.199],
-    [0.077, -0.0982, 0.171],
-    [0.098, -0.0962, 0.113],
-    [JW, -0.0930, 0.043],
+    [-JW, -0.0930, 0.038],
+    [-0.092, -0.0962, 0.104],
+    [-0.077, -0.0982, 0.159],
+    [-0.040, -0.0992, 0.186],
+    [0, -0.0996, 0.1945],
+    [0.040, -0.0992, 0.186],
+    [0.077, -0.0982, 0.159],
+    [0.092, -0.0962, 0.104],
+    [JW, -0.0930, 0.038],
   ]);
   mesh(
     sweepTube(jawBody, (t) => {
@@ -764,9 +914,9 @@ export function createSkeletonRig({ scale = 1 } = {}) {
       sweepTube(
         curveThrough([
           [side * JW, -0.096, 0.041],
-          [side * 0.107, -0.062, 0.008],
-          [side * 0.111, -0.024, -0.010],
-          [side * 0.110, 0.000, -0.006],
+          [side * 0.098, -0.062, 0.008],
+          [side * 0.100, -0.024, -0.010],
+          [side * 0.099, 0.000, -0.006],
         ]),
         shaftProfile(0.016, { endA: 1.22, endB: 1.28, waist: 0.10 }),
         { along: 26, around: 16 },
@@ -774,7 +924,7 @@ export function createSkeletonRig({ scale = 1 } = {}) {
       jaw,
     );
     const condyle = mesh(ballGeometry(0.023, 1.15, 1, 1), jaw);
-    condyle.position.set(side * 0.110, 0, -0.002);
+    condyle.position.set(side * 0.099, 0, -0.002);
   }
 
   // Lower row, riding the same arch pulled in a little.
@@ -787,9 +937,18 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   }
 
   // --- Ribcage, sternum, shoulder girdle -----------------------------------
+  // Authored in world heights and converted, so a rib and the vertebra it
+  // springs from cannot drift apart when the spine curve is edited.
+  const chest = (x, y, z) => [x, y - pUpper.y, z - pUpper.z];
+
   for (let i = 0; i < RIBS.length; i++) {
+    // Read the spine's own depth at this rib's height and hand it to the rib,
+    // which sizes its sweep from there.
+    const zSpine = at(uAtHeight(RIBS[i][0])).z;
     for (const side of [-1, 1]) {
-      const rib = mesh(ribGeometry(side, RIBS[i]), spineUpper);
+      const geo = ribGeometry(side, RIBS[i], zSpine);
+      geo.translate(0, -pUpper.y, -pUpper.z);
+      const rib = mesh(geo, spineUpper);
       rib.name = `rib${side < 0 ? 'L' : 'R'}${i + 1}`;
       // Every rib is detachable. Dropping one leaves a gap between its
       // neighbours and a complete vertebra where it was attached, so nothing
@@ -798,12 +957,17 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     }
   }
 
-  // Sternum: a flat strip, widest through the manubrium and tapering to a point
-  // at the xiphoid. Swept with a flattened section rather than modelled round,
-  // since the reference's is a plate sitting proud of the rib ends.
+  // Sternum: a flat strip, widest through the manubrium and tapering at the
+  // xiphoid. Swept with a flattened section rather than modelled round, since
+  // the reference's is a plate sitting proud of the rib ends.
   mesh(
     sweepTube(
-      curveThrough([[0, 0.146, 0.149], [0, 0.212, 0.144], [0, 0.298, 0.128], [0, 0.376, 0.112]]),
+      curveThrough([
+        chest(0, 1.692, STERNUM_Z + 0.004),
+        chest(0, 1.760, STERNUM_Z),
+        chest(0, 1.856, STERNUM_Z - 0.016),
+        chest(0, 1.946, STERNUM_Z - 0.034),
+      ]),
       (t) => [0.017 + 0.022 * smoothstep(0.0, 0.66, t) - 0.005 * smoothstep(0.86, 1.0, t), 0.017],
       { along: 40, around: 20, up: [0, 0, 1] },
     ),
@@ -816,35 +980,46 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     mesh(
       sweepTube(
         curveThrough([
-          [side * 0.016, 0.356, 0.110],
-          [side * 0.086, 0.348, 0.128],
-          [side * 0.164, 0.340, 0.100],
-          [side * 0.222, 0.337, 0.050],
-          [side * 0.252, 0.336, 0.014],
+          chest(side * 0.016, 1.942, 0.110),
+          chest(side * 0.086, 1.934, 0.126),
+          chest(side * 0.164, 1.926, 0.096),
+          chest(side * 0.222, 1.923, 0.046),
+          chest(side * 0.252, 1.922, 0.008),
         ]),
         shaftProfile(0.0145, { endA: 1.32, endB: 1.38, waist: 0.12 }),
         { along: 34, around: 16 },
       ),
       spineUpper,
     );
-    // Scapula, a lens behind the shoulder. It barely shows from the front and
-    // carries the whole back view.
+
+    // Scapula. It is laid ON the back of the cage rather than parked beside it:
+    // the position is a point on the rib barrel and the plate is turned to that
+    // surface's normal, so it reads as a blade strapped to the ribs instead of
+    // a loose leaf floating next to them.
+    const SCAP_Y = 1.846;
+    const SCAP_X = 0.138;
+    const zRib = at(uAtHeight(SCAP_Y)).z;
+    const halfD = (STERNUM_Z - (zRib - RIB_ANGLE)) / 2;
+    const zCentre = STERNUM_Z - halfD;
+    const halfW = 0.196;
+    const sinA = Math.min(0.98, SCAP_X / halfW);
+    const cosA = Math.sqrt(1 - sinA * sinA);
     const blade = mesh(
       plateGeometry(
         side < 0 ? SCAPULA_OUTLINE.map(([x, y]) => [-x, y]).reverse() : SCAPULA_OUTLINE,
         [],
-        { depth: 0.026, bevel: 0.009, samples: 80 },
+        { depth: 0.024, bevel: 0.009, samples: 80 },
       ),
       spineUpper,
     );
-    blade.position.set(side * 0.146, 0.232, -0.182);
-    blade.rotation.set(0.12, side * 0.44, side * 0.30);
+    blade.position.set(...chest(side * SCAP_X, SCAP_Y, zCentre - halfD * cosA - 0.012));
+    blade.rotation.set(0.10, Math.atan2(side * sinA, -cosA), side * 0.16);
   }
 
   // --- Arms ----------------------------------------------------------------
   for (const side of [-1, 1]) {
     const S = side < 0 ? 'L' : 'R';
-    const shoulder = node(spineUpper, `shoulder${S}`, [side * X.shoulder, 0.336, 0.010]);
+    const shoulder = node(spineUpper, `shoulder${S}`, chest(side * X.shoulder, Y.shoulder, 0.006));
     joints[`shoulder${S}`] = shoulder;
     bulb(shoulder, 0.040);
 
@@ -895,8 +1070,8 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     // only produces mush.
     mesh(
       sweepTube(
-        curveThrough([[0, -0.006, 0.002], [0, -0.030, 0.006], [side * 0.004, -0.052, 0.004]]),
-        (t) => [0.027 + 0.012 * Math.sin(Math.PI * t), 0.0150],
+        curveThrough([[0, -0.008, 0.002], [0, -0.038, 0.007], [side * 0.005, -0.068, 0.004]]),
+        (t) => [0.026 + 0.013 * Math.sin(Math.PI * t), 0.0145],
         { along: 18, around: 18, up: [0, 0, 1] },
       ),
       wrist,
@@ -904,14 +1079,14 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     // Digits hang off knuckles that belong to the palm, so shedding one leaves
     // a rounded stub rather than a cut face.
     const DIGITS = [
-      [-0.026, -0.056, 0.004, -0.14, 0.060],
-      [-0.009, -0.060, 0.006, -0.04, 0.067],
-      [0.009, -0.059, 0.005, 0.05, 0.062],
-      [0.031, -0.040, 0.002, 0.85, 0.044],   // thumb, off the side and shorter
+      [-0.027, -0.072, 0.004, -0.12, 0.126],
+      [-0.009, -0.076, 0.006, -0.03, 0.144],
+      [0.010, -0.075, 0.005, 0.05, 0.131],
+      [0.032, -0.052, 0.002, 0.82, 0.082],   // thumb, off the side and shorter
     ];
     DIGITS.forEach(([dx, dy, dz, splay, len], k) => {
       const kx = side * dx;
-      const knuckle = mesh(ballGeometry(0.0115), wrist);
+      const knuckle = mesh(ballGeometry(0.0128), wrist);
       knuckle.position.set(kx, dy, dz);
       const tip = [
         kx + Math.sin(splay) * len * (k === 3 ? side : 1),
@@ -925,10 +1100,13 @@ export function createSkeletonRig({ scale = 1 } = {}) {
             [(kx + tip[0]) / 2, (dy + tip[1]) / 2 + 0.002, (dz + tip[2]) / 2 + 0.003],
             tip,
           ]),
-          (t) => 0.0098 * (1 - 0.22 * t) *
-            (1 + 0.20 * Math.exp(-Math.pow((t - 0.5) / 0.18, 2))) *
-            Math.sqrt(Math.max(0.05, 1 - Math.pow(Math.max(0, t - 0.82) / 0.18, 2))),
-          { along: 18, around: 12 },
+          // Two swells along the length rather than one: at this length a
+          // single bulge reads as a sausage, two read as knuckles.
+          (t) => 0.0118 * (1 - 0.26 * t) *
+            (1 + 0.15 * Math.exp(-Math.pow((t - 0.33) / 0.13, 2))
+               + 0.13 * Math.exp(-Math.pow((t - 0.68) / 0.13, 2))) *
+            Math.sqrt(Math.max(0.05, 1 - Math.pow(Math.max(0, t - 0.84) / 0.16, 2))),
+          { along: 24, around: 12 },
         ),
         wrist,
       );
@@ -951,13 +1129,13 @@ export function createSkeletonRig({ scale = 1 } = {}) {
       sweepTube(
         curveThrough([
           [0, 0, 0],
-          [side * 0.024, -0.040, -0.006],
-          [side * 0.036, -0.108, 0.008],
-          [side * 0.038, -0.290, 0.020],
-          [side * 0.034, -0.450, 0.014],
+          [side * 0.026, -0.042, -0.010],
+          [side * 0.040, -0.110, 0.016],
+          [side * 0.044, -0.290, 0.046],
+          [side * 0.038, -0.450, 0.032],
           [side * LEG.outKnee, -LEG.dropKnee, 0],
         ]),
-        shaftProfile(0.0330, { endA: 1.05, endB: 1.30, waist: 0.16, spread: 0.20 }),
+        shaftProfile(0.0335, { endA: 1.05, endB: 1.34, waist: 0.21, spread: 0.21 }),
         { along: 46, around: 20 },
       ),
       hip,
@@ -973,17 +1151,17 @@ export function createSkeletonRig({ scale = 1 } = {}) {
       mesh(
         sweepTube(
           curveThrough([
-            [side * off, -0.006, off === 0 ? 0.004 : -0.010],
-            [side * (LEG.outAnkle * 0.34 + off * 0.7), -LEG.dropAnkle * 0.34, 0.010],
-            [side * (LEG.outAnkle * 0.70 + off * 0.4), -LEG.dropAnkle * 0.70, 0.008],
+            [side * off, -0.006, off === 0 ? 0.006 : -0.014],
+            [side * (LEG.outAnkle * 0.34 + off * 0.7), -LEG.dropAnkle * 0.34, 0.024],
+            [side * (LEG.outAnkle * 0.70 + off * 0.4), -LEG.dropAnkle * 0.70, 0.018],
             [side * LEG.outAnkle, -LEG.dropAnkle, 0],
           ]),
-          shaftProfile(r, { endA, endB, waist: 0.15 }),
+          shaftProfile(r, { endA, endB, waist: 0.20 }),
           { along: 40, around: 18 },
         ),
         knee,
       );
-    shin(0, 0.0302, 1.30, 1.22);
+    shin(0, 0.0300, 1.32, 1.24);
     shin(0.028, 0.0135, 1.20, 1.15);   // fibula, outboard and thin
 
     const ankle = node(knee, `ankle${S}`, [side * LEG.outAnkle, -LEG.dropAnkle, 0]);
@@ -994,33 +1172,40 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     // ankle joint itself stays axis aligned.
     // Lifted 4mm: the sole of the swept foot dips just below its lowest
     // control point, and the contract wants the soles exactly on y = 0.
-    const foot = node(ankle, `foot${S}`, [0, 0.004, 0], [0, side * 0.20, 0]);
+    const foot = node(ankle, `foot${S}`, [0, 0.001, 0], [0, side * 0.20, 0]);
     mesh(
       sweepTube(
         curveThrough([
-          [0, -0.062, -0.062],
-          [0, -0.086, -0.010],
-          [0, -0.096, 0.038],
-          [0, -0.098, 0.074],
+          [0, -0.084, -0.096],
+          [0, -0.068, -0.058],
+          [0, -0.088, -0.012],
+          [0, -0.098, 0.036],
+          [0, -0.100, 0.078],
         ]),
-        (t) => [0.040 + 0.012 * Math.sin(Math.PI * Math.min(1, t * 1.3)), 0.046 - 0.019 * t],
-        { along: 26, around: 20, up: [0, 1, 0] },
+        (t) => {
+          // Rolled off at the very back so the heel is a dome and not the flat
+          // disc a plain sweep leaves there.
+          const heel = Math.sqrt(Math.max(0.11, 1 - Math.pow(Math.max(0, 0.10 - t) / 0.10, 2)));
+          return [
+            (0.026 + 0.030 * smoothstep(0.10, 0.82, t)) * heel,
+            (0.040 - 0.014 * smoothstep(0.05, 0.85, t)) * heel,
+          ];
+        },
+        { along: 32, around: 22, up: [0, 1, 0] },
       ),
       foot,
     );
-    const heel = mesh(ballGeometry(1, 0.040, 0.040, 0.034), foot);
-    heel.position.set(0, -0.082, -0.070);
 
     for (let k = 0; k < 5; k++) {
       const f = k / 4;
-      const x = -0.040 + 0.020 * k;
-      const r = 0.0135 - 0.0035 * f;
+      const x = -0.042 + 0.021 * k;
+      const r = 0.0142 - 0.0038 * f;
       mesh(
         sweepTube(
           curveThrough([
-            [x, -0.100, 0.062],
-            [x * 1.08, -0.108, 0.092],
-            [x * 1.14, -0.111, 0.118 - 0.016 * f],
+            [x, -0.100, 0.066],
+            [x * 1.10, -0.108, 0.100],
+            [x * 1.18, -0.112, 0.130 - 0.018 * f],
           ]),
           (t) => r * (1 - 0.16 * t) * Math.sqrt(Math.max(0.05, 1 - Math.pow(Math.max(0, t - 0.72) / 0.28, 2))),
           { along: 14, around: 12 },
@@ -1034,7 +1219,12 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   // angle, so without this the figure reads as hovering. It is parented to the
   // group at the ground plane and left on userData: whoever animates the rig
   // owns whether it is visible while the skeleton is underground.
-  const contact = contactShadow({ radius: 0.62, opacity: 0.36, softness: 0.62 });
+  const contact = new THREE.Group();
+  for (const side of [-1, 1]) {
+    const patch = contactShadow({ radius: 0.155, opacity: 0.32, softness: 0.74 });
+    patch.position.set(side * X.ankle, 0, 0.012);
+    contact.add(patch);
+  }
   group.add(contact);
   group.userData.contactShadow = contact;
 
@@ -1047,7 +1237,7 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     dispose() {
       for (const g of geometries) g.dispose();
       for (const m of materials) m.dispose();
-      contact.userData.dispose();
+      for (const patch of contact.children) patch.userData.dispose();
       // Shed bones may have been reparented into the scene by now, so cut them
       // loose from wherever they ended up rather than only clearing the group.
       for (const bone of shed.values()) bone.removeFromParent();
