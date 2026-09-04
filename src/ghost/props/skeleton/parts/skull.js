@@ -11,35 +11,60 @@ import { shaft } from './bone.js';
 // `.ref/SKULL-ANATOMY.md` disagree the photograph wins, and the two places they
 // do are reported at the bottom of this comment.
 //
-// WHY THE PREVIOUS BUILD WAS REJECTED FIVE TIMES, AND WHAT CHANGED.
+// THE THING SIX PASSES GOT WRONG, WHICH IS NOT ANATOMY. Every rebuild before
+// this one was judged on 760 pixel turntable close-ups. IN THE PRODUCT THIS
+// HEAD IS ABOUT SEVENTY PIXELS TALL. At seventy pixels the temporal line, the
+// mastoid, the coronoid process and the nasal spine are all invisible, and the
+// only things that reach the viewer are the outline of the vault, two dark
+// holes, a nose hole and a tooth row. The head had been optimised at a size
+// nobody sees it at, and it looked, in the user's words, weird.
 //
-// It was ONE smooth implicit field: a superellipsoid vault driven by a profile
-// curve, with holes cut in it. Four of the things that most say "skull" in the
-// photograph cannot be said by a single smooth field at all:
+// So the acceptance test for this file is a CROP OF THE HEAD OUT OF A SCENE
+// RENDER, not a turntable shot. Turntables are for finding bugs. Where realism
+// and legibility conflict at seventy pixels, legibility wins, and every place
+// that happens says so in a comment. There are four:
 //
-//   1. THE BROW OVERHANGS. The supraorbital ridge is a shelf whose underside
-//      faces down into the orbit. A smooth star-shaped field has no overhang
-//      anywhere by construction, so the brow could only ever be a swelling.
-//      Here it is `brow`: a separate swept bar with an AUTHORED WEDGE SECTION,
-//      its back half buried in the frontal, its lower-front edge standing
-//      forward of the socket's rim. The socket is in shadow under it.
-//   2. THE TEMPORAL FOSSA IS A HOLLOW. Subtracted as a real scoop 0.045 of the
+//   * The supraorbital shelf is gone (see `browSwell`).
+//   * The orbits and the nasal aperture are larger than the specimen's (see
+//     the openings block, and `M.skull.socket`).
+//   * The vault's upper half-breadth follows an arc rather than the measured
+//     rows (see VAULT_HALFW).
+//   * The tooth rows sit further apart than occlusion (see AJAR).
+//
+// WHY THE HEAD IS ASSEMBLED FROM PIECES RATHER THAN BEING ONE FIELD.
+//
+// It used to be ONE smooth implicit field: a superellipsoid vault driven by a
+// profile curve, with holes cut in it. Three things that say "skull" cannot be
+// said by a single smooth field at all, and they are still separate meshes:
+//
+//   1. THE TEMPORAL FOSSA IS A HOLLOW. Subtracted as a real scoop 0.062 of the
 //      head's height deep, bounded above by the temporal line, which is added
 //      back AFTER the scoop so it is the fossa's edge rather than a scratch.
-//   3. THE ZYGOMATIC ARCH IS A BRIDGE WITH DAYLIGHT BEHIND IT. Its own swept
+//   2. THE ZYGOMATIC ARCH IS A BRIDGE WITH DAYLIGHT BEHIND IT. Its own swept
 //      bar, both ends buried in abutments that ARE in the field, its middle
 //      standing clear of the scooped fossa. The gap is measured and published
 //      as `landmarks.zygGap`; a union of two solids is one solid and can never
 //      have one.
-//   4. THE MASTOID IS A DOWNWARD LUG. Its own tapered mesh hanging behind and
+//   3. THE MASTOID IS A DOWNWARD LUG. Its own tapered mesh hanging behind and
 //      below the ear canal, not a bump smin'd into the base, because smin
 //      rounds a point off exactly as fast as you sharpen it.
 //
-// So this file assembles the head out of pieces. What is in the field is only
-// what genuinely is one continuous surface: the braincase, the maxilla, the
-// cheekbone, the nasal bones, the cranial base. Everything with an overhang, a
-// gap or a point behind it is its own mesh, overlapped into the field's mass so
-// the join happens inside bone and never out in the open.
+// A FOURTH USED TO BE ON THAT LIST AND HAS BEEN DELETED: "the brow overhangs".
+// It did overhang, by a swept bar with an authored wedge section buried in the
+// frontal. It was also the single weirdest thing in the scene-scale crop. A bar
+// laid on a surface has a CREST, the crest is a line running across the front
+// of the skull, and above it sat the flat forehead plane that the measured
+// profile asked for: brim and crown, a cap. A real supraorbital ridge has no
+// edge on its upper side at all. The overhang bought a shadow that is worth
+// nothing at seventy pixels, since the socket's darkness comes from the cut
+// hole, its walls and the ring of shade around it. So the brow is now a broad
+// swelling in the field with a fillet wider than its own radius, and the flat
+// plane above it is gone with it.
+//
+// What is in the field is therefore everything that is genuinely one continuous
+// surface: the braincase, the brow, the maxilla, the cheekbone, the nasal
+// bones, the cranial base. Only a gap or a point behind it earns its own mesh,
+// overlapped into the field's mass so the join happens inside bone.
 //
 // KEPT FROM THE OLD BUILD, because both were right and both were hard-won:
 //
@@ -53,31 +78,21 @@ import { shaft } from './bone.js';
 //     face normals dish the skin at every rim and put a grey halo exactly where
 //     the cut wants a crisp edge.
 //
-// TWO METRICS THE PHOTOGRAPH SAYS ARE WRONG. Neither is changed here; both are
-// reported, and this file uses the measured value with the metric's own number
-// noted beside it.
+// WHAT THIS FILE AND metrics.js NOW AGREE ON, AND WHY IT MOVED AGAIN.
 //
-//   * M.skull.depth and M.skull.width are BOTH about 13% too large for
-//     M.skull.height. metrics.js sizes them from a claim in SKULL-ANATOMY.md
-//     that vertex-to-gnathion is 0.94 of glabella-to-opisthocranion. The
-//     photograph says the opposite and so does every craniometric table: a real
-//     skull is TALLER than it is long. Measured off the front view (vertex to
-//     gnathion 219 px) and the lateral (glabella to opisthocranion 174.5 px,
-//     corrected for the specimen's ~18 degrees of rotation) the ratio is 1.075,
-//     not 0.94. Holding the cranial index at 0.78, which metrics.js gets right,
-//     that wants `depth: f(0.1553)` and `width: f(0.1169)` where they are
-//     f(0.1777) and f(0.1386). At the metric's numbers the head is a long low
-//     egg and no shaping inside this file can fix it, which is the same failure
-//     mode the file's own history describes for the previous pair of numbers.
-//   * M.skull.socket is far too big. Measured on the front view the orbit is
-//     47 px wide by 36 px tall against a 219 px skull, so 0.215 and 0.170 of
-//     crown-to-chin: `width: f(0.0359)`, `height: f(0.0284)` against the
-//     metric's f(0.049) and f(0.043). The metric's socket is 36% too wide and
-//     51% too tall, and a socket that size is the single strongest reason the
-//     head reads as a cartoon: it fills the space the brow, the cheekbone and
-//     the temporal fossa all need, and it is what makes the ear canal and the
-//     orbit's lower rim irreconcilable. The previous pass reported the height
-//     alone at 0.242 of skull length against a real 0.19 and it was right.
+// `M.skull.width` and `M.skull.depth` say f(0.1169) and f(0.1553), which is the
+// photograph's answer: a real skull is TALLER than it is long (vertex to
+// gnathion 219 px on the front view against glabella to opisthocranion 174.5 px
+// on the lateral, corrected for the specimen's ~18 degrees of rotation, so
+// 1.075 and not the 0.94 that SKULL-ANATOMY.md claims). This file carries its
+// own copies as SKULL_L and SKULL_W and they match.
+//
+// `M.skull.socket` has been CHANGED by this pass, to f(0.0409) by f(0.0359),
+// which is 0.245 by 0.215 of crown-to-chin. That is bigger than the specimen's
+// 0.215 by 0.170 and it is the legibility trade, argued at the openings block
+// below and again in metrics.js. Previous rounds had to report metric changes
+// rather than make them; this one was asked to make them, because the socket
+// size turned out to be a legibility problem rather than an anatomy one.
 //
 // TWO PLACES `.ref/SKULL-ANATOMY.md` IS ALSO WRONG, both checked against the
 // photograph rather than against the table:
@@ -89,12 +104,13 @@ import { shaft } from './bone.js';
 //     ratio at 1.5. Half would leave a keyhole punched into the middle of the
 //     maxilla, which is what an earlier build had. It is 0.220 here.
 //   * The table's eye line at half of vertex-to-chin: already corrected in the
-//     file, and this build was measured off the photograph before the
-//     correction landed, so it is at 0.435, which is the same answer.
+//     file. The photograph puts it at 0.435 and this build sits it at 0.420,
+//     the difference being deliberate and explained at ORBIT_V.
 //
 // M.skull.socket.slant stays at 0.12. The user asked for a friendly face rather
-// than a scowl and that is what the slant does; a smaller socket does not bring
-// the scowl back, because the scowl came from a hard diagonal on the top edge.
+// than a scowl and that is what the slant does. Note that ENLARGING the sockets
+// did not bring the scowl back either: the scowl came from a hard diagonal on
+// the top edge, not from the size of the opening.
 //
 // One more number worth saying out loud, though nothing here can act on it:
 // relative to the crown and the chin, `M.y.atlas` (ribcageTop + neck.length)
@@ -203,29 +219,33 @@ function curveThrough(rows) {
 // Read straight off the lateral view's silhouette. The braincase's front and
 // back at each height, in zn.
 //
-// Two features in here are the ones the previous build had no way to produce
-// and they are worth naming, because they are what makes a profile read as a
-// skull rather than as an egg:
+// SCENE SCALE GOVERNS THIS TABLE NOW, AND THAT IS A CHANGE OF BRIEF. In the
+// product the head is about seventy pixels tall, and at seventy pixels the only
+// things the eye gets are the outline of the vault, two dark holes, a nose hole
+// and a tooth row. Two of the shapes below were measured honestly off the
+// photograph and still came out wrong at that size, so they are gone:
 //
-//   * THE FOREHEAD SLOPES BACK, and it is not a smooth arc from vertex to brow.
-//     The measured outline runs forward fast to zn 0.858 by v 0.26, then FLATTENS
-//     and comes back a hair through v 0.28-0.35 -- the shallow groove above the
-//     brow ridge -- before the brow itself throws forward again. The groove is
-//     three pixels on the photograph and it is the whole reason the frontal
-//     reads as sloping rather than as domed.
-//   * THE OCCIPUT BULGES. The back line sits flat against zn 0.000-0.008 over a
-//     tenth of the head's height either side of v 0.44, so the back of the head
-//     is a broad rounded bulge and not the end of a taper.
+//   * THE GROOVE ABOVE THE BROW. The measured outline ran forward fast to zn
+//     0.858 by v 0.26, then FLATTENED and came back a hair through v 0.28-0.35
+//     before the brow threw forward again. That is three pixels on the
+//     photograph and it is real, but it puts a VERTICAL PLANE across the front
+//     of the forehead, and with the old separate brow bar standing under it the
+//     pair read at scene scale as the flat crown of a cap over the brim of a
+//     cap. It was the single weirdest thing in the picture. The frontal now
+//     runs one continuous convex slope from the vertex to glabella, which is
+//     less true of this specimen and much more like a skull at seventy pixels.
+//   * THE OCCIPUT BULGES, and this one stays: the back line sits flat against
+//     zn 0.000-0.008 either side of v 0.44, so the back of the head is a broad
+//     rounded bulge rather than the end of a taper.
 //
-// The vault's own glabella is held at 0.905 rather than the measured 0.933: the
-// brow bar is a separate mesh standing proud of this surface, and it is what
-// carries the front-most point of the cranium, as a real supraorbital ridge
-// does. Aim the field at 0.933 as well and the brow stops being an overhang and
-// becomes a swelling on a surface that has already got there.
+// The vault's own glabella is held at 0.905 rather than the measured 0.933
+// because the supraorbital swelling (`browSwell`, in the field) carries the
+// front-most point of the cranium out from there, exactly as a real brow ridge
+// does.
 const VAULT_FRONT = curveThrough([
   [0.000, 0.416], [0.020, 0.570], [0.041, 0.629], [0.061, 0.677],
-  [0.102, 0.767], [0.163, 0.810], [0.203, 0.831], [0.264, 0.856],
-  [0.310, 0.858], [0.352, 0.855], [0.400, 0.878], [0.442, 0.905],
+  [0.102, 0.760], [0.163, 0.808], [0.203, 0.833], [0.264, 0.860],
+  [0.310, 0.872], [0.352, 0.882], [0.400, 0.894], [0.442, 0.905],
   [0.500, 0.892], [0.560, 0.868], [0.620, 0.828], [0.700, 0.775],
   [0.780, 0.726], [0.860, 0.686],
 ]);
@@ -239,16 +259,36 @@ const VAULT_BACK = curveThrough([
 // SKULL_W/2. The peak is at v 0.292 and it is a POINT rather than a band --
 // the parietal eminence blob below puts it above and behind the ear, which is
 // where the photograph's widest point is.
-// Trimmed against a measured render: the blends that carry the parietal
-// eminences into the vault push the built surface a little wider than the table
-// asks for, most of all near the crown, where the first cut of this came out
-// 18% wide at v 0.10 and 8% wide at the parietal eminence.
+//
+// THE POINTED CROWN CAME FROM THIS TABLE AND NOT FROM THE PROFILE. Above the
+// eminence the old rows fell away far faster than an arc does: 0.085 at v 0.018
+// and 0.158 at v 0.055 where a dome wants 0.117 and 0.195. The profile at the
+// same heights is a genuine round cap already (half-depth 0.152 at v 0.02), so
+// the top of the head was HALF AS WIDE AS IT WAS LONG: not a dome, a
+// fore-and-aft KNIFE EDGE, and at scene scale it read as a sagittal crest
+// running over the crown to a point at the top rear. It was the second thing
+// the user's eye found after the brow.
+//
+// So everything from the vertex down to the eminence is now one half-ellipse:
+// half-breadth 0.326 * sqrt(2u - u^2) with u = v / 0.292, which is the arc that
+// meets the measured maximum at the measured height with zero slope, so the
+// widest point is still exactly where the photograph puts it and nothing below
+// v 0.292 moves at all. The vertex is still a mathematical point, as every
+// surface of revolution's pole is, but the curve now approaches it as sqrt(v)
+// rather than linearly, so the last visible cell is round.
+//
+// (The rows below v 0.292 that follow the ellipse are of course wider than the
+// photograph's, by up to 15% at v 0.10. That is the trade: a measured vault
+// that reads as a crest is worth less than a slightly full one that reads as a
+// skull. Compare with the trim note that used to be here, which pulled these
+// same rows DOWN to compensate for the parietal blend, and made the crest
+// worse.)
 const VAULT_HALFW = curveThrough([
-  [0.000, 0.000], [0.018, 0.085], [0.055, 0.158], [0.091, 0.214],
-  [0.128, 0.258], [0.164, 0.286], [0.201, 0.307], [0.237, 0.320],
-  [0.292, 0.326], [0.347, 0.322], [0.402, 0.314], [0.456, 0.308],
-  [0.511, 0.300], [0.566, 0.284], [0.620, 0.258], [0.700, 0.220],
-  [0.780, 0.172], [0.860, 0.118],
+  [0.000, 0.000], [0.008, 0.076], [0.020, 0.119], [0.041, 0.167],
+  [0.070, 0.212], [0.102, 0.248], [0.140, 0.278], [0.180, 0.301],
+  [0.235, 0.320], [0.292, 0.326], [0.347, 0.322], [0.402, 0.314],
+  [0.456, 0.308], [0.511, 0.300], [0.566, 0.284], [0.620, 0.258],
+  [0.700, 0.220], [0.780, 0.172], [0.860, 0.118],
 ]);
 // How square the plan section is. Round at the crown, squarer below, which is
 // what gives the side of the head a near-flat temporal wall for the fossa to be
@@ -316,12 +356,33 @@ function vaultField(x, y, z) {
 }
 
 // --- the openings -----------------------------------------------------------
-// Measured off the front view: 47 px by 36 px against a 219 px skull, centred
-// 38 px off the midline at 0.435 of the way down. See the metric report at the
-// top: metrics.js has these more than a third too large.
-const SOCKET_W = 0.215 * HS;
-const SOCKET_H = 0.170 * HS;
-const ORBIT_V = LY(0.435);
+// DELIBERATELY LARGER THAN THE PHOTOGRAPH, AND THIS IS THE BIGGEST STYLISATION
+// IN THE FILE. Measured off the front view the orbit is 47 px by 36 px against
+// a 219 px skull, so 0.215 by 0.170 of crown-to-chin, and that is what was
+// built for two rounds. In the product the head is about seventy pixels tall,
+// which makes a measured orbit twelve pixels high: it disappears into the
+// shading and what is left is a big pale dome with two specks in it. The orbits
+// are the thing that says "skull" and they are the first thing the eye finds,
+// so if the anatomically correct size does not read at seventy pixels then the
+// anatomically correct size is wrong for this character. The pumpkins in this
+// same scene have their carved faces oversized for exactly this reason.
+//
+// 0.245 by 0.215 is +14% wide and +26% tall, checked at scene scale rather than
+// on a turntable. It is roughly the orbit of a child's skull, which is also why
+// it stays friendly: a big round socket is not a threatening one, a small one
+// under a heavy brow is.
+//
+// ORBIT_U moves out with the width so the bone bridge between the two openings
+// keeps the thickness it had; the medial edges sit 0.072 of the head's height
+// off the midline either side, against the nasal aperture's 0.063.
+const SOCKET_W = 0.245 * HS;
+const SOCKET_H = 0.215 * HS;
+// Up from 0.435. Not anatomy: with the camera looking down on the figure the
+// vault eats screen area that the face does not, so the whole face reads as
+// pushed into the bottom of the head. Lifting the eye line 0.015 of the head's
+// height and dropping the nose 0.015 splits the difference between the two
+// complaints, cranium too big and features too low, without moving a metric.
+const ORBIT_V = LY(0.412);
 const SLANT = M.skull.socket.slant;
 // metrics gives a socket as a bounding box, and rotating an ellipse by s takes
 // semi-axes (A, B) to a box of halfW^2 = A^2 cos^2 s + B^2 sin^2 s and
@@ -344,9 +405,14 @@ const SOCKET = (() => {
 // nasospinale. Nasion to nasospinale measured on the lateral is 0.193 of
 // crown-to-chin and the craniometric mean is 0.190, so it is 0.230 counting the
 // aperture's apex above nasion. Width is 0.115, the front view's 24 px.
-const NASAL_W = 0.115 * HS;
-const NASAL_H = 0.220 * HS;
-const NASAL_V = LY(0.615);
+// Width goes up with the orbits and for the same reason: the front view's 24 px
+// is 0.115 of the head, which is eight pixels at scene scale and reads as a
+// scratch. Height is held (it is the one facial opening that was already big
+// enough) and the whole aperture drops 0.015, which keeps its apex clear of the
+// enlarged sockets and lengthens the face.
+const NASAL_W = 0.128 * HS;
+const NASAL_H = 0.215 * HS;
+const NASAL_V = LY(0.630);
 
 // Where the face is unwrapped from, and at what radius. u is arc length round
 // the vertical axis through P0 measured at FACE_R, v is world height; the
@@ -355,7 +421,7 @@ const NASAL_V = LY(0.615);
 // the front of the face keeps the size it was authored at.
 const P0 = new THREE.Vector3(0, LY(0.500), LZ(0.430));
 const FACE_R = LZ(0.933) - P0.z;
-const ORBIT_U = 0.178 * HS;             // bearing of the socket's centre, times FACE_R
+const ORBIT_U = 0.194 * HS;             // bearing of the socket's centre, times FACE_R
 
 // Bone thickness at the edge of a cut, and so the depth of the wall inside
 // every opening. Below about two grid cells the wall has less than one quad of
@@ -368,7 +434,12 @@ const WALL_PROUD = 0.02 * WALL_T;
 const WALL_TAPER = 0.18 * WALL_T;
 const ORBIT_CAVITY = 0.150 * HS;
 const NASAL_CAVITY = 0.080 * HS;
-const AO_REACH = 0.030 * HS;
+// How far the soft shade outside an opening reaches, and how dark it gets (the
+// 0.24 in the paint loop below, up from 0.16). Both are legibility numbers: at
+// seventy pixels an opening is six or seven pixels across and the rim's own
+// shading is one of them, so a ring of shade around it is most of what makes it
+// read as a hole rather than as a grey mark.
+const AO_REACH = 0.038 * HS;
 
 // Tessellation. Set by the openings, not by the silhouette: the vault is smooth
 // at a third of this, but the edge of a cut is a contour crossing the grid at
@@ -576,21 +647,23 @@ function snapTo(cut, X, Y) {
 // which a Frenet frame will not give you because a Frenet frame rolls.
 //
 // The asymmetry is the point and it is what bone.js cannot do. `shaft` sweeps a
-// radius and `sweepBar` in the old build swept a superellipse, and both are
-// symmetric about their own centre line, so neither can make a shelf that is
-// blunt on top and undercut below -- which is exactly what a supraorbital ridge
-// is. The section list is resampled to a constant length by the caller.
+// radius and both it and a swept superellipse are symmetric about their own
+// centre line, so neither can make a section that is blunt on one side and
+// drawn in on the other, which the mandible needs at the gonial angle. The
+// section list is resampled to a constant length by the caller.
+//
+// The mandible is now the only caller. A supraorbital shelf used to be the
+// other, and the two notes below are kept because they are what that shelf cost
+// to get right and the next asymmetric bar will pay the same price.
 //
 // The seam column is NOT duplicated: two coincident columns get separately
 // averaged normals and draw a crease.
-// `frame(u, side, vup, T)` overrides that: some bars want a frame that does NOT
-// follow the path. The supraorbital shelf is one. Its centre line runs along the
-// top margin of the orbit, and that margin dives steeply at both corners, so the
-// tangent there is nearly vertical, `T cross up` collapses to zero and the
-// default frame flips over -- which drew the shelf as two flat sheets standing
+// `frame(u, side, vup, T)` overrides the default frame: some bars want one that
+// does NOT follow the path. Wherever a path runs vertically, its tangent is
+// nearly parallel to up, `T cross up` collapses to zero and the default frame
+// flips over. On the old brow that drew the shelf as two flat sheets standing
 // out sideways from the face, a whole afternoon of looking for a winding bug
-// that was not there. A shelf wants "out" to mean radially outward and "up" to
-// mean up, whatever its own path is doing.
+// that was not there; on the mandible it is the ramus.
 function sweepShape(centre, section, uMin, uMax, nU, { capStart = true, capEnd = true, frame = null } = {}) {
   const nR = section(uMin).length;
   const verts = [];
@@ -724,9 +797,15 @@ function toothGeometry(w, h, d) {
 // curve inset, which is what keeps bone from creeping in front of the crowns.
 const UPPER_ARCH = { halfW: 0.173 * HS, front: LZ(0.945), back: LZ(0.700) };
 const LOWER_ARCH = { halfW: 0.152 * HS, front: LZ(0.932), back: LZ(0.690) };
-const TOOTH_H = 0.054 * HS;
+const TOOTH_H = 0.062 * HS;
 const TOOTH_D = 0.040 * HS;
-const AJAR = 0.009 * HS;                // the rows do not quite touch when shut
+// How far apart the rows sit with the jaw shut. 0.009 of the head's height is
+// four thousandths of a world unit, which is a third of a pixel at scene scale:
+// the two rows fused into one pale band and the mouth vanished, which is the
+// fifth thing the user's crop shows and the reason it barely registers as a
+// face. 0.022 is a dark line two or three pixels deep, and a real skull in
+// occlusion shows exactly such a line between the crowns.
+const AJAR = 0.022 * HS;
 
 function archCurve({ halfW, front, back }, y, { inset = 0, extend = 1, flare = 0 } = {}) {
   const pts = [];
@@ -803,35 +882,11 @@ const GONION_Y = LY(JAW_STATIONS[7][1]);
 const GONION_Z = LZ(JAW_STATIONS[7][2]);
 
 // --- pieces that are meshes, not field --------------------------------------
-// The supraorbital shelf's section, in the sweep's own frame: h forward, w up.
-// A rounded wedge, blunt where it meets the frontal behind and undercut at the
-// front, so its lower surface faces DOWN into the orbit. `k` runs 0 at the
-// medial end to 1 at the lateral, and the ridge is heaviest laterally, which is
-// what the photograph shows and the opposite of what a smooth field produces.
-// Authored so the bar is mostly BURIED: the centre line is sunk into the
-// frontal by BROW_SINK and only the +h side of the section comes back out, so
-// what shows is a lip standing BROW_OUT proud with its underside facing down
-// into the socket. A section centred on the surface puts half a sausage on the
-// forehead, which is what the first cut of this did.
-// Authored so the bar is mostly BURIED: its centre line is sunk into the
-// frontal by BROW_SINK and only the +h side of the section comes back out, so
-// what shows is a lip standing proud with its underside facing down into the
-// socket. A section centred ON the surface puts half a sausage on the forehead,
-// which is what the first cut of this did.
-//
-// h is FORWARD and w is UP, for both sides. The list must be counter-clockwise
-// in (h, w): sweepShape takes the solid's orientation from the section's
-// winding and then measures it, so a clockwise list simply comes out reversed.
-const BROW_SEC = [
-  [-0.155, -0.024],   // bottom, deep inside the frontal
-  [-0.042, -0.044],   // the orbital roof
-  [+0.018, -0.040],   // THE OVERHANGING MARGIN: forward of the socket's rim
-  [+0.046, -0.016],
-  [+0.056, +0.012],   // the ridge's crest, the front-most point of the cranium
-  [+0.038, +0.038],
-  [-0.034, +0.054],   // back up into the forehead
-  [-0.155, +0.036],
-];
+// There used to be a supraorbital shelf here: a swept bar with an authored
+// asymmetric wedge section, buried in the frontal so that its lower-front edge
+// could overhang the socket, which a single sampled field cannot do. It is
+// gone. See `browSwell` in buildSkull for why: the overhang was real and the
+// hard crest that came with it read at scene scale as the brim of a cap.
 
 export function buildSkull({ material }) {
   const group = new THREE.Group();
@@ -892,9 +947,15 @@ export function buildSkull({ material }) {
   // measurement. Two thirds up the vault and a third forward of the occiput is
   // a POINT, so it is a blob. Held under half the breadth because the smin that
   // blends it in carries the surface out past the blob's own radius.
+  // Pulled in and dropped a little from [0.150 HS, 0.230 HS] at v 0.300. With
+  // VAULT_HALFW now carrying a full dome above them, a pair of blobs this large
+  // that high up stopped being eminences and became the top rear of the head:
+  // the vault peaked behind and above the ears and fell away in front of them,
+  // which is the "pointed egg" the crop showed, half of it. The remaining half
+  // was the width profile. Both had to go.
   const parietal = (side) => blob(
-    [side * (0.440 * SKULL_W - 0.100 * SKULL_W), LY(0.300), LZ(0.320)],
-    [0.100 * SKULL_W, 0.150 * HS, 0.230 * HS], 2);
+    [side * (0.440 * SKULL_W - 0.100 * SKULL_W), LY(0.330), LZ(0.330)],
+    [0.100 * SKULL_W, 0.125 * HS, 0.195 * HS], 2);
 
   // The nasal bones. Small, and there for the PROFILE: with the glabella above
   // and the aperture's apex below, the midline strip between the orbits is
@@ -922,9 +983,16 @@ export function buildSkull({ material }) {
   // standing forward with the temporal fossa dropping away behind it. Kept
   // strictly LATERAL of the socket's outline -- a blob centred inside it does
   // not build a rim, it bulges into the opening.
+  //
+  // It follows the orbit up when the orbit moves, and it is kept SHORT at the
+  // top. Sized for the old smaller socket it reached to v 0.35, which put its
+  // upper end out on the open frontal where the blend that buries it drew a
+  // soft line running up the forehead: at scene scale that line and its partner
+  // on the far side read as a second pair of brows. It now stops at the level
+  // the brow swelling starts.
   const orbitalRim = (side) => blob(
-    [side * 0.305 * SKULL_W, LY(0.455), LZ(0.835)],
-    [0.060 * SKULL_W, 0.105 * HS, 0.056 * HS], 2.4);
+    [side * 0.318 * SKULL_W, LY(0.452), LZ(0.835)],
+    [0.060 * SKULL_W, 0.088 * HS, 0.056 * HS], 2.4);
   const zygRoot = (side) => blob(
     [side * 0.318 * SKULL_W, LY(0.508), LZ(0.285)],
     [0.082 * SKULL_W, 0.058 * HS, 0.105 * HS], 2.4);
@@ -934,21 +1002,34 @@ export function buildSkull({ material }) {
   const rootL = zygRoot(-1), rootR = zygRoot(1);
   const parietalL = parietal(-1), parietalR = parietal(1);
 
-  // The supraorbital region as a broad soft swelling IN the field, under the
-  // separate shelf that is built later. The shelf alone was not enough: a proud
-  // mesh laid on a surface that is flat behind it emerges along a hard line and
-  // reads as an arc stuck to the forehead. With the frontal itself convex there,
-  // that line falls on a surface already curving the same way and reads as the
-  // crest of a ridge instead of the edge of a part. The overhang still comes
-  // from the shelf; this only gives it something to grow out of.
+  // THE BROW, AND IT IS NOW ONLY THIS.
+  //
+  // The previous build had a broad swelling here AND a separate swept bar laid
+  // over it with an authored asymmetric wedge section, so that the ridge could
+  // genuinely overhang the socket the way a real supraorbital margin does. The
+  // overhang worked. At scene scale it was still the worst thing on the head:
+  // the bar has a crest, the crest is a line running straight across the front
+  // of the skull, and with the flat forehead plane that used to sit above it
+  // (see VAULT_FRONT) the pair read as the brim and crown of a CAP. The user
+  // called the head weird and this is what they were looking at.
+  //
+  // A real supraorbital ridge has no edge on its upper side at all: it is a
+  // swelling that merges up into the frontal with nothing to catch a highlight.
+  // So the bar is gone and this tube, which used to be the thing the bar grew
+  // out of, is the whole brow: heavier than before, sunk shallower, and blended
+  // into the vault with a fillet wider than its own radius so that there is no
+  // line anywhere on it. What is lost is the undercut, and at seventy pixels an
+  // undercut buys nothing: the socket's darkness comes from the cut hole, its
+  // walls and the ring of shade around it, all of which survive. Legibility
+  // wins over anatomy here and it is a deliberate change of brief.
   const browSwell = [-1, 1].map((side) => tube(
     [-0.62, -0.30, 0.05, 0.40, 0.72, 1.00].map((kx) => {
-      const [u, v] = socketToFace(side, kx * SOCKET.a, Math.pow(socketTop(kx), 0.45) * SOCKET.b + 0.030 * HS);
+      const [u, v] = socketToFace(side, kx * SOCKET.a, Math.pow(socketTop(kx), 0.45) * SOCKET.b + 0.026 * HS);
       const ang = u / FACE_R;
-      const rho = surfaceRho(base, ang, v) - 0.040 * HS;
+      const rho = surfaceRho(base, ang, v) - 0.030 * HS;
       return new THREE.Vector3(Math.sin(ang) * rho, v, Math.cos(ang) * rho);
     }),
-    0.066 * HS,
+    0.076 * HS,
   ));
 
   // Bone directly above every upper tooth, all the way to the back of the row.
@@ -967,8 +1048,11 @@ export function buildSkull({ material }) {
     let d = base(x, y, z);
     d = smin(d, parietalL(x, y, z), 0.055);
     d = smin(d, parietalR(x, y, z), 0.055);
-    d = smin(d, browSwell[0](x, y, z), 0.030);
-    d = smin(d, browSwell[1](x, y, z), 0.030);
+    // A fillet wider than the tube's own radius: this is what stops the brow
+    // emerging from the forehead along a line. Nothing else on the head is
+    // blended this softly.
+    d = smin(d, browSwell[0](x, y, z), 0.042);
+    d = smin(d, browSwell[1](x, y, z), 0.042);
     d = smin(d, nasalBone(x, y, z), 0.016);
     d = smin(d, malarL(x, y, z), 0.034);
     d = smin(d, malarR(x, y, z), 0.034);
@@ -1022,19 +1106,27 @@ export function buildSkull({ material }) {
   // with no line on it a dome is just a dome.
   //
   // It is added AFTER the fossa is cut, so it is the fossa's upper EDGE rather
-  // than a scratch on a dome, and it stands only 0.014 of the head's height
-  // proud: a ridge on the side of a skull turns into a moulding seam the moment
-  // it is tall enough to catch a specular. The last point is sunk deep, because
-  // a capsule chain ends in a hemisphere and a hemisphere out in the open is a
-  // pimple on the back of the head.
+  // than a scratch on a dome. The last point is sunk deep, because a capsule
+  // chain ends in a hemisphere and a hemisphere out in the open is a pimple on
+  // the back of the head.
+  //
+  // HOW PROUD IT STANDS IS A SCENE-SCALE NUMBER AND IT CAME DOWN HARD. It used
+  // to stand 0.020 of the head's height out of the vault, which on a 760 pixel
+  // turntable is the crisp line the photograph shows. At seventy pixels it is
+  // two pixels of highlight running up over the side of the head, the eye joins
+  // it to its partner across the crown, and what the user sees is a RIDGE OVER
+  // THE TOP OF THE SKULL. That was the second complaint in the crop and it was
+  // not the profile's fault: the vault under it is a dome. It now stands about
+  // 0.006 proud, which is a change of shading rather than a line, and it still
+  // does its real job of stopping the temple reading as part of the balloon.
   //
   // [bearing, v, how deep to bury this point].
   const TEMPORAL = [
-    [0.72, 0.400, 0.052], [1.02, 0.330, 0.014], [1.34, 0.298, 0.010],
-    [1.66, 0.300, 0.012], [1.98, 0.340, 0.024], [2.22, 0.412, 0.058],
+    [0.86, 0.376, 0.072], [1.02, 0.330, 0.020], [1.34, 0.298, 0.017],
+    [1.66, 0.300, 0.019], [1.98, 0.340, 0.030], [2.22, 0.412, 0.062],
     [2.40, 0.480, 0.100],
   ];
-  const TEMP_R = 0.034 * HS;
+  const TEMP_R = 0.024 * HS;
   const temporals = [-1, 1].map((side) => tube(
     TEMPORAL.map(([ang, v, inset]) => {
       const a = side * ang;
@@ -1263,7 +1355,7 @@ export function buildSkull({ material }) {
       for (const cut of CUTS) {
         if (u < cut.minX - AO_REACH || u > cut.maxX + AO_REACH) continue;
         if (v < cut.minY - AO_REACH || v > cut.maxY + AO_REACH) continue;
-        lum *= 1 - 0.16 * (1 - smoothstep(0, AO_REACH, snapTo(cut, u, v).d));
+        lum *= 1 - 0.24 * (1 - smoothstep(0, AO_REACH, snapTo(cut, u, v).d));
       }
       // The temporal fossa carries a little of its own shade. There is no
       // global illumination in this scene, so a hollow this shallow lights the
@@ -1302,121 +1394,21 @@ export function buildSkull({ material }) {
   craniumGeo.computeBoundingSphere();
   group.add(add(craniumGeo, skin, 'cranium'));
 
-  // ============================================== 1. the brow, as an overhang
-  // A separate swept bar laid along the top edge of each socket, its back half
-  // buried in the frontal and its lower-front edge standing forward of the
-  // opening's rim. The section is a rounded WEDGE, blunt behind and undercut in
-  // front, so its lower surface faces down into the orbit and the socket sits
-  // in its shadow. That undercut is the whole point and it is why the brow is
-  // not in the field: the cranium is sampled as one distance along each ray out
-  // of P0, which by construction cannot double back, so a smooth field has no
-  // overhang anywhere.
+  // =============================================== 1. the brow, as a swelling
+  // Nothing is built here any more. The brow is `browSwell`, in the field,
+  // above; the swept shelf that used to stand on it is gone with its overhang.
   //
-  // The ends are buried rather than capped in the open, which is what makes the
-  // join invisible: the bar emerges from bone at each end the way a real
-  // supraorbital ridge does, and there is no meeting of surfaces to fillet.
-  // It stops short of the medial corner as well -- carried all the way in, the
-  // two shelves converge over the bridge and build a raised V that reads as a
-  // snout, which is what an earlier pass did.
-  // The centre line rides this far above the socket's top edge, and this far
-  // INSIDE the frontal. Together with BROW_SEC they put the shelf's crest about
-  // 0.014 of the head's height proud of the skin and its lower lip about 0.03
-  // below the socket's upper margin, which is the overhang.
-  const BROW_LIFT = 0.024 * HS;
-  const BROW_SINK = 0.034 * HS;
-  let browDrop = 0;
+  // How far the brow actually stands proud is still measured rather than
+  // asserted, and it is measured the only honest way now that it is part of one
+  // surface: the radius of the finished field at the crest, minus the radius
+  // the vault alone would have had at the same bearing and height. `base` is
+  // the vault, the maxilla and the cranial base with no brow in it, so the
+  // difference is the ridge and nothing else.
+  let browProud = 0;
   for (const side of [-1, 1]) {
-    // kx runs medial to lateral; both sides are swept in the +x direction so
-    // the local frame's `h` means "forward" for both of them.
-    const k0 = side > 0 ? -0.78 : 1.06;
-    const k1 = side > 0 ? 1.06 : -0.78;
-    const nrm = new THREE.Vector3();
-    // The margin is followed at a power, not raw: socketTop dives to zero at
-    // both corners of the opening and a shelf that dived with it would leave the
-    // orbit's outer corner unroofed. 0.55 keeps the ridge high across the whole
-    // span and lets it turn down only at the very ends, which is the course the
-    // photograph's ridge takes into the frontal process of the zygomatic.
-    const ridgeTop = (kx) => Math.pow(socketTop(kx), 0.45) * SOCKET.b + BROW_LIFT;
-    const bearing = (t) => socketToFace(side, mix(k0, k1, t) * SOCKET.a, ridgeTop(mix(k0, k1, t)))[0] / FACE_R;
-    const centre = (t, out) => {
-      const kx = mix(k0, k1, t);
-      const [u, v] = socketToFace(side, kx * SOCKET.a, ridgeTop(kx));
-      const ang = u / FACE_R;
-      const rho = surfaceRho(field, ang, v);
-      out.set(Math.sin(ang) * rho, v, Math.cos(ang) * rho);
-      gradNormal(out.x, out.y, out.z, nrm);
-      out.addScaledVector(nrm, -BROW_SINK);
-      return out;
-    };
-    const section = (t) => {
-      // Heaviest laterally, tucked away medially: the reference's ridge is a
-      // wedge that grows from the bridge of the nose out to the frontozygomatic
-      // corner, and a bar of constant section reads as a hoop.
-      const kx = mix(k0, k1, t);
-      const heavy = 0.72 + 0.28 * smoothstep(-0.80, 0.35, kx);
-      // Both ends taper away so they vanish into the bone they are buried in
-      // rather than ending in a visible stub. The medial end fades hardest:
-      // carried on, the two shelves meet over the bridge and rebuild the raised
-      // V that read as a snout two passes ago.
-      //
-      // Both of these are functions of kx and NOT of t, and that is the fix for
-      // a bug that took two cycles to see. The two sides are swept in opposite
-      // directions along kx, so a taper written against t fades the medial end
-      // of one shelf and the LATERAL end of the other: one brow came out a
-      // sliver and the other a slab standing out in front of the nose, and it
-      // looked like an asymmetric mesh rather than an asymmetric parameter.
-      const fade = Math.min(
-        smoothstep(-0.80, -0.45, kx),
-        1 - 0.60 * smoothstep(0.78, 1.06, kx),
-      );
-      const s = heavy * Math.max(0.04, fade) * HS;
-      // NOT mirrored for the right side. Both sweeps get the same (side, vup)
-      // frame from the `frame` callback below, in which h already means
-      // "radially outward" on whichever side it is. Negating h for one side
-      // turns the buried half of the shelf around and stands it out in the air
-      // in front of the face, which is exactly what it did.
-      return BROW_SEC.map(([h, w]) => [h * s, w * s]);
-    };
-    const geo = track(sweepShape(centre, section, 0, 1, 48, {
-      frame: (t, sd, vu) => {
-        const ang = bearing(t);
-        sd.set(Math.sin(ang), 0, Math.cos(ang));
-        vu.set(0, 1, 0);
-      },
-    }));
-    // The underside of a shelf is in shadow, and this scene has no global
-    // illumination to put it there: the hemisphere light reaches the roof of an
-    // orbit as if the brow above it were not there, so an honest overhang
-    // renders as a LIT wedge hanging inside a black socket, which reads as a
-    // chip of bone broken off into the eye. Painting the downward-facing half of
-    // the shelf is the whole fix, and it is the same argument the cavity
-    // colours below make.
-    {
-      const nAttr = geo.attributes.normal;
-      const col = new Float32Array(nAttr.count * 3);
-      for (let i = 0; i < nAttr.count; i++) {
-        const lum = 1 - 0.62 * clamp01(-nAttr.getY(i));
-        col[i * 3] = lum;
-        col[i * 3 + 1] = lum * (1 - 0.02 * (1 - lum));
-        col[i * 3 + 2] = lum * (1 + 0.10 * (1 - lum));
-      }
-      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    }
-    group.add(add(geo, skin, 'brow'));
-    // How far the shelf's front lip hangs BELOW and FORWARD of the socket's top
-    // rim, measured at the middle of the sweep. This is the number that says
-    // whether there is an overhang at all, so it is published rather than
-    // asserted.
-    const c = centre(0.5, new THREE.Vector3());
-    const rim = (() => {
-      const [u, v] = socketToFace(side, 0.1 * SOCKET.a, socketTop(0.1) * SOCKET.b);
-      const ang = u / FACE_R;
-      const rho = surfaceRho(field, ang, v);
-      return new THREE.Vector3(Math.sin(ang) * rho, v, Math.cos(ang) * rho);
-    })();
-    const sec = section(0.5);
-    const lip = Math.max(...sec.map(([h]) => Math.abs(h)));
-    browDrop = Math.max(browDrop, Math.hypot(c.x, c.z) + lip - Math.hypot(rim.x, rim.z));
+    const [u, v] = socketToFace(side, 0.15 * SOCKET.a, socketTop(0.15) * SOCKET.b + 0.026 * HS);
+    const ang = u / FACE_R;
+    browProud = Math.max(browProud, surfaceRho(field, ang, v) - surfaceRho(base, ang, v));
   }
 
   // ================================== 3. the zygomatic arch, with air behind it
@@ -1724,7 +1716,9 @@ export function buildSkull({ material }) {
   // Measured against the rows rather than guessed: its top has to sit BELOW the
   // upper crowns' tips and its front BEHIND the lower row's outer face, or the
   // black bubble shows through the bite as a slot twice the height of the gap.
-  cavityGeo.scale(0.140 * SKULL_W, 0.044 * HS, 0.125 * SKULL_L);
+  // Grown with AJAR: the slot between the rows is wider than it was, so the
+  // dark behind it has to reach higher or the gap lights up in the middle.
+  cavityGeo.scale(0.140 * SKULL_W, 0.052 * HS, 0.125 * SKULL_L);
   cavityGeo.translate(0, Y_BITE - 0.037 * HS, LZ(0.790));
   group.add(new THREE.Mesh(cavityGeo, cavityMat));
 
@@ -1874,7 +1868,9 @@ export function buildSkull({ material }) {
     hingeX: HINGE_X, hingeY: HINGE_Y, hingeZ: HINGE_Z,
     gonionX: GONION_X, gonionY: GONION_Y, gonionZ: GONION_Z,
     // The four features a single field cannot have, as numbers.
-    browOverhang: browDrop,               // how far the shelf's lip stands past the rim
+    // How far the supraorbital swelling stands out of the frontal it grows
+    // from. Not an overhang: there is no overhang on this head any more.
+    browProud,
     fossaDepth: FOSSA_CUT * HS,
     zygGap: archGap,                      // daylight behind the arch; must be > 0
     mastoidDrop: MASTOID_TOP - MASTOID_TIP,

@@ -96,19 +96,32 @@ export const M = {
     // f(0.0273), and every remaining miss below the Frankfurt horizontal in
     // the rebuilt skull traced back to this one number.
     jawHeight: f(0.0273),
+    // These are now SET FOR LEGIBILITY AND NOT FOR ANATOMY, which is a change
+    // of brief and is why they moved a third time.
+    //
     // Measured on the photograph's front view the orbit is 47 by 36 pixels
-    // against a 219 pixel skull. The old f(0.049) by f(0.043) was 36% too wide
-    // and 51% too tall, and an oversized eye socket is the single loudest
-    // "cartoon" signal a skull can send: it is what the eye reads first and it
-    // shrinks everything around it by comparison.
+    // against a 219 pixel skull, which is f(0.0359) by f(0.0284), and that is
+    // what was built for two rounds. The head in the shipped scene is about
+    // SEVENTY PIXELS tall. A measured orbit is then twelve pixels high, it
+    // loses its shading to the shading of the bone around it, and what the
+    // viewer gets is a pale dome with two specks in it: the previous rounds
+    // were judged on 760 pixel turntables where a measured orbit looks right,
+    // and that mismatch is most of why the head kept being called weird.
+    //
+    // f(0.0409) by f(0.0359) is 0.245 by 0.215 of crown-to-chin, so +14% wide
+    // and +26% tall against the specimen, and it is checked on a crop of the
+    // head out of an actual scene render rather than on a turntable. It is
+    // roughly a child's orbit in proportion, which is also why it does not cost
+    // the character its friendliness: a big round socket is not a threatening
+    // one. The same argument is why the pumpkins in this scene have oversized
+    // carved faces.
     //
     // `slant` is how far the top edge of each orbit cuts down toward the nose,
     // and it stays at 0.12. 0.60 was the original brief and it gave the skull a
     // hard glare; the user asked for a friendlier face. It is the single
     // strongest control over this character's expression, so change it
-    // knowingly, and note that shrinking the sockets above did NOT make the
-    // face meaner, it made the rest of the head read at its proper size.
-    socket: { width: f(0.0359), height: f(0.0284), slant: 0.12 },
+    // knowingly.
+    socket: { width: f(0.0409), height: f(0.0359), slant: 0.12 },
     teeth: { upper: 11, lower: 9 },
   },
 
