@@ -110,7 +110,13 @@ export const TUNING = {
   // contact; 0.85 lets the two overlap slightly before it counts, which is
   // what every arcade game does and what stops a near miss reading as a cheat.
   catchRadius: 0.85,
-  pickRadius: 0.80,          // fireflies sit at 1.0 spacing on the centreline
+  // Fireflies sit at 1.0 spacing on the centreline and the ghost is allowed to
+  // cut corners, so this has to be wider than the body: hugging the inside of a
+  // 90 degree turn puts the ghost 0.86 from the junction firefly, and at 0.80
+  // the reward for taking the fast line was silently losing a pellet. 1.0 also
+  // means the ghost cannot skip one by moving fast, since the worst lateral
+  // offset in a 2.0 corridor is 0.45.
+  pickRadius: 1.00,
   powerRadius: 0.90,
 
   // --- the mode schedule ----------------------------------------------------

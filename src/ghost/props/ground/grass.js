@@ -58,9 +58,10 @@ import {
 //
 // --- WHAT MAKES IT READ AT SIXTY PIXELS -----------------------------------
 //
-// At the scene's framing a patch of radius 1 is about 145 pixels across and one
-// blade is two pixels wide. Nothing about an individual blade survives that, so
-// the work is done by:
+// Measured, in a 900x900 frame at view 6.2: a patch of radius 1 occupies 303 by
+// 163 pixels, and one blade in it is between one and a half and two and a half
+// pixels wide. Nothing about an individual blade survives that, so the work is
+// done by:
 //
 //   - CHUNK. Blades are 5:1 to 10:1 rather than the 30:1 of real grass.
 //     Anything finer aliases into the film grain this project bans, and at two
@@ -535,7 +536,10 @@ function buildGrass({ seed, radius, scale, sites, strays = 0 }) {
     // Vigour drives height AND blade count together, so a patch has small
     // sparse clumps and big shaggy ones rather than one clump repeated at
     // different heights.
-    const vigour = Math.pow(rand(), 0.85);
+    // A site may ask for its own vigour: createGrassTuft does, because a tuft
+    // placed on purpose against a kerb should be a proper tussock and not
+    // whichever of the range the die happened to roll.
+    const vigour = s.vigour === undefined ? Math.pow(rand(), 0.85) : s.vigour;
     let h = HEIGHT.min + vigour * (HEIGHT.max - HEIGHT.min);
     if (rand() < HEIGHT.tallOdds) h *= HEIGHT.tall[0] + rand() * (HEIGHT.tall[1] - HEIGHT.tall[0]);
     wantTop = Math.max(wantTop, h);
@@ -750,6 +754,6 @@ export function createGrassTuft({ seed = 1, scale = 1 } = {}) {
     seed,
     radius: 0.10,
     scale,
-    sites: [{ x: 0, z: 0, spread: 1.15 }],
+    sites: [{ x: 0, z: 0, spread: 1.15, vigour: 0.78 }],
   });
 }

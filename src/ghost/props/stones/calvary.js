@@ -78,7 +78,7 @@ const STEP_CORNER = 0.075; // the rounding on the four vertical arrises in plan
 // 0.55 by 0.50 gives an 1126 x 1024 face canvas, near enough square and well
 // inside the range the engraving treatment works in.
 const W = 0.275;
-const H = 0.50;
+const H = 0.46;
 const D = 0.44;
 // The die tapers 2.6 degrees, which is obelisk's number and was chosen there
 // because 2 did not survive being 200 px tall on screen. Linear in y, and it
@@ -103,15 +103,15 @@ const DIE_TOP = STEPS_TOP - DIE_BURY + H; // 0.802
 // round in plan, so an arm along x is seen at about 0.79 of its true length;
 // the span is set from what it measures ON SCREEN, not on paper.
 const TOP = 1.820;
-const ARM_L = 0.335; // half span of the cross bar
-const YC = 1.480; // the crossing, i.e. the centre line of the bar
+const ARM_L = 0.375; // half span of the cross bar
+const YC = 1.440; // the crossing, i.e. the centre line of the bar
 
 // The upright runs in one piece from inside the pedestal to the top, so the
 // shaft and the head are the same stone and no joint shows at the crossing.
 const SHAFT_BURY = 0.070; // below the pedestal's top face, clear of its 0.062 shoulder
 const SHAFT_Y0 = DIE_TOP - SHAFT_BURY;
-const SHAFT_HX = 0.134; // half width where it leaves the pedestal, so 0.268 through
-const SHAFT_HZ = 0.118;
+const SHAFT_HX = 0.118; // half width where it leaves the pedestal, so 0.236 through
+const SHAFT_HZ = 0.105;
 const SHAFT_LEAN = 0.026; // radians off vertical: the upright's taper, 1.5 degrees
 
 // Each arm is its own solid running from inside the upright outward, which is
@@ -120,16 +120,16 @@ const SHAFT_LEAN = 0.026; // radians off vertical: the upright's taper, 1.5 degr
 // is 0.13 and the rim radius sets a hard 0.124, but an arm under about 0.16
 // simply loses itself against the floor behind it at scene size, so these are
 // half again that.
-const ARM_HX = 0.116; // half thickness at the crossing (vertical, once placed)
-const ARM_HZ = 0.108; // half depth
+const ARM_HX = 0.104; // half thickness at the crossing (vertical, once placed)
+const ARM_HZ = 0.092; // half depth
 const ARM_IN = 0.060; // how far past the centre line each arm starts, buried
 const ARM_LEAN = 0.035; // radians: the arms taper twice as hard as the upright
 
 // The rounding on the four long arrises of every member. Fat on purpose, 0.052
 // against a 0.134 half width: this is the chamfer, and in a style with no
 // knife edges in it a chamfer is a wide soft roll rather than a cut band.
-const SHAFT_CORNER = 0.052;
-const ARM_CORNER = 0.048;
+const SHAFT_CORNER = 0.048;
+const ARM_CORNER = 0.044;
 
 // --- the ends ---------------------------------------------------------------
 //
@@ -149,10 +149,10 @@ const ARM_CORNER = 0.048;
 // shot the whole end is about eleven pixels, and the difference between a
 // belled end and a parallel one at that size is one pixel of overhang plus the
 // shadow the overhang throws down the limb, which is what actually carries it.
-const COVE_R = 0.090;
-const FLARE = 0.16; // radians off vertical, the other way
-const FLARE_L = 0.075; // its length along the meridian
-const TIP_R = 0.050; // the arc that rolls the end over
+const COVE_R = 0.055;
+const FLARE = 0.20; // radians off vertical, the other way
+const FLARE_L = 0.055; // its length along the meridian
+const TIP_R = 0.042; // the arc that rolls the end over
 const COVE_SEG = 5;
 const TIP_SEG = 7;
 
@@ -397,7 +397,7 @@ function parkUVs(geo, stripUV, y0, y1, span) {
 // pixel on screen. Correcting it would cost a transform in draw() and buy
 // nothing measurable.
 const WORD = 'PAX';
-const WORD_SIZE = 0.27; // font size, in fractions of the face height
+const WORD_SIZE = 0.31; // font size, in fractions of the face height
 const WORD_ROW = 0.53; // baseline, in fractions of the face height down from the top
 
 // The visible band of the die is v 0.07 to 0.876: the bottom 0.035 is buried in

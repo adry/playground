@@ -124,6 +124,23 @@ const SPEC = {
   jar:     { tall: [0.30, 0.36], spread: 0.40, petal: 'bronze', accent: 'rust', accentOdds: 0.30 },
 };
 
+// COST.
+//
+// Two meshes per clump, three for the jar, plus the shared contact patch: so
+// three draw calls, four for the jar, and no more however many heads a seed
+// rolls. Everything that is not the pot goes through mergeLumps, which is what
+// buys that: the foliage is one geometry and the petals are another, and the
+// accent colours ride on the vertex colour rather than on a second material.
+//
+// Measured over seeds 1, 4, 9 and 17: daisies 10.1k to 12.2k triangles, spires
+// 8.0k to 11.0k, posy 4.7k to 6.2k, jar 11.3k to 12.8k. For scale the bush next
+// door is 21.6k to 22.8k and stands three times as tall, so a clump costs about
+// half a bush. The first pass ran at 16k to 18k and was trimmed by taking heads
+// and petals off rather than by dropping the icosphere detail: the petals are
+// already at detail 1, which is 80 triangles a petal, and at detail 0 a petal
+// is a twelve-vertex solid whose silhouette is visibly a hexagon in any shot
+// closer than the shipped frame.
+
 // --- small geometry helpers -------------------------------------------------
 
 // The petal ring for a BUD, not for an open flower: a lobe field that pushes a
@@ -453,7 +470,7 @@ function buildDaisies(rand, { R, tall, base, accent, accentOdds }) {
   const petals = [];
   buildLeaves(rand, foliage, { count: 15, len: R * 0.90, spread: R, tilt: [0.10, 0.40] });
 
-  const n = 16 + Math.floor(rand() * 7);
+  const n = 14 + Math.floor(rand() * 5);
   const placed = [];
   const foot = new THREE.Vector3();
   const dir = new THREE.Vector3();
@@ -499,7 +516,7 @@ function buildDaisies(rand, { R, tall, base, accent, accentOdds }) {
       p: new THREE.Vector3(x, h, z),
       axis: new THREE.Vector3(dir.x * 0.75 + (rand() - 0.5) * 0.30, 1, dir.z * 0.75 + (rand() - 0.5) * 0.30).normalize(),
       width: hw,
-      petals: 6 + ((rand() * 3) | 0),
+      petals: 5 + ((rand() * 3) | 0),
       tilt: [0.10, 0.34],       // laid nearly flat: a daisy is a disc
       petalLen: 0.54, petalWid: 0.32, petalThick: 0.115,
       eye: 0.40,
@@ -723,7 +740,7 @@ function buildJar(rand, { R, tall, base, accent, accentOdds }) {
   const potH = tall * 0.44;
   const rim = potH * 0.94;
 
-  const n = 18 + ((rand() * 5) | 0);
+  const n = 14 + ((rand() * 4) | 0);
   const foot = new THREE.Vector3();
   const dir = new THREE.Vector3();
   for (let i = 0; i < n; i++) {
@@ -754,7 +771,7 @@ function buildJar(rand, { R, tall, base, accent, accentOdds }) {
       // petals where a daisy is a disc with a rim, and that difference plus the
       // pot under it is most of what tells the two variants apart at twenty
       // pixels. The tilt is what does it: the same petals laid flat are a daisy.
-      petals: 7 + ((rand() * 3) | 0),
+      petals: 6 + ((rand() * 2) | 0),
       tilt: [0.52, 0.98],
       petalLen: 0.44, petalWid: 0.30, petalThick: 0.16,
       eye: 0.52,
