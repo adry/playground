@@ -1852,13 +1852,13 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // noon, and at anything like a truthful ratio to the hemisphere and key in
   // main.js nothing this pumpkin does can be seen at all. This is what makes
   // the lantern read as a lantern in THIS scene's light.
-  const GLOW_LAMP = { min: 0.95, max: 2.05 };   // rides the same flicker
+  const GLOW_LAMP = { min: 0.52, max: 1.12 };   // rides the same flicker
   const glowLamp = new THREE.PointLight(
     new THREE.Color(PALETTE.glow), 0,
     // Far enough out that the cutoff window is not what ends the glow.
     // Inverse-square already has it down to a twentieth by two body-lengths;
     // clip it much nearer than this and the glow stops rather than fades.
-    3.6 * sizeK * scale,
+    3.0 * sizeK * scale,
     2,
   );
   glowLamp.position.set(0, yBase, 0);

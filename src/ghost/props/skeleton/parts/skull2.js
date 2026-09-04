@@ -177,27 +177,39 @@ const Z_BACK = mono([
   [ 0.520,  0.120],  // vertex
 ]);
 
-// Plan view. Half-widths as a fraction of W/2, front half and back half of the
-// section separately, because a skull's transverse section is a wedge below
-// eye level: wide at the cranial base, narrow at the alveolar arch. One
-// symmetric superellipse cannot say that.
-const HWB = mono([
+// Plan view. HALF_W is the section's true maximum half-width at each height, as
+// a fraction of W/2, reached dead abeam. Above the ears it follows an ellipse
+// closing on the crown; an earlier pass held it near full to t = 0.50 and the
+// head came out as a rounded box with a lid.
+//
+// A CATMULL-CLARK LIMIT SURFACE SITS INSIDE ITS CAGE, by about 4.5% where the
+// curvature is highest, which measured out as a braincase 8mm narrow at prop
+// scale. SHRINK puts it back. It is a property of the subdivision, not of the
+// anatomy, so it lives on its own line rather than being folded into the table.
+const SHRINK = 1.048;
+const HALF_W = mono([
   [-0.232, 0.34], [-0.180, 0.62], [-0.110, 0.83], [-0.040, 0.93],
-  [ 0.060, 0.965], [ 0.180, 0.988], [ 0.312, 1.000], [ 0.420, 0.900],
-  [ 0.470, 0.755], [ 0.500, 0.560], [ 0.520, 0.0],
+  [ 0.060, 0.965], [ 0.180, 0.988], [ 0.312, 1.000], [ 0.420, 0.885],
+  [ 0.470, 0.690], [ 0.500, 0.470], [ 0.512, 0.300], [ 0.520, 0.0],
 ]);
-const HWF = mono([
-  [-0.232, 0.30], [-0.180, 0.40], [-0.110, 0.50], [-0.040, 0.72],
-  [ 0.060, 0.855], [ 0.180, 0.860], [ 0.280, 0.700], [ 0.335, 0.735],
-  [ 0.420, 0.860], [ 0.470, 0.740], [ 0.500, 0.545], [ 0.520, 0.0],
+// How much the FRONT of the section is squeezed in relative to that maximum.
+// This is the wedge: below eye level a skull is wide at the cranial base and
+// narrow at the alveolar arch, and one symmetric superellipse cannot say so.
+// It is written as a squeeze on the front rather than as a second width table
+// because the maximum then stays exactly where HALF_W puts it, which is the
+// number that has to come out right.
+const NARROW = mono([
+  [-0.232, 0.56], [-0.180, 0.52], [-0.110, 0.42], [-0.040, 0.24],
+  [ 0.060, 0.12], [ 0.180, 0.14], [ 0.280, 0.32], [ 0.335, 0.28],
+  [ 0.420, 0.06], [ 0.470, 0.10], [ 0.520, 0.0],
 ]);
 
 // Roundness of the horizontal section. 2 is an ellipse; above 2 the section
 // squares off, which is what the parietal region does above the ears and what
 // the vault does NOT do at the crown.
 const PLAN_P = mono([
-  [-0.232, 2.30], [-0.110, 2.55], [ 0.060, 2.45], [ 0.180, 2.30],
-  [ 0.312, 2.20], [ 0.470, 2.05], [ 0.520, 2.00],
+  [-0.232, 2.25], [-0.110, 2.40], [ 0.060, 2.30], [ 0.180, 2.20],
+  [ 0.312, 2.12], [ 0.470, 2.02], [ 0.520, 2.00],
 ]);
 
 // The shape functions the loft actually evaluates: the true half-extent with
@@ -205,19 +217,18 @@ const PLAN_P = mono([
 // tabulated once. Near the caps the cap factor goes to zero, so the sampling
 // stops short of them and the monotone curve extends itself linearly; the
 // product is zero there either way, so the extrapolated value cannot show.
-const [SHAPE_D, SHAPE_ZC, SHAPE_WB, SHAPE_WF] = (() => {
-  const dPts = [], zPts = [], wbPts = [], wfPts = [];
-  for (let i = 0; i <= 40; i++) {
-    const t = T_BOT + ((T_TOP - T_BOT) * i) / 40;
+const [SHAPE_D, SHAPE_ZC, SHAPE_W] = (() => {
+  const dPts = [], zPts = [], wPts = [];
+  for (let i = 0; i <= 48; i++) {
+    const t = T_BOT + ((T_TOP - T_BOT) * i) / 48;
     const cap = capOfQ(qOfT(t));
-    if (cap < 0.30) continue;
+    if (cap < 0.26) continue;
     const zf = Z_FRONT(t) * L + PORION_Z, zb = Z_BACK(t) * L + PORION_Z;
     dPts.push([t, (zf - zb) / 2 / cap]);
     zPts.push([t, (zf + zb) / 2]);
-    wbPts.push([t, (HWB(t) * W) / 2 / cap]);
-    wfPts.push([t, (HWF(t) * W) / 2 / cap]);
+    wPts.push([t, (HALF_W(t) * W * SHRINK) / 2 / cap]);
   }
-  return [mono(dPts), mono(zPts), mono(wbPts), mono(wfPts)];
+  return [mono(dPts), mono(zPts), mono(wPts)];
 })();
 
 // A cage point for a unit direction. theta is measured from +z (the face)
@@ -230,11 +241,11 @@ function cagePoint(dx, dy, dz, out) {
   const th = Math.atan2(dx, dz);
   const ct = Math.cos(th), st = Math.sin(th);
   const p = PLAN_P(t), e = 2 / p;
-  // A plain cosine blend between the back and front half-widths. It is C-inf,
-  // it is 1 dead ahead and 0 dead astern, and at the sides it averages the two,
-  // which is where a skull's widest point actually sits at face level.
-  const wf = 0.5 * (1 + ct);
-  const halfW = mix(SHAPE_WB(t), SHAPE_WF(t), wf) * cap;
+  // The front squeeze. It is zero dead abeam, so the section's true maximum is
+  // exactly SHAPE_W and the anterior half tapers away from it toward the
+  // midline: an alveolar arch below and a frontal bone above.
+  const front = ct > 0 ? Math.pow(ct, 1.4) : 0;
+  const halfW = SHAPE_W(t) * (1 - NARROW(t) * front) * cap;
   const halfD = SHAPE_D(t) * cap;
   const x = halfW * Math.sign(st) * Math.pow(Math.abs(st), e);
   const z = SHAPE_ZC(t) + halfD * Math.sign(ct) * Math.pow(Math.abs(ct), e);
@@ -741,11 +752,19 @@ function nasalOutline() {
 // --------------------------------------------------------------- sweeps
 
 // A swept bar with a superelliptical section that can change along its own
-// length, carried on parallel-transported frames. Used for the zygomatic arches
-// and for the whole mandible, where the transport does exactly the right thing
-// on its own: the plate that is broad front-to-back up the ramus becomes the
-// plate that is deep top-to-bottom along the body, because that is how the
-// frame rolls through the gonial angle.
+// length.
+//
+// The frame is NOT parallel transport. Both bones swept here, the zygomatic
+// arch and the mandible, are bent PLATES, and the direction a plate is thin in
+// is a property of the anatomy, not of how a frame happened to roll: it is the
+// outward horizontal normal of the bone's own plan curve. Take it from there
+// and the plate that is broad front-to-back up the ramus becomes the plate that
+// is deep top-to-bottom along the body, all by itself, through the gonial
+// angle where the tangent turns a right angle. Parallel transport was tried
+// first and did not: it carried the broad axis forward through the corner and
+// laid the body of the mandible flat.
+//
+// `a` is the half-extent along the broad axis, `b` along the thin one.
 function sweepBar(path, sectionFn, { steps = 48, radial = 20, cap = true } = {}) {
   const P = [], T = [];
   for (let i = 0; i <= steps; i++) P.push(path(i / steps));
@@ -753,19 +772,25 @@ function sweepBar(path, sectionFn, { steps = 48, radial = 20, cap = true } = {})
     const a = P[Math.max(0, i - 1)], b = P[Math.min(steps, i + 1)];
     T.push(new THREE.Vector3().subVectors(b, a).normalize());
   }
+  // Plan centroid, so the thin axis can be signed outward consistently.
+  const mid = new THREE.Vector3();
+  for (const p of P) mid.add(p);
+  mid.multiplyScalar(1 / P.length);
   const U = [], V = [];
-  let u = new THREE.Vector3(0, 1, 0);
-  if (Math.abs(u.dot(T[0])) > 0.9) u.set(1, 0, 0);
-  u.projectOnPlane(T[0]).normalize();
-  U.push(u.clone());
-  V.push(new THREE.Vector3().crossVectors(T[0], u).normalize());
-  for (let i = 1; i <= steps; i++) {
-    const prev = U[i - 1].clone();
-    prev.projectOnPlane(T[i]);
-    if (prev.lengthSq() < 1e-12) prev.copy(V[i - 1]).projectOnPlane(T[i]);
-    prev.normalize();
-    U.push(prev);
-    V.push(new THREE.Vector3().crossVectors(T[i], prev).normalize());
+  let thin = new THREE.Vector3(1, 0, 0);
+  for (let i = 0; i <= steps; i++) {
+    const h = new THREE.Vector3(T[i].x, 0, T[i].z);
+    if (h.length() > 0.18) {
+      const n = new THREE.Vector3(h.z, 0, -h.x).normalize();
+      if (n.dot(new THREE.Vector3(P[i].x - mid.x, 0, P[i].z - mid.z)) < 0) n.negate();
+      thin = n;
+    }
+    const v = thin.clone().projectOnPlane(T[i]);
+    if (v.lengthSq() < 1e-10) v.set(0, 1, 0).projectOnPlane(T[i]);
+    v.normalize();
+    const u = new THREE.Vector3().crossVectors(v, T[i]).normalize();
+    U.push(u);
+    V.push(v);
   }
   const pos = [], idx = [];
   for (let i = 0; i <= steps; i++) {
@@ -1114,14 +1139,15 @@ export function buildSkull({ material }) {
   // ear, with the temporal fossa scooped away behind it. That gap is the
   // strongest single "this is a skull" cue in a three-quarter view.
   for (const side of [1, -1]) {
-    const a = new THREE.Vector3(side * 0.1345, ARCH_Y + 0.020, 0.1180);
-    const b = new THREE.Vector3(side * 0.1690, ARCH_Y + 0.032, 0.0300);
-    const c = new THREE.Vector3(side * 0.1560, ARCH_Y + 0.041, -0.0400);
-    const d = new THREE.Vector3(side * (PORION_X - 0.004), ARCH_Y + 0.038, PORION_Z + 0.012);
-    const curve = new THREE.CatmullRomCurve3([a, b, c, d], false, 'catmullrom', 0.5);
+    const a = new THREE.Vector3(side * 0.1120, ARCH_Y - 0.016, 0.1380);
+    const b = new THREE.Vector3(side * 0.1530, ARCH_Y - 0.008, 0.0620);
+    const c = new THREE.Vector3(side * 0.1610, ARCH_Y + 0.006, -0.0060);
+    const d = new THREE.Vector3(side * 0.1440, ARCH_Y + 0.022, -0.0560);
+    const e = new THREE.Vector3(side * (PORION_X - 0.014), PORION_Y - 0.004, PORION_Z - 0.004);
+    const curve = new THREE.CatmullRomCurve3([a, b, c, d, e], false, 'catmullrom', 0.5);
     const geo = sweepBar((t) => curve.getPoint(t), (t) => ({
-      a: mix(0.0175, 0.0135, smooth(0, 1, t)),         // depth of the bar, top to bottom
-      b: mix(0.0125, 0.0105, smooth(0, 1, t)) * mix(1.0, 1.35, smooth(0.75, 1.0, t)),
+      a: mix(0.0150, 0.0118, smooth(0.05, 0.72, t)) * mix(1, 1.45, smooth(0.86, 1, t)),
+      b: mix(0.0105, 0.0072, smooth(0.05, 0.62, t)) * mix(1, 1.5, smooth(0.86, 1, t)),
       p: 3.2,
     }), { steps: 34, radial: 16 });
     const cols = new Float32Array(geo.attributes.position.count * 3).fill(0.97);

@@ -710,10 +710,8 @@ export function createSkeletonPerformance({
       if (f.retarget) {
         const hold = smoothstep(0.55, 0.92, f.swing);
         if (hold < 1) {
-          v1.set(FOOT_X[side], -group.position.y / scale, HALF_STEP);
-          group.localToWorld(v1);
-          v1.y = 0;
-          f.to.lerp(v1, (1 - hold) * (1 - Math.exp(-9 * dt)));
+          aimStep(side, HALF_STEP, (1 - f.swing) * f.dur, v1);
+          f.to.lerp(v1, (1 - hold) * (1 - Math.exp(-16 * dt)));
         }
       }
       if (f.swing >= 1) f.plant.copy(f.to);
@@ -723,12 +721,25 @@ export function createSkeletonPerformance({
   // Send one foot to a spot in the body's own frame. Used by the walk and by
   // the shuffle at the top of the rise, which is what brings the feet back
   // under the hips after standing up out of a staggered crouch.
+  // Where a foot should land: a half step in front of its own hip, at the place
+  // the body will HAVE REACHED by the time the foot gets there. Aiming at where
+  // the body is now instead lands every step short, because the body walks out
+  // from under the target during the swing, and the stride quietly collapses
+  // into a shuffle.
+  function aimStep(side, z, lead, out) {
+    out.set(FOOT_X[side], -group.position.y / scale, z);
+    group.localToWorld(out);
+    out.y = 0;
+    out.x += Math.sin(yaw) * speed * lead;
+    out.z += Math.cos(yaw) * speed * lead;
+    return out;
+  }
+
   function queueStep(side, z, dur = 0.32, retarget = false) {
     const f = feet[side];
     if (f.swing < 1) return;
     f.from.copy(f.plant);
-    f.to.copy(group.localToWorld(v1.set(FOOT_X[side], -group.position.y / scale, z)));
-    f.to.y = 0;
+    aimStep(side, z, retarget ? dur : 0, f.to);
     f.swing = 0;
     f.dur = dur;
     f.retarget = retarget;
