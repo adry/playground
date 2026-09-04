@@ -342,7 +342,13 @@ if (SCENE === 'full') {
       if (toGhost.length() < PANEL * 0.85 && gateCooldown === 0) {
         const through = ghost.vel.dot(gateNormal);
         if (Math.abs(through) > 0.25) {
-          swing.push(through * 7.0);
+          // Gain chosen against the swing's own response rather than by feel:
+          // at 7.0 a full-speed pass drove the leaf to 89.9 degrees, which is
+          // the hard stop, so every brisk walk-through looked identical and
+          // ended in a clunk. At 3.5 a drift gives 37 degrees, a normal walk
+          // 56 and a sprint 70, so how hard he went through is legible and the
+          // stop stays somewhere it can be earned rather than hit every time.
+          swing.push(through * 3.5);
           gateCooldown = 0.5;
         }
       }
