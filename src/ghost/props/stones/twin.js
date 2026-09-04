@@ -191,8 +191,6 @@ registerStone('twin', {
   // top of it IS the notch: there is no texture above, and nothing should be
   // drawn expecting the arches to carry it.
   draw(ctx, w, h) {
-    // Each block sits under its own arch's apex rather than in the middle of
-    // its half of the face; a hair inboard, which is where the eye puts them.
     // Each block sits in the middle of its own half of the face rather than
     // under its dome's apex, which is a little further in: the apexes are close
     // enough together that centring on them ran the two inscriptions into one

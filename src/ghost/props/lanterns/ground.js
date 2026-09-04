@@ -73,9 +73,13 @@ const R = {
 const HEX_K = 10;
 
 // Six faces need enough steps that each flat is genuinely flat and each corner
-// genuinely round. SEGMENTS.radial is sized for plain round surfaces; twelve
-// steps to a face is the least that stops the corners stair-stepping.
-const AROUND = 72;
+// genuinely round. SEGMENTS.radial is sized for plain round surfaces, and a
+// rounded hexagon spends most of its steps on six corners rather than spreading
+// them evenly, so it wants a few more: at 64 a corner gets about seven, which
+// is where the stair-stepping stops being visible at the size this prop is
+// ever seen. It is the smallest prop in the set and there may be several of
+// them in a frame, so this is also the number the triangle count hangs off.
+const AROUND = 64;
 
 // ---------------------------------------------------------------------------
 // colour
@@ -270,7 +274,7 @@ function footGeometry() {
     .moveTo(0, 0)
     .lineTo(R.base * 0.55, 0, 3)
     .lineTo(R.base, 0.001, 3)
-    .arc(R.base, 0.013, 0.013, -90, 90, 10)
+    .arc(R.base, 0.013, 0.013, -90, 90, 9)
     .lineTo(R.base * 0.90, 0.032, 3)
     .lineTo(R.base * 0.62, H.baseTop, 3)
     .lineTo(0, H.baseTop, 3);
@@ -282,7 +286,7 @@ function footGeometry() {
 // flats, which is where a real one would carry its weld.
 function railGeometry(y) {
   const p = new Profile();
-  const steps = 18;
+  const steps = 12;
   for (let i = 0; i < steps; i++) {
     const a = (i / steps) * Math.PI * 2;
     p._push(R.rail + R.tube * Math.cos(a), y + R.tube * Math.sin(a));
@@ -298,7 +302,7 @@ function capGeometry() {
     .moveTo(0, H.capSeat + 0.002)
     .lineTo(R.cap * 0.60, H.capSeat, 4)
     .lineTo(R.cap, H.capSeat, 3)
-    .arc(R.cap, H.capSeat + 0.014, 0.014, -90, 55, 10);
+    .arc(R.cap, H.capSeat + 0.014, 0.014, -90, 55, 8);
   // The dome, a quarter ellipse off the top of the roll. Sampled rather than
   // arced because its shoulder wants to be softer than a circle's.
   const y0 = H.capSeat + 0.014 + 0.014 * Math.sin((55 * Math.PI) / 180);
@@ -306,7 +310,7 @@ function capGeometry() {
   p.curve((t) => {
     const a = (t * Math.PI) / 2;
     return { r: r0 * Math.pow(Math.cos(a), 0.78), y: y0 + (H.capTop - y0) * Math.sin(a) };
-  }, 16);
+  }, 12);
   return revolveHex(p);
 }
 
@@ -467,7 +471,7 @@ function makeNoise(seed) {
 // in main.js, throws light you cannot see at all. This is what makes the
 // lantern read as a lantern in THIS scene's light. The 2.2 : 1 ratio between
 // the ends is the pumpkin's and is the part that is not stylistic.
-const LAMP = { min: 0.92, max: 2.00 };
+const LAMP = { min: 0.66, max: 1.45 };
 const CORE = { min: 1.70, max: 3.60 };   // flame body, above 1 so ACES clips it
 const HALO = { min: 0.20, max: 0.46 };   // the soft shell around it
 const WASH = { min: 0.90, max: 2.20 };   // the candle on the inside of the pane
@@ -507,7 +511,7 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
   // Capsule rather than a cylinder with two spheres: one surface, no seam, and
   // the cap is a real hemisphere so the post reads as a soft rod. This is the
   // bath toy handle the house style asks for and not wrought iron.
-  const post = new THREE.CapsuleGeometry(R.tube, postLen, 6, 20);
+  const post = new THREE.CapsuleGeometry(R.tube, postLen, 5, 16);
   for (let i = 0; i < 6; i++) {
     const a = Math.PI / 6 + (i * Math.PI) / 3;
     const g = post.clone();
@@ -524,14 +528,14 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
 
   // The finial the handle is hung from. Squashed, because a sphere on a dome
   // reads as a bead sitting on it rather than as part of the same casting.
-  const knob = new THREE.SphereGeometry(0.017, 24, 16);
+  const knob = new THREE.SphereGeometry(0.017, 20, 12);
   knob.scale(1, 0.78, 1);
   knob.translate(0, H.capTop + 0.004, 0);
   iron.push(knob);
 
   // The ring. Standing in a vertical plane with its bottom buried in the knob,
   // so it hangs off the finial rather than floating above it.
-  const ring = new THREE.TorusGeometry(R.ringMajor, R.ringTube, 14, 44);
+  const ring = new THREE.TorusGeometry(R.ringMajor, R.ringTube, 12, 36);
   ring.translate(0, H.ring, 0);
   iron.push(ring);
 
@@ -563,6 +567,10 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
       const a = (-90 + 90 * (i / 6)) * Math.PI / 180;
       push(0.038 + 0.006 * Math.cos(a), H.baseTop + 0.007 + 0.007 * Math.sin(a));
     }
+    // Back to the stub's own radius directly above the pool. Without this the
+    // profile ran in one straight line from the widest point of the pool to the
+    // shoulder and the candle came out as a cone.
+    push(0.034, H.baseTop + 0.016);
     push(0.034, waxTop - 0.011);
     // Shoulder and the melted well in the top.
     for (let i = 0; i <= 8; i++) {
@@ -572,7 +580,7 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
     push(0.010, waxTop - 0.002);
     push(0, waxTop - 0.004);
   }
-  const candleGeo = new THREE.LatheGeometry(candleProfile, SEGMENTS.radial);
+  const candleGeo = new THREE.LatheGeometry(candleProfile, Math.round(SEGMENTS.radial * 0.67));
   candleGeo.computeVertexNormals();
   const candleMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(WAX),
@@ -581,7 +589,7 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
     // Wax is translucent and a lit candle glows through its own top centimetre.
     // Cheap stand-in for subsurface: a warm emissive that rides the flame.
     emissive: new THREE.Color('#c8712a'),
-    emissiveIntensity: 0.22,
+    emissiveIntensity: 0.18,
   });
   const candle = new THREE.Mesh(candleGeo, candleMat);
 
@@ -592,14 +600,14 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
   const flameBase = waxTop - 0.004;
   const flameProfile = (amp, hgt) => {
     const pts = [];
-    for (let i = 0; i <= 20; i++) {
-      const t = i / 20;
+    for (let i = 0; i <= 14; i++) {
+      const t = i / 14;
       pts.push(new THREE.Vector2(amp * Math.pow(Math.sin(Math.PI * Math.pow(t, 0.62)), 1.3), hgt * t));
     }
     return pts;
   };
-  const coreGeo = new THREE.LatheGeometry(flameProfile(0.0135, 0.048), 20);
-  const haloGeo = new THREE.LatheGeometry(flameProfile(0.030, 0.070), 20);
+  const coreGeo = new THREE.LatheGeometry(flameProfile(0.0135, 0.048), 16);
+  const haloGeo = new THREE.LatheGeometry(flameProfile(0.030, 0.070), 16);
   const coreMat = new THREE.MeshBasicMaterial({ color: CORE_FLAME.clone(), toneMapped: true });
   const haloMat = new THREE.MeshBasicMaterial({
     color: CORE_EMBER.clone(),
@@ -629,7 +637,7 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
   const glassProfile = new Profile()
     .moveTo(0, H.glassLo)
     .lineTo(R.glass * 0.85, H.glassLo, 3)
-    .arc(R.glass * 0.85, H.glassLo + 0.012, 0.012, -90, 0, 6);
+    .arc(R.glass * 0.85, H.glassLo + 0.012, 0.012, -90, 0, 5);
   {
     const y0 = H.glassLo + 0.012;
     const y1 = H.glassHi - 0.012;
@@ -640,10 +648,10 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
     glassProfile.curve((t) => ({
       r: r0 + R.bulge * Math.sin(Math.PI * t),
       y: y0 + (y1 - y0) * t,
-    }), 22);
+    }), 14);
   }
   glassProfile
-    .arc(R.glass * 0.85, H.glassHi - 0.012, 0.012, 0, 90, 6)
+    .arc(R.glass * 0.85, H.glassHi - 0.012, 0.012, 0, 90, 5)
     .lineTo(0, H.glassHi, 3);
   const glassGeo = revolveHex(glassProfile);
 
@@ -805,7 +813,7 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
       coreMat.color.copy(CORE_EMBER).lerp(CORE_FLAME, hue).multiplyScalar(cIntensity);
       haloMat.color.copy(CORE_EMBER).lerp(CORE_FLAME, hue * 0.6);
       haloMat.opacity = at(HALO);
-      candleMat.emissiveIntensity = 0.14 + 0.20 * level;
+      candleMat.emissiveIntensity = 0.10 + 0.16 * level;
       glassUniforms.uInner.value = at(WASH);
 
       // The flame is an object and it moves, and this is the half of the effect

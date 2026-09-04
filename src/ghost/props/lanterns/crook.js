@@ -370,7 +370,7 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
     return base * Math.sqrt(Math.max(0, 1 - u * u));
   };
 
-  const shaftGeo = sweepBar(spine, barRadius, 220, 20);
+  const shaftGeo = sweepBar(spine, barRadius, 160, 20);
 
   // The foot. A soft dome with a collar, wide enough to hold the post up and
   // rounded everywhere, so it is a toy's foot rather than a machine flange.
@@ -385,7 +385,7 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
     [FOOT_R * 0.44, 0.074],
     [BAR_FOOT * 1.30, 0.095],
     [BAR_FOOT * 1.02, 0.120],
-  ], 44);
+  ], 30);
 
   const ironMat = toyMaterial(IRON, { roughness: 0.66, metalness: 0.06 });
   const postGeo = mergeGeometries([shaftGeo, footGeo], false);
@@ -463,10 +463,10 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
     [0.110, roofTop - ROOF_H],
     [0.105, roofTop - ROOF_H - 0.015],
     [0.083, roofTop - ROOF_H - 0.022],
-  ], 46);
+  ], 30);
   // A small knob on top, because the ogee has to end somewhere and a lathe that
   // closes to a point at the axis is a spike.
-  const finialGeo = stripUV(new THREE.SphereGeometry(0.022, 24, 16));
+  const finialGeo = stripUV(new THREE.SphereGeometry(0.022, 20, 12));
   finialGeo.translate(0, roofTop + 0.006, 0);
 
   const glassTop = roofTop - ROOF_H - 0.016;
@@ -484,7 +484,7 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
     [0.100, baseTop - 0.015],
     [0.091, baseTop],
     [0.070, baseTop + 0.004],
-  ], 44);
+  ], 28);
 
   // The cage: four fat uprights following the pane's barrel, standing a couple
   // of millimetres proud of it. They are what says "lantern" at fifty pixels
@@ -588,7 +588,7 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
     [0.019, glassBottom + 0.050],
     [0.009, glassBottom + 0.053],
     [0.000, glassBottom + 0.054],
-  ], 26, 24);
+  ], 18, 24);
   const candleMat = toyMaterial(WAX, { roughness: 0.74 });
   const candle = new THREE.Mesh(candleGeo, candleMat);
   candle.castShadow = false;
@@ -610,7 +610,7 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
     [0.0070, 0.040],
     [0.0025, 0.046],
     [0.0000, 0.048],
-  ], 26, 20);
+  ], 20, 18);
   const blobMat = new THREE.MeshBasicMaterial({
     color: new THREE.Color('#ffd9a0'),
     toneMapped: true,
@@ -687,18 +687,22 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
   // rather more of the dry one. 2.4 is where it landed after looking at the
   // measured decay against the render.
   //
-  // Free decay, wind off, released from nine degrees, measured on this exact
-  // object at 60fps:
+  // Free decay, wind off, one nudge, measured on this exact object at 60fps:
   //
-  //     period            1.09s at 9 degrees, 1.09s at half a degree
-  //     under 1 degree    4.8s
-  //     dead stop         5.1s      (dry friction, so genuinely zero)
+  //     peak amplitude    9.27  4.41  2.42  1.30  0.56 degrees
+  //     at                0.27  1.33  2.40  3.47  4.53 s
+  //     period            1.067s, and 1.067s at every one of them
+  //     under one degree  4.5s
+  //     dead stop         4.9s, and still exactly zero at sixty
   //
-  // The period barely moves across that range and that is not a bug in the
-  // sin() torque, it is the amplitude: at nine degrees the exact pendulum is
-  // 0.2% slower than the small-angle one, which is a millisecond and a half.
-  // The term earns its keep on a gate swinging through a radian; here it is
-  // simply along for the ride and correct.
+  // The last line is the one the gate's file is warning about and the one worth
+  // checking after any retune. Nothing is moving a minute later, to the bit,
+  // because the dry-friction term reaches zero in finite time rather than
+  // approaching it. The period not moving across that range is not a bug in the
+  // sin() torque either: at nine degrees the exact pendulum is 0.2% slower than
+  // the small-angle one, which is under two milliseconds and well inside the
+  // frame the crossings are measured to. That term earns its keep on a gate
+  // swinging through a radian; here it is along for the ride and correct.
   const DAMPING = 2.4;
   const swingX = createSwing({ stop: 'none', damping: DAMPING, length: pendulumL, maxAngle: 0.6 });
   const swingZ = createSwing({ stop: 'none', damping: DAMPING, length: pendulumL * 1.04, maxAngle: 0.6 });
@@ -715,20 +719,25 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
   // wanders instead of holding. That is the whole difference between a swing
   // and a metronome, and it is bought for two noise lookups a frame.
   //
-  // THREE OCTAVES, AND THE SLOW ONE ALONE IS NOT ENOUGH. The first attempt used
-  // one channel at 0.2Hz, which is a fifth of the pendulum's own 0.92Hz, and it
+  // THREE OCTAVES, AND THE SLOW ONE ALONE IS NOT ENOUGH. The first attempt was
+  // one noise channel at 0.2Hz, a fifth of the pendulum's own 0.94Hz, and it
   // came out wrong in a way that is obvious afterwards: forcing that far below
-  // resonance is QUASI-STATIC, so the lantern simply leans wherever the wind is
-  // pushing and creeps back, and it crossed plumb seven times in two minutes.
-  // A lantern that leans is not a lantern that swings. Real wind is broadband,
-  // so the mix carries content up around the natural frequency too, and the
-  // pendulum then picks its own period out of the noise: 106 crossings in the
-  // same two minutes, at a median gap of 1.3s against a natural 1.09s.
+  // resonance is QUASI-STATIC, so the lantern just leans wherever the wind is
+  // pushing and creeps back. It crossed plumb seven times in two minutes and
+  // never rang once. A lantern that leans is not a lantern that swings. Real
+  // wind is broadband, so the mix carries content up around the natural
+  // frequency too and the pendulum picks its own period out of the noise.
   //
-  // Measured over 180 seconds at these numbers: 1.6 degrees rms, peaks of about
-  // 5, and the worst ten-second window peaking at 2.3 against the best at 5.0.
-  // That last spread is the thing to protect if these numbers are ever
-  // retuned. It is what says the wind is weather rather than a loop.
+  // Measured on the shipped object over 180 seconds:
+  //
+  //     along the crook    1.49 deg rms, peak 4.85
+  //     across it          0.78 deg rms, peak 2.23
+  //     crossings of plumb 98, median gap 1.32s against a natural 1.07s
+  //     peak per 10s       2.2 3.2 3.6 4.5 4.9 3.8 3.8 3.2 3.8 4.6 3.2 4.4 ...
+  //
+  // That last row is the thing to protect if these numbers are ever retuned:
+  // the amplitude has to keep wandering by a factor of two over the minute.
+  // It is what says the wind is weather rather than a loop.
   //
   // The cross axis gets a little over half, because a breeze has a direction
   // and a lantern hung off one side of a crook is not equally exposed both
@@ -747,6 +756,19 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
 
   return {
     group,
+
+    // Something went past and knocked it. Angular impulse in rad/s, signed in
+    // the crook's own frame, exactly as swing.js means it: 1.2 opens the lantern
+    // to about nine degrees. Not part of the interface every prop shares, and
+    // here for the same reason the gate's push is: secondary motion is
+    // SIMULATED and follows from primary motion, so when the ghost drifts
+    // through this the scene should be able to say so rather than have the
+    // lantern politely ignore it. It is also what makes the free decay
+    // measurable from outside, which is how the damping above was tuned.
+    nudge(impulse, cross = 0) {
+      swingX.push(impulse);
+      if (cross) swingZ.push(cross);
+    },
 
     update(time, dt = 1 / 60) {
       // --- the flame ---------------------------------------------------------

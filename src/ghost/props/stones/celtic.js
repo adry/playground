@@ -20,7 +20,7 @@ import { registerStone, inkText } from '../tombstones.js';
 // a margin, so every millimetre of shaft width costs about three of ring. Built
 // as one wide slab the head came out half again as wide as its neighbours and
 // the shaft was a stub. Built as a die with the shaft above it the two numbers
-// stop fighting: the inscription sits on a face 1605 px across, and the shaft
+// stop fighting: the inscription sits on a face 1728 px across, and the shaft
 // is free to be as slim as a shaft should be.
 //
 // Everything above the die is rounded box and torus, so no edge on the piece is
@@ -47,7 +47,7 @@ const YC = TOP - RING_R - RING_T - 0.085; // 1.112, the crossing and ring centre
 const HEAD_HZ = 0.118;    // half depth of the head, matched to the shaft there
 const FILLET = 0.048;     // the rounding on every bar edge
 
-const SHAFT_BOTTOM = 0.36; // buried inside the die, so no joint shows
+const SHAFT_BOTTOM = DIE_TOP - 0.12; // buried inside the die, so no joint shows
 const HW_BOT = 0.170;      // half width where the shaft leaves the die
 const HW_TOP = 0.133;      // half width at the top of the upright
 const HZ_BOT = 0.132;      // and the same taper in depth
@@ -130,8 +130,8 @@ function buildCross({ body, material, disposables, stripUV }) {
   add(new RoundedBoxGeometry(ARM_L * 2, ARM * 2, HEAD_HZ * 2, 5, FILLET), YC);
 
   // The ring. A torus is round in section, which is exactly the edge this set
-  // wants, but a circular tube 0.12 through would sit visibly shallower than
-  // the 0.23 bars, so it is stretched in z to match them. The stretch goes
+  // wants, but a circular tube 0.136 through would sit visibly shallower than
+  // the 0.236 bars, so it is stretched in z to match them. The stretch goes
   // through applyMatrix4, so the normals come out right and it stays smooth.
   const ring = new THREE.TorusGeometry(RING_R, RING_T, 20, 80);
   ring.scale(1, 1, HEAD_HZ / RING_T);
@@ -154,11 +154,11 @@ registerStone('celtic', {
   shape: SHAPE,
   // Square the die off. Left alone the registry gives every slab a half-round
   // arch, which on a die this wide would be a dome with a cross growing out of
-  // it rather than a block the shaft is set into. Top and bottom get the same
-  // radius, a hair under the slab's own 0.062 edge, so it reads as one block
-  // and not as a slab with a rounder foot than head.
-  topRadius: 0.06,
-  bottomRadius: 0.06,
+  // it rather than a block the shaft is set into. Both ends get the slab's own
+  // edge radius, which is as square as the sweep allows, so the die reads as
+  // one block rather than as a slab with a rounder foot than head.
+  topRadius: 0.062,
+  bottomRadius: 0.062,
   draw(ctx, w, h) {
     // One short line, low and centred on the die. The postmortem is blunt that
     // a complex silhouette gets no second thing competing with it, and a ringed

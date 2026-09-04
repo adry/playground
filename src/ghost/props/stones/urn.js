@@ -74,25 +74,33 @@ const URN_SCALE = 1.18;
 // hollow instead of following it. Where the belly swells out, the difference
 // thins to a skin. One outline drives both.
 //
-// (r, y) knots of that outer outline. Above the last knot there is no cloth.
-// The cloth is hung from under the lip and stops on the belly. Over the lid it
-// only turned the lid into a melted blob, and the lid and finial are the two
-// features that say "urn" rather than "pot", so they stay bare.
+// (r, y) knots of that outer outline, bottom of the cloth to top. Above the
+// last knot there is no cloth. Over the lid the cloth only turned the lid into
+// a melted blob, and the lid and finial are the two features that say "urn"
+// rather than "pot", so everything from the lip up stays bare.
+//
+// The top of the table matters more than it looks. Carried up to the rim at any
+// width the cloth ran OUTSIDE the lip, and since it has to reach nothing by the
+// time it gets there, it did so as a near-horizontal shelf hanging in the air
+// under the rim: from three quarters of the way round the piece that shelf read
+// as a flat spiky wing with creases fanning off it. The cure is to converge on
+// the urn at the FOOT of the rim flare, so the lip always overhangs the cloth
+// and the cloth's top edge sits in the lip's own shadow.
 const CLOAK = [
-  [0.215, 0.212],
-  [0.260, 0.216],
-  [0.300, 0.206],
-  [0.335, 0.188],
-  [0.362, 0.164],
-  [0.386, 0.142],
-  [0.398, 0.128], // the rim's own widest point, so the cloth ends at zero here
+  [0.215, 0.222],
+  [0.260, 0.226],
+  [0.300, 0.212],
+  [0.330, 0.180],
+  [0.355, 0.140],
+  [0.370, 0.112],
+  [0.378, 0.104], // inside the urn here, so the cloth has run out by the flare
 ];
 
 const DRAPE = {
   arcPos: 1.06,   // how far the cloth wraps one way, radians
   arcNeg: 0.92,   // and the other. Uneven on purpose: a hand-thrown cloth is.
   folds: 3,       // ridges across the whole span
-  foldDepth: 0.24,
+  foldDepth: 0.32,
   // Where the hem sits. It is written as a TUCK LINE up on the shoulder and a
   // fall below it, and the fall is scaled by the same fade that thins the cloth
   // at its ends. Written the other way round -- a hem height with a tilt added
@@ -100,9 +108,9 @@ const DRAPE = {
   // taking their thickness to nothing, and a hanging edge with no thickness left
   // in it pinched into a spiky wing with creases in it. Tied to the fade, the
   // ends always tuck back up under the shoulder and there is nothing to pinch.
-  tuck: 0.345,
-  fall: 0.055,
-  hemWave: 0.020, // ridges hang lower than the hollows between them. Small: at
+  tuck: 0.350,
+  fall: 0.070,
+  hemWave: 0.026, // ridges hang lower than the hollows between them. Small: at
                   // the amplitude that looks right up close, three scallops
                   // across the front read from a distance as a painted zigzag.
   hemTilt: 0.055, // and the whole hem falls further on one side than the other
@@ -178,12 +186,13 @@ function drapeDisplacer(profile, centre) {
     const q = a / (a >= 0 ? DRAPE.arcPos : DRAPE.arcNeg);
     if (q <= -1 || q >= 1) return [0, 0];
 
-    // The cloth's thickness across its span, a bell rather than a plateau with
-    // a fade at the sides. The fade version put a 0.1-unit drop in radius into
-    // the four angular columns nearest each end, and a cliff that steep between
-    // adjacent columns came out as a spiky flap with creases fanning off it. A
-    // bell has no cliff anywhere and its slope goes to zero at both ends.
-    const edge = Math.pow(0.5 + 0.5 * Math.cos(q * Math.PI), 0.7);
+    // The cloth's thickness across its span: full over the middle two fifths,
+    // then a long fade to nothing. The fade has to be LONG. At a fifth of the
+    // span it put the whole drop in radius into the four angular columns
+    // nearest each end, and a cliff that steep between adjacent columns came
+    // out as a spiky flap with creases fanning off it; a bell over the whole
+    // span cured that but left the cloth too thin anywhere but dead centre.
+    const edge = 1 - smooth((Math.abs(q) - 0.42) / 0.58);
     const ridge = Math.cos(q * Math.PI * DRAPE.folds);
 
     const corner = Math.exp(-Math.pow((q - DRAPE.tailAt) / DRAPE.tailWidth, 2));

@@ -5,8 +5,8 @@ import { registerStone } from '../tombstones.js';
 //
 // Everything about this stone is proportion. It is the same chassis as the rest
 // of the set -- the swept quarter-round slab, the same weathered canvas, the
-// same two-map carving, the same plinth -- run at half the width and half again
-// the height, with three things added on top of the registry's defaults:
+// same two-map carving, the same plinth -- run at two thirds of the width and a
+// fifth more height, with three things added on top of the registry's defaults:
 //
 //   1. the shaft tapers, losing a fifth of its width on the way up,
 //   2. a shallow pyramidion caps it, springing out of the shaft through a fat
@@ -20,12 +20,13 @@ import { registerStone } from '../tombstones.js';
 
 // --- the numbers -----------------------------------------------------------
 //
-// 0.60 wide by 1.40 tall on a 0.18 plinth, capped at 1.89 overall, against the
-// cross's 0.92 by 1.37 on 0.19 for 1.56. So: a fifth taller than the tallest
-// stone in the set and two thirds of its width. The slenderness is 1:2.3 where
-// the cross is 1:1.5, which is as far as this chassis goes before the fixed
-// 0.062 edge radius eats the flat of the face and the thing turns into a
-// rounded post with nowhere to carve.
+// A shaft 0.60 wide by 1.40 tall, on a 0.18 plinth and a second step, capped at
+// 1.85 overall, against the cross's 0.92 by 1.37 on 0.19 for 1.56. So: a fifth
+// taller than the tallest stone in the set and two thirds of its width. The
+// slenderness is 1:2.3 where the cross's is 1:1.5, which is about as far as
+// this chassis goes: the edge radius is a fixed 0.062, so on a narrower shaft
+// the rim eats the flat of the face and the thing turns into a rounded post
+// with nowhere to carve.
 //
 // Depth is nearly the width on purpose. An obelisk is square in plan; at the
 // set's usual 0.30 it would have read as a plank stood on edge from the side.
@@ -49,8 +50,6 @@ const TAPER = 0.22;
 // the shaft in under the cap and instead re-tapered the entire stone and left
 // the cap standing 0.02 proud of it.
 const scaleAt = (y) => 1 - TAPER * (y / H);
-
-const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
 
 // ---------------------------------------------------------------------------
 // geometry helpers
@@ -196,7 +195,7 @@ function roundedBlock({ halfX, halfZ, height, edge, corner, y0, uv }) {
 //
 //   1. the shaft's taper, from inside the shaft up past its rounded top,
 //   2. a fat fillet turning the taper into the pyramid slope -- the shoulder,
-//   3. the pyramid slope itself, 55 degrees off horizontal,
+//   3. the pyramid slope itself, 52 degrees off horizontal,
 //   4. a cap arc that rounds the apex off, because a point is a knife edge.
 //
 // Every ring is a uniform scale of the shaft's own section, so the pyramidion
@@ -302,10 +301,14 @@ function pyramidionGeometry({ uv, edge }) {
 // Two numbers matter and both were measured, not guessed:
 //
 //   Coverage. This face canvas is 439 by 1024 where the cross's is 688, so the
-//   SAME physical mark is 1.6x the fraction of the face here. The approved set
-//   measures 4.2% (cross), 6.0% (bat) and 3.8% (fred) of the face; ink at 5.7%
-//   sits inside that, and a star drawn small enough to match the cross's share
-//   of face WIDTH would have come out at 1.7% and vanished.
+//   same physical mark is 1.6x the fraction of the face here, and the fraction
+//   is the number that decides whether a stone reads busy beside its
+//   neighbours. Measured off the real artwork, the approved set covers 3.8%
+//   (cross), 6.8% (fred) and 9.2% (bat) of its face. This star covers 5.7%.
+//   Sizing it instead to the cross's share of face WIDTH, which is the other
+//   half of the postmortem's advice, would have put it at 1.7% and it would
+//   have disappeared: on a face this narrow the two rules pull apart, and
+//   coverage is the one that was measured against a rejection.
 //
 //   Stroke. Texel density on the face is FACE_H / H either way, so the groove's
 //   17-texel floor is a world width, not a fraction of the face: 0.023 here.

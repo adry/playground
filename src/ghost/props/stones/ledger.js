@@ -56,7 +56,7 @@ const DIP = 0.19;
 const SINK = 0.20;
 // Displaced earth. The floor is #8f949e, so this is the ground a shade darker
 // and nothing new in the palette.
-const EARTH = '#9aa0aa';
+const EARTH = '#8b909b';
 
 // Lowest point of a geometry once its matrix is applied, walked vertex by
 // vertex. Box3.setFromObject would grow the local box by the rotation and hand
@@ -194,10 +194,9 @@ registerStone('ledger', {
     disposables.push(clod);
 
     const berm = [
-      { x: 0.03, z: -0.34, rx: 0.24, rz: 0.26, h: 0.034, sink: 0.45 },
-      { x: -0.02, z: 0.00, rx: 0.28, rz: 0.30, h: 0.040, sink: 0.45 },
-      { x: 0.05, z: 0.33, rx: 0.22, rz: 0.24, h: 0.032, sink: 0.45 },
-      { x: -0.16, z: 0.16, rx: 0.18, rz: 0.22, h: 0.028, sink: 0.5 },
+      { x: 0.13, z: -0.40, rx: 0.20, rz: 0.16, h: 0.045, sink: 0.40 },
+      { x: 0.18, z: 0.40, rx: 0.22, rz: 0.17, h: 0.050, sink: 0.40 },
+      { x: -0.09, z: 0.04, rx: 0.19, rz: 0.30, h: 0.038, sink: 0.45 },
     ];
 
     for (const c of berm) {

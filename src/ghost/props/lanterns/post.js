@@ -140,7 +140,11 @@ function tangentT(c0, c1) {
   const dy = c1.cy - c0.cy;
   const amp = Math.hypot(dr, dy) || 1e-9;
   const k = Math.max(-1, Math.min(1, (c0.rad - c1.rad) / amp));
-  return Math.atan2(dy, dr) - Math.acos(k);
+  const t = Math.atan2(dy, dr) - Math.acos(k);
+  // Wrapped into (-pi, pi]. Unwrapped, an arc that ends at -5.1 rather than 1.2
+  // is asked to sweep the long way round and comes out as a whole sphere with
+  // the rest of the prop inside it, which is exactly what happened.
+  return ((t + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
 }
 
 // A rounded block: bottom face, rolled bottom edge, tapered side, rolled top
@@ -170,19 +174,19 @@ const FOOT = { rBot: 0.300, rTop: 0.286, y0: 0.000, y1: 0.112, edge: 0.050 };
 const PLATE = { rBot: 0.232, rTop: 0.222, y0: 0.100, y1: 0.182, edge: 0.042 };
 const SHAFT = { rBot: 0.190, rTop: 0.158, y0: 0.170, y1: 0.648, edge: 0.055 };
 // The little table the head sits on, flared out over the shaft.
-const TABLE = { rBot: 0.176, rTop: 0.268, y0: 0.600, y1: 0.742, edge: 0.048 };
+const TABLE = { rBot: 0.176, rTop: 0.250, y0: 0.600, y1: 0.730, edge: 0.046 };
 
 // The head. rv is the radius that rolls its top and bottom edges over, t the
 // thickness of the stone: the inner shell is the outer one pushed t along its
 // own normal, so t has to stay under rv or the rolled corner turns itself
 // inside out.
-const HEAD = { r: 0.245, y0: 0.715, y1: 1.015, rv: 0.058, t: 0.048 };
+const HEAD = { r: 0.256, y0: 0.700, y1: 1.032, rv: 0.060, t: 0.048 };
 
 // One arched window, in the head's face space: x across the face, y in world
 // height. It is the headstones' own outline shrunk to a hand's width, which is
 // not a joke at the set's expense so much as the cheapest way to say the two
 // things came from the same yard.
-const WIN = { half: 0.098, y0: 0.790, y1: 0.938, rBot: 0.028 };
+const WIN = { half: 0.088, y0: 0.776, y1: 0.952, rBot: 0.026 };
 // How far the lip rolls over before the wall goes straight. Nearly half the
 // thickness, so both ends of the wall are round and the little straight run in
 // the middle is all that is left of the flat.
@@ -191,15 +195,15 @@ const LIP = 0.019;
 const ROOF = {
   // The eave: a fat half-round, the widest thing in the piece, and the reason
   // the head reads as sheltered rather than merely open.
-  eave: { cr: 0.316, cy: 1.047, rad: 0.052 },
-  under: 0.995,
+  eave: { cr: 0.322, cy: 1.066, rad: 0.054 },
+  under: 1.012,
   // The cap, an arc of a big circle so the slope is a hair convex. Flat and it
   // reads as a pyramid, which is a different lantern.
-  dome: { cr: 0, cy: 0.915, rad: 0.300 },
+  dome: { cr: 0, cy: 0.930, rad: 0.280 },
 };
-const FINIAL = { y: 1.205, r: 0.057 };
+const FINIAL = { y: 1.202, r: 0.056 };
 
-const TOTAL_H = 1.272;
+const TOTAL_H = 1.258;
 
 // ---------------------------------------------------------------------------
 // The weathered stone.
@@ -329,8 +333,12 @@ function buildTextures(rng) {
 // levels are this file's own: there is one light here doing every job the
 // pumpkin splits between a gobo spot and an omni glow.
 const LAMP = { min: 1.55, max: 3.35 };     // the one PointLight
-const FLAME_EM = { min: 1.05, max: 2.55 }; // the visible tongue of flame
-const BOX = { min: 0.62, max: 1.30 };      // the lit interior seen through the windows
+const FLAME_EM = { min: 1.95, max: 4.20 }; // the visible tongue of flame
+// The interior, and it is held well under the flame on purpose. Taken up until
+// the chamber reads as a lightbox, the tongue of flame in front of it goes to a
+// dark smudge: the one thing in the frame that is actually on fire has to be
+// the brightest thing in it.
+const BOX = { min: 0.40, max: 0.86 };
 
 const EMBER = new THREE.Color('#ff6a24').convertSRGBToLinear();
 const FLAME = new THREE.Color(PALETTE.glow).convertSRGBToLinear();
@@ -656,7 +664,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   }
   const boxInnerBase = box.pos.length / 3;
   // Where the flame sits, and what the interior is shaded against.
-  const FLAME_Y = 0.856;
+  const FLAME_Y = 0.845;
   const LIGHT = new THREE.Vector3(0, FLAME_Y, 0);
   // Baked falloff for the lightbox: a diffuse term against the flame plus an
   // inverse-square that is softened at the bottom, because a candle is a small
@@ -668,14 +676,13 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
     const d2 = dx * dx + dy * dy + dz * dz;
     const d = Math.sqrt(d2) || 1e-6;
     const lambert = Math.max(0, (dx * n.x + dy * n.y + dz * n.z) / d);
-    // The half-power distance is 0.33, which is nearly twice the width of the
-    // chamber. That is not the inverse square a real flame throws and it is not
-    // meant to be: over 20cm a true falloff is 25:1 between the floor and the
-    // far corner, which paints the interior black everywhere except right under
-    // the candle. What the eye wants through a hand-sized window is a lit box
-    // with a gradient in it, so the falloff is flattened until the gradient is
-    // about 20% across the chamber and the shape comes from the lambert term.
-    return (0.16 + 0.84 * lambert) * (0.11 / (0.11 + d2));
+    // The half-power distance is 0.23, a little over the width of the chamber.
+    // That is not the inverse square a real flame throws and it is not meant to
+    // be: over 20cm a true falloff is 25:1 between the floor and the far
+    // corner, which paints the interior black everywhere except right under the
+    // candle. Flattened to about 2:1 the chamber still has a gradient across
+    // it, the corners still fall away, and nothing is crushed.
+    return (0.16 + 0.84 * lambert) * (0.055 / (0.055 + d2));
   };
   {
     const c = new THREE.Vector3();
@@ -842,7 +849,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   // in a box.
   {
     const cy0 = HEAD.y0 + HEAD.t;
-    const prof = roundedBlock(0.036, 0.033, cy0, cy0 + 0.052, 0.014, 5);
+    const prof = roundedBlock(0.038, 0.035, cy0, cy0 + 0.056, 0.015, 5);
     const base = box.pos.length / 3;
     const radial = 24;
     const secs = [];
@@ -919,8 +926,8 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   const flameGeo = (() => {
     const seg = 16;
     const p = makeProfile();
-    const H = 0.088;
-    const W = 0.019;
+    const H = 0.102;
+    const W = 0.022;
     // A tall bell: widest a third of the way up, drawn to a soft point.
     for (let i = 0; i <= seg; i++) {
       const t = i / seg;
@@ -965,7 +972,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   boxMesh.receiveShadow = false;
 
   const flame = new THREE.Mesh(flameGeo, flameMat);
-  flame.position.set(0, HEAD.y0 + HEAD.t + 0.046, 0);
+  flame.position.set(0, HEAD.y0 + HEAD.t + 0.050, 0);
   flame.castShadow = false;
   flame.receiveShadow = false;
 
@@ -1095,5 +1102,5 @@ export const POST_LANTERN = {
   height: TOTAL_H,
   footprint: FOOT.rBot * 2,
   eave: ROOF.eave.cr + ROOF.eave.rad,
-  flameY: 0.856,
+  flameY: 0.845,
 };

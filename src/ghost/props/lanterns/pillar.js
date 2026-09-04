@@ -70,7 +70,7 @@ const PLINTH_R = 0.180;      // half-extent, so the footprint is 0.36
 const SHAFT_R0 = 0.150;      // at the top of the plinth
 const SHAFT_R1 = 0.1405;     // at the springing of the cornice, a 6% batter
 const CORNICE_Y = 0.845;
-const CORNICE_R = 0.174;
+const CORNICE_R = 0.180;
 const TOP_FILLET = 0.026;    // the ovolo on the cornice's top rim
 const BOT_FILLET = 0.020;
 
@@ -87,7 +87,7 @@ const CAP_FLAT = CORNICE_R - TOP_FILLET;   // 0.148
 //   2. the metal reaches DOWN AND OUT. The flange is a stepped plate, wide at
 //      the bottom and narrowing to the collar the box stands on, so the two
 //      flares mirror each other across the seam.
-//   3. there is a MARGIN. The flange's 0.126 half sits inside the stone's 0.148
+//   3. there is a MARGIN. The flange's 0.132 half sits inside the stone's 0.154
 //      flat, leaving a 22mm ring of bare stone all the way round. Matching the
 //      two edges was tried first and is the version that looks glued: two
 //      coincident silhouettes read as one object badly modelled, where a
@@ -97,24 +97,28 @@ const CAP_FLAT = CORNICE_R - TOP_FILLET;   // 0.148
 //      camera angles, z-fighting) into a dark mortar seam; and four domed bolt
 //      heads sit on the plate, one per face, saying the joint is fastened.
 const FLANGE_BED = 0.004;    // how far the plate is let into the stone
-const FLANGE_R = 0.126;
+const FLANGE_R = 0.132;
 const FLANGE_H = 0.020;
 const COLLAR_R = 0.100;
 const COLLAR_H = 0.040;
-const BOLT_AT = 0.100;       // mid-face radius of the four bolt heads
-const BOLT_R = 0.013;
+// Out on the plate between the collar's foot and the plate's edge, and the
+// window is narrow: at 0.100 the heads sat exactly where the collar springs
+// from the plate and were swallowed whole, which is a bolt that costs 720
+// triangles and cannot be seen.
+const BOLT_AT = 0.120;       // mid-face radius of the four bolt heads
+const BOLT_R = 0.010;
 
 const BOX_Y = STONE_H - FLANGE_BED + FLANGE_H + COLLAR_H;   // 0.996
-const BOX_R = 0.112;         // half-extent over the frame
+const BOX_R = 0.108;         // half-extent over the frame
 const BOX_H = 0.315;
 const BAR = 0.026;           // corner upright section, and the rail depth
 const RAIL_H = 0.028;        // the horizontal band top and bottom
-const PANE_Z = 0.102;        // glass sits inboard of the frame's outer face
-const PANE_HW = 0.086;       // half width, between the two uprights
+const PANE_Z = 0.098;        // glass sits inboard of the frame's outer face
+const PANE_HW = 0.082;       // half width, between the two uprights
 const PANE_BOW = 0.013;      // outward crown on the pane: see the glass note
 
 const CAP_Y = BOX_Y + BOX_H;
-const CAP_R = 0.141;         // the eave, overhanging the box by 29mm
+const CAP_R = 0.137;         // the eave, overhanging the box by 29mm
 const CAP_H = 0.132;
 const FINIAL_NECK = 0.022;
 const FINIAL_R = 0.031;
@@ -150,8 +154,8 @@ const GLASS_TINT = '#33443f';
 // is a light; the emissive pair is handed to three, which colour-manages it.
 const EMBER = new THREE.Color('#ff6a24').convertSRGBToLinear();
 const FLAME = new THREE.Color(PALETTE.glow).convertSRGBToLinear();
-const WICK_EMBER = new THREE.Color('#ff7b2c');
-const WICK_FLAME = new THREE.Color('#ffc98a');
+const WICK_EMBER = new THREE.Color('#ff6a1e');
+const WICK_FLAME = new THREE.Color('#ffb862');
 
 // -----------------------------------------------------------------------------
 // the fake optics
@@ -463,11 +467,16 @@ function stoneTint(geo, rand) {
   const col = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    // The frequencies are in radians per unit and the pillar is a third of a
+    // unit across, so anything under about 30 is one slow gradient over the
+    // whole block and not a mottle at all. That was the first version and it
+    // did nothing. These are patches of 60 to 150mm, which is the size of the
+    // blotches on a weathered limestone face.
     const m =
-      0.55 * Math.sin(x * 11.3 + y * 4.1 + z * 7.9 + s1) * Math.sin(z * 9.7 - y * 3.3 + s2) +
-      0.30 * Math.sin(x * 23.1 - z * 19.4 + s3) * Math.sin(y * 17.5 + x * 6.2 + s4) +
-      0.15 * Math.sin(x * 41.0 + z * 37.0 + s5);
-    let t = 1 + 0.055 * m;
+      0.55 * Math.sin(x * 44.0 + y * 17.0 + z * 31.0 + s1) * Math.sin(z * 39.0 - y * 13.0 + s2) +
+      0.30 * Math.sin(x * 79.0 - z * 67.0 + s3) * Math.sin(y * 58.0 + x * 25.0 + s4) +
+      0.15 * Math.sin(x * 141.0 + z * 127.0 + s5);
+    let t = 1 + 0.090 * m;
     // Ground grime up the first 180mm, the band that stops a block from
     // looking as though it were set down this morning.
     t *= 1 - 0.15 * smoothstep(0.18, 0.02, y);
@@ -699,14 +708,20 @@ function glassGeometry() {
 // modulating brightness in place only pumps the pool, where MOVING the source
 // swings the light around inside the box and changes which pane is lit.
 function flameGeometry() {
-  const H = 0.072;
+  const H = 0.078;
+  const R = 0.0205;
+  const KNEE = 0.26;   // where the round base stops and the taper starts
   const at = (y) => {
     const t = clamp01(y / H);
-    // Fat and round at the base, drawn out to a tip.
-    const r = 0.021 * Math.sin(Math.PI * Math.pow(t, 0.62)) * (1 - 0.18 * t) + 0.0035 * (1 - t);
+    // Round underneath, then drawn out to a tip: the first attempt multiplied
+    // two sines and came out a lemon, fat in the middle and pointed at BOTH
+    // ends, which is a leaf and not a flame. A flame is heaviest low down.
+    const base = t < KNEE ? Math.sqrt(Math.max(0, 1 - ((KNEE - t) / KNEE) ** 2)) : 1;
+    const tip = Math.pow(Math.max(0, 1 - t) / (1 - KNEE), 0.55);
+    const r = R * (t < KNEE ? base : tip);
     return [Math.max(1e-4, r), Math.max(1e-4, r), 1.0];
   };
-  return loftY({ y0: 0, y1: H, at, rows: 18, ring: 16 });
+  return loftY({ y0: 0, y1: H, at, rows: 20, ring: 16 });
 }
 
 // -----------------------------------------------------------------------------
@@ -740,9 +755,9 @@ function makeNoise(seed) {
 // these do not flicker at two different depths. The absolute level is a
 // stylistic call: against a hemisphere at 1.15 and a key at 2.1 a truthful
 // candle is invisible, and this is what makes the lantern read as lit.
-const LAMP = { min: 0.395, max: 0.85 };
+const LAMP = { min: 0.362, max: 0.78 };
 const GLASS_GLOW = { min: 0.30, max: 0.80 };
-const WICK = { min: 0.95, max: 2.10 };
+const WICK = { min: 0.58, max: 1.25 };
 const HUE_MID = 0.88, HUE_GAIN = 1.5;
 
 // -----------------------------------------------------------------------------
@@ -797,8 +812,8 @@ export function createPillarLantern({ seed = 1, scale = 1 } = {}) {
     // ray's own y. -0.22 puts it across the upper third of a pane at this
     // camera's elevation, and 0.13 makes it about a fifth of the pane deep: any
     // wider and it is a gradient again.
-    uGlare: { value: new THREE.Color('#f2f6ff').convertSRGBToLinear().multiplyScalar(1.95) },
-    uGlareAt: { value: new THREE.Vector2(-0.22, 0.155) },
+    uGlare: { value: new THREE.Color('#f2f6ff').convertSRGBToLinear().multiplyScalar(3.20) },
+    uGlareAt: { value: new THREE.Vector2(-0.24, 0.060) },
     // Between the key in main.js and the one in the preview harness.
     uSunDir: { value: new THREE.Vector3(3.45, 6.0, 2.4).normalize() },
     uSunCol: { value: new THREE.Color('#fff6ea').convertSRGBToLinear() },
@@ -808,13 +823,13 @@ export function createPillarLantern({ seed = 1, scale = 1 } = {}) {
     // gradient with no bright spots of its own to find, so a correct fresnel
     // over it returns a correct amount of nothing. Same argument, and the same
     // fix, as fountain/water.js.
-    uRimGain: { value: 4.20 },
+    uRimGain: { value: 3.40 },
     uGlint: { value: 1.70 },
     uShine: { value: 95.0 },
     // How much of the pane is glass and how much is air. Low: you have to see
     // the flame and the far frame through it, and everything that makes it read
     // as a surface is in the reflection and the edge rather than in the body.
-    uBodyA: { value: 0.155 },
+    uBodyA: { value: 0.125 },
     uWave: { value: 0.048 },
     uSeed: { value: rand() * 6.283 },
   };
@@ -900,7 +915,7 @@ varying float vYaw;`)
   // all. Measured both, kept neither. At decay 1 the same six to one range
   // costs six to one, the cornice sits at about 2.1 against a key of 2.1 and
   // the pool on the floor is still plainly there two-thirds of a unit out.
-  const light = new THREE.PointLight(FLAME.clone(), 0, 3.4 * scale, 1);
+  const light = new THREE.PointLight(FLAME.clone(), 0, 2.8 * scale, 1);
   light.position.set(0, BOX_Y + 0.155, 0);
   light.castShadow = false;
   const lightHome = light.position.clone();

@@ -562,7 +562,7 @@ export function createStreetLamp({ seed = 1, scale = 1 } = {}) {
   // --- the ironwork --------------------------------------------------------
   // Five turned pieces plus four bars, merged into one geometry. They share a
   // material and never move relative to each other, so as separate meshes they
-  // would be eight draw calls buying nothing.
+  // would be nine draw calls buying nothing.
   const ironParts = [
     revolve(fillet(M.post, M.postRound), { segments: SEG.post }),
     revolve(fillet(M.skirt, M.skirtRound, 11), { section, segments: SEG.head }),
@@ -776,15 +776,12 @@ varying vec3 vHP;`)
   // object's matrix, and its intensity is candela against a distance that grows
   // with the prop. So both are corrected here, or a lamp at scale 2 lights a
   // quarter as much ground as one at scale 1.
-  const distance = 11.0 * scale;
   const lightGain = scale * scale;
-  light.distance = distance;
+  light.distance = 11.0 * scale;
 
   // Read by the lab harness to plot the flicker without a screenshot. Nothing
   // in the prop reads it.
   group.userData.flame = { level: 1 };
-
-  const mixCol = (out, k) => out.copy(EMBER).lerp(FLAME, k);
 
   return {
     group,
@@ -856,7 +853,7 @@ varying vec3 vHP;`)
       // Colour, levered about the level's mean so ember is reachable inside a
       // real gutter rather than only inside a blackout.
       const k = Math.min(1, Math.max(0, HUE_MID + (level - HUE_MID) * HUE_GAIN));
-      mixCol(light.color, k);
+      light.color.copy(EMBER).lerp(FLAME, k);
       glassUniforms.uFlameCol.value.copy(EMBER).lerp(FLAME, k);
       flameMat.emissive.copy(PLATE_EMBER).lerp(PLATE_FLAME, k);
       haloMat.color.copy(BLOOM_EMBER).lerp(BLOOM_FLAME, k);

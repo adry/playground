@@ -5,58 +5,68 @@ import { registerStone, inkText } from '../tombstones.js';
 // The gothic arch: the tall narrow one of the set.
 //
 // The point is the whole identity, and buildSlabGeometry cannot make one: it
-// sweeps a quarter-round profile around a four-circle outline, so its top is
-// always a round arch or a squared-off pair of corners. So the slab is asked
-// for the smallest top radius it allows and is treated as the body only, and
-// the arch head is a second swept piece added in extras.
+// sweeps a quarter-round profile around a convex four-circle outline, so its
+// top is a half-round arch or a pair of squared corners and nothing else. So
+// the slab is kept, round top and all, as the body and the carved face, and a
+// second swept piece added in extras carries the point.
 //
-// It is built on exactly the same principle as the slab, generalised from four
-// corner circles to an arbitrary convex core curve: every point of the
-// silhouette is a core point pushed out by a fixed radius r0 along a known
-// normal, so "inset by d" is "pushed out by r0 - d" and the normal is the same.
-// Nothing is faceted, and the apex is a corner of the CORE, which means the
-// silhouette there is a circular cap of radius r0: a soft vinyl peak rather
-// than a spike, by construction rather than by tuning.
+// The head is built on the slab's own principle, generalised from four corner
+// circles to an arbitrary convex core curve: every point of the silhouette is
+// a core point pushed out by a fixed radius R0 along a known normal, so "inset
+// by d" is "pushed out by R0 - d" and the normal is unchanged. Nothing is
+// faceted, no normals are averaged, and the apex is a CORNER OF THE CORE, which
+// makes the silhouette there a circular cap of radius R0: a soft vinyl peak by
+// construction rather than by tuning.
 //
-// The head overlaps the slab rather than butting onto it. Two rounded pieces
-// meeting end to end leave a valley at the joint; overlapping, with the same
-// depth, the same edge radius and the same face UVs, the two front faces are
-// one coplanar surface carrying one continuous texture and the joint has
-// nothing to show. The head is a hair wider (EPS) so the two side rims never
-// coincide and fight; a millimetre and a half on a stone two thirds of a metre
-// wide is a third of a pixel at scene scale.
+// Three things make the joint disappear.
+//
+// The head SWALLOWS the slab's round top rather than butting onto it. A pointed
+// arch and a half-round of the same span springing from the same height are
+// tangent at the springing and the pointed one is wider at every height above
+// it, so the head's outline contains the slab's, and with the same depth and
+// the same edge radius the head's solid contains the slab's. Two rounded pieces
+// meeting end to end would leave a valley; this leaves nothing.
+//
+// The head's front face is exactly coplanar with the slab's and carries exactly
+// the slab's face UVs, so where they overlap the two surfaces are the same
+// surface, same normal, same texture: coplanar depth values there cannot
+// disagree about anything visible. The head is a hair wider (EPS) so the two
+// rims never coincide and fight, and its bottom is a flat cut, not a rounded
+// edge, so it ends inside the slab without a rim to show.
+//
+// Above the slab there is no face texture, so the head mirrors the map back
+// down from the top edge. The mirror is exactly one to one: an earlier version
+// squashed it to keep the mark clear of the reflection, and a squashed normal
+// map applies unsquashed slopes over stretched features, which came back as
+// stripes down the moulding. Springing the head from the slab's own arch is
+// what buys the room: only the top 19% of the map is ever mirrored, and the
+// marks live below that.
 
 // Shape. The set runs 1.10 to 1.56 tall including the plinth and 0.74 to 1.00
-// wide; this is 1.69 by 0.69, so it is the tallest and the narrowest thing in
-// the graveyard, which is what a gothic arch is for. Width is held at 0.41 of
-// the height rather than the set's 0.6: any wider and the arch reads as a
-// round-top with a dent, any narrower and it is a plank.
+// wide; this is 1.70 by 0.68, the tallest and the narrowest thing in the
+// graveyard, which is what a gothic arch is for. Width is 0.40 of the height
+// against the set's 0.6: wider and the point reads as a dent in a round top,
+// narrower and it is a plank.
 //
-// `height` is the SLAB, i.e. the carved face, and the arch head stands 0.52
-// above it. The face is 0.69 by 1.00, which at the texture's 1024 rows is 707
-// px wide: the same order as the approved stones (688, 770, 798) so the
-// engraving treatment is used inside the range it was calibrated in.
+// `height` is the slab and so the carved face: 0.68 by 1.284, which at the
+// texture's 1024 rows is a 542 px face. The engraving treatment was calibrated
+// on faces 528 to 638 px wide, so it is being used inside its range.
 const W = 0.34;
-const H = 0.92;
+const H = 1.284;
 
-// The head. SPRING is how far above the slab's top the flanks start turning
-// in: the slab's own rounded top corners have to stay inside the full-width
-// part of the head or they poke out of it as ears. DROP is how far the head
-// reaches down behind the face, and only has to bury its own bottom rim.
-// RATIO is the flank arc's radius over the core half width, and it is the one
-// number that says how pointed the arch is: 1.0 is a plain half-round, 2.0 is
-// a full equilateral lancet. 1.75 puts the tangent at the apex 65 degrees off
-// vertical, which reads as a point without turning the stone into a spire.
+// The head. It springs exactly where the slab's own round top does, at
+// height - halfWidth: any lower and the slab's shoulders come out through the
+// flanks. SKIRT is how far the head continues straight down past the springing
+// before its cut; it only has to be long enough that the 1.5 mm side step lands
+// somewhere unremarkable. RATIO is the flank arc's radius over the core half
+// width and is the one number that says how pointed the arch is: 1.0 is a plain
+// half-round, 2.0 an equilateral lancet. 2.3 brings the flanks in to 54 degrees
+// off vertical at the apex, which reads as a point at a glance and still leaves
+// the tip a rounded cap a fifth of the stone's width across.
 const R0 = 0.07;
 const EPS = 0.0015;
-const SPRING = 0.02;
-const DROP = 0.12;
+const SKIRT = 0.1;
 const RATIO = 2.3;
-// The head is above the face texture, so its front face samples the face map
-// mirrored back down from the top edge, squashed by this factor. Continuous at
-// the joint, and it never reaches the ink as long as the marks stay below
-// v = 1 - VSQUASH * (peak - H) / H, which is 0.84 here.
-const VSQUASH = 0.22;
 
 // ---------------------------------------------------------------------------
 // the arch head
@@ -216,26 +226,26 @@ function inkTrefoil(ctx, cx, cy, span) {
 
 registerStone('gothic', {
   shape: { halfWidth: W, height: H, depth: 0.27, plinth: 0.17 },
-  // As square as the registry allows -- it clamps up to the slab's own edge
-  // radius. The arch head covers the top of the slab, and any rounding left up
-  // there would be a shoulder poking out from under it.
-  topRadius: 0,
+  // topRadius is left at the default full half-round on purpose: that arch is
+  // the shape the head is built to swallow, and it is what carries the face all
+  // the way up to where the point starts.
 
   // One closed figure high on the face and one short line under it, on a lot
   // of clean stone. The date does the job R.I.P. does on the cross without
   // repeating it, and four digits hold together at the sixty-odd pixels the
   // mark gets at scene scale where a longer line would smear.
   draw(ctx, w, h) {
-    inkTrefoil(ctx, w / 2, h * 0.30, w * 0.32);
-    inkText(ctx, '1666', w / 2, h * 0.565, h * 0.105, h * 0.012);
+    inkTrefoil(ctx, w / 2, h * 0.33, w * 0.38);
+    inkText(ctx, '1666', w / 2, h * 0.56, h * 0.1, h * 0.012);
   },
 
   extras({ body, material, shape, plinthH, halfWidth, height, edge, disposables, frontFrac, stripFrac }) {
     const halfW = halfWidth + EPS;
+    const ySpring = height - halfWidth; // where the slab's own round top starts
     const { ring, yApex } = archCore({
       halfWidth: halfW,
-      yBottom: height - DROP,
-      ySpring: height + SPRING,
+      yBottom: ySpring - SKIRT,
+      ySpring,
     });
 
     // Below the slab's top this is the slab's own face mapping, vertex for
@@ -244,7 +254,7 @@ registerStone('gothic', {
     // keeps the stone continuous at the joint and puts nothing but mottle on
     // the arch. Everything that is not the front face goes to the plain strip,
     // same as the slab's sides.
-    const faceV = (y) => (y <= height ? y / height : 1 - (VSQUASH * (y - height)) / height);
+    const faceV = (y) => (y <= height ? y / height : 2 - y / height);
     // The sides and back take the plain strip, but across the DEPTH rather than
     // across x. stripUV keys u to x, which on the slab's vertical sides means
     // one texel column smeared over the whole side wall: uv then has no
@@ -262,7 +272,7 @@ registerStone('gothic', {
       depth: shape.depth,
       edge,
       uv,
-      yMid: (height - DROP + yApex + R0) / 2,
+      yMid: (ySpring - SKIRT + yApex + R0) / 2,
     });
     const head = new THREE.Mesh(geo, material);
     head.position.y = plinthH;

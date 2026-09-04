@@ -87,9 +87,9 @@ const SHAPE = {
 // design rather than a damaged one. A deep lobe, a shallower waist and a second
 // deep lobe is what makes it lumpy, which is what a chipped bath toy is.
 const CHIP = [
-  { deg: 70, r: 0.150, bite: 0.030 },   // feather, into the crown
-  { deg: 45, r: 0.175, bite: 0.135 },   // the scoop
-  { deg: 20, r: 0.090, bite: 0.062 },   // a nick where it ran out
+  { deg: 58, r: 0.135, bite: 0.090 },
+  { deg: 44, r: 0.180, bite: 0.138 },   // the belly of the scoop
+  { deg: 27, r: 0.110, bite: 0.094 },
 ];
 // A bite deeper than its own circle puts that circle's centre INSIDE the stone,
 // and then the subtraction is a hole rather than a scoop: the outline has no
@@ -101,11 +101,14 @@ const MAX_BITE = 0.8;   // of the circle's own radius
 // How far the three circles melt into each other. Zero leaves two visible
 // creases where they cross, which is the one hard edge this piece must not
 // have.
-// Six circles at 0.055 blended into one long shallow bevel and the stone read
-// as a shouldered design rather than a damaged one: a blend as wide as the gaps
-// between the circles eats exactly the concavity that says "broken". Three
-// circles, spaced, at half the blend.
-const CHIP_BLEND = 0.032;
+// Bracketed from both sides. Six circles at 0.055 blended into one long shallow
+// bevel and the stone read as a shouldered design rather than a damaged one: a
+// blend as wide as the gaps between the circles eats the concavity that is the
+// whole read. Three circles at 0.032 went the other way and terraced, each
+// lens meeting the next in a crease, which from behind was unmistakably a
+// staircase. Circles of similar depth and different radius, blended at about a
+// third of the smallest of them, come out as one belly with lumps in it.
+const CHIP_BLEND = 0.048;
 
 // --- the lean ---------------------------------------------------------------
 //

@@ -24,12 +24,11 @@ import { SEGMENTS } from '../style.js';
 // that join invisible:
 //
 //   1. Because both solids are the same 2D outline swept through the same
-//      profile, their surfaces agree wherever their outlines agree. The lobes
-//      are circles through (+-halfWidth, height - edge) with a vertical
-//      tangent, which is exactly where the slab's top corner arc begins, so the
-//      silhouette runs from the slab's straight side into the lobe with no
-//      corner at all. The slab's own top corners and top edge end up buried
-//      inside the lobes.
+//      profile, their surfaces agree wherever their outlines agree. Each lobe is
+//      a circle tangent to the line the slab's own straight side lies on, so the
+//      cap carries that side upward, holds it for a moment and then rounds over:
+//      side, straight run, lobe, every join tangent, no corner anywhere. The
+//      slab's top corners and top edge end up buried inside the cap.
 //   2. The cap's outline bottom is a straight edge at height - 2*edge, so its
 //      flat front face begins exactly at height - edge, where the slab's flat
 //      front face ends. The two faces abut along a line and never overlap, and
@@ -46,21 +45,32 @@ import { SEGMENTS } from '../style.js';
 //
 // The rounded edge is a fixed 0.062 rather than a fraction of the stone, and the
 // warning in tombstones.js is about it shrinking to a hairline on a big slab.
-// Going the other way it is the lobes that are at risk: the flat front face is
-// the outline inset by that radius, so each lobe loses 0.062 of its radius
-// before it reaches the face. At a lobe radius of 0.18 that is a third of it.
-// Two things fall out and both are load bearing:
+// Going the other way it is the lobes that pay, twice over, and both cost me a
+// version.
 //
-//   * The lobes have to be a good half of the half-width. Below that the inset
-//     lobes shrink past each other and the front face pinches shut at the
-//     centre, which is a stone with a slot in it.
-//   * A narrower stone would have been worse, not better. The lobes' rise above
-//     the shoulders is (R - edge), so shrinking the stone spends a fixed 0.062
-//     out of a smaller number and the heart flattens. This is why the piece is
-//     as wide as it is while still being shorter than fred.
-const LOBE = 0.53; // lobe radius as a fraction of the half-width
-const LOPSIDED = 0.05; // one lobe this much larger than the other, and one smaller
-const VALLEY = 0.124; // fillet radius at the notch, as a fraction of the half-width
+// The first is the flat face. It is the outline inset by the full edge radius,
+// so every lobe loses 0.062 of its radius before it gets there. Lobes much under
+// half the half-width shrink past each other on the way in and the face pinches
+// shut at the centre, which is a stone with a slot in it. Half the half-width is
+// where this one sits, and the measured clearance at the pinch is reported by
+// the probe as the "neck".
+//
+// The second cost the whole shape. A lobe drawn as a circle through the corner
+// of the slab has its centre level with the slab's top CORNER centre, which is
+// one edge radius BELOW the top of the slab -- so the top 0.062 of each lobe is
+// hidden inside the slab it grows out of, and what is left standing above the
+// stone is a shallow segment nearly three times wider than it is tall. Rendered,
+// that is not a heart, it is a rounded slab with a nick in it. The fix is the
+// `LIFT` below: the sides run straight up past the top of the slab before the
+// lobes round over, which is free (a vertical run between two arcs both tangent
+// to it, exactly how the slab gets its own straight sides) and turns each lobe
+// back into a dome. On a bigger stone the same edge radius would have cost a
+// fifth of this, and none of it would have come up.
+const LOBE = 0.42; // lobe radius as a fraction of the half-width
+const LIFT = 0.25; // straight rise above the shoulders before the lobes round over
+const VALLEY = 0.234; // fillet radius in the notch, same units
+const LOPSIDED = 0.06; // one lobe this much larger, the other that much smaller
+const TILT = 0.039; // and one sits that much higher than the other
 
 // Two circles, radius r1 about c1 and r2 about c2, meet at two points. Returns
 // the upper one, which is the fillet centre sitting above the notch.
@@ -88,11 +98,14 @@ function heartArcs(W, H, e) {
   const r1 = R * (1 + LOPSIDED);
   const r2 = R * (1 - LOPSIDED);
   const rf = W * VALLEY;
-  // The lobe centres sit level with the slab's top corner centres, so each lobe
-  // touches the slab's straight side at its own widest point.
+  // y0 is the height of the slab's top corner centres, which is where its
+  // straight sides stop. Every lobe is widest at exactly the half-width, so its
+  // centre sits on the axis of that side and the two run into each other with no
+  // corner: straight side, straight run, lobe, all tangent. The lift is what
+  // stands the lobes up above the stone instead of half burying them in it.
   const y0 = H - e;
-  const c1 = { x: W - r1, y: y0 };
-  const c2 = { x: -(W - r2), y: y0 };
+  const c1 = { x: W - r1, y: y0 + W * (LIFT + TILT) };
+  const c2 = { x: -(W - r2), y: y0 + W * (LIFT - TILT) };
   const f = upperIntersection(c1, r1 + rf, c2, r2 + rf);
 
   // Unit vectors from each lobe centre towards the fillet centre. The tangency
@@ -111,11 +124,12 @@ function heartArcs(W, H, e) {
   while (f2 > f1) f2 -= Math.PI * 2;
 
   const seg = (angle, r) => Math.max(6, Math.round(SEGMENTS.curve * Math.abs(angle) / (Math.PI / 2) * Math.min(1, r / W)));
-  // Where the lobe is widest the outline has to turn down and close along the
-  // bottom, and that corner is a circle of exactly the edge radius so it
-  // collapses to a point on the flat face rather than fighting it.
-  const k1 = { cx: c1.x + r1 - e, cy: y0, r: e, a0: -Math.PI / 2, a1: 0, seg: 4 };
-  const k2 = { cx: c2.x - r2 + e, cy: y0, r: e, a0: Math.PI, a1: Math.PI * 1.5, seg: 4 };
+  // The bottom of the cap, buried in the slab. These corners are circles of
+  // exactly the edge radius, so they close the outline against the straight
+  // sides and then collapse to a point on the flat face instead of fighting the
+  // slab's face for the same plane.
+  const k1 = { cx: W - e, cy: y0, r: e, a0: -Math.PI / 2, a1: 0, seg: 4 };
+  const k2 = { cx: -(W - e), cy: y0, r: e, a0: Math.PI, a1: Math.PI * 1.5, seg: 4 };
   return [
     k1,
     { cx: c1.x, cy: c1.y, r: r1, a0: 0, a1, seg: seg(a1, r1) },
@@ -216,13 +230,13 @@ function buildCapGeometry({ arcs, depth: D, edge: e, uv }) {
 }
 
 registerStone('heart', {
-  // Shorter and narrower than fred, which keeps it the little one: 1.10 overall
-  // against fred's 1.10 once the lobes are added, on a 0.68 body against his
-  // 0.74. Thick for its size on purpose -- a thin heart-topped stone reads as a
-  // cut-out card. The face lands at 0.81 of its height, which puts it within a
-  // few per cent of fred's face and well inside the width the engraving
-  // treatment works at.
-  shape: { halfWidth: 0.34, height: 0.84, depth: 0.24, plinth: 0.13 },
+  // The little one, and smaller than the little one: 1.09 to the top of the
+  // taller lobe against fred's 1.10, on a 0.64 body against his 0.74. Thick for
+  // its size on purpose, since a thin heart-topped stone reads as a cut-out
+  // card. The face comes out at 0.81 of its own height, within a whisker of
+  // fred's 0.78, so it is 819 texels wide against his 797 and the engraving
+  // treatment is working at the size it was tuned at.
+  shape: { halfWidth: 0.32, height: 0.79, depth: 0.23, plinth: 0.13 },
   // Squared off: the top corners and the top edge are swallowed by the lobes, so
   // all this has to do is not be an arch. Zero is clamped up to the edge radius,
   // which is the squarest the vinyl style allows and is what the cap assumes.
