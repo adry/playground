@@ -74,7 +74,7 @@ const LOCAL = {
   // Grain. Streaks per world unit across the face, how far a streak pulls the
   // pale toward the shade, and how much whole-board tint drift is allowed.
   // The frequency is not a free choice: see the ring counts below.
-  grain: { frequency: 17, depth: 0.80, tint: 0.18 },
+  grain: { frequency: 21, depth: 0.95, tint: 0.18 },
 
   // Not every picket leans. "Several lean a degree or two" in the reference,
   // not all of them; a row where every board is off true reads as a cartoon

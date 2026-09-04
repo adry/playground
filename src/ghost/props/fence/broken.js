@@ -55,8 +55,15 @@ const MIN_NEIGHBOUR_STEP = 0.16;   // of the length range
 // Fresh timber, in the two tones a torn fibre actually shows: down in the
 // socket it is shaded, out at the tip it is the bright fresh face. A single
 // flat torn colour across the whole spray reads as a plastic crown.
-const TORN_ROOT = new THREE.Color(F.wood.shade).convertSRGBToLinear();
+//
+// The root is only PART of the way to the shade tone, and the ramp reaches the
+// tip colour early. First attempt ran the full shade-to-torn range over the
+// whole spike and the spray came out visibly browner than the weathered stump
+// under it, which is backwards: a fresh break is the pale warm thing and the
+// outside of the board is the dull one. What is wanted is a hint of occlusion
+// in the socket, not a two-tone paint job.
 const TORN_TIP = new THREE.Color(F.wood.torn).convertSRGBToLinear();
+const TORN_ROOT = new THREE.Color(F.wood.shade).convertSRGBToLinear().lerp(TORN_TIP, 0.45);
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
@@ -87,7 +94,7 @@ function tintTorn(geo, length, tone) {
   for (let i = 0; i < pos.count; i++) {
     // Brighten fast out of the socket: the shaded part is only the bit the
     // neighbouring spikes actually shadow, which is the first millimetre.
-    const k = Math.pow(clamp01(pos.getY(i) / Math.max(1e-5, length)), 0.55);
+    const k = Math.pow(clamp01(pos.getY(i) / Math.max(1e-5, length)), 0.30);
     c.copy(TORN_ROOT).lerp(TORN_TIP, k).multiplyScalar(tone);
     colors[i * 3] = c.r;
     colors[i * 3 + 1] = c.g;
@@ -148,11 +155,17 @@ function widthCuts(rand, n) {
 function splinterProfile(hold, taper, wobble, phase) {
   return (t) => {
     const k = t <= hold ? 0 : (t - hold) / (1 - hold);
-    // Width runs out later than thickness, so the tip is a flattened blade
-    // rather than a peg. Fibre splits along the grain; it does not sharpen like
-    // a pencil.
-    const w = 1 - (1 - taper) * Math.pow(k, 1.25);
-    const th = 1 - (1 - taper * 0.55) * Math.pow(k, 0.90);
+    // Exponents under 1, which is the whole difference between a splinter and
+    // a spike. A linear taper draws a triangle, and a long triangle reads as a
+    // shard of something brittle. Necking down fast and then running thin all
+    // the way out is what a fibre does, and it is what makes the long ones look
+    // like fibre rather than like sails.
+    //
+    // Width runs out slightly later than thickness, so the tip is a flattened
+    // blade rather than a peg: wood splits along the grain, it does not sharpen
+    // like a pencil.
+    const w = 1 - (1 - taper) * Math.pow(k, 0.80);
+    const th = 1 - (1 - taper * 0.55) * Math.pow(k, 0.65);
     const rip = 1 + wobble * Math.sin(t * 8.2 + phase) * Math.min(1, t * 5);
     return [Math.max(0.05, w * rip), Math.max(0.04, th)];
   };
@@ -227,8 +240,16 @@ export function splinteredEnd({
 
     // Roots vary in depth so that neither the sockets nor the bases of the
     // spikes agree with each other, and the whole floor tips one way.
+    //
+    // Then clamped against the spike's own length. Without the clamp the
+    // shortest nubs -- which are shorter than the root is deep -- sink entirely
+    // below the break plane, and every one of them leaves a hole in the
+    // partition through which the stump's flat sawn cap shows. That flat cap is
+    // the exact thing this file exists to avoid, and it was visible in the
+    // first render as a pale tilted plane between the spikes.
     const across = (cx / Math.max(1e-5, width)) * 2;      // -1 .. 1
-    const root = thickness * ROOT_DEPTH * (-(0.45 + 0.55 * rand()) + 0.4 * floorTilt * across);
+    const depth = thickness * ROOT_DEPTH * (0.45 + 0.55 * rand() - 0.4 * floorTilt * across);
+    const root = -Math.min(Math.max(0, depth), len * 0.62);
     geo.translate(cx, root, cz);
     if (direction < 0) geo.rotateX(Math.PI);
     out.push(geo);
@@ -240,9 +261,18 @@ export function splinteredEnd({
     const sw = x1 - x0;
     const cx = (x0 + x1) / 2;
 
+    // Length is tied to slenderness, and this matters more than it sounds. A
+    // wide slice that also draws a long length comes out as a broad triangular
+    // sail, which reads as a shard of slate. Real long splinters are the THIN
+    // ones: a narrow bundle of fibre peels a long way, a wide one snaps off
+    // near the break. So the draw above is scaled back for fat slices.
+    const nrm = sw / (width / n);                        // 1 = average slice
+    const wide = clamp01((nrm - 0.7) / 0.9);
+    const slender = clamp01((1.55 - nrm) / 1.15);
+    const reachOf = (m) => m * (0.40 + 0.60 * slender);
+
     // Wide slices split through the thickness more often than narrow ones: a
     // narrow bundle is already a single fibre, a wide one is a laminate.
-    const wide = clamp01((sw / (width / n) - 0.7) / 0.9);
     if (rand() < SPLIT_CHANCE * (0.45 + 0.85 * wide)) {
       const f = 0.30 + rand() * 0.40;
       const front = thickness * f;
@@ -252,10 +282,13 @@ export function splinteredEnd({
       // a long sliver hanging off one face, which is the reference's signature.
       const keepFront = rand() < 0.5;
       const other = Math.pow(rand(), 1.8) * 0.55;
-      spike(cx, sw, -thickness / 2 + front / 2, front, keepFront ? mix[i] : other, f < 0.45);
-      spike(cx, sw, thickness / 2 - back / 2, back, keepFront ? other : mix[i], 1 - f < 0.45);
+      // A split slice is two thin bundles, so each half gets to run longer than
+      // the slice as a whole would have.
+      const bonus = 0.30;
+      spike(cx, sw, -thickness / 2 + front / 2, front, clamp01(reachOf(keepFront ? mix[i] : other) + bonus * slender), f < 0.45);
+      spike(cx, sw, thickness / 2 - back / 2, back, clamp01(reachOf(keepFront ? other : mix[i]) + bonus * slender), 1 - f < 0.45);
     } else {
-      spike(cx, sw, 0, thickness, mix[i], false);
+      spike(cx, sw, 0, thickness, reachOf(mix[i]), false);
     }
   }
 

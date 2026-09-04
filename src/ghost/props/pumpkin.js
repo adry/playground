@@ -1065,7 +1065,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // floor at a glancing 24 degrees, which stretches everything along its axis
   // by roughly two and a half to one, and unsquashed the face lands as a long
   // smear with nothing readable in it.
-  const GOBO_SPAN = 0.88, GOBO_SQUASH = 0.45;
+  const GOBO_SPAN = 0.82, GOBO_SQUASH = 0.32;
   // The openings are not pinholes and the shell is SHELL_T thick, so the edges
   // are already soft by the time the light is outside the pumpkin. A crisp
   // stencil reads as a decal lying on the floor.
@@ -1153,7 +1153,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     (LAMP.min + LAMP.max) / 2,
     LIGHT_DISTANCE * scale,
     CONE_ANGLE,
-    0.92,  // penumbra: nearly all edge, so the pool has no rim to read as a stain
+    0.25,  // penumbra: the gobo's own halo is the soft edge now, so the cone can hold a flat core
     // Gentler than inverse-square. Three openings scattering light is a soft
     // source, and a steep decay is exactly what made the near field explode.
     0.9,
