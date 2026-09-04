@@ -949,7 +949,6 @@ export function buildSkull({ material }) {
   // edge follows the curve instead of staircasing along grid lines.
   const rimNU = new Float64Array(count);
   const rimNV = new Float64Array(count);
-  const isRim = new Uint8Array(count);
   const CELL_U = ((2 * Math.PI) / NTH) * FACE_R;
   for (let iy = 0; iy <= NPH; iy++) {
     for (let ix = 0; ix < NTH; ix++) {
@@ -976,7 +975,6 @@ export function buildSkull({ material }) {
       place(k, s.th, s.phi, s.t);
       rimNU[k] = hit.nx;
       rimNV[k] = hit.ny;
-      isRim[k] = 1;
     }
   }
 
@@ -1153,83 +1151,93 @@ export function buildSkull({ material }) {
       for (const q of cut.pts) { uc += q[0]; vc += q[1]; }
       uc /= n; vc /= n;
 
-      // Seeds for the Newton walk: start each ring from the previous ring's
-      // solution, which is never more than a cell away.
+      // Seed for the Newton walk that puts a face-space point on the surface:
+      // each outline point starts from the one before it, which is never more
+      // than a cell away, and the first starts from the outline's own centre.
       let sPhi = 0, sT = M.skull.depth * 0.5;
       {
         const s = faceSample(uc, vc, 0, sT);
         sPhi = s.phi; sT = s.t;
       }
-      const mouth = (() => {
-        const s = faceSample(uc, vc, sPhi, sT);
-        const cp = Math.cos(s.phi), sp = Math.sin(s.phi);
-        const p = new THREE.Vector3(
-          P0.x + cp * Math.sin(s.th) * s.t, P0.y + sp * s.t, P0.z + cp * Math.cos(s.th) * s.t);
-        const nn = gradNormal(p.x, p.y, p.z, new THREE.Vector3());
-        return p.addScaledVector(nn, -WALL_T);
-      })();
 
       const base0 = holeVerts.length / 3;
       const nrm = new THREE.Vector3();
       const pt = new THREE.Vector3();
       const out = new THREE.Vector3();
-      for (let r = 0; r <= CAV_RINGS; r++) {
-        // r = 0 is the hidden skirt, r = 1 the outline itself at the bottom of
-        // the wall, and from there the quarter ellipse inward and back.
-        const s = r <= 1 ? 0 : (r - 1) / CAV_RINGS;
-        const shrink = Math.cos((Math.PI / 2) * s);
-        // The skirt is sunk deeper than the wall's own floor, because it is the
-        // one ring that must never surface: it lies under skin, and skin only a
-        // couple of grid cells wide between two openings has nothing to spare.
-        const sink = (r === 0 ? 1.9 * WALL_T : WALL_T) + depth * Math.sin((Math.PI / 2) * s);
-        for (let i = 0; i < n; i++) {
-          const f = cut.pts[i];
-          const u = uc + (f[0] - uc) * shrink;
-          const v = vc + (f[1] - vc) * shrink;
-          const sm = faceSample(u, v, sPhi, sT);
-          sPhi = sm.phi; sT = sm.t;
-          const cp = Math.cos(sm.phi), sp = Math.sin(sm.phi);
-          pt.set(P0.x + cp * Math.sin(sm.th) * sm.t, P0.y + sp * sm.t, P0.z + cp * Math.cos(sm.th) * sm.t);
-          gradNormal(pt.x, pt.y, pt.z, nrm);
-          if (r === 0) {
-            // The skirt runs out from the rim ALONG THE TANGENT PLANE, not along
-            // the skin. Following the skin was the first attempt and it is wrong
-            // wherever the skin is concave: the valley between the nasal
-            // aperture and the medial wall of the orbit turns tighter than the
-            // wall is thick, so normals a cell apart cross, the sunk ring folds
-            // through itself and a few of its vertices surface on the bridge of
-            // the nose as black specks. A flange in the tangent plane cannot do
-            // that from either sign of curvature -- the skin bends away from the
-            // tangent plane when convex and away from the flange when concave.
-            const g = cut.pts[(i + 1) % n], h = cut.pts[(i + n - 1) % n];
-            const ex = g[0] - h[0], ey = g[1] - h[1];
-            const inv = 1 / (Math.hypot(ex, ey) || 1);
-            // Outward is the reverse of the counter-clockwise inward normal.
-            const ou = ey * inv, ov = -ex * inv;
-            out.set(ou * Math.cos(sm.th), ov, ou * -Math.sin(sm.th));
-            out.addScaledVector(nrm, -out.dot(nrm));
-            const ol = out.length();
-            if (ol > 1e-9) pt.addScaledVector(out, CAV_SKIRT / ol);
-          }
-          pt.addScaledVector(nrm, -sink);
-          holeVerts.push(pt.x, pt.y, pt.z);
-          nrm.copy(mouth).sub(pt);
-          const len = nrm.length();
-          if (len > 1e-9) nrm.divideScalar(len);
-          holeNors.push(nrm.x, nrm.y, nrm.z);
-          const l = CAV_LUM[Math.min(CAV_LUM.length - 1, r)];
-          holeColors.push(l, l * (1 - 0.02 * (1 - l)), l * (1 + 0.10 * (1 - l)));
-        }
-      }
-      // The pole. Its normal is straight out of the hole.
-      const apex = (() => {
-        const sm = faceSample(uc, vc, sPhi, sT);
+
+      // Ring 1, the mouth: the outline itself, sunk a wall thickness along the
+      // skin's own normal, which is exactly where the wall's bottom edge lands.
+      // Its skirt, ring 0, runs out from it ALONG THE TANGENT PLANE rather than
+      // along the skin -- following the skin is wrong wherever the skin is
+      // concave, and a flange in the tangent plane cannot fold from either sign
+      // of curvature.
+      const mouthRing = [];
+      const mouthNor = [];
+      const skirt = [];
+      for (let i = 0; i < n; i++) {
+        const f = cut.pts[i];
+        const sm = faceSample(f[0], f[1], sPhi, sT);
+        sPhi = sm.phi; sT = sm.t;
         const cp = Math.cos(sm.phi), sp = Math.sin(sm.phi);
         pt.set(P0.x + cp * Math.sin(sm.th) * sm.t, P0.y + sp * sm.t, P0.z + cp * Math.cos(sm.th) * sm.t);
         gradNormal(pt.x, pt.y, pt.z, nrm);
-        pt.addScaledVector(nrm, -(WALL_T + depth));
-        return pt.clone();
-      })();
+        mouthNor.push(nrm.clone());
+        const g = cut.pts[(i + 1) % n], h = cut.pts[(i + n - 1) % n];
+        const ex = g[0] - h[0], ey = g[1] - h[1];
+        const inv = 1 / (Math.hypot(ex, ey) || 1);
+        // Outward is the reverse of the counter-clockwise inward normal.
+        out.set(ey * inv * Math.cos(sm.th), -ex * inv, ey * inv * -Math.sin(sm.th));
+        out.addScaledVector(nrm, -out.dot(nrm));
+        const ol = out.length();
+        if (ol > 1e-9) out.divideScalar(ol); else out.set(0, 0, 0);
+        skirt.push(pt.clone().addScaledVector(out, CAV_SKIRT).addScaledVector(nrm, -1.9 * WALL_T));
+        mouthRing.push(pt.clone().addScaledVector(nrm, -WALL_T));
+      }
+
+      // Everything deeper than the mouth is a hemi-ellipsoid in the MOUTH's own
+      // frame: the rim vector shrunk by a cosine, the depth grown by a sine,
+      // both about the single axis `axis`. Sinking each ring along ITS OWN
+      // point's surface normal instead is the obvious thing and it is what this
+      // did first: it self-intersects. One step in, the bowl has sunk 22% of its
+      // depth while shrinking only 2.5% of its width, and in the tight concave
+      // valley between the nasal aperture and the medial wall of an orbit the
+      // normals over that step converge inside the radius of the sink -- the
+      // ring folds through itself and a couple of its vertices surface on the
+      // bridge of the nose as black specks. One axis for the whole bowl has no
+      // such failure mode, and it is also what makes the normals below honest.
+      const axis = new THREE.Vector3();
+      for (const nv of mouthNor) axis.add(nv);
+      axis.normalize();
+      const centre = new THREE.Vector3();
+      for (const q of mouthRing) centre.add(q);
+      centre.divideScalar(n);
+      const mouth = centre;
+
+      const pushRing = (points, lum) => {
+        for (const q of points) {
+          holeVerts.push(q.x, q.y, q.z);
+          nrm.copy(mouth).sub(q);
+          const len = nrm.length();
+          if (len > 1e-9) nrm.divideScalar(len);
+          holeNors.push(nrm.x, nrm.y, nrm.z);
+          holeColors.push(lum, lum * (1 - 0.02 * (1 - lum)), lum * (1 + 0.10 * (1 - lum)));
+        }
+      };
+      pushRing(skirt, CAV_LUM[0]);
+      pushRing(mouthRing, CAV_LUM[1]);
+      for (let r = 2; r <= CAV_RINGS; r++) {
+        const s = (r - 1) / CAV_RINGS;
+        const shrink = Math.cos((Math.PI / 2) * s);
+        const sink = depth * Math.sin((Math.PI / 2) * s);
+        pushRing(
+          mouthRing.map((q) => new THREE.Vector3()
+            .copy(centre).addScaledVector(new THREE.Vector3().subVectors(q, centre), shrink)
+            .addScaledVector(axis, -sink)),
+          CAV_LUM[Math.min(CAV_LUM.length - 1, r)],
+        );
+      }
+      // The pole. Its normal is straight out of the hole.
+      const apex = centre.clone().addScaledVector(axis, -depth);
       const apexIdx = holeVerts.length / 3;
       holeVerts.push(apex.x, apex.y, apex.z);
       nrm.copy(mouth).sub(apex).normalize();
@@ -1329,12 +1337,14 @@ export function buildSkull({ material }) {
   const bodyTop = Y_BITE - TOOTH_H + 0.006 * HS;
   const JAW_SQUASH = ((bodyTop - Y_CHIN) / 2) / JAW_R;
   // Same parabola as the lower tooth row, pushed out by the bar's own half
-  // thickness and carried on past the last molar to the angle. Giving the body
+  // thickness and a little further, so the bar's outer wall stands lateral to
+  // the crowns the way a real mandible's does; at 1.01 it was exactly flush and
+  // the jaw came to a narrow point under the chin. Giving the body
   // its own shallower curve was tried: it left the back of the row standing
   // over nothing and needed a separate gum bar to patch, and that bar read as
   // a brace clipped over the front teeth.
   const bodyCurve = archCurve(
-    { halfW: LOWER_ARCH.halfW * 1.01, front: LOWER_ARCH.front, back: LOWER_ARCH.back },
+    { halfW: LOWER_ARCH.halfW * 1.06, front: LOWER_ARCH.front, back: LOWER_ARCH.back },
     0,
     { inset: JAW_R, extend: JAW_EXTEND, rise: JAW_R * 0.28, flare: JAW_FLARE },
   );

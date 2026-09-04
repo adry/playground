@@ -121,6 +121,13 @@ const GROUND_CLEAR = 0.05;
 // these are scaled anyway and could never be bit-identical to one.
 const GATE_POST_SEED = 5231;
 
+// How far back past the pivot the strap's knuckle may wrap. It turns inside the
+// swing's own barrel, so what it has to clear is the post's nearest point at
+// EVERY angle: HINGE_X - POST_HALF, less its own half section and the air.
+const KNUCKLE_BACK = Math.sqrt(
+  (HINGE_X - POST_HALF - SWING_CLEAR / 2) ** 2 - 0.015 ** 2,
+);
+
 // The angle the physics wants: below this the leaf's latch edge is still inside
 // the latch post's depth, so the latch bar is still beside its keeper and a
 // swing at this end of the range is a swing into the stop. Above it the leaf's
@@ -255,23 +262,23 @@ export function createGate({ seed = 1, scale = 1, hingeSide = 'left' } = {}) {
 
   const railY = F.rail.at.map((at) => at * F.picket.height);
 
-  // The post face the hardware is nailed to, and the two planes the swing test
-  // above says nothing static may cross: x = HINGE_X - LEAF_HALF - STRAP_T on
-  // the hinge side, x = L - POST_HALF on the latch side. Both are held to here
-  // with SWING_CLEAR to spare.
+  // The face all the hardware is nailed to.
   const postFaceZ = POST_Z + POST_HALF;
+  // The two planes the swing test says nothing static may cross, one per piece:
+  // a bracket sitting out on the post's FACE only has to clear the leaf's
+  // corners, which sweep to HINGE_X - (leaf half depth + strap), while anything
+  // at the leaf's mid-depth has to clear the knuckle's barrel as well.
   const plateReach = HINGE_X - LEAF_HALF - STRAP_T - SWING_CLEAR / 2;
 
-  // Hinge plates: the half of each strap that stays with the post. A strap
-  // hinge really is two pieces meeting at the pin, so this is not a shortcut,
-  // it is the joint. The moving half cannot lap onto the post -- anything that
-  // did would swing straight into it -- and this half cannot lean out into the
-  // gap for the same reason in reverse, so they meet a couple of centimetres
-  // short of each other, on the pin, which is what a hinge looks like anyway.
+  // Hinge brackets: the half of each strap that stays with the post. A strap
+  // hinge really is two pieces that meet at the joint, so this is not a
+  // shortcut, it IS the joint. Neither half may lap over the other: the moving
+  // half would swing into the post, and this half sits in the arc the leaf's
+  // corners sweep, so it stops the moment it is past the post's face.
   for (const y of railY) {
     // Rooted inside the post, so the cut end that carries the stock's
     // ground-dirt tint is buried rather than sitting on the face, and pointing
-    // at the pin. Short on purpose: a bracket that spanned the post's whole
+    // at the leaf. Short on purpose: a bracket that spanned the post's whole
     // width sat at exactly the height the neighbouring panel's rail arrives at
     // and read as that rail running straight over the post.
     const from = -0.02;
@@ -280,12 +287,14 @@ export function createGate({ seed = 1, scale = 1, hingeSide = 'left' } = {}) {
     }), from, y - 0.023, postFaceZ + 0.007, { lean: LIE_DOWN, name: 'hingePlate' });
   }
 
-  // The pin. Standing rail stock, near square, on the pivot line: being
-  // concentric with the swing it can never be hit by it, which is what lets it
-  // be the one piece of the hinge that bridges the gap.
-  const pinLen = railY[1] - railY[0] + STRAP_TALL * 2.4;
-  add(group, stick({ length: pinLen, tall: 0.026, deep: 0.026, seed: geoSeed() }),
-    HINGE_X, (railY[0] + railY[1]) / 2, LEAF_MID, { lean: Math.PI / 2, name: 'pin' });
+  // There is no pin, and there was one for two renders. A pin on the pivot line
+  // is the obvious way to tie the two halves of a strap hinge together, and it
+  // cannot be built: the pivot line runs THROUGH the leaf's own hinge edge, so
+  // the wrap and the ends of both rails occupy that line and sweep along it.
+  // A standing pin there interpenetrates the wrap at rest and is skewered by
+  // the rail ends at every other angle. What ties the hinge together instead is
+  // the knuckle below, which comes back off the leaf to within a few
+  // millimetres of the post's face and stays there through the whole swing.
 
   // The keeper. Sits on the latch post's front face with its inner end flush
   // with the post's inner face and not a millimetre proud of it, because the
@@ -352,7 +361,7 @@ export function createGate({ seed = 1, scale = 1, hingeSide = 'left' } = {}) {
   // --- hardware on the leaf ------------------------------------------------
 
   // Two straps. Each is three boards: a blade along the face, a wrap round the
-  // hinge edge, and a knuckle reaching in to the pin. The wrap is what makes it
+  // hinge edge, and a knuckle reaching back at the post. The wrap is what makes it
   // a strap rather than a cleat, and it is also the piece that has to be
   // counted in HINGE_X, since it thickens the leaf exactly where the swing is
   // tightest.
@@ -367,9 +376,17 @@ export function createGate({ seed = 1, scale = 1, hingeSide = 'left' } = {}) {
     add(hinge, stick({
       length: (LEAF_FRONT - LEAF_BACK) + STRAP_T * 2, tall: STRAP_TALL, deep: STRAP_T, seed: geoSeed(),
     }), x0 - STRAP_T / 2, y, LEAF_MID, { spin: Math.PI / 2 });
-    // The eye. Stops at the pin, where the plate on the post picks the line up.
-    add(hinge, stick({ length: 0.062, tall: 0.036, deep: 0.036, seed: geoSeed() }),
-      x0 - 0.024, y, LEAF_MID);
+    // The knuckle, reaching back off the leaf toward the post. How far back it
+    // can go is the one number on the moving side that is not about the posts'
+    // faces at 90 degrees but about the whole circle: it wraps BEHIND the pivot,
+    // so it is inside the barrel the swing turns in and it has to clear the
+    // post's nearest point at every angle, not just at the ends of the travel.
+    // That leaves it 5mm off the post's face, hard against it the whole way
+    // round, which is what makes the joint read as a hinge instead of as two
+    // pieces of hardware pointing at each other across a gap.
+    const eye = KNUCKLE_BACK + 0.006;
+    add(hinge, stick({ length: eye, tall: 0.030, deep: 0.028, seed: geoSeed() }),
+      x0 + 0.006 - eye / 2, y, LEAF_MID);
   }
 
   // The latch: a bar along the closing edge with a hook dropping off its end,
