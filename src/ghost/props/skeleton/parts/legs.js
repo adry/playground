@@ -147,7 +147,7 @@ const SYMPHYSIS_OVERLAP = frac(0.0016);                  // 0.004 each side
 // Traced off the photo at the scale that reproduces M.pelvis.width, and the two
 // things that matter about it are the TAPER and where it STOPS.
 //
-// The taper: 0.146 across at the crest, 0.043 across where it reaches the
+// The taper: 0.154 across at the crest, 0.028 across where it reaches the
 // socket. Getting that wrong is most of what made the first version read as a
 // paddle bolted on -- it was near enough the same width all the way down, so
 // nothing flared and nothing pointed at the hip joint.
@@ -163,23 +163,28 @@ const PLATE_BOTTOM = 0.000;
 // and the first pass came out as a smooth egg with no crest on it at all; the
 // crest is the line the eye follows across the top of the pelvis and it has to
 // stay a long shallow arc with a corner at each end.
+// The medial border runs almost straight up from y = 0.096 to 0.170 at
+// x = 0.056, and that is not a stylistic choice: it is the sacroiliac face and
+// it has to present a flat edge to M.sacrum's 0.1052 of width over the span
+// from M.sacrum.bottom to M.sacrum.top. An earlier version curved away from the
+// midline just above the hip and the joint could not close at all.
 const HIP_OUTLINE = [
-  [PLATE_MEDIAL, 0.126],              // posterior superior iliac spine, on the sacrum
-  [0.072, 0.156],
-  [0.098, 0.178],
-  [0.128, 0.192],
-  [0.158, PELVIS_TOP],                // crest apex
-  [0.184, 0.196],
-  [0.202, 0.176],
-  [PELVIS_HALF, 0.144],               // anterior superior iliac spine: the widest
-  [0.204, 0.098],                     // point in the lower body, and high up
-  [0.190, 0.062],                     // the outer border diving in towards the socket
-  [0.172, 0.026],
+  [PLATE_MEDIAL, 0.170],              // posterior superior iliac spine, on the sacrum
+  [0.078, 0.192],
+  [0.112, PELVIS_TOP],                // crest apex
+  [0.148, 0.198],
+  [0.180, 0.184],
+  [0.202, 0.164],
+  [PELVIS_HALF, 0.134],               // anterior superior iliac spine: the widest
+  [0.204, 0.094],                     // point in the lower body, and high up
+  [0.190, 0.058],                     // the outer border diving in towards the socket
+  [0.172, 0.024],
   [0.150, PLATE_BOTTOM],              // lower tip, just lateral of the acetabulum
-  [0.118, 0.030],
-  [0.094, 0.056],                     // arcuate line
-  [0.076, 0.084],
-  [0.064, 0.108],
+  [0.120, 0.026],
+  [0.098, 0.048],                     // arcuate line
+  [0.076, 0.070],
+  [0.060, 0.096],
+  [PLATE_MEDIAL, 0.132],              // up the sacroiliac face
 ];
 
 // The blade is THIN and its rim is THICK, which is the actual anatomy: the
@@ -187,17 +192,16 @@ const HIP_OUTLINE = [
 // line your eye follows across the top of the pelvis. Three rounds were spent
 // trying to get both out of one extruded plate and it cannot be done -- thick
 // enough for the crest is a fat lozenge, thin enough for the blade is a pillow
-// of pure bevel with no crest on it at all. So the plate is 0.028 and CREST
-// below is a tube swept along its top and front edge.
+// of pure bevel with no crest on it at all. So the plate is 0.028 and RIM below
+// is a tube swept round its whole edge.
 const HIP_THICKNESS = frac(0.0112);
-// The bevel eats the thickness from both faces, so anything much over a third
-// leaves no flat face at all and the blade is a pillow rather than a bone with
-// an edge.
-const HIP_BEVEL = 0.30;
-// bone.js defaults to 4 bevel segments, which on a plate this thick with a
-// bevel this generous puts four flat bands round the rim. The hip bone is seen
-// edge-on from the side and from behind in every pose, so it pays for more.
-const HIP_BEVEL_SEGMENTS = 12;
+// Zero, and all the rounding comes from RIM instead. Three's extruder shrinks a
+// hole's contour by bevelSize at each face, so any bevel a bone wants for its
+// rim seals a small foramen shut; and on a plate this thin the bevel eats the
+// entire thickness and leaves a pillow with no face on it. The axial build
+// reached the same conclusion independently on the sacrum, so it is confirmed
+// twice: on a thin toy bone, bevel 0 and a rim rod.
+const HIP_BEVEL = 0;
 
 // The acetabular mass. A rounded block at the blade's lower outer corner with
 // the femoral head half sunk in it, set medial of the pivot so the head still
@@ -276,33 +280,44 @@ const RING = {
   tuberSquash: 0.88,
 };
 
-// The sacroiliac joint, on the blade's medial border. A rounded articular pad
-// that stands a little proud of the edge, so where the sacrum lands there is a
-// joint rather than two flat faces near each other.
-const SI = { x: 0.062, y: 0.108, r: frac(0.0112), scale: [0.70, 1.60, 1.05] };
+// The sacroiliac joint. A rounded articular pad standing proud of the blade's
+// medial border, placed in group coordinates rather than on the flat outline
+// because what it has to meet is not on the blade: it is M.sacrum, and the
+// numbers below are read straight off it.
+//
+//   M.sacrum is 0.1052 wide, so its side faces are at x = +/-0.0526.
+//   It runs from M.sacrum.bottom to M.sacrum.top, y = 0.094 to 0.226 here.
+//   The axial part's group sits at z = -0.139 to -0.035.
+//
+// The pad reaches x = 0.048, which is 0.005 past the sacrum's face, so the two
+// overlap rather than almost touching. The blade's own medial border stops at
+// 0.056 and cannot close that on its own.
+const SI = { x: 0.060, y: 0.135, z: -0.072, r: frac(0.0124), scale: [0.52, 1.55, 1.05] };
 
-// The iliac crest and the anterior border, as a tube swept along the blade's
-// own top and outer edge. The centreline is the outline inset by one rod
-// radius, so the finished rim lands ON M.pelvis.width rather than 0.019 past
-// it; the rod straddles the 0.028 plate and stands 5mm proud of each face,
-// which is what turns a flat lens into a dished blade with a lip.
-const CREST = [
-  [0.0903, 0.0912],                   // dying into the sacroiliac face
-  [0.0800, 0.1089],
-  [0.0717, 0.1231],                   // posterior superior iliac spine
-  [0.0849, 0.1465],
-  [0.1053, 0.1638],
-  [0.1288, 0.1760],
-  [0.1535, 0.1847],                   // over the crest apex
-  [0.1756, 0.1824],
-  [0.1902, 0.1652],
-  [0.1952, 0.1379],                   // anterior superior iliac spine
-  [0.1883, 0.1011],
-  [0.1779, 0.0724],                   // and on down the anterior border
-  [0.1652, 0.0405],
-  [0.1475, 0.0158],                   // dying into the acetabular mass
+// The blade's margin, as a CLOSED tube swept all the way round its edge. The
+// centreline is the outline inset by one rod radius so the finished rim lands
+// on M.pelvis.width rather than past it, and the rod is fatter than the plate
+// is thick, so it stands proud of both faces and turns a flat card into a
+// dished blade with a lip. Closed, so there is no open tube end anywhere.
+const RIM = [
+  [0.0684, 0.1599],                   // posterior superior iliac spine
+  [0.0867, 0.1785],
+  [0.1154, 0.1844],                   // over the crest apex
+  [0.1452, 0.1822],
+  [0.1715, 0.1705],
+  [0.1895, 0.1540],
+  [0.1948, 0.1289],                   // anterior superior iliac spine
+  [0.1883, 0.0971],
+  [0.1779, 0.0684],                   // down the anterior border
+  [0.1651, 0.0384],
+  [0.1474, 0.0158],                   // round the lower tip, into the socket
+  [0.1223, 0.0418],
+  [0.1059, 0.0619],                   // back up the arcuate line
+  [0.0892, 0.0790],
+  [0.0758, 0.0986],
+  [0.0713, 0.1272],                   // and up the sacroiliac face
 ];
-const CREST_R = [frac(0.0076), frac(0.0056)];   // 0.019 at the crest, 0.014 at the socket
+const RIM_R = frac(0.0072);           // 0.018, against a 0.028 plate
 
 // THREE.Shape draws straight lines between the points it is handed, so the
 // outline above extrudes as a faceted crystal: the first render of this part
@@ -334,12 +349,18 @@ function smoothOutline(points, samples = 132) {
 // the same flare costs nothing in shading. The bowl is not the blade's job any
 // more in any case: the ischiopubic mass does that, out in front.
 //
-// PLATE_PITCH leans the crest back over the socket, PLATE_YAW swings the blade
-// back and its lower end forward. Held down to where the wing still faces
-// mostly forward: at half again these angles it is so nearly edge-on that the
-// front view loses the blade altogether.
+// PLATE_PITCH leans the crest back over the socket. PLATE_YAW swings the
+// blade's LATERAL edge forward and its medial edge back, which is the sign that
+// matches the anatomy: the anterior superior iliac spine is at the front of the
+// figure and the sacroiliac joint is at the back of it. The first version had
+// this the other way round, which put the whole medial border 0.07 in front of
+// where M.sacrum sits and left that joint with no way to close.
+//
+// Both are held down to where the wing still faces mostly forward: at half
+// again these angles the blade is so nearly edge-on that the front view loses
+// it altogether.
 const PLATE_PITCH = -0.34;
-const PLATE_YAW = 0.44;
+const PLATE_YAW = -0.44;
 
 // ExtrudeGeometry's bevel grows the outline outward by bevelSize, and further
 // at a sharp corner, so the slab is measured and mapped back onto exactly the
@@ -469,23 +490,17 @@ export function buildLower({ material }) {
   for (const [tag, s] of [['L', 1], ['R', -1]]) {
     // --- iliac blade --------------------------------------------------------
     const outline = smoothOutline(HIP_OUTLINE.map(([x, y]) => new THREE.Vector2(s * x, y)));
-    const slab = plate(outline, HIP_THICKNESS, { bevel: HIP_BEVEL, bevelSegments: HIP_BEVEL_SEGMENTS });
+    const slab = plate(outline, HIP_THICKNESS, { bevel: HIP_BEVEL });
     const map = poseAndFit(slab, s);
     put(group, slab);
 
     put(group, shaft(
-      new THREE.CatmullRomCurve3(CREST.map(([x, y]) => onPlate(map, s, x, y)), false, 'centripetal'),
-      CREST_R[0],
-      { endRadius: CREST_R[1], waist: 0.97, segments: 40 },
+      new THREE.CatmullRomCurve3(RIM.map(([x, y]) => onPlate(map, s, x, y)), true, 'centripetal'),
+      RIM_R,
+      { waist: 0.99, segments: 64 },
     ));
-    // Both ends of the rim are open tubes, so both get capped. The posterior
-    // one is the PSIS, a real knob in the photo; the anterior one dies inside
-    // the acetabular mass.
-    const psis = onPlate(map, s, CREST[0][0], CREST[0][1]);
-    put(group, bulb(CREST_R[0] * 1.10), psis.x, psis.y, psis.z);
 
-    const si = onPlate(map, s, SI.x, SI.y);
-    put(group, bulb(SI.r, { squash: 1 }), si.x, si.y, si.z).scale.set(...SI.scale);
+    put(group, bulb(SI.r, { squash: 1 }), s * SI.x, SI.y, SI.z).scale.set(...SI.scale);
 
     // --- acetabulum ---------------------------------------------------------
     put(group, bulb(ACET.bossR, { squash: 1 }), s * ACET.x, ACET.y, ACET.z)
@@ -708,23 +723,30 @@ export function buildLower({ material }) {
   };
 }
 
-// FOR THE AXIAL AGENT, who owns the sacrum and has to fill the space between
-// these two plates. Measured off the built geometry, in the group's frame
-// (origin at M.y.hip, so add M.y.hip for world y):
+// THE SACROILIAC JOINT, which this part and the axial part have to close
+// between them.
 //
-//   The sacroiliac face -- the medial border of each iliac blade, which is the
-//   only place the sacrum can touch this part -- runs from x = +/-0.056 to
-//   +/-0.071, over y = 0.114 to 0.173, at z = -0.063 to +0.006.
+// It is read off M.sacrum rather than measured off a build and written down
+// here, because a number copied out of a render goes stale the moment either
+// side is reworked, and this one already did that once: the blade was built to
+// meet a sacrum that then moved 0.011 narrower, 0.019 higher and 0.021 further
+// back, and the joint opened up. SI above is derived from M.sacrum and nothing
+// else, so it follows the sacrum wherever it goes.
 //
-//   So a sacrum roughly 0.11 wide, sitting between y = 0 and y = 0.20 with its
-//   back face near z = -0.06, meets both plates. Anything much narrower than
-//   0.112 across leaves a slot of daylight at each sacroiliac joint, and this
-//   part cannot close it: M.pelvis.width and M.leg.hipSeparation between them
-//   fix where the blades are.
+//   M.sacrum.width sets the faces the pad has to reach:  x = +/-0.0526
+//   M.sacrum.bottom to M.sacrum.top set its span:        y = 0.094 to 0.226
+//   The axial group's own depth puts it at:              z = -0.139 to -0.035
 //
-//   The two plates together are 0.175 deep against M.pelvis.depth of 0.220.
-//   The missing 0.045 is deliberate and is at the BACK: it is the sacrum's.
+// The blade's own medial border stops at x = 0.056, so it cannot close a 0.0526
+// joint on its own and is not meant to: the pad reaches 0.044, well across the
+// sacrum's face, and the two interpenetrate. M.pelvis.width and
+// M.leg.hipSeparation between them fix where the blades are, so if the sacrum
+// ever moves again it is the pad that follows, not the blade.
 //
-// Nothing is exported for this. PARTS.md says this module exports buildLower
-// and nothing else, and a number in a comment cannot drift out of sync with a
-// build the way a second export can.
+// Depth: this part spans 0.204 of M.pelvis.depth's 0.220. The rest is at the
+// BACK and it is the sacrum's, which reaches to z = -0.139 where this part
+// stops at -0.106.
+//
+// Nothing is exported for any of this. PARTS.md says this module exports
+// buildLower and nothing else, and a number in a comment cannot drift out of
+// sync with a build the way a second export can.
