@@ -315,8 +315,15 @@ function makeRng(seed) {
 // Detuning alone is not enough, because two carriers beat: at 7.2 and 6.5 the
 // beat period is 1.4s, and twice in that beat the two heads really are in step
 // for a moment. The seeds are what carry those moments. Measured over 90
-// seconds and five seeds, the two levels correlate between -0.17 and +0.14,
-// and the gap between them reaches 0.36 to 0.56 of the level's own range.
+// A fourth thing was needed and it was not obvious. Detuning the CARRIERS is
+// not enough on its own, because the two heads' slow channels, the wander and
+// the rate at which gutters and flares happen, still ran at the same rates off
+// the same lattice, and over a minute two heads whose events arrive at the same
+// average rate correlate: at seed 1 the two levels measured +0.34. So head B's
+// slow rates are scaled by 0.87 as well, which is `rate` below. Measured over a
+// minute at seven seeds, the two levels then correlate between -0.06 and +0.18,
+// and at some point in that minute the gap between them reaches 0.45 to 0.62 of
+// the level's own range: they are visibly separate lamps.
 //
 // The AMPLITUDES and the carrier rates are set by the stall measurement and
 // not by taste. At 0.028/0.016 on 6.4 and 11.7Hz the tremble measured 19% of
@@ -330,7 +337,7 @@ function makeRng(seed) {
 // number that actually matters is the WORST fifteen second window inside that,
 // because that is what a viewer sees: 7.5 to 9.6%, longest dead run four
 // frames. The amplitudes are set by that measurement and not by taste.
-function makeFlicker({ seed, phase, f1, f2 }) {
+function makeFlicker({ seed, phase, f1, f2, rate = 1 }) {
   const noise = makeNoise(seed);
   return (time) => {
     const t = time + phase;
@@ -342,17 +349,17 @@ function makeFlicker({ seed, phase, f1, f2 }) {
     // The breathing underneath, over a second or two. Summed noise is right for
     // this one and its stalls are a feature: a lull is what the slow channel is
     // for, and the tremble runs through it regardless.
-    const wander = 0.036 * swing(0.62, 0) + 0.024 * swing(1.7, 17.5);
+    const wander = 0.036 * swing(0.62 * rate, 0) + 0.024 * swing(1.7 * rate, 17.5);
 
     // Gutter. Only the top of a slow channel counts, so these are separate
     // events and not a rhythm, and squaring the ramp keeps the deep part brief
     // while onset and recovery stay soft. A glazed flame guts rarely.
-    const g = noise(t * 0.34 + 77.3);
+    const g = noise(t * 0.34 * rate + 77.3);
     const gutter = g > 0.80 ? (g - 0.80) / 0.20 : 0;
     const dip = gutter * gutter * (0.30 + 0.20 * noise(t * 8.1 + 5.1));
 
     // Flare, the other half: the flame straightens and the head goes pale.
-    const fl = noise(t * 0.29 + 143.9);
+    const fl = noise(t * 0.29 * rate + 143.9);
     const flareRamp = fl > 0.82 ? (fl - 0.82) / 0.18 : 0;
     const flare = flareRamp * flareRamp * (0.09 + 0.06 * noise(t * 6.3 + 91.2));
 
@@ -761,8 +768,8 @@ export function createTwinLamp({ seed = 1, scale = 1 } = {}) {
   // asymmetry is small on purpose: it has to read as hand-hung, not as broken.
   const lean = [(rand() - 0.5) * 0.028, (rand() - 0.5) * 0.028];
   const heads = [
-    { sign: 1, dy: lean[0], flick: makeFlicker({ seed: seed * 7 + 3, phase: rand() * 100, f1: 7.2, f2: 12.1 }), sway: makeNoise(seed * 13 + 5) },
-    { sign: -1, dy: lean[1], flick: makeFlicker({ seed: seed * 7 + 61, phase: rand() * 100 + 37.2, f1: 6.5, f2: 13.0 }), sway: makeNoise(seed * 13 + 44) },
+    { sign: 1, dy: lean[0], flick: makeFlicker({ seed: seed * 7 + 3, phase: rand() * 100, f1: 7.2, f2: 12.1, rate: 1.00 }), sway: makeNoise(seed * 13 + 5) },
+    { sign: -1, dy: lean[1], flick: makeFlicker({ seed: seed * 7 + 61, phase: rand() * 100 + 37.2, f1: 6.5, f2: 13.0, rate: 0.87 }), sway: makeNoise(seed * 13 + 44) },
   ];
 
   // --- the ironwork --------------------------------------------------------

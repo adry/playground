@@ -97,15 +97,22 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
     // small ones nestled between them are a dozen pixels across at the scale
     // this prop is seen and would be paying four times the triangles for an
     // outline nobody can resolve.
-    const detail = c.r > W * 0.070 ? 2 : 1;
-    const lobes = makeLobes(rand, { count: 5, amp: [0.16, 0.42], tight: [1.4, 3.0], yBias: 0.05 });
-    // Stretched along its own y, which is then aimed down the surface normal:
-    // a tuft standing out of the mass rather than a pebble stuck onto it. The
-    // two tangential axes are scaled unequally so no clump is a body of
-    // revolution, which is what made the first pass read as a bunch of grapes.
-    const kx = 0.72 + rand() * 0.34;
-    const kz = 0.72 + rand() * 0.34;
-    const pos = lumpPositions({ detail, lobes, scaleY: 1.24 + rand() * 0.30 });
+    const detail = c.r > W * 0.055 ? 2 : 1;
+    const lobes = makeLobes(rand, { count: 5, amp: [0.16, 0.44], tight: [1.4, 3.0], yBias: 0.10 });
+    // ELONGATED, and this is the single change that moved the prop from "heap of
+    // soap bubbles" to "foliage". Round clumps of two sizes read as foam
+    // whatever you do to their shading, because nothing in a heap of spheres has
+    // a direction. A tuft two and a half times as long as it is wide, aimed out
+    // of the mass, has one, and a hundred of them aimed slightly differently is
+    // a shaggy surface. The two tangential axes are also scaled unequally so no
+    // clump is a body of revolution.
+    const kx = 0.72 + rand() * 0.30;
+    const kz = 0.72 + rand() * 0.30;
+    const pos = lumpPositions({
+      detail, lobes,
+      scaleY: 1.15 + rand() * 0.30,
+      stretch: c.long * (0.55 + rand() * 0.55),
+    });
     for (let j = 0; j < pos.length; j += 3) {
       pos[j] *= c.r * kx;
       pos[j + 1] *= c.r;
@@ -131,7 +138,7 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   }
 
   const clumpGeo = mergeLumps(clumpParts);
-  bakeFoliageTint(clumpGeo, { top: H, floor: 0.44, ceil: 1.14, down: 0.70, root: 0.46, spread: 0.26, rand });
+  bakeFoliageTint(clumpGeo, { top: H, floor: 0.40, ceil: 1.26, down: 0.58, root: 0.36, spread: 0.26, rand });
   bakeWind(clumpGeo, { top: H * 0.90, base: 0, power: 1.8 });
   disposables.push(clumpGeo);
 
@@ -205,12 +212,12 @@ function clumpPlacements(geo, { rand, W, H }) {
   // arm's length, and detail at two scales is most of what separates "fluffy"
   // from "bumpy". GAP below 1 means neighbours overlap and their crevice is a
   // slot rather than a valley.
-  const GAP = 0.56;
+  const GAP = 0.44;
   const out = [];
   const p = new THREE.Vector3();
   const nv = new THREE.Vector3();
 
-  for (let k = 0; k < n && out.length < 124; k++) {
+  for (let k = 0; k < n && out.length < 210; k++) {
     const i = order[k];
     p.fromBufferAttribute(pos, i);
     // Nothing below ankle height: clumps down there are buried in the floor and
@@ -227,7 +234,7 @@ function clumpPlacements(geo, { rand, W, H }) {
     // skirt: a big clump low down sticks out past the footprint and the bush
     // grows a bustle.
     const big = rand() < 0.34 && p.y > H * 0.34;
-    const r = big ? W * (0.076 + rand() * 0.030) : W * (0.042 + rand() * 0.024);
+    const r = big ? W * (0.058 + rand() * 0.026) : W * (0.031 + rand() * 0.021);
 
     let ok = true;
     for (let j = 0; j < out.length; j++) {
@@ -237,10 +244,18 @@ function clumpPlacements(geo, { rand, W, H }) {
 
     // Aimed a little more upright than the surface it sits on: foliage grows
     // toward the light, and clumps aimed exactly along the normal made the
-    // flanks read as spines sticking out sideways.
-    nv.y += 0.34;
+    // flanks read as spines sticking out sideways. Then jittered, because a
+    // hundred tufts all pointing exactly along their own normal is a sea
+    // urchin: the scatter is what makes it look grown rather than extruded.
+    nv.y += 0.24;
+    nv.x += (rand() - 0.5) * 0.50;
+    nv.z += (rand() - 0.5) * 0.50;
     nv.normalize();
-    out.push({ p: p.clone().addScaledVector(nv, r * 0.24), n: nv.clone(), r });
+    // One in eight runs long. A few sprigs standing out past the rest is the
+    // whole difference between a trimmed shrub and an overgrown one, and
+    // overgrown is what a churchyard corner looks like.
+    const long = rand() < 0.14 ? 1.6 + rand() * 0.7 : 1;
+    out.push({ p: p.clone().addScaledVector(nv, r * 0.20), n: nv.clone(), r, long });
   }
   return out;
 }

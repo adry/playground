@@ -66,14 +66,20 @@ import { Profile, createSink, sinkToGeometry, latheInto, transformRange } from '
 // the real article is nearer 2.4. A storm lantern squashed toward its own
 // footprint is the shape a vinyl toy of one would be.
 const M = {
+  // The fount is deliberately NARROWER than the cage of tubes round the
+  // chimney, and that waist is the storm lantern's whole silhouette. At 0.106
+  // against a 0.108 bow the two were the same width and the prop read as a
+  // straight-sided drum with a lid; at 0.098 against 0.114 there is a visible
+  // step in and the tubes become part of the outline instead of decoration on
+  // the front of it.
   fount: {
-    rim: 0.086,        // the ring the whole prop stands on, at y = 0
-    belly: 0.106,      // widest point
-    bellyY: 0.042,
-    seam: 0.0035,      // the crimp where the two stampings meet
-    seamY: 0.050,
-    plate: 0.084,      // the flat top the burner is screwed into
-    plateY: 0.100,
+    rim: 0.080,        // the ring the whole prop stands on, at y = 0
+    belly: 0.098,      // widest point
+    bellyY: 0.034,
+    seam: 0.005,       // the crimp where the two stampings meet
+    seamY: 0.046,
+    plate: 0.082,      // the flat top the burner is screwed into
+    plateY: 0.098,
   },
   burner: {
     baseR: 0.060,
@@ -108,10 +114,10 @@ const M = {
   },
   tube: {
     radius: 0.0125,    // the side tubes and the bail: one section for both
-    footR: 0.094,      // where they leave the fount's shoulder
-    footY: 0.084,
-    bowR: 0.108,       // bowed out round the chimney, as the real ones are
-    bowY: 0.205,
+    footR: 0.088,      // where they leave the fount's shoulder
+    footY: 0.080,
+    bowR: 0.114,       // bowed out round the chimney, as the real ones are
+    bowY: 0.203,
     waistR: 0.084,     // tucked back in against the cap's brim
     waistY: 0.302,
     topR: 0.096,       // and kicked out again to carry the bail's ear
@@ -159,15 +165,26 @@ const TIN = (() => {
 })();
 
 // Dull brass. Off the palette's stem brown rather than invented from nothing,
-// pushed up in value and hard toward yellow, so it belongs to the same set as
-// the pumpkin's stalk.
+// lifted in value and pushed hard toward yellow, so it belongs to the same set
+// as the pumpkin's stalk.
+//
+// It is TARNISHED brass and not polished, and that is a lighting decision as
+// much as a colour one. The first pass was #ad813c, which is bright brass, and
+// it put the lightest surface on the prop three centimetres under a point light
+// with an inverse square falloff: the gallery and the collar went to flat white
+// and took the flame with them, so the whole lower chimney read as one cream
+// cloud with a wick in it. Every fix from the light's side made it worse, since
+// turning the lamp down or flattening its decay far enough to save the brass
+// also took away the pool on the ground, which is the one thing in this scene
+// only a lantern can do. Darkening the metal instead costs nothing and gives
+// the brass back its form under the flame.
 const BRASS = (() => {
   const c = new THREE.Color(PALETTE.stem);
   const s = c.getRGB({ r: 0, g: 0, b: 0 }, THREE.SRGBColorSpace);
   return c.setRGB(
-    Math.min(1, s.r * 1.62),
-    Math.min(1, s.g * 1.74),
-    Math.min(1, s.b * 1.28),
+    Math.min(1, s.r * 1.16),
+    Math.min(1, s.g * 1.26),
+    Math.min(1, s.b * 0.92),
     THREE.SRGBColorSpace,
   );
 })();
@@ -191,8 +208,8 @@ const CORE_FLAME = new THREE.Color('#ffd08a');
 // read as four things happening near each other.
 const LAMP = { min: 0.72, max: 1.52 };   // the PointLight, 2.11 : 1
 const CORE = { min: 1.20, max: 2.50 };   // the flame body
-const HALO = { min: 0.10, max: 0.26 };   // the soft shell round it
-const WASH = { min: 0.95, max: 2.15 };   // the flame on the inside of the glass
+const HALO = { min: 0.07, max: 0.19 };   // the soft shell round it
+const WASH = { min: 0.50, max: 1.30 };   // the flame on the inside of the glass
 const HUE_MID = 0.90;
 const HUE_GAIN = 1.5;
 
@@ -247,22 +264,27 @@ function fountProfile() {
   const f = M.fount;
   return new Profile()
     .setTag('fount')
-    .moveTo(0, 0.020)
-    .curve([[0.034, 0.018], [0.062, 0.010], [f.rim, 0.000]], 8)
+    .moveTo(0, 0.019)
+    .curve([[0.032, 0.017], [0.060, 0.009], [f.rim, 0.000]], 8)
     // The rolled foot. Centre inboard of the rim so the arc runs from the
     // lowest point of the prop out and up into the belly.
-    .arc(f.rim, 0.013, 0.013, -Math.PI / 2, 0.34, 7)
-    .curve([[0.103, 0.030], [f.belly, f.bellyY - 0.004]], 5)
-    // The crimp: out three and a half thousandths and back over eight of
-    // height. Small enough that it is a highlight rather than a step.
+    .arc(f.rim, 0.012, 0.012, -Math.PI / 2, 0.42, 7)
+    .curve([[0.095, 0.026], [f.belly, f.bellyY]], 5)
+    // The crimp where the two stampings meet, five thousandths proud over
+    // twelve of height. It was three and a half and invisible: on a fount this
+    // is the ONLY line anywhere on the biggest surface of the prop, and without
+    // it the tank is a smooth pebble that could have been turned from solid.
     .curve([
+      [f.belly - 0.001, f.seamY - 0.006],
       [f.belly + f.seam, f.seamY],
-      [f.belly - 0.001, f.seamY + 0.008],
-    ], 6)
-    .curve([[0.101, 0.072], [0.093, 0.089], [f.plate, f.plateY - 0.004]], 8)
-    .arc(f.plate - 0.006, f.plateY - 0.004, 0.006, 0, Math.PI / 2, 4)
-    .lineTo(M.burner.baseR + 0.004, f.plateY, 4)
-    .lineTo(M.burner.baseR + 0.004, f.plateY + 0.002, 1);
+      [f.belly - 0.002, f.seamY + 0.006],
+    ], 8)
+    // The shoulder, and it falls away rather than running straight up: a fount
+    // with parallel sides is a tin can, and this one has to read as pressed.
+    .curve([[0.094, 0.066], [0.089, f.plateY - 0.014], [f.plate, f.plateY - 0.005]], 9)
+    .arc(f.plate - 0.006, f.plateY - 0.005, 0.006, 0, Math.PI / 2, 4)
+    .lineTo(M.burner.baseR + 0.004, f.plateY + 0.001, 4)
+    .lineTo(M.burner.baseR + 0.004, f.plateY + 0.003, 1);
 }
 
 // The brass burner: a drum screwed into the fount's plate, a knurled collar
@@ -327,18 +349,26 @@ function hoodProfile() {
   const h = M.hood;
   return new Profile()
     .setTag('under')
-    .moveTo(0, h.seatY - 0.004)
-    .lineTo(0.046, h.seatY - 0.004, 3)
+    .moveTo(0, h.seatY - 0.005)
+    .lineTo(0.044, h.seatY - 0.005, 3)
     .lineTo(h.seatR, h.seatY, 3)
-    // The brim, and this run is the one the louvres are cut into.
+    // The eave. Out almost flat to the brim, rolled over its edge and then back
+    // in, which is street.js's drip edge and is what turns a dome into a roof:
+    // the first pass ran the brim straight into the dome and the cap came out
+    // as a bowler hat. This run is also the one the louvres are cut into.
     .setTag('vent')
-    .curve([[0.070, h.seatY + 0.010], [h.brim, h.brimY]], 8)
+    .curve([[0.066, h.seatY + 0.008], [h.brim, h.brimY - 0.004]], 8)
+    .arc(h.brim - 0.0055, h.brimY - 0.004, 0.0055, 0, Math.PI / 2, 5)
     .setTag('dome')
-    .curve([[h.brim - 0.002, h.brimY + 0.009], [0.064, 0.331], [0.042, 0.350], [0.030, h.crownY]], 12)
+    .curve([[0.066, 0.318], [0.054, 0.334], [0.038, 0.352], [0.028, h.crownY]], 12)
+    // The crown, and the shadow slot under its lid is the other half of
+    // "vented": louvres you can only see from the side, and a dark ring under
+    // the top that you can see from anywhere above the horizon.
     .setTag('crown')
-    .lineTo(0.027, 0.368, 2)
-    .curve([[0.033, 0.371], [0.031, 0.376]], 4)
-    .curve([[0.022, h.topY - 0.002], [0, h.topY]], 5);
+    .lineTo(0.024, 0.370, 2)
+    .lineTo(0.036, 0.372, 2)
+    .arc(0.032, 0.3745, 0.0045, -Math.PI / 2, Math.PI / 2, 5)
+    .curve([[0.026, h.topY - 0.002], [0, h.topY]], 5);
 }
 
 // The wick wheel, authored flat about the Y axis and stood on edge afterwards.
@@ -538,8 +568,14 @@ export function createHurricaneLamp({ seed = 1, scale = 1 } = {}) {
     uRepeat: 1,
     displace: (s, th) => {
       if (s.tag !== 'vent') return [0, 0];
-      const window = Math.sin(Math.PI * s.u);
-      return [-0.0042 * window * (0.5 - 0.5 * Math.cos(18 * th)), 0];
+      // Windowed with a fat sine rather than a plain one, so the flutes are at
+      // full depth across the brim's outer third instead of only at one ring
+      // of it, and still taper to nothing where the run joins its neighbours.
+      // Six thousandths on a seventy-six brim is eight per cent, which is the
+      // depth at which they show up in the SILHOUETTE and not only in shading.
+      // At four they were invisible from every angle the prop is ever seen at.
+      const window = Math.pow(Math.sin(Math.PI * s.u), 0.55);
+      return [-0.0060 * window * (0.5 - 0.5 * Math.cos(18 * th)), 0];
     },
   });
 
@@ -695,20 +731,22 @@ export function createHurricaneLamp({ seed = 1, scale = 1 } = {}) {
 
   // The filler cap on the fount's plate, off to the other side from the knob.
   {
-    const az = M.knob.az + Math.PI * 0.78;
+    const az = M.knob.az + Math.PI * 0.80;
     const start = brassSink.pos.length;
     latheInto(brassSink, {
       profile: new Profile()
         .moveTo(0, 0)
-        .lineTo(0.017, 0, 3)
-        .arc(0.013, 0, 0.004, -Math.PI / 2, Math.PI / 2, 4)
-        .curve([[0.010, 0.011], [0, 0.013]], 5)
+        .lineTo(0.015, 0, 3)
+        .arc(0.0115, 0, 0.0035, -Math.PI / 2, Math.PI / 2, 4)
+        .curve([[0.009, 0.010], [0, 0.012]], 5)
         .build(),
       segments: 22,
       uRepeat: 1,
     });
+    // Sunk five thousandths into the plate, so it reads as a cap screwed into
+    // the tank rather than a button glued onto it.
     transformRange(brassSink, start, new THREE.Matrix4().makeTranslation(
-      Math.cos(az) * 0.056, M.fount.plateY - 0.001, Math.sin(az) * 0.056,
+      Math.cos(az) * 0.050, M.fount.plateY - 0.005, Math.sin(az) * 0.050,
     ));
   }
 
@@ -716,7 +754,7 @@ export function createHurricaneLamp({ seed = 1, scale = 1 } = {}) {
   brassGeo.deleteAttribute('color');
   const brassMat = new THREE.MeshStandardMaterial({
     color: BRASS,
-    roughness: 0.46,
+    roughness: 0.55,
     metalness: 0.0,
   });
   const brass = new THREE.Mesh(brassGeo, brassMat);

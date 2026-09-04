@@ -85,7 +85,7 @@ const INNER_FILLET = 0.008;
 // the same reason: a jar lying on its side pointing at the camera is a circle.
 const JARS = [
   { x: -0.070, z:  0.050, rOut: 0.062, hgt: 0.100, roll: 0.0105, burn: 0.55, lit: true },
-  { x:  0.076, z:  0.031, rOut: 0.054, hgt: 0.084, roll: 0.0095, burn: 0.50, lit: true },
+  { x:  0.076, z:  0.031, rOut: 0.054, hgt: 0.084, roll: 0.0095, burn: 0.62, lit: true },
   { x:  0.028, z: -0.098, rOut: 0.072, hgt: 0.118, roll: 0.0115, burn: 0.82, lit: true },
   { x: -0.058, z:  0.163, rOut: 0.051, hgt: 0.086, roll: 0.0095, burn: 0.26, lit: false, tipped: true, lie: 2.10 },
 ];
@@ -280,7 +280,7 @@ function makeNoise(seed) {
 const CARRIERS = [
   [6.9, 12.1],
   [8.3, 13.7],
-  [6.1, 10.9],
+  [6.6, 11.8],
   [7.6, 14.3],
 ];
 

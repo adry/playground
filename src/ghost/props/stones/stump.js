@@ -46,7 +46,7 @@ import { Profile, createSink, sinkToGeometry, latheInto, transformRange } from '
 
 const TOP = 1.300;      // the sawn face, before the saw's tilt is added
 const R_TOP = 0.248;    // trunk radius where the rim starts to roll over
-const SEG = 72;         // angular steps: enough that 11 bark ridges stay smooth
+const SEG = 72;         // angular steps: six per ripple of the finest bark band
 const BARK = 0.031;     // ripple amplitude on the radius
 const ROOTS = 0.062;    // how far the root lobes swell past the trunk
 const SAW = 0.052;      // rise of the sawn face from its low side to its high
@@ -55,7 +55,7 @@ const SAW = 0.052;      // rise of the sawn face from its low side to its high
 // slabUV maps the tablet's face onto the carved region one to one.
 const PL_HW = 0.170;
 const PL_H = 0.280;
-const PL_D = 0.170;     // must clear 2 * edge (0.124) or the swept rim folds
+const PL_D = 0.155;     // must clear 2 * edge (0.124) or the swept rim folds
 const PL_Y = 0.615;     // its foot, a shade under half way up the trunk
 const PL_PROUD = 0.030; // how far its face stands off the dressed bark
 
@@ -66,8 +66,10 @@ const smoothstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t
 // closes, with the phase of each drifting slowly in y so the ridges wander up
 // the trunk instead of running dead straight like fluting. This is the one
 // place in the set that wants texture, and even here it is a ripple: the
-// amplitude is 5% of the radius, which at scene scale is a soft corduroy down
-// the silhouette rather than anything you could call a crack.
+// amplitude is a tenth of the radius spread over six broad ridges, which at
+// scene scale is a soft corduroy down the silhouette rather than anything you
+// could call a crack. Half this and it vanished at 300 px; twice it, and the
+// trunk starts to look shaggy, which is a tree and not a headstone.
 function bark(theta, y, ph) {
   return (
     0.58 * Math.sin(6 * theta + 1.8 * y + ph[0]) +
@@ -255,9 +257,10 @@ function buildStump({ body, material, rng, edge, disposables, stripUV, slabUV })
       minRadius: 0.05,
       displace: (s, theta) => {
         if (s.tag === 'cut') return [0, 0];
-        // The same ripple language as the trunk, an octave coarser: a stub this
-        // size can hold three lobes and no more. Faded in along the collar so
-        // it does not start as a notch on the ring that leaves the trunk.
+        // The same ripple language as the trunk at a sixth of the depth: a stub
+        // is small enough that anything more reads as a knot. Faded in along
+        // the collar so it cannot start as a notch on the ring that leaves the
+        // trunk.
         const t = s.tag === 'collar' ? smoothstep(0.2, 0.7, s.u) : 1;
         return [0.0045 * Math.sin(6 * theta + ph[i]) * t, 0];
       },
@@ -356,7 +359,7 @@ registerStone('stump', {
   // The die and its plinth are never seen: they live inside the trunk's flare.
   // Their job is the texture atlas, whose carved region takes its aspect from
   // 2 * halfWidth / height -- which is why these are the tablet's numbers.
-  shape: { halfWidth: PL_HW, height: PL_H, depth: PL_D, plinth: 0.10 },
+  shape: { halfWidth: PL_HW, height: PL_H, depth: PL_D, plinth: 0.08 },
   topRadius: 0.062,
   bottomRadius: 0.062,
 

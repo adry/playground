@@ -278,7 +278,7 @@ const FLAME_LOBE = [
 // silhouette edge at the top of a flame is the single most artificial thing a
 // stylised fire can have, and this is what removes it without a texture, an
 // alpha map or a sort order.
-function flameGeometry(amp, height, { rows = 26, segments = 20, fade, section = null } = {}) {
+function flameGeometry(amp, height, { rows = 26, segments = 20, fade, section = null, curl = 0 } = {}) {
   const spline = new THREE.SplineCurve(FLAME_LOBE.map(([t, r]) => new THREE.Vector2(t, r)));
   const pts = [];
   const ts = [];
@@ -290,7 +290,21 @@ function flameGeometry(amp, height, { rows = 26, segments = 20, fade, section = 
   }
   // Force the last row onto the axis so revolve() welds the tip shut.
   pts[pts.length - 1].x = 0;
-  return revolve(pts, segments, ts, fade, section);
+  const geo = revolve(pts, segments, ts, fade, section);
+  // A curl baked up the height. A flame does not stand plumb, and a lathe that
+  // does reads as a bud on a stalk. Shearing the tip sideways by the square of
+  // the height gives the one asymmetry a body of revolution can never have, and
+  // because the mesh is rotated about its own ROOT in update(), the curl swings
+  // with the lean instead of fighting it.
+  if (curl) {
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const t = pos.getY(i) / height;
+      pos.setX(i, pos.getX(i) + curl * height * t * t);
+    }
+    geo.computeVertexNormals();
+  }
+  return geo;
 }
 
 // Alpha off the dot of the surface normal with the view, so a surface fades out
@@ -358,12 +372,13 @@ function lightPool({ radius = 1.9, height = 0.95, decay = 1.35 } = {}) {
       const lat = Math.hypot(x, z);
       const d = Math.hypot(lat, height);
       let v = (height / d) / Math.pow(d / height, decay);
-      // A shallow dip in the middle. There is no shadow map on this light, so
-      // the one piece of occlusion that would be legible, the ash pan's own
-      // disc thrown straight down between the feet, is painted in. Shallow:
-      // the first pass took it to a third and the pool came out as a dark
-      // doughnut, which reads as a stain rather than as shade.
-      v *= 0.66 + 0.34 * Math.min(1, Math.pow(lat / 0.34, 1.5));
+      // A very shallow dip in the middle. There is no shadow map on this light,
+      // so the one piece of occlusion that would be legible, the ash pan's own
+      // disc thrown straight down between the feet, is painted in. It has to be
+      // slight: the first pass took it to a third and the pool came out as a
+      // dark doughnut, which reads as a stain and not as shade, and the key
+      // light's real cast shadow is already sitting across the same ground.
+      v *= 0.80 + 0.20 * Math.min(1, Math.pow(lat / 0.36, 1.5));
       // Taken to zero at the quad's edge or the decal ends on a visible disc.
       v *= Math.max(0, 1 - Math.pow(lat / radius, 2.0));
       const k = (j * size + i) * 4;
@@ -563,6 +578,7 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
     rows: 28, segments: 30,
     fade: { floor: 0.42, power: 1.1, heat: 0.80 },
     section: (a, t) => 1 + 0.090 * Math.cos(3 * a + 2.6 * t) + 0.045 * Math.cos(5 * a - 1.4 * t),
+    curl: 0.14,
   });
   const coreMat = new THREE.MeshBasicMaterial({
     color: CORE_FLAME.clone(),
@@ -580,6 +596,7 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
     rows: 20, segments: 18,
     fade: { floor: 0.0, power: 1.35, heat: 0.55 },
     section: (a, t) => 1 + 0.075 * Math.cos(2 * a + 3.1 * t),
+    curl: 0.30,
   });
   const tongueMat = softLimb(new THREE.MeshBasicMaterial({
     color: BLOOM_FLAME.clone(),

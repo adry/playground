@@ -141,14 +141,24 @@ function lobeRadius(lobes, x, y, z) {
 }
 
 // Raw positions for one blob, in its own space, roughly unit sized.
-export function lumpPositions({ detail = 3, lobes = [], scaleY = 1 } = {}) {
+//
+// `stretch` lengthens it along +y by pulling the top half away from the bottom
+// half rather than by scaling, which matters more than it sounds. Scaling a
+// lobed sphere to two and a half times its width does not make a tuft, it makes
+// a CONE: the lobes taper toward the pole and the scale multiplies the taper,
+// and a bush covered in those is an agave. Sliding the cap instead leaves the
+// end as round as it started, so a stretched lump is a lozenge and a heap of
+// lozenges is foliage. The slide is smoothstepped over the equator so the waist
+// is a curve and not a crease.
+export function lumpPositions({ detail = 3, lobes = [], scaleY = 1, stretch = 0 } = {}) {
   const { dirs } = icosphere(detail);
   const out = new Float32Array(dirs.length);
   for (let i = 0; i < dirs.length; i += 3) {
     const x = dirs[i], y = dirs[i + 1], z = dirs[i + 2];
     const r = lobeRadius(lobes, x, y, z);
+    const u = Math.max(0, Math.min(1, (y + 0.22) / 0.5));
     out[i] = x * r;
-    out[i + 1] = y * r * scaleY;
+    out[i + 1] = y * r * scaleY + stretch * (u * u * (3 - 2 * u));
     out[i + 2] = z * r;
   }
   return out;

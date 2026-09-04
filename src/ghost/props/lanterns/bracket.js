@@ -993,22 +993,38 @@ export function createBracketLantern({ seed = 1, scale = 1 } = {}) {
     uSkyLo: { value: new THREE.Color('#8f9498').convertSRGBToLinear() },
     // Amplitude, then where the band sits and how wide it is, in the reflected
     // ray's own y. Any wider and it is a gradient again.
-    uGlare: { value: new THREE.Color('#f2f6ff').convertSRGBToLinear().multiplyScalar(4.0) },
-    uGlareAt: { value: new THREE.Vector2(-0.24, 0.060) },
+    //
+    // Both are well under the pillar lantern's 4.00 and 0.060, and the two
+    // renders that settled it are worth naming, because this term is the one
+    // most likely to be copied on faith. Killed outright, the box reads as a
+    // warm lit lantern and the panes read as holes: no surface, exactly the
+    // failure the band exists to prevent. At the pillar's values it laid a pale
+    // wash over the upper half of every pane and the box went cold, and the
+    // three passes before this one all misread that wash as the backdrop
+    // showing through and went hunting in uBodyA, which is not where it was.
+    // The difference between the two lanterns is what is BEHIND the glass: a
+    // pillar lantern has sky back there and a reflection can be the brightest
+    // thing on the pane without hurting anything, where this one has a warm
+    // interior that has to win. So the band stays, at 1.55 and 40mm of spread,
+    // where it is a streak with an edge on it and not a fill.
+    uGlare: { value: new THREE.Color('#f2f6ff').convertSRGBToLinear().multiplyScalar(1.55) },
+    uGlareAt: { value: new THREE.Vector2(-0.245, 0.040) },
     // Between the key in main.js and the one in the preview harness.
     uSunDir: { value: new THREE.Vector3(3.45, 6.0, 2.4).normalize() },
     uSunCol: { value: new THREE.Color('#fff6ea').convertSRGBToLinear() },
     uGlowCol: { value: new THREE.Color(PALETTE.glow).convertSRGBToLinear() },
     uGlow: { value: 0.2 },
-    // Physically 1.0. It is well over one because the fake sky is a flat
-    // gradient with no bright spots of its own to find, so a correct fresnel
-    // over it returns a correct amount of nothing.
-    uRimGain: { value: 3.40 },
+    // Physically 1.0. It is over one because the fake sky is a flat gradient
+    // with no bright spots of its own to find, so a correct fresnel over it
+    // returns a correct amount of nothing. Lower than the pillar's 3.40 for the
+    // same reason the glare band is: this lantern's job is to look lit from
+    // inside, and every point of rim gain is pale sky laid over that.
+    uRimGain: { value: 2.30 },
     uGlint: { value: 1.70 },
     uShine: { value: 95.0 },
     // How much of the pane is glass and how much is air. Low: the flame and the
     // far frame have to be seen through it.
-    uBodyA: { value: 0.300 },
+    uBodyA: { value: 0.220 },
     uWave: { value: 0.048 },
     uSeed: { value: rand() * 6.283 },
   };

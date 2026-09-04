@@ -198,23 +198,14 @@ registerStone('kerb', {
       kerb.add(bar);
     }
 
-    // EXPERIMENT: corner posts at the foot.
-    const POST = 0.17;
-    const POST_H = 0.26;
-    const postGeo = barGeo(POST / 2, POST_H, POST);
-    disposables.push(postGeo);
-    for (const sx of [-1, 1]) {
-      const post = new THREE.Mesh(postGeo, material);
-      post.position.set(sx * (PLOT_W / 2 - POST / 2), -SINK, FOOT_Z - POST / 2);
-      post.rotation.y = (rng() - 0.5) * 0.03;
-      post.castShadow = true;
-      post.receiveShadow = true;
-      kerb.add(post);
-    }
-
     // --- the bed of chippings ------------------------------------------------
     //
-    // Flat, for the reason set out at the top of the file. It gets its own
+    // Flat, for the reason set out at the top of the file. Nothing stands up
+    // out of the plot either: low corner posts at the foot were tried, which is
+    // a thing real kerb sets have, and from this camera they are seen from
+    // behind and above and come out as two nubs on the foot kerb. They cluttered
+    // the one end of the piece that is nearest the viewer and bought no
+    // silhouette at all, so the frame stays four bars and a bed. It gets its own
     // material because grey headstone chippings inside a grey headstone kerb
     // leave the plot reading as one solid slab, and its colour is taken FROM
     // the shared stone rather than invented, so it cannot drift away from the

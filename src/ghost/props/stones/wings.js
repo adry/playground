@@ -103,7 +103,7 @@ const WING = {
     { r: 0.095, step: 0.150, rake: 55 },
   ],
   notch: 0.022, // the cleft fillet between two lobes
-  top: 0.22, // the long concave top edge, tip lobe to boss
+  top: 0.14, // the long concave top edge, tip lobe to boss
 };
 
 // ---------------------------------------------------------------------------

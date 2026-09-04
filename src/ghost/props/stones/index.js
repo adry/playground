@@ -16,6 +16,7 @@ import './ledger.js';     // lying down
 import './bench.js';      // 0.81, furniture
 import './urn.js';        // 1.55, pedestal and draped vessel
 import './column.js';     // 1.23 to 1.38, broken
+import './pyramid.js';   // 1.21, the squattest upright
 import './wheel.js';      // 1.45, solid disc head
 import './cracked.js';    // 1.32, the derelict one
 import './twin.js';       // 1.48 tall, 1.32 wide, the double

@@ -80,18 +80,18 @@ const SHAPE = { halfWidth: 0.40, height: 1.38, depth: 0.29, plinth: 0.18 };
 // SHOULDER, not from the top of the stone, because that is the number the eye
 // reads and the one that decides how much face is left for the lettering.
 const CLOTH = {
-  thick: 0.042, // a chunky vinyl cloth; below about 0.030 it reads as paper
+  thick: 0.038, // a chunky vinyl cloth; below about 0.030 it reads as paper
   gapMin: 0.0035, // clearance at the hem: the shadow line under the roll
   gapMax: 0.0130, // and further in, where nothing can see it, enough to keep
   // the cloth's shadow off the stone it is lying on
   roll: 0.055, // how much material the rolled hem takes, in material units
   bead: 0.34, // and how far it swells past its own thickness just inside it
 
-  endOver: 0.115, // hang down the ENDS of the stone, below the shoulder roll
-  fallMid: 0.245, // hang down the front, at the middle
-  fallEnd: 0.330, // and at the outer end of the material, which is what sets
+  endOver: 0.130, // hang down the ENDS of the stone, below the shoulder roll
+  fallMid: 0.345, // hang down the front, at the middle
+  fallEnd: 0.420, // and at the outer end of the material, which is what sets
   // how far the corner falls past the shoulder
-  swag: 0.070, // the middle of the front hem dips this much further again
+  swag: 0.055, // the middle of the front hem dips this much further again
   tilt: 0.022, // and the whole hem falls further on one side than the other
 
   // Fewer, deeper. Three ridges across an 0.86 face: at 300 px the stone's face
@@ -106,8 +106,8 @@ const CLOTH = {
   // flat sheet. Ridges alone, added to an even thickness, came out as three
   // gentle swells that the light never found: the piece read as icing.
   foldBias: 0.34,
-  foldDepth: 2.60, // ridge height as a fraction of the cloth's thickness
-  hemWave: 0.055, // and how much lower the hem hangs under a ridge
+  foldDepth: 1.05, // ridge height as a fraction of the cloth's thickness
+  hemWave: 0.045, // and how much lower the hem hangs under a ridge
   // Folds gather where the cloth hangs free and die where it is pulled over the
   // shoulder. Measured in material distance past the edge of the top face, so
   // they start part way round the roll rather than below it: a drape whose
@@ -119,7 +119,7 @@ const CLOTH = {
   // The swag. Over the top the cloth is carried a little higher at the ends
   // than in the middle, so the ridge running across the top of the stone dips
   // between the two shoulders instead of lying dead flat.
-  topSwell: 0.16,
+  topSwell: 0.12,
 };
 
 // The rolled hem's cross-section, as a multiplier on thickness against distance
