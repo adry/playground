@@ -90,20 +90,12 @@ const HW = M.skull.width / 2;
 const HS = M.skull.height;                    // crown to chin, the unit for the face
 
 // --- the vault -------------------------------------------------------------
-// Where the BRAINCASE stops. It used to be -0.012, a hair below the condyle
-// plane, so the vault ran the whole way down to the atlas and the back of the
-// head hung to within a fifth of the head's height of the chin. That is most of
-// what was left of the egg after the plan was fixed: a braincase 0.856 as tall
-// as it is long, where a real one is 0.73, and in profile the extra height all
-// went on the back of the vault below ear level, where a real skull has mastoid
-// and jaw and nothing else.
+// The braincase's floor is no longer a number picked here. It used to be
+// -0.012 of the head's height, a hair below the condyle plane, so the vault ran
+// the whole way down to the atlas and the back of the head hung to within a
+// fifth of the head's height of the chin. It is derived from the reference's
+// own basion now, down with the profile.
 //
-// At 0.085 the braincase is 0.756 as tall as it is long and its floor sits just
-// under the level of the tooth crowns, which is where a real one sits. What is
-// below it is what is below a real one: the condyles, the foramen, the mastoid
-// processes and the mandible, all of which are their own blobs and all of which
-// still reach up past this line, so the base closes.
-const VAULT_BASE = 0.085 * HS;
 // How the skull's depth is split about the atlas. The occipital condyles are
 // behind the middle of a real skull, but only just: put them much further back
 // and the whole head reads as an egg tipping forward off the neck, which was
@@ -119,90 +111,128 @@ const VAULT_BASE = 0.085 * HS;
 // should be built out of the numbers that fix it, not aimed at.
 const Z_BACK = -0.54 * M.skull.depth;
 const Z_FACE = Z_BACK + M.skull.depth;
-// The brow's own dimensions have to be declared up here, because the vault's
-// frontal plane is derived FROM them. The glabella is a midline swelling on the
-// brow and it is the front reference for the skull's length, so the glabella is
-// what lands on Z_FACE, and the plane the brow rides on is Z_FACE less however
-// proud the brow stands off it.
+// The brow's own dimensions. It rides very nearly flush now: the vault's own
+// frontal profile carries the glabella, so a shelf standing proud of it would
+// put the front of the skull somewhere other than where the reference says.
 const BROW_R = 0.046 * HS;
-const BROW_INSET = 0.018 * HS;
-const BROW_PROUD = BROW_R - BROW_INSET;
-const Z_VAULT_FRONT = Z_FACE - BROW_PROUD;
+const BROW_INSET = 0.037 * HS;
 
 // --- the vault's profile ---------------------------------------------------
-// This is the part of the head that was most wrong, and it was wrong in a way
-// that only measuring catches. The vault used to be one plain superellipsoid
-// with semi-axes 0.176 x 0.171 x 0.169: a ball, to within 4%. A ball has no
-// forehead, no temple, no occiput and no widest point -- and because the game
-// camera looks DOWN at the figure, the crown of that ball is the largest single
-// area in the head crop. It read as a balloon with a face printed low on it.
+// AUTHORED, not blended.
 //
-// A real braincase, measured, is nothing like a ball:
-//   * it is LONGER than it is wide (length : breadth : height about 1 : 0.78 :
-//     0.73), so the depth has to carry the mass, not the width;
-//   * it has a widest point at all, and it is not the ellipsoid's equator: a
-//     dry skull is broadest high, at the parietal eminences, and the reference
-//     photo's toy head is broadest a little over half way down. Either way the
-//     vault tapers into the crown, and an ellipsoid does not;
-//   * the forehead is a near-vertical plane at the brow that RECEDES going up,
-//     so the crown sits well behind the glabella;
-//   * the occiput projects backwards furthest at about ear level and tucks in
-//     both above and below it;
-//   * there is a flat, slightly hollow temple above and behind the eye, which
-//     is what lets the zygomatic arch read as an arch rather than a seam.
+// Three builds tried to reach a skull's side view by shaping a field made of
+// smoothly unioned primitives, checking a landmark table each time, and all
+// three came out as a teardrop or a bicycle helmet. The table passed while the
+// silhouette was wrong, because a table of extremes does not constrain the
+// curve between them, and a smooth union is very good at organic mass and very
+// bad at passing through specified points.
 //
-// All five are profiles along the vault's own height, so rather than blending
-// more blobs in (an occipital blob was tried in the previous build and drew a
-// hard contour line right round the back of the head at every blend width from
-// 0.02 to 0.10), the vault is ONE superellipsoid whose cross-section is scaled,
-// shifted and squared off as a function of height. There is no join anywhere in
-// it, so there is nothing to crease -- which is the whole reason it is done this
-// way and not with more blobs.
+// `.ref/SKULL-ANATOMY.md` now gives the lateral profile as seventeen
+// coordinates. So the profile is no longer an emergent property of the field:
+// the midsagittal outline IS two interpolating curves through those points, and
+// the vault is a loft of superelliptical sections hung on them. Front and back
+// are exact at every landmark by construction, and the only freedom left is the
+// plan view, which is a separate profile and cannot disturb them.
 //
-// WHAT THIS PASS CHANGED, and why it could not have been done before. All of
-// the above was already true of the previous build and the head still read as a
-// ball, because M.skull.width was 0.141 and M.skull.depth 0.150: an index of
-// 0.94, a braincase wider than it was long. Every profile below could only fix
-// the SIDE view, and the plan view stayed square whatever they did. metrics.js
-// now says 0.125 by 0.160, an index of 0.781, and with a plan that is finally
-// longer than it is wide four things become expressible that were not:
+// THE FRAME. The reference works in porion-relative coordinates: origin at the
+// ear canal, x forward, y up, units of the skull's length L from glabella to
+// opisthocranion. Porion is placed on the Frankfurt horizontal, which is the
+// line through porion and orbitale, the lower rim of the orbit -- so with the
+// eye line at half the head's height, the ear canal follows from the socket's
+// size and is not a free parameter.
 //
-//   * the widest point can be put high AND behind, because there is now a
-//     front-to-back axis to put it behind the middle OF. `planTaper` narrows
-//     the section toward the face, which is the plan view of a real skull and
-//     was simply not available on a square one;
-//   * the forehead can slope back over a real distance instead of a token one;
-//   * the occiput can project without the head going spherical, because the
-//     projection is now a small part of a long axis rather than a large part of
-//     a short one;
-//   * the temporal flat has somewhere to be. On the old plan the side of the
-//     head was the widest thing about it from the eye backwards, so a flat
-//     there ate the silhouette; on this one the side aft of the eye is already
-//     inboard of the parietal eminence and the flat costs nothing.
-//
-// `vaultV` is 0 at the base of the braincase and 1 at the crown.
+// THE CONFLICT, reported rather than absorbed. The reference has vertex to
+// gnathion at 0.94 of L: a real skull is slightly LONGER than it is tall. With
+// M.skull.height at f(0.167) and M.skull.depth at f(0.160) this one is 1.044,
+// so it is taller than it is long by 11%. Worse, the excess is not spread
+// evenly: with the crown, the chin and the eye line all pinned, the braincase
+// above the Frankfurt plane has to be stretched 1.262 L-units per table unit
+// and the face below it only 0.923, a ratio of 1.37. The head is 37% too tall
+// in its braincase for its face, and no amount of shaping inside this file can
+// change that -- it is what makes the face read small however far forward it is
+// brought. To satisfy the table, M.skull.depth wants to be f(0.1777) and
+// M.skull.width f(0.1386), keeping the 0.78 index; or, holding the depth,
+// M.skull.height wants f(0.1504). Until then the two stretches below are the
+// honest fit: the shape is right, the box it is fitted into is not.
+const ORBIT_V = Y_CROWN - 0.500 * HS;
+const L_SKULL = M.skull.depth;
+const PORION_Y = ORBIT_V - M.skull.socket.height / 2;   // orbitale, so y = 0
+const PORION_Z = Z_BACK + 0.40 * L_SKULL;               // opisthocranion at x = -0.40
+const SY_UP = (Y_CROWN - PORION_Y) / 0.52;              // vertex at y = +0.52
+const SY_DN = (PORION_Y - Y_CHIN) / 0.42;               // gnathion at y = -0.42
+const LY = (t) => PORION_Y + t * (t >= 0 ? SY_UP : SY_DN);
+const LZ = (t) => PORION_Z + t * L_SKULL;
+
+// A cubic Hermite through (y, z) with Catmull-Rom tangents, extended linearly
+// past both ends. It passes through every control point exactly, which is the
+// entire reason this is here rather than another smoothstep: a smoothstep is a
+// shape you hope lands on a landmark, and this is a landmark you interpolate
+// between.
+function silhouette(pts) {
+  const n = pts.length;
+  const m = pts.map((p, i) => {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+    return (b[1] - a[1]) / (b[0] - a[0]);
+  });
+  return (y) => {
+    if (y <= pts[0][0]) return pts[0][1] + (y - pts[0][0]) * m[0];
+    if (y >= pts[n - 1][0]) return pts[n - 1][1] + (y - pts[n - 1][0]) * m[n - 1];
+    let i = 0;
+    while (i < n - 2 && y > pts[i + 1][0]) i++;
+    const h = pts[i + 1][0] - pts[i][0];
+    const t = (y - pts[i][0]) / h;
+    const t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * pts[i][1]
+      + (t3 - 2 * t2 + t) * h * m[i]
+      + (-2 * t3 + 3 * t2) * pts[i + 1][1]
+      + (t3 - t2) * h * m[i + 1];
+  };
+}
+
+// The posterior outline. basion, inion, opisthocranion, lambda, vertex. The
+// two points that matter most are opisthocranion at only 0.18 above the ear --
+// the furthest-back point is in the LOWER half of the vault, not the upper
+// third, which is what both previous builds got wrong -- and inion, which is
+// what drags the outline forward by a third of L while it drops to the base.
+// Without inion the back of the head goes out, stays high and falls vertically,
+// and that is the teardrop.
+const BACK_LINE = silhouette([
+  [LY(-0.13), LZ(-0.08)],   // basion
+  [LY(+0.06), LZ(-0.34)],   // inion
+  [LY(+0.18), LZ(-0.40)],   // opisthocranion
+  [LY(+0.42), LZ(-0.22)],   // lambda
+  [LY(+0.51), LZ(+0.086)],  // between lambda and the vertex, so the top rounds
+  [LY(+0.52), LZ(+0.12)],   // vertex
+]);
+// The anterior outline. It runs down from the vertex over bregma, out to the
+// glabella, in a little to nasion, and in again to orbitale; below that the
+// maxilla takes the front over and this only has to stay out of its way.
+const FRONT_LINE = silhouette([
+  [LY(-0.11), LZ(+0.52)],
+  [LY(+0.00), LZ(+0.50)],   // orbitale
+  [LY(+0.235), LZ(+0.585)], // nasion
+  [LY(+0.28), LZ(+0.60)],   // glabella, the front of L
+  [LY(+0.51), LZ(+0.20)],   // bregma
+  [LY(+0.52), LZ(+0.12)],   // vertex
+]);
+
+// Where the braincase stops. Basion is its lowest authored point; below that
+// there is nothing but the condyles, the foramen, the mastoids and the jaw,
+// exactly as on a real skull.
+const VAULT_BASE = LY(-0.155);
 const VAULT_SPAN = Y_CROWN - VAULT_BASE;
 const vaultV = (y) => (y - VAULT_BASE) / VAULT_SPAN;
-
-const VY_C = (Y_CROWN + VAULT_BASE) / 2;
-const VY_A = (Y_CROWN - VAULT_BASE) / 2;
-const VZ_C = (Z_VAULT_FRONT + Z_BACK) / 2;
-const VZ_A = (Z_VAULT_FRONT - Z_BACK) / 2;
-// Squarer in section than the old 2.02, which is what flattens the crown. The
-// profiles below narrow the top at the same time, so it comes out a broad dome
-// rather than the helmet a high exponent alone gives.
-// Raised from 2.30. A flatter crown makes the braincase read longer against its
-// own height, which is the third of the profile faults: 0.79 as tall as it is
-// long against a real 0.73.
-const VAULT_PV = 2.42;
-const VAULT_UNIT = Math.min(HW, VY_A, VZ_A);
-// The vault's own maximum half-width, as a fraction of HW. It is deliberately
-// short of 1, because the vault is not the widest thing on the head: the
-// parietal eminences are, and they are a pair of blobs blended on top of it
-// down in buildSkull. Give the vault the full width as well and the measured
-// breadth comes out over by twice the eminence's proudness, which is enough on
-// its own to push the cranial index from 0.78 to 0.81.
-const WIDTH_PEAK = 0.965;
+// The largest half-span the authored profile reaches, used to normalise the
+// plan's own closure against it.
+const SZ_REF = (() => {
+  let best = 0;
+  for (let i = 0; i <= 200; i++) {
+    const y = VAULT_BASE + (VAULT_SPAN * i) / 200;
+    best = Math.max(best, (FRONT_LINE(y) - BACK_LINE(y)) / 2);
+  }
+  return best;
+})();
+const VAULT_UNIT = Math.min(HW, SZ_REF);
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smoothstep = (a, b, x) => {
@@ -210,88 +240,72 @@ const smoothstep = (a, b, x) => {
   return t * t * (3 - 2 * t);
 };
 
-// Half-width as a fraction of WIDTH_PEAK * HW, against height.
-//
-// The previous build put the widest point "a little over half way down from the
-// crown", measured off the toy in the reference photo, and tapered gently. That
-// is not where a skull is widest. The parietal eminences sit about two thirds
-// of the way UP the braincase -- v = 0.66, which is 0.28 of the whole head's
-// height below the crown -- and the vault falls away from them in every
-// direction, into the crown above and into the temporal squama below. The
-// plateau here is deliberately short so that "the widest point" is a place on
-// the head and not a band.
+// The vault's own maximum half-width, as a fraction of HW. It is deliberately
+// short of 1, because the vault is not the widest thing on the head: the
+// parietal eminences are, and they are a pair of blobs blended on top of it
+// down in buildSkull.
+const WIDTH_PEAK = 0.965;
+// Half-width against height, as a fraction of WIDTH_PEAK * HW. The parietal
+// eminences sit about two thirds of the way UP the braincase and the vault
+// falls away from them into the crown above and the temporal squama below.
 const vaultWidth = (v) => WIDTH_PEAK * (1
   - 0.24 * smoothstep(0.70, 1.06, v)
   - 0.22 * (1 - smoothstep(0.02, 0.62, v)));
-// How square the cross-section is. Flat sides and a flat frontal plane across
-// the temples, rounding off toward the crown and the base -- one exponent for
-// the whole vault cannot do that: high enough for a face plane the sockets can
-// sit on and the crown squares off into a helmet, low enough for a round crown
-// and the face comes to a point and the orbits curl onto the temples. Raised
-// from 2.82 at the eye line because the sockets are a larger fraction of a
-// narrower head now: at the old exponent the outer third of each orbit lay on
-// curvature that was already turning into the temple.
+// How square the cross-section is, against height. Flat sides and a flat
+// frontal plane across the temples, rounding off toward the crown and the base.
+// One exponent for the whole vault cannot do that: high enough for a face plane
+// the sockets can sit on and the crown squares off into a helmet, low enough
+// for a round crown and the face comes to a point and the orbits curl onto the
+// temples.
 const vaultPlan = (v) => 2.30
   + 1.35 * smoothstep(0.08, 0.40, v) * (1 - smoothstep(0.62, 1.02, v));
-// How far the vault reaches forward, as a fraction of VZ_A. Full from the top of
-// the orbit up to the brow and receding above it: that recession is the
-// forehead's backward slope, and it is what puts the crown behind the glabella
-// instead of over it. It falls away below the orbit too, where the maxilla
-// takes the front over.
-const vaultFront = (v) => 1
-  - 0.36 * smoothstep(0.52, 1.16, v)
-  - 0.30 * (1 - smoothstep(0.10, 0.40, v));
-// How far it reaches back.
-//
-// This function was wrong twice in opposite directions and the second one was
-// worse. It first peaked at v = 0.30 to 0.46, at and below the ear, which is
-// the back of an egg. It was then moved up to v = 0.50 to 0.68 on a reading of
-// the reference that put the most posterior point level with the parietal
-// eminence, and that is far too high: it landed 0.30 below the crown, up in the
-// top third of the head, and because nothing brought the outline back in below
-// it the whole silhouette read as a teardrop or a bicycle helmet.
-//
-// The plateau is v = 0.29 to 0.40 now, which measures 0.44 below the crown --
-// a little above the ear canal at 0.645, which is where a real opisthocranion
-// is. What matters at least as much is the LOWER term. The back of a real skull
-// does not just stop being widest below the occiput, it curves back IN and DOWN
-// toward the base, so the outline closes underneath; at the vault's floor this
-// has come forward by more than half the depth it spends at the occiput. That
-// returning curve is the single thing whose absence made the old profile read
-// as a helmet, and it is not visible in any three-quarter view.
-//
-// It never exceeds 1: M.skull.depth is the budget and the occiput spends all of
-// it, it does not get to overspend.
-const vaultBack = (v) => 1
-  - 0.50 * smoothstep(0.40, 1.04, v)
-  - 0.700 * (1 - smoothstep(-0.05, 0.29, v));
 // The plan view's own taper: how wide the section is at a given point along its
-// OWN depth, front to back. This is the piece that only became possible when
-// the plan stopped being square. A skull seen from above is a blunt egg, widest
+// own depth, front to back. A skull seen from above is a blunt egg, widest
 // behind the middle at the parietal eminences and narrowing toward the temples
-// and the face; a superellipse with one half-width per height is symmetric front
-// to back and can only ever be a lozenge. zn runs -1 at the occiput to +1 at the
-// face, and the peak is parked at -0.25 so the widest point of the head is
-// behind its own mid-length in plan as well as high up in profile.
+// and the face; a superellipse with one half-width per height is symmetric
+// front to back and can only ever be a lozenge. zn runs -1 at the occiput to +1
+// at the face, and the peak is parked at -0.25 so the widest point of the head
+// is behind its own mid-length in plan as well as high up in profile.
 const ZN_PEAK = -0.25;
 const planTaper = (zn) => {
   const q = Math.max(-1.6, Math.min(1.6, zn)) - ZN_PEAK;
   return 1 - (q > 0 ? 0.115 : 0.107) * q * q;
 };
 
-function vaultField(x, y, z) {
+// The section at a height: its z centre and half-span come straight off the two
+// authored curves, and its half-width is the plan profile closed off at both
+// ends of the vault.
+//
+// The plan's closure is tied to the PROFILE's rather than authored separately:
+// where the outline is narrow front to back, near the crown, the head is narrow
+// side to side too, which is what a dome does. Only the base needs its own
+// term, because the profile does not close there -- the braincase's floor is a
+// real edge on a real skull, and cb rounds it rather than leaving a rim.
+const cb = (y) => Math.sqrt(smoothstep(VAULT_BASE, VAULT_BASE + 0.16 * VAULT_SPAN, y));
+function vaultSection(y) {
+  const zf = FRONT_LINE(y), zb = BACK_LINE(y);
+  const half = (zf - zb) / 2;
+  if (half <= 1e-5 || y > Y_CROWN || y < VAULT_BASE) return null;
+  const k = cb(y);
   const v = vaultV(y);
-  const f = vaultFront(v);
-  const b = vaultBack(v);
-  const ph = vaultPlan(v);
-  const sz = VZ_A * (f + b) * 0.5;
-  const cz = VZ_C + VZ_A * (f - b) * 0.5;
-  const zn = (z - cz) / sz;
-  const ax = Math.abs(x / (HW * vaultWidth(v) * planTaper(zn)));
+  return {
+    cz: (zf + zb) / 2,
+    sz: half * k,
+    sx: HW * vaultWidth(v) * Math.pow(clamp01(half / SZ_REF), 0.55) * k,
+    ph: vaultPlan(v),
+  };
+}
+
+function vaultField(x, y, z) {
+  const s = vaultSection(y);
+  // Outside the vault's own height band the field is positive and constant, so
+  // a ray walking up past the crown or down past the base leaves cleanly.
+  if (!s || s.sx <= 1e-5 || s.sz <= 1e-5) return 0.5 * VAULT_UNIT;
+  const zn = (z - s.cz) / s.sz;
+  const ax = Math.abs(x / (s.sx * planTaper(zn)));
   const az = Math.abs(zn);
-  const ay = Math.abs((y - VY_C) / VY_A);
-  const h = Math.pow(Math.pow(ax, ph) + Math.pow(az, ph), VAULT_PV / ph);
-  return (Math.pow(h + Math.pow(ay, VAULT_PV), 1 / VAULT_PV) - 1) * VAULT_UNIT;
+  const r = Math.pow(Math.pow(ax, s.ph) + Math.pow(az, s.ph), 1 / s.ph);
+  return (r - 1) * VAULT_UNIT;
 }
 
 // --- the face --------------------------------------------------------------
@@ -361,16 +375,12 @@ const JAW_FLARE = 0.40;
 // sits in the mandibular fossa immediately in front of the meatus and the two
 // are within a couple of millimetres of each other on a real skull.
 //
-// It has come up by 0.083 of the head's height. Two things put it there. The
-// Frankfurt horizontal, the plane a real skull is measured on, runs through the
-// ear canal and the orbit's lower rim, so with the eye line at half the height
-// the ear canal lands at 0.63 below the crown; and that also puts the base of
-// the braincase -- the line from the brow back to the ear -- at two thirds of
-// the way down, which is the cranium-to-face split the reference asks for. The
-// old 0.096 put it at 0.71, which shortened the ramus to less than half the
-// length of a real one and hung the jaw joint below the skull's own base.
-const HINGE_Y = 0.163 * HS;
-const HINGE_Z = -0.085 * M.skull.depth;
+// Both coordinates come off the reference's table now rather than being aimed
+// at: condylion is at (-0.03, +0.01) in the porion frame, so the hinge sits
+// just behind and just above the ear canal, and the ear canal is on the
+// Frankfurt horizontal through orbitale. Nothing here is free.
+const HINGE_Y = PORION_Y + 0.01 * SY_UP;
+const HINGE_Z = PORION_Z - 0.03 * L_SKULL;
 // The condyle rides NARROWER than the gonion, so the ramus leans inward on its
 // way up and the joint tucks under the root of the zygomatic arch instead of
 // standing off the side of the head as a bare knob. A real bicondylar breadth
@@ -420,11 +430,10 @@ const ORBIT_U = BRIDGE / 2 + M.skull.socket.width / 2;
 // aimed at the crown-to-brow distance instead of at the eye line itself. The
 // eye line is the one landmark in a head that is worth measuring first: the
 // centres of the orbits sit at exactly half of vertex-to-chin, and everything
-// else in the face is checked against them. So this is 0.500 now and it is not
-// a tuning parameter. It costs 0.038 of the head's height off the forehead and
-// hands it to the face, which is the direction both rejected builds needed to
-// move in and neither did far enough.
-const ORBIT_V = Y_CROWN - 0.500 * HS;
+// else in the face is checked against them. So it is 0.500 and it is not a
+// tuning parameter. ORBIT_V itself is declared up with the vault, because the
+// whole profile frame is built on it: porion sits on the Frankfurt horizontal
+// through orbitale, which is the socket's own lower rim.
 
 // The nasal aperture is not in metrics.js. Written against the socket so the
 // two stay in proportion. Its floor has to clear the crowns of the upper teeth:
@@ -840,22 +849,12 @@ export function buildSkull({ material }) {
     return tube(pts, BROW_R);
   });
 
-  // The glabella: the smooth midline swelling between the brows. It is the
-  // front reference for the skull's length and the reference asks for it
-  // explicitly, and it is also the only way to have one: the two brow shelves
-  // stop short of the midline on purpose (carried all the way in they converge
-  // into a V that reads as a snout), so without this there is nothing between
-  // them but bare frontal plane and the most anterior point on the head ends up
-  // being a pair of points either side of the nose.
-  //
-  // Its front face is on Z_FACE by construction -- that is what Z_VAULT_FRONT
-  // was derived backwards from -- so it projects past the frontal plane by
-  // exactly BROW_PROUD and past the face plane below it by a little more.
-  const GLAB_D = 0.100 * M.skull.depth;
-  const glabella = blob(
-    [0, ORBIT_V + SOCKET.b + 0.030 * HS, Z_FACE - GLAB_D],
-    [0.125 * M.skull.width, 0.045 * HS, GLAB_D], 2.6, 2.2,
-  );
+  // There is no glabella blob any more. There used to be one, because the
+  // vault's frontal plane stopped short of the face and something had to carry
+  // the most anterior point of the skull; the profile is authored through the
+  // glabella now, so the vault's own surface IS the glabella and a blob on top
+  // of it would only push the front of the head past where the reference puts
+  // it. The brows likewise ride nearly flush rather than proud.
 
   // The parietal eminences: the pair of low, broad swellings that are the
   // widest part of a real braincase. They were left to the width profile alone
@@ -1035,7 +1034,6 @@ export function buildSkull({ material }) {
     d = smin(d, brows[1](x, y, z), 0.020);
     d = smin(d, parietal(-1)(x, y, z), 0.058);
     d = smin(d, parietal(1)(x, y, z), 0.058);
-    d = smin(d, glabella(x, y, z), 0.022);
     d = smin(d, nasalBone(x, y, z), 0.019);
     d = smin(d, malarL(x, y, z), 0.028);
     d = smin(d, malarR(x, y, z), 0.028);
