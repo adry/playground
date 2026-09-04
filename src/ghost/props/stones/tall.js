@@ -961,21 +961,27 @@ export function createTallStone({ variant = 'celtic', seed = 1, scale = 1 } = {}
   const body = new THREE.Group();
   group.add(body);
 
+  let material = null;
+  let tex = null;
   const geos = [];
   const add = (geo, y = 0) => {
     geos.push(geo);
     const m = new THREE.Mesh(geo, material);
     m.position.y = y;
+    // No decal under the prop, so this is the only shadow it gets. See the note
+    // at the end of this function.
     m.castShadow = true;
     m.receiveShadow = true;
     body.add(m);
     return m;
   };
 
-  let material = null;
-  let tex = null;
   const regions = [];
-  // Filled in by the variant below, then read back once the texture exists.
+  // Where each region ended up in the texture, filled in once buildTextures has
+  // laid them out. The UV callbacks below close over this rather than over the
+  // spans themselves, because they are written before the texture exists and
+  // called after it does. The 0.03 margin keeps a region's own filtering from
+  // reaching its neighbour.
   const build = { spans: null };
   const span = (key, t) => {
     const [u0, u1] = build.spans ? build.spans[key] : [0, 1];
