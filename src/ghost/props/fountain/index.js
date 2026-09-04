@@ -108,7 +108,7 @@ export function createFountain({ seed = 1, scale = 1 } = {}) {
       vel: new THREE.Vector3(JETS.out * cos, JETS.up, JETS.out * sin),
       side: new THREE.Vector3(-sin, 0, cos),
       tau,
-      halfWidth: 0.0150,
+      halfWidth: 0.0122,
       seed: rng() * 3.0,
       // A jet leaves a hole rather than a lip, so it starts nearly round.
       aspect: 1.12,
@@ -123,15 +123,15 @@ export function createFountain({ seed = 1, scale = 1 } = {}) {
     pools: [
       {
         y: TIERS.basin.y, edge: poolEdge(profile, displace, 'basin-in', TIERS.basin.y), angular: 48, radial: 18,
-        impactRadius: mean(bowlStrands), impactCount: BOWL_LOBES, impactPhase: 0, amp: 0.0070,
+        impactRadius: mean(bowlStrands), impactCount: BOWL_LOBES, impactPhase: 0, amp: 0.0105,
       },
       {
         y: TIERS.bowl.y, edge: poolEdge(profile, displace, 'bowl-in', TIERS.bowl.y), angular: 40, radial: 11,
-        impactRadius: mean(dishStrands), impactCount: DISH_LOBES, impactPhase: 0, amp: 0.0048,
+        impactRadius: mean(dishStrands), impactCount: DISH_LOBES, impactPhase: 0, amp: 0.0072,
       },
       {
         y: TIERS.dish.y, edge: poolEdge(profile, displace, 'dish-in', TIERS.dish.y), angular: 30, radial: 8,
-        impactRadius: mean(jets), impactCount: JETS.count, impactPhase: JETS.at, amp: 0.0030,
+        impactRadius: mean(jets), impactCount: JETS.count, impactPhase: JETS.at, amp: 0.0044,
       },
     ],
   });

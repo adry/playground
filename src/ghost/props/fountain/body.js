@@ -258,13 +258,13 @@ export function buildBodyGeometry({ segments = 78 } = {}) {
   // the object, and the map tiles.
   const tint = (sample, theta) => {
     const w = carving(sample);
-    let a = w.rim * 0.55;
+    let a = w.rim * 0.45;
     const bite = chipBite(sample, theta);
     a = Math.min(1, a + Math.min(1, bite / 0.03) * 0.5);
     if (sample.tag === 'plinth') a = Math.max(a, 0.22 * (1 - smoothstep(0.0, 0.72, sample.u)));
     // Bowl interiors sit wet all day and never quite dry out.
     if (sample.tag === 'basin-in' || sample.tag === 'bowl-in' || sample.tag === 'dish-in') {
-      a = Math.max(a, 0.30);
+      a = Math.max(a, 0.24);
     }
     return [
       1 + (VEIN_TINT.r - 1) * a,
@@ -274,7 +274,12 @@ export function buildBodyGeometry({ segments = 78 } = {}) {
   };
 
   const sink = createSink();
-  latheInto(sink, { profile, segments, displace, tint, uRepeat: 2, vScale: 1.0 });
+  // Three wraps rather than two. At two the 512-texel map covered about two
+  // and a third world units on the bottom basin, so a single vein was drawn a
+  // third of the way across the widest part of the prop and read as a smear
+  // rather than as grain. The normal strength in marble.js came down to match,
+  // because denser texels make the same height field a steeper slope.
+  latheInto(sink, { profile, segments, displace, tint, uRepeat: 3, vScale: 1.0 });
   const geometry = sinkToGeometry(sink);
 
   return { geometry, profile, displace };

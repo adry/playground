@@ -24,10 +24,20 @@ const outFile = args.out || `out/chase-${width}x${height}.mp4`;
 // 'chase' builds the ghost and the skeleton and nothing else: a clip about two
 // characters does not want a graveyard competing behind them.
 const sceneMode = args.scene || 'chase';
-// Half-height of the orthographic box, so smaller is tighter. The shipped pages
-// use 6.2 and the ghost's own clip was shot at that; 5.4 is a little closer,
-// which is what was asked for once the props came out.
-const view = Number(args.view || 5.4);
+
+// Which performance to shoot.
+//   chase  the whole thing, and then the ghost runs and it follows
+//   rise   the ghost goes to look, and the camera stays for the climb
+const route = args.route === 'rise' ? 'rise' : 'chase';
+
+// Half-height of the orthographic box, so smaller is tighter.
+//
+// Measured against the ghost's own launch clip rather than guessed: there the
+// ghost stands about 32% of the frame's height. The shipped pages use 6.2, and
+// at 6.2 in this frame it is about 17%, so matching that shot means roughly
+// halving this. 'rise' goes tighter still, because its subject is a skull
+// coming out of the dirt and not a figure crossing a floor.
+const view = Number(args.view || (route === 'rise' ? 2.6 : 3.2));
 
 // The scene starts the ghost at the world origin and buries the skeleton at
 // world (0.57, 1.98), about two units away, which is already inside its seven
@@ -44,26 +54,47 @@ const scale = (v, k) => ({ x: v.x * k, y: v.y * k });
 // the screen is a ghost you can see the eyes of. Running up the screen shows
 // you a bedsheet.
 //
-// The chase also only reads if the skeleton stays in frame, and the camera
-// follows the GHOST. Full stick is about 4 units a second against the
-// skeleton's top speed of 1.25, so a flat-out run leaves it behind in three
-// seconds and spends the rest of the clip on empty floor. At 0.33 the ghost
-// makes about 1.4 and the gap opens slowly enough to stay a chase.
-const FLEE = 0.33;
+// The chase only reads if the skeleton stays in frame, and the camera follows
+// the GHOST. Full stick is about 4 units a second against the skeleton's top
+// speed of 1.25, so a flat-out run leaves it behind in three seconds and spends
+// the rest of the clip on empty floor. 0.30 puts the ghost at about 1.27, a
+// whisker over the skeleton, so the gap barely opens at all. That matters more
+// at a tight framing than a loose one: at view 3.2 the frame is only 6.4 world
+// units tall, and a gap that grows by two units eats a third of it.
+const FLEE = 0.30;
 
-function scriptedInput(t) {
+function chaseInput(t) {
   if (t < 0.4) return { x: 0, y: 0 };            // a hand breaks the surface
   if (t < 1.1) return scale(TO_SKULL, 0.26);     // curiosity, drifts closer
   if (t < 1.5) return { x: 0, y: 0 };            // the skull comes up
   if (t < 2.4) return scale(AWAY, 0.5);          // and he backs off fast
   if (t < 5.9) return { x: 0, y: 0 };            // watches it climb out and stand
-  if (t < 8.5) return { x: 0.28, y: 0 };         // gives ground, down and right
+  if (t < 8.5) return { x: 0.26, y: 0 };         // gives ground, down and right
   // Then the run, weaving gently. The weave is small on purpose: it swings the
   // ghost's yaw enough to keep the face alive without ever turning it away.
   if (t < 13.0) return { x: FLEE, y: 0.08 };
   if (t < 17.5) return { x: FLEE, y: -0.07 };
   return { x: FLEE, y: 0.05 };
 }
+
+// The climb, close up. The camera tracks the ghost, so the only way to point it
+// at the skeleton is to send the ghost to stand next to it: it closes most of
+// the two unit gap in the first second and then holds still, which puts the
+// hole between the two of them and leaves the ghost in shot watching.
+function riseInput(t) {
+  if (t < 0.15) return { x: 0, y: 0 };
+  // Half a metre closer and no more. The first version pushed for a full
+  // second at 0.6 and covered nearly the whole two unit gap, so the ghost
+  // ended up standing ON the hole and its own body hid the climb.
+  if (t < 0.70) return scale(TO_SKULL, 0.45);
+  // Coasts to a stop rather than braking. Braking meant a burst of input in
+  // the OPPOSITE direction, and the ghost turns to face where it is going, so
+  // the brake spun it round to face away from the thing it had come to watch.
+  if (t < 9.0) return { x: 0, y: 0 };
+  return { x: 0.30, y: 0.06 };                   // then it stands and he leaves
+}
+
+const scriptedInput = route === 'rise' ? riseInput : chaseInput;
 
 const lab = await openLab({
   width,
@@ -78,7 +109,7 @@ await lab.page.evaluate((o) => window.__ghost.setSize(o.w, o.h), { w: width, h: 
 await mkdir(path.dirname(outFile), { recursive: true });
 
 const frames = Math.round(seconds * fps);
-console.log(`${width}x${height} - ${fps}fps - ${seconds}s - ${frames} frames - scene=${sceneMode} view=${view}`);
+console.log(`${width}x${height} - ${fps}fps - ${seconds}s - ${frames} frames - scene=${sceneMode} view=${view} route=${route}`);
 
 const ff = spawn(ffmpegPath, [
   '-y',

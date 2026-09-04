@@ -83,8 +83,8 @@ vec3 flowPoint(float t, float ang) {
   // constant, so AREA times speed is, and the area shrinks as s0/sp. A round
   // stream would pay for that equally on both axes and lose 1/sqrt(sp) of its
   // silhouette; a ribbon does not. It keeps its width and thins front to back,
-  // so `stretch` hands the area loss to the thin axis and the wide axis, which
-  // is the one the camera reads, only narrows by about a third over the fall.
+  // so the stretch term hands the area loss to the thin axis and the wide axis,
+  // which is the one the camera reads, only narrows by about a third.
   // Capped because at the top of a jet's arc the vertical speed passes through
   // zero and an uncapped ratio puts a blob there.
   float area = min(1.45, s0 / sp);
@@ -101,31 +101,45 @@ vec3 flowPoint(float t, float ang) {
   // again so the strand meets the water on a swell and not on a neck.
   float amp = (uBeadAmp * smoothstep(0.32, 0.90, t) + uBreakAmp * smoothstep(0.68, 1.0, t))
             * (1.0 - 0.80 * smoothstep(0.90, 1.0, t));
+  // Beat the amplitude against a slow detuned wave so the beads are not all the
+  // same depth. Without it the chain is a perfect repeat, which reads as a
+  // machined thread rather than as water coming apart.
+  amp *= 0.72 + 0.42 * sin(6.2831853 * uBeadFreq * 0.17 * ph + 1.3);
 
   // A NOTCH, not a sine: a sinusoidal radius makes a chain of pointed spindles.
   // Water necks. It stays full most of the way and pinches hard over a short
-  // stretch, and raising the cosine to a fourth power is what makes the narrow
-  // part narrow and leaves the fat part fat.
+  // stretch, so the pinch is a high power of the cosine and the bead between two
+  // pinches is a low power of its complement: a narrow waist and a round lump,
+  // rather than the flat-topped segments a plain constant gives.
   //
-  // The bead term has to be volume-neutral or it doubles as a taper: `neck`
-  // averages about a fifth over a cycle, so the constant here is set to give
-  // back between the necks roughly what the necks take out, and `amp` can then
-  // ramp all the way up without the mean radius sagging.
-  float neck = pow(0.5 + 0.5 * cos(6.2831853 * uBeadFreq * ph), 4.0);
-  float girth = 1.0 + amp * (0.34 - 1.25 * neck);
-  // A slow swelling and a fine ripple, both running the whole length, so the
-  // edge of the strand is never a straight line even where it is not beading.
+  // The pair has to be volume-neutral or the bead term doubles as a taper, which
+  // is how the last attempt turned its beads into a third taper envelope. Over a
+  // cycle the waist averages 0.3125 and the lump 0.375, so these two coefficients
+  // cancel to within three per cent and the amplitude can ramp all the way up to
+  // the water without the mean width sagging on the way down.
+  float c = 0.5 + 0.5 * cos(6.2831853 * uBeadFreq * ph);
+  float waist = c * c * c;
+  float lump = (1.0 - c) * (1.0 - c);
+  float girth = 1.0 + amp * (0.75 * lump - 1.00 * waist);
+  // Two slow swellings running the whole length, so the strand varies in width
+  // everywhere and not only where it is beading. Both are well BELOW the bead
+  // frequency on purpose: a ripple above it corrugates the strand into a screw
+  // thread, which is the one silhouette worse than an icicle.
   girth += 0.13 * sin(6.2831853 * uBeadFreq * 0.11 * ph + 2.1);
-  girth += 0.05 * sin(6.2831853 * uBeadFreq * 2.3 * ph + 0.6);
+  girth += 0.055 * sin(6.2831853 * uBeadFreq * 0.29 * ph + 0.6);
   girth = max(0.17, girth);
-
-  // The foot, where the stream goes into the pool and spreads. It is wide by
-  // the time it reaches the waterline rather than at the very last ring,
-  // because the last stretch is under the water and nobody sees it.
-  girth *= 1.0 + uFoot * smoothstep(0.86, 0.97, t);
 
   wide *= girth;
   thin *= girth;
+
+  // The foot, where the stream goes into the pool. Water hitting a surface
+  // spreads ACROSS it, so this goes almost entirely into the wide axis rather
+  // than swelling the strand into a knob on a nail. It is at full width by the
+  // waterline rather than at the very last ring, because the last stretch is
+  // under the water and nobody sees it.
+  float foot = uFoot * smoothstep(0.82, 0.965, t);
+  wide *= 1.0 + foot;
+  thin *= 1.0 + 0.55 * foot;
 
   vec3 T = vel / sp;
   vec3 W = normalize(aSide - T * dot(aSide, T));
@@ -167,8 +181,8 @@ function strandGeometry(strands) {
     // the strand went transparent at the one place it had to arrive. What the
     // last stretch does instead is LIGHTEN, because water that has started to
     // come apart is full of air and air is white.
-    const alpha = 0.46 + 0.54 * Math.min(1, t / 0.14);
-    const airy = 1 + 0.30 * Math.max(0, (t - 0.62) / 0.38);
+    const alpha = 0.42 + 0.50 * Math.min(1, t / 0.14);
+    const airy = 1.05 + 0.28 * Math.max(0, (t - 0.62) / 0.38);
     for (let j = 0; j < CROSS; j++) {
       const k = i * CROSS + j;
       aT[k] = t;
@@ -399,27 +413,29 @@ export function createWater({ strands, pools }) {
     // pays: at 1.05 the wide axis narrows by about 1.4 over the whole fall,
     // which is a taper you can see and not one you can name.
     uSheet: { value: 1.05 },
-    uBeadAmp: { value: 0.34 },
+    uBeadAmp: { value: 0.26 },
     uBreakAmp: { value: 0.58 },
     // Beads have to be about as long as the strand is wide, or each one reads
     // as a taper in its own right. At 28 a strand carries a dozen necks, the
     // ones near the bottom about two strand-widths apart.
     uBeadFreq: { value: 28.0 },
-    uFoot: { value: 1.35 },
+    uFoot: { value: 0.58 },
     uWaver: { value: 0.026 },
     // Rings die back quickly on purpose. Nine ring trains crossing a pool is
     // what really happens and it looked like crumpled foil: the eye reads
     // interference as noise, not as water. Damped, each strand keeps its own
     // little halo of rings where it lands and the middle of the pool is calm,
     // which is what the reference asks for and what a pool actually looks like.
-    uRingFreq: { value: 6.5 },
+    uRingFreq: { value: 7.4 },
     uRingSpeed: { value: 1.30 },
-    uDecay: { value: 3.6 },
+    uDecay: { value: 3.0 },
     uSwell: { value: 0.0017 },
     uChop: { value: 0.00055 },
+    uFoam: { value: 0.46 },
+    uFoamTight: { value: 21.0 },
   };
 
-  const strandMat = waterMaterial(0.42, 0.80, true);
+  const strandMat = waterMaterial(0.46, 0.76, true);
   strandMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -472,7 +488,9 @@ ${POOL_UNIFORMS}${POOL_VARYINGS}${POOL_FIELD}`)
     // So the fine rings live here instead, and cost nothing per vertex.
     vec2 g = (poolGradient(vSurf, vPlane) + chopGradient(vSurf)) * vDamp;
     normal = normalize(vAxY - g.x * vAxX - g.y * vAxZ);
-  }`);
+  }`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uFoam * poolFoam(vSurf, vPlane) * vDamp);`);
   };
   poolMat.customProgramCacheKey = () => 'fountain-pool';
 
