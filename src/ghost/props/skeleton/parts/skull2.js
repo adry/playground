@@ -484,9 +484,8 @@ function sculptCage(pos, nrm) {
     // --- the frontal eminences. Two soft bosses on the forehead. Without them
     // the frontal bone reads as a bare ramp off the brow.
     {
-      const f = bump(ell(p, sx * 0.060, 0.268, 0.140, 0.105, 0.085, 0.130));
-      d.z += 0.0075 * f;
-      d.y += 0.0020 * f;
+      const f = bump(ell(p, sx * 0.055, 0.262, 0.152, 0.090, 0.070, 0.115));
+      d.z += 0.0042 * f;
     }
 
     // --- THE BROW. The supraorbital ridge, one arc per side plus the glabella
@@ -1206,10 +1205,10 @@ export function buildSkull({ material }) {
   // between them.
   const HINGE_Y = LY(0.010);                       // condylion
   const HINGE_Z = LZ(-0.030);
-  const CONDYLE_X = PORION_X - 0.016;
-  const GONION_Y = LY(-0.300);
+  const CONDYLE_X = 0.120;
+  const GONION_Y = LY(-0.300);                     // the corner of the jaw
   const GONION_Z = LZ(0.070);
-  const GONION_X = CONDYLE_X + 0.008;
+  const GONION_X = 0.122;
 
   const jaw = new THREE.Object3D();
   jaw.position.set(0, HINGE_Y, HINGE_Z);
@@ -1221,28 +1220,38 @@ export function buildSkull({ material }) {
   jaw.add(jawRoot);
 
   {
-    const CH_Y = Y_CHIN + 0.024;                   // the body's own centreline
+    // The body's own centreline sits half a body-depth above the chin point,
+    // so the section's lower edge lands exactly on M.y.chin.
+    const BODY_TOP = Y_BITE - 0.045 * L;           // the mandible's alveolar margin
+    const CH_Y = (BODY_TOP + Y_CHIN) / 2;
+    const CH_A = (BODY_TOP - Y_CHIN) / 2;
+    // One half of the bone, condyle first, chin last. The other half is this
+    // one mirrored, and the two are spliced without repeating the chin.
     const key = [
       new THREE.Vector3(CONDYLE_X, HINGE_Y, HINGE_Z),
-      new THREE.Vector3(GONION_X, mix(HINGE_Y, GONION_Y, 0.58), mix(HINGE_Z, GONION_Z, 0.34)),
-      new THREE.Vector3(GONION_X, GONION_Y + 0.006, GONION_Z + 0.004),
-      new THREE.Vector3(GONION_X - 0.012, CH_Y - 0.002, GONION_Z + 0.052),
-      new THREE.Vector3(0.0530, CH_Y, 0.1430),
-      new THREE.Vector3(0.0000, CH_Y, 0.1725),
+      new THREE.Vector3(GONION_X - 0.004, mix(HINGE_Y, GONION_Y, 0.62), mix(HINGE_Z, GONION_Z, 0.36)),
+      new THREE.Vector3(GONION_X, GONION_Y + 0.016, GONION_Z + 0.006),
+      new THREE.Vector3(GONION_X - 0.020, CH_Y + 0.004, GONION_Z + 0.058),
+      new THREE.Vector3(0.0700, CH_Y, 0.0700),
+      new THREE.Vector3(0.0490, CH_Y, 0.1350),
+      new THREE.Vector3(0.0000, CH_Y, 0.1690),
     ];
     const pts = [];
-    for (let i = key.length - 1; i >= 1; i--) pts.push(new THREE.Vector3(-key[i].x, key[i].y, key[i].z));
-    for (let i = 0; i < key.length; i++) pts.push(key[key.length - 1 - i]);
+    for (let i = 0; i < key.length; i++) pts.push(new THREE.Vector3(-key[i].x, key[i].y, key[i].z));
+    for (let i = key.length - 2; i >= 0; i--) pts.push(key[i].clone());
     const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
     // t = 0 and 1 are the condyles, t = 0.5 is the chin.
     const sec = (t) => {
       const s = Math.abs(t - 0.5) * 2;             // 0 at the chin, 1 at a condyle
-      // a: the plate's broad axis. b: its thickness, always small.
-      const a = mix(0.0300, 0.0455, smooth(0.30, 0.78, s)) * mix(1, 0.42, smooth(0.90, 1.0, s));
-      const b = mix(0.0165, 0.0115, smooth(0.10, 0.70, s)) * mix(1, 0.72, smooth(0.88, 1.0, s));
+      // a: the plate's broad axis, vertical along the body and front-to-back up
+      // the ramus. b: its thickness, always small.
+      const a = mix(CH_A, CH_A * 0.94, smooth(0, 0.42, s))
+        * mix(1, 1.68, smooth(0.52, 0.80, s))
+        * mix(1, 0.30, smooth(0.90, 1.0, s));
+      const b = mix(0.0158, 0.0118, smooth(0.08, 0.62, s)) * mix(1, 0.68, smooth(0.86, 1.0, s));
       return { a, b, p: 3.4 };
     };
-    const geo = sweepBar((t) => curve.getPoint(t), sec, { steps: 96, radial: 20 });
+    const geo = sweepBar((t) => curve.getPoint(t), sec, { steps: 110, radial: 20 });
     const cols = new Float32Array(geo.attributes.position.count * 3);
     {
       const p = geo.attributes.position.array;
@@ -1266,11 +1275,11 @@ export function buildSkull({ material }) {
 
       const cor = sweepBar(
         (t) => new THREE.Vector3(
-          side * (GONION_X - 0.004 - 0.002 * t),
-          mix(GONION_Y + 0.045, HINGE_Y + 0.004, t),
-          mix(GONION_Z - 0.008, GONION_Z + 0.030, t * t),
+          side * (GONION_X - 0.014 - 0.004 * t),
+          mix(GONION_Y + 0.058, HINGE_Y - 0.010, t),
+          mix(GONION_Z + 0.026, GONION_Z + 0.044, t * t),
         ),
-        (t) => ({ a: mix(0.0150, 0.0055, t), b: mix(0.0110, 0.0048, t), p: 3.0 }),
+        (t) => ({ a: mix(0.0175, 0.0060, smooth(0.2, 1, t)), b: mix(0.0110, 0.0048, t), p: 3.0 }),
         { steps: 16, radial: 12 },
       );
       const cc = new Float32Array(cor.attributes.position.count * 3).fill(0.97);
