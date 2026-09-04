@@ -6,9 +6,32 @@ import { createGround } from '../ghost/ground.js';
 // with ?prop=pumpkin and step it from the capture harness.
 
 const PROPS = {
+  // ?variant= picks one body shape; ?row=1 lays the whole set out so the six
+  // can be judged as a family, which is the thing that actually matters when
+  // adding a variant.
   pumpkin: async () => {
     const m = await import('../ghost/props/pumpkin.js');
-    return m.createPumpkin();
+    if (params.get('row') !== '1') {
+      return m.createPumpkin({ variant: params.get('variant') || 'classic' });
+    }
+    const K = Math.SQRT1_2;
+    const group = new THREE.Group();
+    const parts = [];
+    const list = m.PUMPKIN_VARIANTS ?? ['classic'];
+    let x = 0;
+    for (const v of list) {
+      const p = m.createPumpkin({ variant: v, seed: 3 });
+      p.group.position.set(x * K, 0, -x * K);
+      x += 1.15;
+      group.add(p.group);
+      parts.push(p);
+    }
+    group.position.set((-x / 2) * K, 0, (x / 2) * K);
+    return {
+      group,
+      update: (time, dt) => parts.forEach((p) => p.update?.(time, dt)),
+      dispose: () => parts.forEach((p) => p.dispose?.()),
+    };
   },
   skeleton: async () => {
     const m = await import('../ghost/props/skeleton/model.js');

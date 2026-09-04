@@ -772,6 +772,12 @@ export function buildLower({ material }) {
 // BACK and it is the sacrum's, which reaches to z = -0.139 where this part
 // stops at -0.106.
 //
+// THE FOOT, for whoever owns M.leg next. It is built against three budgets and
+// hits all three: length 0.354 of M.leg.foot's 0.355, width 0.145 of
+// M.leg.footWidth's 0.150, and the ankle a quarter of the way back along it.
+// The one number with no slack in it is the sole, which measures exactly
+// 0.000000 and has to: the assembler does not correct for it.
+//
 // Nothing is exported for any of this. PARTS.md says this module exports
 // buildLower and nothing else, and a number in a comment cannot drift out of
 // sync with a build the way a second export can.
