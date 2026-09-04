@@ -184,18 +184,20 @@ function inkCross(ctx, cx, cy, h) {
 // then the end point.
 const BAT_TOP = [0, -0.222]; // middle of the head's flat top, on the mirror line
 const BAT_HALF = [
-  // The ears are the one place this departs from the trace. The reference's are
-  // needle thin, and at scene scale they are narrower than the blur that gives
-  // the groove its walls, so they came out as a single nub with a crack in it.
-  // Widened by a third at the base and lengthened a little; everything else is
-  // the reference's own geometry.
-  [0.013, -0.222, 0.027, -0.222, 0.040, -0.222], // flat top of the head
-  [0.058, -0.270, 0.077, -0.317, 0.095, -0.365], // inner edge of the ear, dead straight
-  [0.113, -0.286, 0.132, -0.207, 0.150, -0.128], // outer edge, down to the shoulder
+  // The ears are the one place this departs from the trace, and it is a
+  // legibility fix, not a taste one. The reference's are needle thin and set
+  // close; carved, the groove wall blur is wider than the ridge of stone left
+  // standing between them, so they came out as a single nub with a crack in it.
+  // Here they are set further apart, widened at the base and run up to just
+  // under the wingtips, which is as far as the reference allows. Everything
+  // outboard of the shoulder is the reference's own geometry.
+  [0.018, -0.222, 0.037, -0.222, 0.055, -0.222], // flat top of the head
+  [0.072, -0.284, 0.088, -0.346, 0.105, -0.408], // inner edge of the ear, dead straight
+  [0.123, -0.315, 0.142, -0.221, 0.160, -0.128], // outer edge, down to the shoulder
   // The crescent. It leaves the shoulder level and climbs barely a twelfth of a
   // span over two thirds of its length, which is what makes the hook at the end
   // of it read as a hook.
-  [0.240, -0.128, 0.380, -0.157, 0.459, -0.199],
+  [0.250, -0.128, 0.380, -0.157, 0.459, -0.199],
   // The hook: out to its widest at x 0.53, then back inward and up to the tip.
   // The tip overhangs the curve below it, so this segment reverses in x.
   [0.560, -0.248, 0.532, -0.338, 0.478, -0.433],

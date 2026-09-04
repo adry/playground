@@ -822,8 +822,8 @@ export function createSkeletonRig({ scale = 1 } = {}) {
       ),
       spineUpper,
     );
-    blade.position.set(side * 0.150, 0.272, -0.164);
-    blade.rotation.set(0.20, side * 0.62, side * 0.20);
+    blade.position.set(side * 0.148, 0.250, -0.160);
+    blade.rotation.set(0.12, side * 0.44, side * 0.30);
   }
 
   // --- Arms ----------------------------------------------------------------
