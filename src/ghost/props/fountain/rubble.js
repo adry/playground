@@ -33,11 +33,20 @@ function fluting(theta, depth = FLUTE_DEPTH) {
 
 // A snapped face. Low-frequency wander only: the house style has no faceting
 // in it, so a break in this material is an uneven lump, not a fracture plane.
-function breakSurface(theta, rng3) {
+//
+// It takes the position along the run as well as the angle, and that is not
+// decoration. A break shaped by angle alone is constant along every radius, so
+// on the flat end of a drum it comes out as a set of ridges converging on the
+// centre -- a pinwheel, which is the one thing a snapped face never looks like.
+// Twisting the angle with the radius and adding one radial wave turns it into a
+// lumpy surface.
+function breakSurface(theta, u, ph) {
+  const a = theta + 2.2 * u;
   return (
-    0.34 * Math.sin(3 * theta + rng3[0]) +
-    0.22 * Math.sin(5 * theta + rng3[1]) +
-    0.14 * Math.sin(8 * theta + rng3[2])
+    0.34 * Math.sin(3 * a + ph[0]) +
+    0.22 * Math.sin(5 * a + ph[1]) +
+    0.14 * Math.sin(8 * a + ph[2]) +
+    0.30 * Math.sin(7.5 * u + ph[0] * 0.7)
   );
 }
 
@@ -112,7 +121,7 @@ export function createBrokenColumn({ seed = 1, scale = 1 } = {}) {
         dr += fluting(theta) * smoothstep(0.0, 0.10, s.u);
       } else if (s.tag === 'break') {
         dr += fluting(theta) * (1 - smoothstep(0.0, 0.5, s.u));
-        const b = breakSurface(theta, phase);
+        const b = breakSurface(theta, s.u, phase);
         dy += 0.034 * b * smoothstep(0.0, 0.22, s.u);
         dr += 0.013 * b * (1 - smoothstep(0.35, 1.0, s.u));
       }
@@ -171,11 +180,11 @@ export function createFallenDrum({ seed = 1, scale = 1 } = {}) {
       if (s.tag === 'shaft') dr += fluting(theta);
       if (s.tag === 'endA') {
         dr += fluting(theta) * smoothstep(0.55, 1.0, s.u);
-        dy += 0.026 * breakSurface(theta, phaseA) * (1 - smoothstep(0.35, 1.0, s.u));
+        dy += 0.026 * breakSurface(theta, s.u, phaseA) * (1 - smoothstep(0.35, 1.0, s.u));
       }
       if (s.tag === 'endB') {
         dr += fluting(theta) * (1 - smoothstep(0.0, 0.45, s.u));
-        dy -= 0.026 * breakSurface(theta, phaseB) * smoothstep(0.0, 0.6, s.u);
+        dy -= 0.026 * breakSurface(theta, s.u, phaseB) * smoothstep(0.0, 0.6, s.u);
       }
       return [dr, dy];
     },

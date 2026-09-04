@@ -109,11 +109,22 @@ scene.add(key.target);
 // short. Swinging the key to the screen's upper left throws every shadow down
 // and to the right into open floor, which is the conventional isometric setup
 // and makes each one far more visible: the user looked at both and preferred
-// this, because the alternative put too much shadow in the frame. Keep it.
+// this, because the alternative put too much shadow in the frame. Do not swing
+// it back.
+//
+// x has since gone 3.2 to 3.7, on a later request for "a tiny bit more shadow
+// towards the left". Worth knowing exactly what that knob does, since the
+// obvious guess is the wrong one. A shadow runs opposite the light's HORIZONTAL
+// direction, and screen-right is (x - z) / sqrt(2), so a shadow's sideways
+// travel is (z - x) / sqrt(2): pushing it further left means raising x or
+// lowering z, and raising z, which feels like "more from the right", moves
+// shadows back toward centre instead. This takes the sideways component from
+// -0.57 to -0.92. Raising x also drops the sun's elevation from 56.3 to 53.7
+// degrees, which lengthens every shadow slightly, and that was wanted too.
 //
 // Note that this is separate from the shadow camera's coverage. That was a
 // real bug and its fix stands whichever way the light points.
-const LIGHT_DIR = new THREE.Vector3(3.2, 6.0, 2.4).normalize();
+const LIGHT_DIR = new THREE.Vector3(3.7, 6.0, 2.4).normalize();
 const LIGHT_DIST = 26;
 const LIGHT_OFFSET = LIGHT_DIR.clone().multiplyScalar(LIGHT_DIST);
 // Tall enough to hold the skeleton, which stands 2.5.
@@ -464,22 +475,6 @@ function tick(now) {
 // input, so cloth behaviour can be checked without a human at the keyboard.
 
 window.__ghost = {
-  // TEMP DIAGNOSTIC
-  __scene: scene,
-  __ghostObj: ghost,
-  __props: props,
-  // TEMP: advance the sim without rendering, so a capture can walk the ghost
-  // somewhere in a fraction of the time a rendered walk costs on a CPU raster.
-  __quiet(dt, axis, n = 1) {
-    for (let i = 0; i < n; i++) {
-      sceneTime += dt;
-      ghost.update(dt, { x: axis?.x ?? 0, y: axis?.y ?? 0, jump: !!axis?.jump });
-      for (const prop of props) prop.update?.(sceneTime, dt);
-      for (const g of gateProps) g.update(dt);
-      follow(dt);
-    }
-  },
-  __render() { renderer.render(scene, camera); },
   // Shadow coverage is invisible until something stops casting, and then it is
   // hard to tell a frustum miss from a lighting bug. This reports the fitted
   // box and whether a given world point would land inside it.

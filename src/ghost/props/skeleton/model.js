@@ -5,7 +5,6 @@ import { buildSkull } from './parts/skull.js';
 import { buildAxial } from './parts/axial.js';
 import { buildArm } from './parts/arms.js';
 import { buildLower } from './parts/legs.js';
-import { contactShadow } from '../style.js';
 
 // The assembler. It owns no geometry of its own: the four part modules build
 // the bones, and this file parents them together and publishes the flat joint
@@ -92,16 +91,19 @@ export function createSkeletonRig({ scale = 1 } = {}) {
 
   group.updateMatrixWorld(true);
 
-  // A standing figure touches the ground at two feet, so the contact is two
-  // patches under the ankles rather than one pool the size of the body.
-  const here = new THREE.Vector3();
-  const contacts = ['ankleL', 'ankleR'].map((name) => {
-    joints[name].getWorldPosition(here);
-    const patch = contactShadow({ radius: M.leg.foot * 0.66, opacity: 0.32, softness: 0.6 });
-    patch.position.set(here.x, 0.004, here.z);
-    group.add(patch);
-    return patch;
-  });
+  // NO fake contact patches under the feet. There used to be two, a soft dark
+  // disc under each ankle, and the user's word for them was that they looked
+  // unnatural, which they were: a flat decal is identical from every direction,
+  // so it darkens the ground on the LIT side of the foot exactly as much as on
+  // the shadowed side, and it slides out from under a foot that lifts. Every
+  // mesh in this figure already casts a real shadow from the key light, and
+  // that shadow knows which way the sun is. This is the third prop in the scene
+  // to lose its contact decal for the same reason, after the tombstones and the
+  // pumpkins.
+  //
+  // The empty array is left published because perform.js reads it and treats
+  // "no patches" as nothing to do.
+  const contacts = [];
   group.userData.contactShadow = contacts;
 
   group.traverse((o) => {

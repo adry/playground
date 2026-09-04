@@ -517,8 +517,34 @@ export function createSkeletonPerformance({
   // The climb. Everything below reads the tracks above and hands them to the
   // springs; the tremor is added after the springs, because a spring would
   // swallow it.
+  // Real seconds since the phase began, mapped onto the tables' own time.
+  //
+  // The tables were authored at a pace the user found too slow to start: the
+  // pitch track holds flat for its first 0.9, so for nearly a second after the
+  // wake there is a hand out of the ground and nothing happening. Rather than
+  // re-time fifteen hand-tuned tracks and lose the relationships between them,
+  // the whole climb is time-warped: the opening runs at 2.7x and the rest at
+  // 1.2x, so the dead hold becomes about a third of a second and the climb
+  // finishes in 3.4s instead of 5.2s.
+  //
+  // Every threshold in stepEmerge is quoted in TABLE time, which is why the
+  // warp is applied once here rather than at each track() call: the shed beats,
+  // the hand grabs and the leg blend all keep their places in the choreography.
+  // The springs and the hand solver still run on real dt, so a faster target
+  // just means they lag further behind it, which reads as more effort and not
+  // as a fast-forward.
+  const WARP = [[0, 0], [0.6, 1.6], [3.4, EMERGE_END]];
+  function emergeTime(real) {
+    for (let i = 1; i < WARP.length; i++) {
+      const [r0, t0] = WARP[i - 1];
+      const [r1, t1] = WARP[i];
+      if (real <= r1) return t0 + (t1 - t0) * ((real - r0) / (r1 - r0));
+    }
+    return EMERGE_END + (real - WARP[WARP.length - 1][0]);
+  }
+
   function stepEmerge(dt, ghost) {
-    const t = phaseTime;
+    const t = emergeTime(phaseTime);
     poseCrawl(t);
     strain = track(CRAWL.strain, t);
     chatter = 0.25 * strain;

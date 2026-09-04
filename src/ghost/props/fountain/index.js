@@ -12,17 +12,17 @@ export { createBrokenColumn, createFallenDrum, createMarbleChips } from './rubbl
 // graveyard set. Same contract as every other prop here: a group, an update,
 // and a dispose.
 //
-// The stone is one lathe -- see body.js -- and the water is two meshes, see
-// water.js. Four draw calls in total, and the broken marble the reference shows
-// around the foot of the fountain is deliberately NOT part of this: it lives in
-// rubble.js as three separate pieces so a scene can scatter them where it wants
-// rather than inherit a fixed arrangement welded to the fountain.
+// The stone is one lathe, see body.js, and the water is two meshes, see
+// water.js: three draw calls in total. The broken marble the reference shows
+// around the foot of the fountain is deliberately NOT part of this. It lives in
+// rubble.js as three separate pieces so a scene can scatter them where it
+// wants, rather than inherit a fixed arrangement welded to the fountain.
 
 // Where the water leaves each lip, and how fast. Exit speed is small: the
 // strands should be pulled out of the bowl by gravity rather than fired, and it
 // is the ratio between this and the speed on landing that does all the work in
-// water.js. A tenth of a unit per second of outward drift is what keeps a
-// strand clear of the bowl it just left.
+// water.js. The small outward drift is what keeps a strand clear of the bowl it
+// just left instead of running back down its underside.
 const SPILL = { speed: 0.42, out: 0.055 };
 
 // How far past the surface a strand is flown before it stops. A strand that
@@ -44,18 +44,22 @@ function strandsFor({ profile, displace, rng, tag, count, phase, target, rLip, f
     const speed = SPILL.speed * (0.93 + rng() * 0.14);
     const cos = Math.cos(theta);
     const sin = Math.sin(theta);
+    const tau = flightTime(y, -speed, target.y - PIERCE);
     out.push({
       origin: new THREE.Vector3(lip.r * cos, y, lip.r * sin),
       vel: new THREE.Vector3(SPILL.out * cos, -speed, SPILL.out * sin),
+      // Perpendicular to the plane the strand falls in, which is the axis the
+      // ribbon's wide direction lies along. water.js re-squares it against the
+      // flow, so it only has to be roughly right.
       side: new THREE.Vector3(-sin, 0, cos),
-      tau: flightTime(y, -speed, target.y - PIERCE),
+      tau,
+      // Seeded jitter on the thickness and the phase only. Jittering the flight
+      // time would land the strand off the water.
       rLip: rLip * (0.88 + rng() * 0.24),
       seed: rng() * 3.0,
       flatten,
-      landing: 0,
+      landing: lip.r + SPILL.out * tau,
     });
-    const s = out[out.length - 1];
-    s.landing = lip.r + SPILL.out * s.tau;
   }
   return out;
 }

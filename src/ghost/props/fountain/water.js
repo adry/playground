@@ -92,8 +92,8 @@ vec3 flowPoint(float t, float ang) {
   // strand ends on a needle point hanging over the water.
   r *= 1.0 + 0.85 * smoothstep(0.93, 1.0, t);
 
-  // a ribbon at the lip, pulled round by surface tension on the way down
-  // named ribbon because flat is a reserved word in GLSL
+  // A ribbon at the lip, pulled round by surface tension on the way down. It
+  // is called ribbon rather than flat because flat is a GLSL keyword.
   float ribbon = aShape.w * (1.0 - smoothstep(0.0, 0.70, t));
   float wide = r * (1.0 + ribbon);
   float thin = r * (1.0 - 0.70 * ribbon);
@@ -355,7 +355,7 @@ export function createWater({ strands, pools }) {
     uChop: { value: 0.00055 },
   };
 
-  const strandMat = waterMaterial(0.42, 0.76, true);
+  const strandMat = waterMaterial(0.42, 0.80, true);
   strandMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
