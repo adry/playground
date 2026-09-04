@@ -72,10 +72,10 @@ const URN_SCALE = 1.18;
 //
 // Cloth on a vinyl toy is a few soft folds and a rolled hem, not a simulation.
 // So the drape is not a sheet: it is the difference between the urn and a
-// second, fuller outline hung outside it. Where the urn's neck pinches in, that
-// difference is thick, which is exactly how real cloth behaves, it bridges the
-// hollow instead of following it. Where the belly swells out, the difference
-// thins to a skin. One outline drives both.
+// second, fuller outline hung outside it, and one table of knots drives the
+// whole thing. Everything else here, the folds, the scalloped hem, the corner
+// that hangs free, is an angular modulation of that difference, which is what
+// the fountain's lathe already takes a hook for.
 //
 // (r, y) knots of that outer outline, bottom of the cloth to top. Above the
 // last knot there is no cloth. Over the lid the cloth only turned the lid into
@@ -113,16 +113,17 @@ const DRAPE = {
   foldEnd: 0.360,
   // Where the hem sits. It is written as a TUCK LINE up on the shoulder and a
   // fall below it, and the fall is scaled by the same fade that thins the cloth
-  // at its ends. Written the other way round -- a hem height with a tilt added
-  // -- the cloth's two ends finished low on the belly exactly where the fade was
-  // taking their thickness to nothing, and a hanging edge with no thickness left
-  // in it pinched into a spiky wing with creases in it. Tied to the fade, the
-  // ends always tuck back up under the shoulder and there is nothing to pinch.
+  // at its ends. Written the other way round, as a hem height with a tilt added
+  // to it, the cloth's two ends finished low on the belly exactly where the fade
+  // was taking their thickness to nothing, and a hanging edge with no thickness
+  // left in it pinched into a spiky wing with creases in it. Tied to the fade,
+  // the ends always tuck back up under the shoulder and nothing can pinch.
   tuck: 0.350,
   fall: 0.070,
-  hemWave: 0.030, // ridges hang lower than the hollows between them. Small: at
-                  // the amplitude that looks right up close, three scallops
-                  // across the front read from a distance as a painted zigzag.
+  // Ridges hang lower than the hollows between them, which is what scallops the
+  // hem. Worth keeping modest: pushed past about 0.04 the three scallops across
+  // the front stop reading as cloth and start reading as a painted zigzag.
+  hemWave: 0.030,
   hemTilt: 0.055, // and the whole hem falls further on one side than the other
   // The free edge of the cloth. Not a ramp and not a cliff: both were tried and
   // both failed, the ramp as a smudge and the cliff as a crack in the pot with
@@ -131,10 +132,10 @@ const DRAPE = {
   // bead catching the key light above its own shadow that says "cloth".
   roll: 0.045,
   bead: 0.22,
-  // The one corner of cloth that hangs free, down past the belly and over the
-  // stem. This is the feature that makes the piece read as draped rather than
-  // as a pot with a lumpy shoulder: it is the only place the cloth's edge
-  // crosses the urn's own silhouette instead of running along it.
+  // The one corner of cloth that hangs free, down past the swell of the belly.
+  // This is what makes the piece read as draped rather than as a pot with a
+  // lumpy shoulder: it is the only place the cloth's edge crosses the urn's own
+  // silhouette instead of running along it.
   tailAt: -0.45,
   tailWidth: 0.30,
   tailDrop: 0.085,

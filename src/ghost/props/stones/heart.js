@@ -69,7 +69,7 @@ import { registerStone, inkText } from '../tombstones.js';
 // reads as a cut-out card. The face comes out at 0.84 of its own height, near
 // enough fred's 0.78, so it is 858 texels wide against his 797 and the engraving
 // treatment is working at the size it was tuned at.
-const SHAPE = { halfWidth: 0.31, height: 0.74, depth: 0.23, plinth: 0.13 };
+const SHAPE = { halfWidth: 0.31, height: 0.735, depth: 0.23, plinth: 0.13 };
 
 // The heart, as fractions of the half width so the shape survives a resize.
 // `lobe` is each lobe's radius, `shoulder` the cove it flares out of, `flare`
@@ -77,7 +77,7 @@ const SHAPE = { halfWidth: 0.31, height: 0.74, depth: 0.23, plinth: 0.13 };
 // sets the overhang, and `valley` the fillet radius of the dip between them.
 // `lopsided` and `tilt` are the hand-cut part: one lobe larger, and the smaller
 // one flaring less so it sits lower, which puts the valley off centre.
-const HEART = { lobe: 0.42, shoulder: 0.1875, flare: 42, valley: 0.359, lopsided: 0.05, tilt: 0.05 };
+const HEART = { lobe: 0.526, shoulder: 0.1875, flare: 30, valley: 0.194, lopsided: 0.05, tilt: 0.05 };
 
 // How far the crown sinks into the slab. Only has to bury the slab's top edge
 // rounding and the joint; the rest is margin.

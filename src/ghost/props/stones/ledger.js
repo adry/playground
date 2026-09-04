@@ -76,7 +76,7 @@ function lowestVertex(geometry, matrix) {
 }
 
 function drawLedgerCross(ctx, w, h) {
-  // Measured, not guessed: this comes out at 9.3% of the face against 3.6, 6.3
+  // Measured, not guessed: this comes out at 9.2% of the face against 3.6, 6.3
   // and 9.1 for the approved cross, FRED and bat. Top of the set's band and no
   // further, which is where a mark seen at 37 degrees rather than head on
   // belongs, and a long way under the 12 to 19 that got the last set rejected.

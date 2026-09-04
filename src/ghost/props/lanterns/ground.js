@@ -673,9 +673,14 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
     const y0 = H.glassLo + 0.012;
     const y1 = H.glassHi - 0.012;
     const r0 = R.glass * 0.85 + 0.012;
-    // A barrel of six thousandths over eighteen hundredths. Almost nothing, and
-    // it is the difference between a pane and a slab: the highlight travels
-    // across the flat as the camera moves instead of switching on and off.
+    // The barrel, and it is load-bearing rather than decorative. Fourteen
+    // thousandths over a hundred and fifty four is a slope of about sixteen
+    // degrees at the ends, which tilts the lower half of every pane far enough
+    // up that its reflected ray clears the horizon and finds the pale band of
+    // the sky instead of the grey one. That is where the cool-to-warm gradient
+    // down each pane comes from. It also means the highlight travels across the
+    // flat as the camera moves instead of switching on and off. At the six
+    // thousandths this started at, both effects were below the noise.
     glassProfile.curve((t) => ({
       r: r0 + R.bulge * Math.sin(Math.PI * t),
       y: y0 + (y1 - y0) * t,
@@ -700,7 +705,11 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
   const glassUniforms = {
     // The scene's backdrop is #b9bec7 and its floor #8f949e, so a reflection
     // that leaves the pane going up finds the first and one going down finds
-    // the second. Linear, because this is composited before tone mapping.
+    // the second. The fountain's own three, except for the bottom band: that is
+    // lifted from the literal floor colour, because a vertical pane's whole
+    // reflection lives in that band (see uRimGain) and a pane that reflects the
+    // floor exactly reads as a hole in the lantern rather than as glass over
+    // it. Linear, because this is composited before tone mapping.
     uSkyHi: { value: new THREE.Color('#d6def0').convertSRGBToLinear() },
     uSkyMid: { value: new THREE.Color('#c4ccda').convertSRGBToLinear() },
     uSkyLo: { value: new THREE.Color('#9aa3b0').convertSRGBToLinear() },
@@ -730,6 +739,15 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
     // sheen and the cool-to-warm gradient across each pane while the flame
     // still shows through.
     uRimGain: { value: 9.0 },
+    // The key's own lobe, and it is broad where the fountain's is tight (42
+    // against 190) for a reason worth writing down. A rippled pool has facets
+    // pointing everywhere, so a tight lobe breaks into glitter; a pane is one
+    // flat, so a tight lobe either fires across the whole pane or, far more
+    // often, not at all. With the key fifty-three degrees up and the panes
+    // vertical, the half vector never comes within thirty degrees of a pane's
+    // normal, so what this lobe actually lights is the barrel's shoulders and
+    // the rounded edges where the glazing tucks under the rails: a soft band
+    // rather than a spot, which is what curved glass does.
     uGlint: { value: 1.7 },
     uShine: { value: 42.0 },
     // How much of what is behind the pane the pane hides, face on.
