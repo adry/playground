@@ -61,11 +61,11 @@ const A = {
   radialHeadBulb: f(0.0066),
   styloidBulb: f(0.0062),
 
-  // How far apart the radius and the ulna run at mid-shaft, centre to centre.
-  // At f(0.0125) the two bones leave a gap of about a third of their own width,
-  // which is enough that the pair reads as two bones at prop size. Tried
-  // f(0.008) first and the forearm went back to looking like a single tube with
-  // a scratch down it.
+  // How far apart the radius and the ulna run, centre to centre, at the widest
+  // point of the lens. At f(0.0125) the two bones leave a gap of about a third
+  // of their own width, which is enough that the pair reads as two bones at
+  // prop size. Tried f(0.008) first and the forearm went back to looking like a
+  // single tube with a scratch down it.
   foreSplit: f(0.0125),
 
   // Scapula. It is the biggest single piece of the girdle and the previous
