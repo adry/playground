@@ -40,24 +40,27 @@ import { PALETTE, toyMaterial } from '../style.js';
 //    floor, carrying their grain in colour only. A flat up-facing surface takes
 //    exactly the light the floor takes, so its tone is decided by its own
 //    colour and nothing else, which is the whole reason this survives where a
-//    mound could not: measured, the bed reads 160 against the floor's 145 and
-//    the kerb's lit top at 187, so it sits between its frame and the turf
-//    rather than as a hole in either. The only relief inside the kerb is the
-//    kerb's own shadow falling across it.
+//    mound could not. Measured off a render: floor 152 and cool, bed 158 to 164
+//    and warm, kerb top 169. The bed sits in the step between the turf it lies
+//    in and the frame around it, which is what a filled plot looks like and
+//    what no mound at this size could be made to look like. The only relief
+//    inside the kerb is the kerb's own shadow falling across it.
 
 // --- the plot ---------------------------------------------------------------
 //
-// 2.15 by 0.95, which is a real grave plot and by a distance the largest
-// footprint in the set. The length is a shade over the nominal two because of
-// what this camera does to it: the plot points at the viewer, so its length is
-// foreshortened to 48% while its width is not, and a true 2 by 1 comes out
-// almost square on screen. At 2.15 the interior reads about 1.6 to 1 in the
-// frame, which is enough to say "plot" rather than "tray".
+// 2.35 by 0.90, which is a real grave plot and by a distance the largest
+// footprint in the set. The length is over the nominal two because of what this
+// camera does to it: the plot points at the viewer, so its length projects at
+// 48% while its width projects whole, and a true 2 by 1 comes out very nearly
+// square on screen. That is measured, not felt: the first pass was 1.90 by 1.02
+// and rendered as a tray. At 2.35 by 0.90 the interior lands 1.55 to 1 in the
+// frame, which is the ratio that says "plot".
 //
 // Checked at the scene's own 6.2 view half-height and not only in close-up,
 // because that is the framing where a footprint either lays the ground out or
-// swallows it. It lands about a sixth of the frame's height: it claims ground,
-// it does not take over.
+// swallows it. The frame is 12.4 units tall there and the plot's length
+// projects to 1.14 of them, under a tenth, and less on screen than the cross
+// stone is tall. It claims ground; it does not take over.
 const PLOT_L = 2.35; // head to foot, along +z, out toward the viewer
 const PLOT_W = 0.90;
 const BAR_W = 0.18; // side and foot kerb, seen from above
@@ -69,19 +72,22 @@ const BAR_H = 0.15; // and standing proud of the turf
 // stone balanced on it rather than as a stone set on a base.
 const HEAD_D = 0.44;
 const HEAD_H = 0.175;
-// Bedded, not placed on top. It also buys the piece its tolerance: the registry
-// applies a seeded lean AFTER extras runs, and across a 2.15 footprint a lean of
-// 0.03 radians lifts the foot end by 6 cm. Sunk this far the foot is still in
-// the ground at the worst draw, and the near-far difference in how deep the
-// kerb sits reads as a century of settling.
-const SINK = 0.05;
+// Bedded, not placed on top. This is also the number that keeps the piece on
+// the ground at all, and it is measured rather than guessed. The registry
+// applies a seeded lean AFTER extras runs and there is no way to see the draw
+// it will make, so a footprint 2.35 long has to survive the worst of it: a
+// rotation.x of 0.032 lifts the foot end by 7 cm. Walked vertex by vertex under
+// the world matrix over eight seeds, the shallowest foot corner sits 13 mm
+// under the floor at 0.056 and 7 mm at 0.05, so nothing floats and the near-far
+// difference in how deep the kerb sits reads as a century of settling. Do not
+// take it back up without re-running that check.
+const SINK = 0.056;
 // How far the rails run into their neighbours. Two rounded bars merely touching
 // leave a crack of floor showing at the joint the moment the lean tips them.
 const LAP = 0.035;
-// The bed laps further, and it has to: its own corners are rounded like
-// everything else here, and a corner radius wider than the lap leaves a wedge
-// of bare floor showing INSIDE the frame at each corner. So the lap is set
-// past the radius and the rounding is spent entirely under the kerb.
+// The bed laps further than the bars do, and its plan corners are rounded by
+// less than it laps, so the whole of that rounding is spent underneath the kerb
+// and the bed's edge is square where anyone can see it.
 const BED_LAP = 0.075;
 const BED_R = 0.055;
 
@@ -104,9 +110,9 @@ const BED_TOP = 0.045;
 const BED_H = 0.075;
 
 registerStone('kerb', {
-  // The smallest tablet in the set on purpose: 0.83 of its own plus the height
-  // of the head kerb it stands on, against 1.56 for the cross. That is the
-  // proportion a kerb set really has. The face is 0.60 by 0.70, so the
+  // The smallest tablet in the set on purpose: 0.91 to the crown once it is up
+  // on the head kerb, against 1.56 for the cross. That is the proportion a kerb
+  // set really has, and the identity of this piece is on the ground anyway. The face is 0.60 by 0.70, so the
   // inscription canvas comes out 878 px wide, well clear of the 500 px floor
   // the engraving treatment needs.
   shape: { halfWidth: 0.30, height: 0.70, depth: 0.18, plinth: 0.13 },
@@ -211,7 +217,7 @@ registerStone('kerb', {
     // the shared stone rather than invented, so it cannot drift away from the
     // set: the same stone, a shade darker and dustier, which is what a bed of
     // broken-up stone is.
-    const bedColour = material.color.clone().multiplyScalar(0.90).lerp(new THREE.Color(PALETTE.stoneEngrave), 0.10);
+    const bedColour = material.color.clone().multiplyScalar(0.94).lerp(new THREE.Color(PALETTE.stoneEngrave), 0.06);
     const grain = chippingTexture();
     const bedMaterial = toyMaterial(bedColour, { map: grain, roughness: 0.95 });
     disposables.push(bedMaterial);

@@ -71,11 +71,18 @@ const INNER_FILLET = 0.008;
 //
 // `burn` is how far down the stub has gone as a fraction of the jar's inside
 // depth, and it is the one number that changes what each jar LOOKS like rather
-// than where it is. At 0.82 the flame stands clear above the rim and the jar is
-// a candle in a glass; at 0.34 the flame is down at the bottom and you get the
-// votive, a jar that is simply a warm brick with a bright floor. Having all
-// three in one cluster is most of what stops the group reading as one object
-// stamped out three times.
+// than where it is: how much wax you see through the glass, and how far the
+// flame stands above the rim.
+//
+// It also has a floor, found the hard way. The first pass ran it from 0.34 to
+// 0.82 for variety, which put two of the three flames entirely BELOW their own
+// rims. That is what a real votive does and it looks wrong here: seen from this
+// camera's thirty degrees, a flame below the rim is visible over the near lip
+// only while it is tall, so every gutter reads as the candle going OUT and then
+// relighting a second later. Every lit stub is now burnt to where its flame's
+// tip clears the rim by four to nine thousandths at rest, so a gutter shortens
+// a flame the eye can still see. The spent one in the tipped jar is the only
+// one left low.
 // The positions are laid out in SCREEN space and converted, not chosen in x and
 // z. The scene is shot from a fixed isometric-ish angle, so the ground's screen
 // right is (1, 0, -1) and its screen up is -(1, 0, 1): four jars picked as four
@@ -84,8 +91,8 @@ const INNER_FILLET = 0.008;
 // jar's mouth points, and it is set across the view rather than along it for
 // the same reason: a jar lying on its side pointing at the camera is a circle.
 const JARS = [
-  { x: -0.070, z:  0.050, rOut: 0.062, hgt: 0.100, roll: 0.0105, burn: 0.55, lit: true },
-  { x:  0.076, z:  0.031, rOut: 0.054, hgt: 0.084, roll: 0.0095, burn: 0.62, lit: true },
+  { x: -0.070, z:  0.050, rOut: 0.062, hgt: 0.100, roll: 0.0105, burn: 0.72, lit: true },
+  { x:  0.076, z:  0.031, rOut: 0.054, hgt: 0.084, roll: 0.0095, burn: 0.68, lit: true },
   { x:  0.028, z: -0.098, rOut: 0.072, hgt: 0.118, roll: 0.0115, burn: 0.82, lit: true },
   { x: -0.058, z:  0.163, rOut: 0.051, hgt: 0.086, roll: 0.0095, burn: 0.26, lit: false, tipped: true, lie: 2.10 },
 ];

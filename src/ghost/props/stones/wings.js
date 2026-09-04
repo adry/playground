@@ -71,7 +71,7 @@ import { registerStone, buildArcSweepGeometry, inkText } from '../tombstones.js'
 // shaft to be wider than, and the postmortem's first rule is that a grave
 // marker reads by its vertical. The face works out 627 by 1024 texels, which is
 // dead centre of the 528 to 638 the engraving treatment was calibrated on.
-const SHAPE = { halfWidth: 0.30, height: 0.96, depth: 0.28, plinth: 0.18 };
+const SHAPE = { halfWidth: 0.30, height: 0.94, depth: 0.28, plinth: 0.18 };
 
 // How far the crown sinks into the slab. Only has to bury the slab's top edge
 // rounding and the joint; the rest is margin.
@@ -80,30 +80,35 @@ const CROWN_SINK = 0.22;
 // The central boss: the roundel where the skull would be. Its circle reaches
 // well below the top of the slab, so it is a dome standing out of the stone
 // rather than a ball balanced on it.
-const BOSS = { r: 0.17, y: 1.18 };
+const BOSS = { r: 0.16, y: 1.18 };
 
 const WING = {
   cove: 0.09, // the shoulder cove the wing flares out of
   // Where on the shaft the wings spring from. Below the slab's own shoulder, so
-  // the crown swallows the slab's top corners and the shaft appears to run up
-  // between the wings rather than stopping under them.
+  // the crown swallows the slab's top corners and the shaft runs up into the
+  // wings rather than stopping under them.
   spring: 0.84,
   // How far round the cove the wing is carried, in degrees. It is also the
   // angle the underside leaves the shaft at, measured off vertical, so a small
   // value grows the wing straight up the side and 90 sends it out flat.
-  flare: 55,
-  // The three lobes, inner to outer. The first is placed by its tangency with
-  // the cove; each of the others sits `step` from the one before, `rake` degrees
-  // above horizontal. The rake steepens down the wing, so the wing goes OUT
-  // first and UP after, which is what keeps a wing this long inside a 1.20 span
-  // and puts the lift at the tip where the eye reads it.
+  flare: 58,
+  // The lobes of the underside, inner to outer, the last of them the wingtip.
+  // The first is placed by its tangency with the cove; each of the others sits
+  // `step` from the one before, `rake` degrees above horizontal. The rake
+  // steepens down the wing, so the wing goes OUT first and UP after, which is
+  // what puts the lift at the tip where the eye reads it.
   lobes: [
-    { r: 0.115 },
-    { r: 0.105, step: 0.155, rake: 18 },
-    { r: 0.095, step: 0.150, rake: 55 },
+    { r: 0.110 },
+    { r: 0.105, step: 0.175, rake: 16 },
+    { r: 0.095, step: 0.165, rake: 36 },
   ],
   notch: 0.022, // the cleft fillet between two lobes
-  top: 0.14, // the long concave top edge, tip lobe to boss
+  // The top edge: one long shallow convex arc, tangent to the wingtip lobe from
+  // the INSIDE, so the tip's tight roll runs into it without a join. `touch` is
+  // where on the tip lobe it starts, in degrees, and the radius is what makes
+  // the edge a long sweep rather than a dome.
+  sweep: { r: 0.62, touch: 108 },
+  valley: 0.10, // the cove between that sweep and the boss
 };
 
 // ---------------------------------------------------------------------------
@@ -185,13 +190,23 @@ function halfOutline(W, H, edge) {
     lobes.push({ c, r: l.r });
   }
 
-  // The clefts, and the long top edge. All of them rest on the air side of the
-  // crease they fill, which is the right hand side walking outward along the
-  // underside and, for the top edge, walking back inward from the tip.
+  // The clefts, the top sweep and the valley. Every fillet rests on the AIR
+  // side of the crease it fills, which is the right hand side walking the
+  // outline counter-clockwise.
   const clefts = lobes.slice(1).map((l, i) => fillet(lobes[i].c, lobes[i].r, l.c, l.r, WING.notch, -1));
   const tip = lobes[lobes.length - 1];
   const boss = { x: 0, y: BOSS.y };
-  const top = fillet(tip.c, tip.r, boss, BOSS.r, WING.top, -1);
+  // The sweep contains the tip lobe rather than meeting it: two circles tangent
+  // from the inside share their tangent direction at the touch point, so the
+  // wingtip's roll flows into the long top edge with nothing but a change of
+  // curvature. A fillet there instead would put a notch in the one line on the
+  // piece that has to stay unbroken.
+  const t = WING.sweep.touch * D;
+  const sweep = {
+    x: tip.c.x - (WING.sweep.r - tip.r) * Math.cos(t),
+    y: tip.c.y - (WING.sweep.r - tip.r) * Math.sin(t),
+  };
+  const valley = fillet(sweep, WING.sweep.r, boss, BOSS.r, WING.valley, -1);
 
   const out = [
     // The buried corner, and the straight side that falls out for free between
@@ -202,12 +217,13 @@ function halfOutline(W, H, edge) {
   ];
   lobes.forEach((l, i) => {
     const before = i === 0 ? cove : clefts[i - 1];
-    const after = i === lobes.length - 1 ? top : clefts[i];
-    out.push(bulge(l.c, l.r, ang(l.c, before), ang(l.c, after)));
-    if (i < clefts.length) out.push(scoop(clefts[i], WING.notch, ang(clefts[i], l.c), ang(clefts[i], lobes[i + 1].c)));
+    const last = i === lobes.length - 1;
+    out.push(bulge(l.c, l.r, ang(l.c, before), last ? t : ang(l.c, clefts[i])));
+    if (!last) out.push(scoop(clefts[i], WING.notch, ang(clefts[i], l.c), ang(clefts[i], lobes[i + 1].c)));
   });
-  out.push(scoop(top, WING.top, ang(top, tip.c), ang(top, boss)));
-  return { arcs: out, bossA: ang(boss, top) };
+  out.push(bulge(sweep, WING.sweep.r, t, ang(sweep, valley)));
+  out.push(scoop(valley, WING.valley, ang(valley, sweep), ang(valley, boss)));
+  return { arcs: out, bossA: ang(boss, valley) };
 }
 
 function crownOutline(W, H, edge) {

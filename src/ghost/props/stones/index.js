@@ -18,6 +18,7 @@ import './urn.js';        // 1.55, pedestal and draped vessel
 import './column.js';     // 1.23 to 1.38, broken
 import './pyramid.js';   // 1.21, the squattest upright
 import './wheel.js';      // 1.45, solid disc head
+import './stump.js';     // 1.33, a stone pretending to be a sawn trunk
 import './cracked.js';    // 1.32, the derelict one
 import './twin.js';       // 1.48 tall, 1.32 wide, the double
 import './celtic.js';     // 1.62, ringed and pierced

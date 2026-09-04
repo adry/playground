@@ -29,13 +29,21 @@ import { PALETTE, SEGMENTS, toyMaterial } from '../style.js';
 //
 //   reach   0.330   to the hanging plane; 0.436 to the front of the eaves
 //   drop    0.470   origin to the tip of the base finial
-//   rise    0.176   origin to the top of the arm's arc
+//   rise    0.156   origin to the top of the arm's arc
 //   width   0.212   across the eaves, and 0.116 across the back plate
+//
+// The plate is 0.236 tall against 0.116 wide, a two to one upright, and it is
+// that tall for a compositional reason rather than a structural one. The arm
+// springs off it at +0.048 and the scroll at -0.080, and between them those two
+// fat bars hide most of a plate that stops at 0.104: what was left read as the
+// arm simply ending at the wall. At 0.118 the plate shows a clear margin above
+// the arm and below the scroll, and it is the margin, not the plate, that says
+// the thing is bolted on.
 //
 // Those are picked off the two things it is likely to be bolted to. A fence
 // post (fence/metrics.js) is 0.86 tall and 0.155 square: mounted at 0.72 the
-// plate's 0.208 height sits inside the post's top with a hand's breadth to
-// spare, the plate's 0.116 width leaves 20mm of post showing on each side, and
+// plate's 0.236 height sits inside the post's top with a little to spare, the
+// plate's 0.116 width leaves 20mm of post showing on each side, and
 // the lantern's foot lands at 0.25, clear of the ground and clear of the top
 // rail at 0.52. A shed wall (shed/metrics.js) has its eaves at 1.40 and its
 // door head at 1.05: mounted at 1.22 the lantern hangs its flame at 0.89, just
@@ -58,17 +66,21 @@ import { PALETTE, SEGMENTS, toyMaterial } from '../style.js';
 // house style, which has no thin parts anywhere.
 //
 // So the scroll here is ONE fat bar with ONE lazy curl of 0.95 of a turn,
-// 52mm thick where it leaves the plate and tapering to 24mm at the rolled tip.
-// Its outer radius is 66mm and its inner 20mm, which is a curl a finger could
-// be put through, and at 0.95 of a turn the windings never touch: a second turn
-// closed the gap to 2mm, and 2mm at this scale is not a gap, it is a smudge.
+// 52mm deep where it leaves the plate and tapering to 24mm at the rolled tip.
+// Its outer radius is 58mm and its inner 18mm, which is a curl a finger could
+// be put through, and at 0.95 of a turn the windings never touch: worked out on
+// paper first, a second turn brings them within 2mm, and 2mm at this scale is
+// not a gap, it is a smudge.
 //
 // The one other thing that scroll is doing is bracing. It springs from the
-// bottom of the plate, winds forward and up, and its top merges into the arm's
-// underside at z = 0.098 with an 8mm overlap, so the triangle plate-arm-scroll
-// is closed and the arm is not cantilevered off nothing. That is why there is
-// one member here and not a brace plus an ornament: the brace IS the ornament,
-// which is what a real bracket does too.
+// bottom of the plate, winds forward and up, and its top meets the arm's
+// underside at z = 0.104, so the triangle plate-arm-scroll is closed and the
+// arm is not cantilevered off nothing. That is why there is one member here and
+// not a brace plus an ornament: the brace IS the ornament, which is what a real
+// bracket does too. It is also why the curl is set 80mm out from the plate face
+// rather than tucked against it: the lead-in bar crossing that gap is what
+// reads as the scroll SPRINGING from the plate, and with the curl pushed back
+// against the plate the whole cluster came out as one blob.
 //
 // -----------------------------------------------------------------------------
 // WHAT IS BORROWED
@@ -94,7 +106,7 @@ import { PALETTE, SEGMENTS, toyMaterial } from '../style.js';
 
 // --- the back plate ---
 const PLATE_HX = 0.058;      // half width, so the plate is 0.116 across
-const PLATE_HY = 0.104;      // half height, 0.208 tall
+const PLATE_HY = 0.118;      // half height, 0.236 tall
 const PLATE_BED = 0.009;     // how far the back face is let into the wall
 const PLATE_T = 0.032;       // total thickness, so the face stands 23mm proud
 // The plate's corner exponent. Same superellipse the whole set uses: 0 is a
@@ -103,7 +115,7 @@ const PLATE_T = 0.032;       // total thickness, so the face stands 23mm proud
 const PLATE_P = 0.48;
 const BOLT_R = 0.0115;
 const BOLT_X = 0.031;
-const BOLT_Y = 0.066;
+const BOLT_Y = 0.080;
 
 // --- the arm ---
 const REACH = 0.330;         // origin to the hanging plane
@@ -931,7 +943,7 @@ const GLASS_GLOW = { min: 0.360, max: 0.95 };
 // and that something is sunlit timber sitting at a linear luminance around
 // 1.6. At the pillar's levels the flame was DARKER than its own background
 // and read as a smudge on the glass rather than as a fire.
-const WICK = { min: 0.95, max: 2.10 };
+const WICK = { min: 0.88, max: 1.85 };
 const HUE_MID = 0.88, HUE_GAIN = 1.5;
 
 // -----------------------------------------------------------------------------
@@ -1024,7 +1036,7 @@ export function createBracketLantern({ seed = 1, scale = 1 } = {}) {
     uShine: { value: 95.0 },
     // How much of the pane is glass and how much is air. Low: the flame and the
     // far frame have to be seen through it.
-    uBodyA: { value: 0.220 },
+    uBodyA: { value: 0.420 },
     uWave: { value: 0.048 },
     uSeed: { value: rand() * 6.283 },
   };
@@ -1141,7 +1153,7 @@ varying float vYaw;`)
       // 5..15Hz band a real candle flickers in: at 60fps a 20Hz carrier is
       // three frames to a period and comes out as sparkle, not as tremble.
       const wobble = (f, drift, o) => Math.sin(Math.PI * 2 * (t * f + noise(t * drift + o) * 4));
-      const tremble = 0.030 * wobble(6.9, 0.58, 12.4) + 0.018 * wobble(12.1, 0.88, 55.1);
+      const tremble = 0.031 * wobble(7.4, 0.58, 12.4) + 0.019 * wobble(12.9, 0.88, 55.1);
 
       // WANDER. The slow breathing underneath. Summed noise is right here and
       // its stalls are a feature: a lull is what the slow channel is for, and
@@ -1155,8 +1167,8 @@ varying float vYaw;`)
       // not duck smoothly. This flame is behind four panes AND tucked against a
       // wall out of the draught, so it is the best sheltered in the set.
       const g = noise(t * 0.41 + 77.3);
-      const gutter = g > 0.78 ? (g - 0.78) / 0.22 : 0;
-      const dip = gutter * gutter * (0.31 + 0.22 * noise(t * 9.1 + 5.1));
+      const gutter = g > 0.74 ? (g - 0.74) / 0.26 : 0;
+      const dip = gutter * gutter * (0.34 + 0.24 * noise(t * 9.1 + 5.1));
 
       // FLARE, the gutter's other half, and rarer, because a flame droops far
       // more often than it draws itself up.
@@ -1171,7 +1183,7 @@ varying float vYaw;`)
       // top over instead, matching value and slope at the knee and asymptoting
       // above it, so a flare comes out as a peak with a shape on it.
       const KNEE = 0.90;
-      const raw = 0.905 + tremble + wander + flare - dip;
+      const raw = 0.900 + tremble + wander + flare - dip;
       const level = raw <= KNEE
         ? Math.max(0, raw)
         : 1 - (1 - KNEE) * Math.exp(-(raw - KNEE) / (1 - KNEE));
@@ -1180,15 +1192,21 @@ varying float vYaw;`)
       // pumpkin's published figures for the same technique:
       //
       //                          this      pumpkin   pumpkin, stalling version
-      //   mean level             0.888     0.876     0.877
-      //   spread (sd)            0.064     0.084     0.080
-      //   1st percentile         0.610     0.50      0.53
+      //   mean level             0.882     0.876     0.877
+      //   spread (sd)            0.069     0.084     0.080
+      //   1st percentile         0.574     0.50      0.53
       //   99th / max             0.97/0.99 0.97/0.99 0.98/1.00
-      //   mean step per frame    0.0157    0.0182    0.0047
-      //   frames within 0.002    9.4%      8.7%      30.2%
+      //   mean step per frame    0.0171    0.0182    0.0047
+      //   frames within 0.002    9.1%      9.0%      30.2%
       //
       // The last row is the one that matters and is why the tremble above is
-      // two carriers and not three noise channels.
+      // two carriers and not three noise channels. Seeds 2 and 7 measure 9.0%
+      // and 8.8% on the same run, so it is the technique and not one lucky
+      // stream. As events, counted with a 0.05 re-arm so the tremble is not
+      // miscounted: a duck below 0.80 every 5.4 seconds, below 0.70 every 12,
+      // a real gutter past 0.50 every 40, past 0.40 every 600, and a flare over
+      // 0.96 every 11. Shallower at the bottom end than an open pumpkin,
+      // because this flame is behind glass AND tucked against a wall.
       const at = (r) => r.min + (r.max - r.min) * level;
       light.intensity = at(LAMP) * scale;
       glassUniforms.uGlow.value = at(GLASS_GLOW);

@@ -130,7 +130,7 @@ const M = {
     wheel: 0.021,
     thick: 0.0085,
   },
-  flameY: 0.134,
+  flameY: 0.131,
 };
 
 // Steps round. The chimney is the piece the eye lands on and the only one whose
@@ -288,8 +288,13 @@ function fountProfile() {
 }
 
 // The brass burner: a drum screwed into the fount's plate, a knurled collar
-// round its middle, the gallery that the chimney's foot drops into, and a
-// closed top plate with the wick coming through it.
+// round its middle, the gallery that the chimney's foot drops into, and the
+// deflector that closes the top with the wick coming through it.
+//
+// The deflector is its own tagged run because it is a different COLOUR from the
+// rest of the piece, not a different shape. See the tint hook at the call site:
+// this is the plate that sits directly under the flame and on any lamp that has
+// been lit it is black with soot.
 function burnerProfile() {
   const b = M.burner;
   return new Profile()
@@ -308,10 +313,14 @@ function burnerProfile() {
     .curve([[b.galleryR, b.topY - 0.008], [b.galleryR, b.topY]], 6)
     // ...and back in over the top, closing the piece on the axis. Closed rather
     // than open: an open tube shows its own back face through the glass, and at
-    // this size that is a black crescent under the flame.
-    .curve([[0.052, b.topY - 0.006], [0.040, b.plateY]], 5)
-    .lineTo(0.014, b.plateY, 3)
-    .lineTo(0, b.plateY - 0.002, 2);
+    // this size that is a black crescent under the flame. DISHED rather than
+    // flat, because a flat one is a disc thirty per cent of the frame's width
+    // with a single value on it, and a dish has a lit far side and a shaded
+    // near one whichever way the lamp is turned.
+    .setTag('deflector')
+    .curve([[0.055, b.topY - 0.004], [0.046, b.plateY + 0.004]], 5)
+    .curve([[0.030, b.plateY - 0.002], [0.013, b.plateY - 0.003]], 5)
+    .lineTo(0, b.plateY - 0.003, 2);
 }
 
 // The chimney. A closed shell: a disc at the bottom hidden inside the gallery,
@@ -684,6 +693,21 @@ export function createHurricaneLamp({ seed = 1, scale = 1 } = {}) {
     displace: (s, th) => (s.tag === 'collar'
       ? [0.0018 * Math.sin(Math.PI * s.u) * (0.5 - 0.5 * Math.cos(30 * th)), 0]
       : [0, 0]),
+    // Soot on the deflector, and it is the single most load-bearing four lines
+    // on the prop. That plate sits 45mm under a point light with an inverse
+    // square falloff and it is the widest surface inside the lamp, so in brass
+    // it rendered as a flat white disc filling the lower half of the chimney
+    // and the FLAME WAS INVISIBLE AGAINST IT. Rendered dark, the flame is the
+    // brightest thing in the lamp again, which is the only arrangement that
+    // reads. Tinted through the lathe's own vertex-colour hook rather than
+    // split into a second mesh, so it costs no draw call and no seam, and
+    // ramped over the run so there is no band where the brass ends.
+    tint: (s) => {
+      if (s.tag !== 'deflector') return [1, 1, 1];
+      const t = Math.min(1, s.u / 0.5);
+      const k = 1 - 0.84 * (t * t * (3 - 2 * t));
+      return [k, k * 0.94, k * 0.88];
+    },
   });
 
   // The wick knob. Built flat, then stood on edge and pushed out to the side of
@@ -751,11 +775,11 @@ export function createHurricaneLamp({ seed = 1, scale = 1 } = {}) {
   }
 
   const brassGeo = sinkToGeometry(brassSink);
-  brassGeo.deleteAttribute('color');
   const brassMat = new THREE.MeshStandardMaterial({
     color: BRASS,
     roughness: 0.55,
     metalness: 0.0,
+    vertexColors: true,   // the deflector's soot, see the tint hook above
   });
   const brass = new THREE.Mesh(brassGeo, brassMat);
   brass.castShadow = true;
@@ -768,7 +792,7 @@ export function createHurricaneLamp({ seed = 1, scale = 1 } = {}) {
   // brass and the whole thing goes to plastic.
   const wickGeo = new THREE.CapsuleGeometry(0.0032, 0.009, 3, 10);
   wickGeo.scale(2.2, 1, 0.62);
-  wickGeo.translate(0, M.burner.plateY + 0.002, 0);
+  wickGeo.translate(0, M.burner.plateY - 0.001, 0);
   const wickMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(CHAR), roughness: 0.92 });
   const wick = new THREE.Mesh(wickGeo, wickMat);
   wick.castShadow = false;
@@ -833,18 +857,28 @@ export function createHurricaneLamp({ seed = 1, scale = 1 } = {}) {
     uSunCol: { value: new THREE.Color('#fff4e6').convertSRGBToLinear() },
     uInnerCol: { value: FLAME.clone() },
     uInner: { value: WASH.min },
-    // How much of the fresnel to believe. Physically 1.0. The ground lantern
-    // needed nine because its panes are vertical and reflect nothing but floor;
-    // this chimney is a barrel that already sweeps the whole fake sky, so it
-    // needs far less gain to separate from the tin behind it. Everything above
-    // about 6 went milky and swallowed the flame.
-    uRimGain: { value: 3.4 },
-    // The key's lobe, tighter than the ground lantern's 42 because there is no
-    // flat here to fire across: a barrel gives the lobe a band of its own and a
-    // tight one draws a highlight LINE down the swell, which is the single most
-    // glass-like thing on the prop.
-    uGlint: { value: 1.5 },
-    uShine: { value: 96.0 },
+    // How much of the fresnel to believe. Physically 1.0, and this stands in
+    // for the whole missing surround: the scene has no environment and no big
+    // soft source for a curved surface to find, so without a gain the chimney
+    // is four per cent reflective face on and simply is not there.
+    //
+    // Swept and looked at at 0 (off), 1.5, 3.4, 6, 8.5 and 12, at a close
+    // three-quarter framing, with the interior already darkened so the flame
+    // was not doing the glass's job for it: out/hurricane/g2 and g3. Under
+    // about 3 the chimney reads as an open cage. Past about 9 the upper barrel
+    // goes hazy and starts veiling the flame. Six is where the sky gradient
+    // down the barrel is unmistakable and the flame is still crisp behind it.
+    uRimGain: { value: 6.0 },
+    // The key's lobe, and BROAD rather than tight, which is the opposite of
+    // what the shape suggested. The first pass used 96 on the theory that a
+    // barrel would give a tight lobe a highlight line of its own; rendered with
+    // the lobe switched off, the frame was identical (out/hurricane/g3), which
+    // is the answer: with the key 53 degrees up and the chimney's normals
+    // within 29 degrees of horizontal, the half vector never comes close enough
+    // to a normal for an exponent that sharp to fire at all. At 44 it lights
+    // the swell's shoulders as a soft band, which is what curved glass does.
+    uGlint: { value: 1.6 },
+    uShine: { value: 44.0 },
     uBodyA: { value: 0.15 },
     uSoot: { value: soot },
   };

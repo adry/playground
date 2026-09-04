@@ -17,7 +17,7 @@ import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from '../style.js';
 // survives being seen from thirty units away:
 //
 //                          street        twin
-//   height                 3.30          2.544
+//   height                 3.30          2.544 (2.53 to 2.56 by seed)
 //   widest                 0.68          1.584
 //   height / width         4.85          1.61
 //   heads                  one           two, 1.240 apart
@@ -46,11 +46,17 @@ import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from '../style.js';
 // becomes a plank at finger thickness. This prop cannot refuse its arms, so the
 // two rules it follows instead are:
 //
-//   FAT. Each arm is a swept tube 0.070 in radius at the collar and 0.054 at
-//   the cup, with a 0.006 swell through the middle so it is not a monotone
-//   taper. That is 0.140 across at the root against a 0.588 sweep, so the arm
-//   is 4.6 diameters long. street.js's glazing bar, the fattest wire it allowed
-//   itself, is 4.3. This is a bar with a curve in it, not a wire.
+//   FAT. Each arm is a swept tube 0.078 in radius at the collar and 0.062 at
+//   the cup, with a 0.007 swell through the middle so it is not a monotone
+//   taper. That is 0.156 across at the root against a measured arc length of
+//   0.590, so the arm is 3.8 root diameters long, 4.0 on its mean. street.js's
+//   glazing bar, the fattest wire that file allowed itself, is 4.3. This is a
+//   bar with a curve in it, not a wire, and it is thicker in proportion than
+//   the thing street.js called its limit.
+//
+//   It got there in one correction. At 0.070 and 0.054 the arms were the one
+//   part of the first render that read as bent rod, and the fix was the brief's
+//   own: fatten before shortening, and shorten before thinning.
 //
 //   SHORT, NOT THIN. The brief's fallback, and it is the one the collar buys.
 //   The arms do not spring from the shaft, they spring from a bell 0.152 in
@@ -58,10 +64,16 @@ import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from '../style.js';
 //   rather than 0.522. Six per cent off the length at no cost to the spread,
 //   because the spread is measured between the GLOBES and the collar is not one.
 //
-// The sweep itself is lazy on purpose: a cubic whose first control point leaves
-// the collar almost level and whose last arrives almost vertical, so the arm
-// goes out, thinks about it, and then stands the globe up. A circular arc there
-// reads as plumbing.
+// The sweep itself is lazy on purpose: a cubic that leaves the collar at 3.7
+// degrees above level and arrives at the cup at 68 degrees, so the arm goes
+// out, thinks about it, and then stands the globe up in its last third. A
+// circular arc between the same two points reads as plumbing, and an arm that
+// leaves the collar already climbing reads as a pair of horns.
+//
+// Nothing else on the prop is a rod. There are no braces between the arms, no
+// tie bar across the collar and no scrollwork under the cups, for street.js's
+// reason exactly: every one of those is a wire that becomes a plank at finger
+// thickness, and the two arms are the whole quota.
 //
 // -----------------------------------------------------------------------------
 // THE ONE LIGHT
@@ -105,10 +117,23 @@ import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from '../style.js';
 // emissive flame, its bloom, and the glass's own inner wash each ride their own
 // head's level. That is what keeps the two heads separate objects.
 //
-// Decay is 1.25 rather than 2, which is street.js's frank cheat taken over
-// wholesale and for the same reason. It is less violent here: this light is
-// 0.62 from the nearest glass rather than 0.24 from a glazing bar, so the ratio
-// it is flattening starts smaller.
+// LIGHT LEVEL. Decay is 1.15 and the intensity swings 0.55 to 1.25, which is a
+// fifth of street.js's 2.4 to 5.2, and the difference is not timidity. Its
+// light sits INSIDE a lantern on the axis of four vertical glazing bars, and
+// every outward-facing normal on a bar points away from a source on its own
+// axis, so those bars never see the light at all and it can be driven as hard
+// as the floor wants. This one hangs in open air above a collar, with two arms
+// whose upper surfaces face straight up at it from 0.57 away. At street's
+// numbers the first render came back with the arms and the collar glowing
+// orange and no iron left in them. 0.55 to 1.25 puts about 1.0 to 2.2 on the
+// arms against the scene's own 2.9, which is a warm side and not a coat of
+// paint.
+//
+// The flattened decay is street.js's frank cheat taken over wholesale: a point
+// source this close to the metal it lights obeys an inverse square that no
+// single intensity can satisfy at both ends. 1.15 rather than 1.25 because this
+// light has further to reach, 0.57 to the arms against street's 0.24 to a bar,
+// and because the floor here is the decal's job and not this light's.
 //
 // -----------------------------------------------------------------------------
 // GLASS. No environment map in this scene, so a transparent material has
@@ -119,8 +144,13 @@ import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from '../style.js';
 // per-vertex head index, so the two of them cost one draw call and still carry
 // two independent flame colours and two independent inner levels.
 //
-// WHAT IT COSTS: measured, see the report in the harness. Eight draw calls,
-// about 23k triangles.
+// WHAT IT COSTS: eight draw calls and 20,840 triangles, read off
+// renderer.info.render with only this prop in the scene. The calls are all of
+// the ironwork merged into one geometry (14,852 triangles), both globes merged
+// into a second (3,536), the two flames and the two blooms, which cannot merge
+// because they move independently, and the two floor decals. A prop with two
+// heads costs two calls more than street.js's six, and it would have cost four
+// if the globes and the ironwork had not merged across the pair.
 
 // ---------------------------------------------------------------------------
 // metrics

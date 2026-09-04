@@ -69,8 +69,8 @@ const BLOOM_EMBER = new THREE.Color('#ff4a08');
 const BLOOM_FLAME = new THREE.Color('#ff9a30');
 // Coals: nearly black iron oxide that glows from inside.
 const COAL = new THREE.Color('#241a16');
-const COAL_EMBER = new THREE.Color('#ff4a10');
-const COAL_FLAME = new THREE.Color('#ffa84a');
+const COAL_EMBER = new THREE.Color('#ff3208');
+const COAL_FLAME = new THREE.Color('#ff7a24');
 
 // What each thing driven by the fire looks like at the bottom and the top of
 // its swing. All of them ride ONE level, which is the trick the whole set uses:
@@ -85,8 +85,8 @@ const COAL_FLAME = new THREE.Color('#ffa84a');
 const LAMP = { min: 2.10, max: 5.30 };
 const CORE = { min: 1.90, max: 3.90 };   // the flame body, above 1 so it clips
 const TONGUE = { min: 0.62, max: 1.45 }; // the licks around it, additive
-const HALO = { min: 0.11, max: 0.30 };   // the bloom, additive
-const COALS = { min: 0.80, max: 2.10 };  // emissive on the coal bed
+const HALO = { min: 0.30, max: 0.72 };   // the shell around the core, additive
+const COALS = { min: 0.42, max: 1.25 };  // emissive on the coal bed
 const POOL = { min: 0.16, max: 0.42 };   // the painted warm on the ground
 const IRONGLOW = { min: 0.030, max: 0.115 };  // the bars catching their own fire
 
@@ -555,7 +555,8 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
   //           clipped, and past its edge they read as the translucent licks a
   //           flame's outside actually is. That is the difference between a
   //           fire and a carrot.
-  //   HALO    a soft additive sphere over the lot, standing in for the bloom
+  //   SHELL   a copy of the core a third bigger, additive and parented to it,
+  //           which softens the core's silhouette and stands in for the bloom
   //           pass this project does not have.
   //
   // What this is NOT is a particle system. Four rigid meshes leaning and
@@ -614,7 +615,7 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
     color: CORE_FLAME.clone(),
     vertexColors: true,
     toneMapped: true,
-  }), 'brazier-core', 0.38, 0.50);
+  }), 'brazier-core', 0.00, 4.00);
   const core = new THREE.Mesh(coreGeo, coreMat);
   core.position.y = FIRE_Y;
   core.castShadow = false;
@@ -656,22 +657,38 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
   }
   disposables.push(tongueGeo, tongueMat);
 
-  // Halo.
-  const haloGeo = new THREE.SphereGeometry(0.245, 22, 16);
-  const haloMat = softLimb(new THREE.MeshBasicMaterial({
+  // The shell. A copy of the core's own shape, a third bigger and additively
+  // blended, PARENTED to the core so it leans, stretches and curls with it.
+  //
+  // This started as a sphere, which is what the street lamp uses for its bloom,
+  // and a sphere is right there because its flame is a speck two and a half
+  // units up. Here the fire is the biggest thing on the prop and a round bloom
+  // round a pointed body just put a halo behind a solid shape: you could still
+  // see exactly where the opaque core stopped. A shell of the same shape blurs
+  // the silhouette instead of framing it, and blurring the silhouette is the
+  // whole difference between fire and a plastic teardrop, because the one thing
+  // a real flame has no trace of is a hard edge.
+  const shellGeo = flameGeometry(0.158 * 1.36, 0.455 * 1.16, {
+    rows: 22, segments: 24,
+    fade: { floor: 0.0, power: 1.25, heat: 0.45 },
+    section: (a, t) => 1 + 0.070 * Math.cos(3 * a + 2.6 * t),
+    curl: 0.16,
+  });
+  const shellMat = softLimb(new THREE.MeshBasicMaterial({
     color: BLOOM_FLAME.clone(),
     transparent: true,
     opacity: HALO.min,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
+    vertexColors: true,
     toneMapped: true,
-  }), 'brazier-halo', 2.2);
-  const halo = new THREE.Mesh(haloGeo, haloMat);
-  halo.position.y = FIRE_Y + 0.215;
-  halo.scale.set(1, 1.12, 1);
-  halo.renderOrder = 4;
-  halo.castShadow = false;
-  disposables.push(haloGeo, haloMat);
+    blending: THREE.AdditiveBlending,
+  }), 'brazier-shell', 1.45);
+  const shell = new THREE.Mesh(shellGeo, shellMat);
+  shell.position.y = -0.030;
+  shell.renderOrder = 2;
+  shell.castShadow = false;
+  core.add(shell);
+  disposables.push(shellGeo, shellMat);
 
   // --- the one light -------------------------------------------------------
   // A point light, no shadow map, and that is the whole allowance. Six pumpkins
@@ -699,7 +716,7 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
 
   // --- assembly ------------------------------------------------------------
   const body = new THREE.Group();
-  body.add(ironMesh, coals, core, ...tongues, halo, light);
+  body.add(ironMesh, coals, core, ...tongues, light);
   body.rotation.y = spin;
   body.rotation.x = Math.cos(leanDir) * lean;
   body.rotation.z = Math.sin(leanDir) * lean;
@@ -732,7 +749,6 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
 
   const lightHome = light.position.clone();
   const coreHome = core.position.clone();
-  const haloHome = halo.position.clone();
 
   return {
     group,
@@ -822,8 +838,8 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
       coreMat.color.copy(CORE_EMBER).lerp(CORE_FLAME, hue).multiplyScalar(at(CORE));
       tongueMat.color.copy(BLOOM_EMBER).lerp(BLOOM_FLAME, hue);
       tongueMat.opacity = at(TONGUE);
-      haloMat.color.copy(BLOOM_EMBER).lerp(BLOOM_FLAME, hue * 0.7);
-      haloMat.opacity = at(HALO);
+      shellMat.color.copy(BLOOM_EMBER).lerp(BLOOM_FLAME, hue * 0.75);
+      shellMat.opacity = at(HALO);
       ironMat.emissiveIntensity = at(IRONGLOW);
       if (poolMat) {
         poolMat.opacity = at(POOL);
@@ -882,9 +898,6 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
           -(across * 3.0 + dirX * lean * 0.30),
         );
       }
-
-      halo.position.set(haloHome.x + across * 1.2, haloHome.y + rise * 0.8, haloHome.z + into * 1.2);
-      halo.scale.set(0.88 + 0.22 * level, (0.88 + 0.30 * level) * 1.12, 0.88 + 0.22 * level);
 
       // The light rides the flame's tip, so the pool and the wash on the stone
       // swing with the fire rather than sitting nailed to the axis.

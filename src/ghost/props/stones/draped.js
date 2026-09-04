@@ -71,7 +71,7 @@ const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 // cloth's overhang can add its width back without the piece becoming the widest
 // thing in the yard. Plinth included it stands 1.48, between fred at 1.10 and
 // cross at 1.56.
-const SHAPE = { halfWidth: 0.40, height: 1.38, depth: 0.29, plinth: 0.18 };
+const SHAPE = { halfWidth: 0.40, height: 1.38, depth: 0.33, plinth: 0.18 };
 
 // ---------------------------------------------------------------------------
 // the cloth
@@ -80,46 +80,50 @@ const SHAPE = { halfWidth: 0.40, height: 1.38, depth: 0.29, plinth: 0.18 };
 // SHOULDER, not from the top of the stone, because that is the number the eye
 // reads and the one that decides how much face is left for the lettering.
 const CLOTH = {
-  thick: 0.038, // a chunky vinyl cloth; below about 0.030 it reads as paper
+  thick: 0.032, // a chunky vinyl cloth; below about 0.030 it reads as paper
   gapMin: 0.0035, // clearance at the hem: the shadow line under the roll
   gapMax: 0.0130, // and further in, where nothing can see it, enough to keep
   // the cloth's shadow off the stone it is lying on
   roll: 0.055, // how much material the rolled hem takes, in material units
   bead: 0.34, // and how far it swells past its own thickness just inside it
 
-  endOver: 0.130, // hang down the ENDS of the stone, below the shoulder roll
+  endOver: 0.070, // hang down the ENDS of the stone, below the shoulder roll
   fallMid: 0.345, // hang down the front, at the middle
   fallEnd: 0.420, // and at the outer end of the material, which is what sets
   // how far the corner falls past the shoulder
-  swag: 0.055, // the middle of the front hem dips this much further again
+  swag: 0.090, // the middle of the front hem dips this much further again
   tilt: 0.022, // and the whole hem falls further on one side than the other
 
-  // Fewer, deeper. Three ridges across an 0.86 face: at 300 px the stone's face
-  // is ninety pixels and a fourth fold turns the drape into a lumpy hat.
-  folds: [
-    { p: -0.240, w: 0.082, a: 1.00 },
-    { p: 0.010, w: 0.092, a: 0.86 },
-    { p: 0.255, w: 0.078, a: 0.98 },
+  // Fewer, deeper. Three ridges across the face, and between them a narrow
+  // groove each, because a ridge alone is a swell and a swell is what the light
+  // never finds: the first three passes of this drape read as icing poured over
+  // the stone. What says cloth at toy scale is the DARK LINE between two folds,
+  // so the creases are a third the width of the ridges and cut most of the way
+  // through the cloth's thickness.
+  ridges: [
+    { p: -0.245, w: 0.088, a: 1.00 },
+    { p: 0.000, w: 0.095, a: 0.88 },
+    { p: 0.245, w: 0.084, a: 0.98 },
   ],
-  // Subtracted from the sum of the ridges, so the cloth between two folds is
-  // THINNER than the cloth in them and the gap reads as a crease rather than as
-  // flat sheet. Ridges alone, added to an even thickness, came out as three
-  // gentle swells that the light never found: the piece read as icing.
-  foldBias: 0.34,
-  foldDepth: 1.05, // ridge height as a fraction of the cloth's thickness
-  hemWave: 0.045, // and how much lower the hem hangs under a ridge
-  // Folds gather where the cloth hangs free and die where it is pulled over the
-  // shoulder. Measured in material distance past the edge of the top face, so
-  // they start part way round the roll rather than below it: a drape whose
-  // shoulder is glassy and whose skirt is folded reads as a fringe stuck on a
-  // helmet.
-  foldFrom: 0.020,
-  foldTo: 0.170,
+  creases: [
+    { p: -0.365, w: 0.042, a: 0.80 },
+    { p: -0.123, w: 0.038, a: 1.00 },
+    { p: 0.123, w: 0.040, a: 0.92 },
+    { p: 0.365, w: 0.042, a: 0.75 },
+  ],
+  foldDepth: 0.90, // ridge height as a fraction of the cloth's thickness
+  creaseDepth: 0.85, // and how much of that thickness a groove takes back
+  hemWave: 0.050, // how much lower the hem hangs under a ridge
+  // Folds gather at the bottom of a hanging cloth and are pulled out of it over
+  // the shoulder, so they open downwards rather than running as parallel pipes.
+  foldBase: 0.40,
+  foldFrom: 0.090,
+  foldTo: 0.430,
 
   // The swag. Over the top the cloth is carried a little higher at the ends
   // than in the middle, so the ridge running across the top of the stone dips
   // between the two shoulders instead of lying dead flat.
-  topSwell: 0.12,
+  topSwell: 0.0,
 };
 
 // The rolled hem's cross-section, as a multiplier on thickness against distance
@@ -157,11 +161,12 @@ function buildDrape({ halfWidth: W, height: H, depth: D, edge: e, rng }) {
   // Per-stone variation. The fold table is one hand's throw of the cloth; these
   // move it enough that two draped stones in one yard are not one casting, and
   // not so far that the three ridges stop being three ridges.
-  const jitter = CLOTH.folds.map((f) => ({
-    p: f.p + (rng() - 0.5) * 0.055,
+  const jit = (list, k) => list.map((f) => ({
+    p: f.p + (rng() - 0.5) * k,
     w: f.w * (0.9 + rng() * 0.2),
     a: f.a * (0.85 + rng() * 0.3),
   }));
+  const jitter = { ridges: jit(CLOTH.ridges, 0.055), creases: jit(CLOTH.creases, 0.045) };
   const backShift = 0.09 + (rng() - 0.5) * 0.06;
   const tilt = CLOTH.tilt * (rng() < 0.5 ? -1 : 1);
 
@@ -171,13 +176,14 @@ function buildDrape({ halfWidth: W, height: H, depth: D, edge: e, rng }) {
   // Ridges, in material a. Gaussians rather than a cosine: hand-placed, uneven,
   // and with real flat cloth between them, which is what "fewer, deeper" means.
   const foldShape = (a, front) => {
-    const s = front ? 1 : -1;
+    const sgn = front ? 1 : -1;
     let v = 0;
-    for (const f of jitter) v += f.a * Math.exp(-Math.pow((a - s * f.p - (front ? 0 : backShift)) / f.w, 2));
-    v -= CLOTH.foldBias;
-    // Folds belong to the two big faces. Past the shoulder there is barely any
-    // cloth hanging and a ridge there only thickens the end of the stone.
-    return v * (1 - smooth((Math.abs(a) - (ax - 0.11)) / 0.17));
+    for (const f of jitter.ridges) v += f.a * Math.exp(-Math.pow((a - sgn * f.p - (front ? 0 : backShift)) / f.w, 2));
+    for (const f of jitter.creases) v -= CLOTH.creaseDepth * f.a * Math.exp(-Math.pow((a - sgn * f.p - (front ? 0 : backShift)) / f.w, 2));
+    // Folds belong to the two big faces. They are carried to the very edge of
+    // the face and die on the corner wrap: faded earlier, the outer third of
+    // the front came out glassy and the drape read as a cap again.
+    return v * (1 - smooth((Math.abs(a) - (ax - 0.02)) / 0.15));
   };
 
   // The hem, as hang below the shoulder against material a.
@@ -247,9 +253,18 @@ function buildDrape({ halfWidth: W, height: H, depth: D, edge: e, rng }) {
       // directions at once instead of creasing along the diagonal.
       const fu = (A - Math.abs(a)) / CLOTH.roll;
       const fv = (b >= 0 ? Bf[i] - b : b + Bb[i]) / CLOTH.roll;
-      const fold = foldShape(a, b >= 0) * smooth((s - CLOTH.foldFrom) / (CLOTH.foldTo - CLOTH.foldFrom));
+      const grow = CLOTH.foldBase + (1 - CLOTH.foldBase) * smooth((s - CLOTH.foldFrom) / (CLOTH.foldTo - CLOTH.foldFrom));
+      // The two faces carry the same ridges out of phase, so across the top
+      // face one pattern is walked into the other. Switched instead of blended,
+      // the mismatch fell on the middle of the top as a crease from end to end.
+      const mix = smooth(0.5 + (0.5 * b) / az);
+      const fold = (foldShape(a, false) * (1 - mix) + foldShape(a, true) * mix) * grow;
       const swell = CLOTH.topSwell * (a / A) * (a / A) * (1 - smooth((s - 0.02) / 0.15));
-      const t = CLOTH.thick * hemRoll(fu) * hemRoll(fv) * (1 + CLOTH.foldDepth * fold + swell);
+      // Cloth is pulled thin over what it is lying on and gathers where it
+      // hangs free. Without this the shoulder carried the full thickness and
+      // the drape turned the top of the stone into a loaf.
+      const cling = 0.58 + 0.42 * smooth((s - 0.02) / 0.30);
+      const t = CLOTH.thick * cling * hemRoll(fu) * hemRoll(fv) * (1 + CLOTH.foldDepth * fold + swell);
       const gap = CLOTH.gapMin + (CLOTH.gapMax - CLOTH.gapMin) * smooth(Math.min(fu, fv));
 
       const k = (i * cols + j) * 3;
