@@ -14,16 +14,18 @@ import { registerStone } from '../tombstones.js';
 //    lays the slab the registry has already built face-up and drops the plinth.
 //
 // 2. The inscription faces the sky, so the fixed scene camera sees it at 29
-//    degrees rather than head on and everything on it is squashed to about
-//    half height. The mark is therefore one big closed figure with fat strokes,
-//    laid along the length of the slab, which is the axis that does NOT
-//    foreshorten from this camera. Coverage is ~10% of the face: the top of the
-//    approved set's 5-10% band, spent deliberately on the one stone whose face
-//    is turned away from the viewer.
+//    degrees rather than head on and everything on it is squashed to about half
+//    height. The mark is therefore one big closed figure with fat strokes, laid
+//    along the length of the slab, which is the axis that does NOT foreshorten
+//    from this camera. Measured coverage is 9.1% of the face against 3.6, 6.3
+//    and 9.1 for the approved three: the top of the set's band, spent
+//    deliberately on the one stone whose face is turned away from the viewer.
 //
-// 3. Sunk has to be real. The stone is seated from its own lowest transformed
-//    vertex, never a bounding box, so the low end genuinely passes through the
-//    floor instead of resting a millimetre over it.
+// 3. Sunk has to be real, and it is the one thing on this piece that cannot be
+//    faked with surface. The stone is seated by where the floor crosses its
+//    carved face, then the seating is checked against the lowest transformed
+//    vertex, never a bounding box, so the low end passes through the floor
+//    rather than resting a millimetre over it.
 
 // Plan is 1.56 by 0.88, thickness 0.18: a body-length slab, near enough the
 // ghost's own 1.6, and the widest thing in the graveyard. Height here is the
@@ -44,18 +46,20 @@ const PLINTH = 0.11;
 // apparent height for free. This is the whole reason the piece is legible at
 // all from a camera that is only 29 degrees off the floor.
 const TILT = 0.15;
-// The subsidence, and it is the real one: a roll along the length that carries
-// the -x end down into the earth. Nine degrees.
+// The subsidence: a roll along the length that carries one end down into the
+// earth. Eleven degrees, jittered per seed, and which end it is flips per seed
+// too.
 const DIP = 0.19;
 // The stone is seated by the one number a viewer can actually see: where the
 // floor crosses the carved face, as a fraction of the half-length in from the
 // low end. Sinking by a depth instead is guesswork, and sinking by less than the
 // slab's own thickness buries nothing but the underside, which is exactly how a
-// slab resting on a lawn looks. At 0.56 a fifth of the
-// stone is gone, the cut runs where the sides are parallel so it reads as a cut
-// and not as the stone's own rounded end, and it takes the foot of the cross
-// with it: a mark walking into the ground says buried in a way no heap of soil
-// beside the stone managed to.
+// slab resting on a lawn looks. At 0.56 about a fifth of the length is gone at
+// the mid-line and the near corner rather more, because the cut runs diagonally:
+// it crosses where the sides are parallel, so it reads as a cut and not as the
+// stone's own rounded end, and it takes the foot of the cross with it. A mark
+// walking into the ground says buried in a way no heap of soil beside the stone
+// managed to.
 const WATERLINE = -0.56;
 // ...and the depth is then checked, not assumed. Nothing may be left hovering.
 const MIN_BURY = 0.05;
@@ -76,24 +80,28 @@ function lowestVertex(geometry, matrix) {
 }
 
 function drawLedgerCross(ctx, w, h) {
-  // Measured, not guessed: this comes out at 9.2% of the face against 3.6, 6.3
+  // Measured, not guessed: this comes out at 9.1% of the face against 3.6, 6.3
   // and 9.1 for the approved cross, FRED and bat. Top of the set's band and no
   // further, which is where a mark seen at 37 degrees rather than head on
   // belongs, and a long way under the 12 to 19 that got the last set rejected.
-  const T = h * 0.110; // stroke, 0.097 in world: fat enough to survive being
+  const T = h * 0.103; // stroke, 0.091 in world: fat enough to survive being
   const L = w * 0.60; // seen at half height and squashed by the tone map
-  const B = h * 0.55;
+  // The arms run up the foreshortened axis and lose a third of their length on
+  // the way to the camera; the head above them does not. Drawn to a Latin
+  // cross's true proportions it comes out a sword, so the arms are let out and
+  // the head pulled in until the two match on SCREEN rather than on the canvas.
+  const B = h * 0.62;
+  const HEAD = 0.21;
   const r = T * 0.34; // even the engraved marks get rounded ends
   const cx = w * 0.5;
   const cy = h * 0.5;
   ctx.beginPath();
   ctx.roundRect(cx - L / 2, cy - T / 2, L, T, r);
   ctx.fill();
-  // Crossbar a quarter of the way down from the head, and the head is the
-  // raised end: the busiest part of the mark sits on the part of the slab
+  // The head is the raised end: the busiest part of the mark sits on the part of the slab
   // that is highest, best lit and furthest from the earth.
   ctx.beginPath();
-  ctx.roundRect(cx + L / 2 - L * 0.26 - T / 2, cy - B / 2, T, B, r);
+  ctx.roundRect(cx + L / 2 - L * HEAD - T / 2, cy - B / 2, T, B, r);
   ctx.fill();
 }
 
@@ -119,7 +127,7 @@ registerStone('ledger', {
     // origin, so the two are told apart by where they sit rather than by the
     // order they happen to arrive in.
     const slab = meshes.find((m) => Math.abs(m.position.y - plinthH) < 1e-6) || meshes[0];
-    const ridge = meshes.find((m) => m !== slab);
+    const plinth = meshes.find((m) => m !== slab);
 
     // Lay it down. Rotating -90 about x puts the carved face up and sends the
     // top of the inscription away from the camera, which is how a ledger is
@@ -170,7 +178,7 @@ registerStone('ledger', {
     // flat-topped bar of soil. Removing it costs a draw call and a shadow-map
     // pass rather than hiding it under the floor, and dispose() still owns its
     // geometry, so nothing leaks.
-    if (ridge) body.remove(ridge);
+    if (plinth) body.remove(plinth);
 
     // No displaced earth, and this was tried properly before being given up:
     // five passes, from a run of clods to one long swept berm to a wide flat
@@ -185,6 +193,3 @@ registerStone('ledger', {
     // above is measured rather than eyeballed.
   },
 });
-
-// TEMP-MEASURE
-export { drawLedgerCross as __mark };

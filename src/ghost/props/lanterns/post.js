@@ -180,15 +180,15 @@ const TABLE = { rBot: 0.176, rTop: 0.250, y0: 0.600, y1: 0.730, edge: 0.046 };
 // thickness of the stone: the inner shell is the outer one pushed t along its
 // own normal, so t has to stay under rv or the rolled corner turns itself
 // inside out.
-const HEAD = { r: 0.256, y0: 0.700, y1: 1.032, rv: 0.060, t: 0.048 };
+const HEAD = { r: 0.256, y0: 0.686, y1: 1.046, rv: 0.058, t: 0.048 };
 
 // One arched window, in the head's face space: x across the face, y in world
 // height. It is the headstones' own outline shrunk to a hand's width, which is
 // not a joke at the set's expense so much as the cheapest way to say the two
 // things came from the same yard.
-const WIN = { half: 0.088, y0: 0.776, y1: 0.952, rBot: 0.026 };
+const WIN = { half: 0.105, y0: 0.756, y1: 0.976, rBot: 0.030 };
 // The other two faces get a small round moon instead. See FACE_CUTS for why.
-const MOON_HOLE = { y: 0.880, r: 0.047 };
+const MOON_HOLE = { y: 0.870, r: 0.052 };
 // How far the lip rolls over before the wall goes straight. Nearly half the
 // thickness, so both ends of the wall are round and the little straight run in
 // the middle is all that is left of the flat.
@@ -368,7 +368,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   // Segment counts. SEGMENTS is sized for a plain round surface; the head is
   // the thing being cut, so its grid has to have a cell small next to the
   // width of a window's arch.
-  const RADIAL = SEGMENTS.radial + 24;        // 72, for the stacked blocks
+  const RADIAL = SEGMENTS.radial + 8;         // 56, for the stacked blocks
   const HEAD_RADIAL = SEGMENTS.radial * 2 + 32; // 128, for the head
   // The seam, where u wraps. Parked on a back corner of the squircle: the
   // corners are the one place on this shape where a texture join has a
@@ -590,7 +590,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
       const t = -Math.PI / 2 + (i / cap) * (Math.PI / 2);
       ys.push(y0 + rv + rv * Math.sin(t));
     }
-    const midRows = 26;
+    const midRows = 19;
     for (let i = 1; i < midRows; i++) ys.push((y0 + rv) + ((y1 - rv) - (y0 + rv)) * (i / midRows));
     for (let i = 0; i <= cap; i++) {
       const t = (i / cap) * (Math.PI / 2);
@@ -676,7 +676,16 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   }
   const boxInnerBase = box.pos.length / 3;
   // Where the flame sits, and what the interior is shaded against.
-  const FLAME_Y = 0.845;
+  // Where the flame sits, and it is a sight line rather than a decoration.
+  // The scene looks down on a waist-high prop, and an opening seen from above
+  // shows very little of what is behind it: the near sill hides everything at
+  // the middle of the chamber below a line 7cm up, and the near arch hides
+  // everything above a line 7cm down from its head. What is left is a slot
+  // about 4cm tall at the centre of a 22cm window, and the flame lives in it.
+  // The candle is deliberately short enough to sit under that slot: raised into
+  // it, a candle is a dark column standing in the one part of the opening the
+  // eye can see into, which is worse than no candle at all.
+  const FLAME_Y = 0.854;
   const LIGHT = new THREE.Vector3(0, FLAME_Y, 0);
   // Baked falloff for the lightbox: a diffuse term against the flame plus an
   // inverse-square that is softened at the bottom, because a candle is a small
@@ -688,13 +697,13 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
     const d2 = dx * dx + dy * dy + dz * dz;
     const d = Math.sqrt(d2) || 1e-6;
     const lambert = Math.max(0, (dx * n.x + dy * n.y + dz * n.z) / d);
-    // The half-power distance is 0.23, a little over the width of the chamber.
+    // The half-power distance is 0.17, about the half width of the chamber.
     // That is not the inverse square a real flame throws and it is not meant to
     // be: over 20cm a true falloff is 25:1 between the floor and the far
     // corner, which paints the interior black everywhere except right under the
-    // candle. Flattened to about 2:1 the chamber still has a gradient across
+    // candle. Flattened to about 3:1 the chamber still has a gradient across
     // it, the corners still fall away, and nothing is crushed.
-    return (0.26 + 0.74 * lambert) * (0.055 / (0.055 + d2));
+    return (0.22 + 0.78 * lambert) * (0.030 / (0.030 + d2));
   };
   {
     const c = new THREE.Vector3();
@@ -865,7 +874,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   // in a box.
   {
     const cy0 = HEAD.y0 + HEAD.t;
-    const prof = roundedBlock(0.031, 0.029, cy0, cy0 + 0.050, 0.013, 5);
+    const prof = roundedBlock(0.028, 0.026, cy0, cy0 + 0.078, 0.012, 5);
     const base = box.pos.length / 3;
     const radial = 24;
     const secs = [];
@@ -1000,7 +1009,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   boxMesh.receiveShadow = false;
 
   const flame = new THREE.Mesh(flameGeo, flameMat);
-  flame.position.set(0, HEAD.y0 + HEAD.t + 0.044, 0);
+  flame.position.set(0, HEAD.y0 + HEAD.t + 0.072, 0);
   flame.castShadow = false;
   flame.receiveShadow = false;
 
@@ -1139,5 +1148,5 @@ export const POST_LANTERN = {
   height: TOTAL_H,
   footprint: FOOT.rBot * 2,
   eave: ROOF.eave.cr + ROOF.eave.rad,
-  flameY: 0.845,
+  flameY: 0.854,
 };

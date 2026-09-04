@@ -33,9 +33,11 @@ import { registerStone, inkText } from '../tombstones.js';
 //     centre one rim radius BELOW the top of the slab, so the top of each lobe
 //     is buried in the stone it grows out of and what stands above is a segment
 //     three times wider than it is tall. That version rendered as a slab with a
-//     nick in it. With the cove, the stone swells at the shoulders into two
-//     round lobes wider than its own body, and the underside of that swell is a
-//     cove rather than a ledge.
+//     nick in it. With the cove, the stone swells at the shoulders, the lobes
+//     come out round and standing clear of the slab, and the underside of that
+//     swell is a cove rather than a ledge. It wants to be a small swell: pushed
+//     far enough that the lobes read as a head sitting on the shaft, the stone
+//     stops being a stone and starts being a bone.
 //
 // Offsetting still costs nothing, which is what makes the generalisation honest
 // rather than a hack: a convex arc's radius shrinks by the inset and a concave
@@ -54,22 +56,27 @@ import { registerStone, inkText } from '../tombstones.js';
 // The rim is a fixed 0.062 rather than a fraction of the stone, and the warning
 // in tombstones.js is about it thinning to a hairline on a big slab. Going the
 // other way it is the lobes that pay, and it cost me the version described
-// above. A lobe here is 0.13 in the radius, so the flat front face -- the
-// outline inset by the full rim -- keeps barely half of it, and two lobes much
-// smaller than these shrink past each other on the way in until the face pinches
-// shut at the centre, which is a stone with a slot in it. It also sets the floor
-// under the valley fillet, since a fillet tighter than the rim would be the one
-// edge on the piece the rim could not round. The radius is right for the set. It
-// is simply a much larger fraction of a small stone, and the shape had to be
-// drawn around it rather than scaled down into it.
+// above. A lobe here is 0.145 in the radius, so the flat front face -- the
+// outline inset by the full rim -- keeps 0.083 of it, well under three fifths,
+// and lobes much smaller than these shrink past each other on the way in until
+// the face pinches shut at the centre, which is a stone with a slot in it. It
+// also sets the floor under the valley fillet: at 0.060 on the silhouette that
+// fillet is already the tightest curve on the piece, and anything much tighter
+// would be the one edge the rim could not round. The radius is right for the
+// set. It is simply a much larger fraction of a small stone, and the shape had
+// to be drawn around it rather than scaled down into it.
 
 // Body 0.62 across and 1.08 to the top of the taller lobe, against fred's 0.74
 // and 1.10: the smallest stone in the set, which is what the sentimental one
 // should be. Thick for its size on purpose, because a thin heart-topped stone
-// reads as a cut-out card. The face comes out at 0.84 of its own height, near
-// enough fred's 0.78, so it is 858 texels wide against his 797 and the engraving
-// treatment is working at the size it was tuned at.
-const SHAPE = { halfWidth: 0.31, height: 0.78, depth: 0.23, plinth: 0.13 };
+// reads as a cut-out card. The lobes swell 0.009 past the shaft on each side,
+// which is enough to let them be round and not enough to read as a head on a
+// neck -- a version with three times that much looked like a bone.
+//
+// The face lands at 0.775 of its own height against fred's 0.779, so it is 794
+// texels wide against his 798: same panel proportions, smaller stone, and the
+// engraving treatment working at exactly the size it was tuned at.
+const SHAPE = { halfWidth: 0.31, height: 0.8, depth: 0.23, plinth: 0.13 };
 
 // The heart, as fractions of the half width so the shape survives a resize.
 // `lobe` is each lobe's radius, `shoulder` the cove it flares out of, `flare`
@@ -77,7 +84,13 @@ const SHAPE = { halfWidth: 0.31, height: 0.78, depth: 0.23, plinth: 0.13 };
 // sets the overhang, and `valley` the fillet radius of the dip between them.
 // `lopsided` and `tilt` are the hand-cut part: one lobe larger, and the smaller
 // one flaring less so it sits lower, which puts the valley off centre.
-const HEART = { lobe: 0.514, shoulder: 0.3, flare: 15, valley: 0.194, lopsided: 0.05, tilt: 0.05 };
+//
+// Two of these are coupled. `lobe` sets how far apart the lobes end up, and the
+// valley fillet has to be able to reach across that gap and touch both, which it
+// can while lobe + lobe + 2*valley stays comfortably over the distance between
+// the two centres. It does here by a third. Fall under it and upperMeet has no
+// solution to return and the notch quietly collapses.
+const HEART = { lobe: 0.468, shoulder: 0.3, flare: 15, valley: 0.194, lopsided: 0.035, tilt: 0.035 };
 
 // How far the crown sinks into the slab. Only has to bury the slab's top edge
 // rounding and the joint; the rest is margin.
@@ -159,7 +172,12 @@ function buildCrownGeometry({ outline, depth, edge: e, uv }) {
   const hz = depth / 2;
   // One segment per ~14mm of arc, matching twin.js, so the lobes and the little
   // coves under them are both smooth at the size the eye meets them.
-  const arcs = outline.map((c) => ({ ...c, seg: Math.max(8, Math.ceil((Math.abs(c.a1 - c.a0) * c.r) / 0.014)) }));
+  // A concave arc is at its widest at the flat face, where the inset has added
+  // the rim radius to it, so it is that radius the segment count has to answer.
+  const arcs = outline.map((c) => ({
+    ...c,
+    seg: Math.max(8, Math.ceil((Math.abs(c.a1 - c.a0) * (c.sign < 0 ? c.r + e : c.r)) / 0.014)),
+  }));
   const N = arcs.reduce((n, c) => n + c.seg + 1, 0);
 
   const B = Math.max(6, Math.round(SEGMENTS.curve / 2));
@@ -215,10 +233,23 @@ function buildCrownGeometry({ outline, depth, edge: e, uv }) {
   // outline to be star shaped; this one has a deeper valley and a cove scooped
   // into each side, so rather than argue the hub can see past all three it goes
   // through three's own ear clip, which does not care.
+  // Consecutive arcs share their tangency point exactly, so the ring carries a
+  // repeated vertex at every join, and a repeated vertex is what breaks an ear
+  // clip. They are dropped here and the survivors mapped back to their place in
+  // the ring, so the faces still index the vertices the rim already made.
   const contour = [];
-  for (let j = 0; j < N; j++) contour.push(new THREE.Vector2(pos[j * 3], pos[j * 3 + 1]));
+  const ring = [];
+  for (let j = 0; j < N; j++) {
+    const x = pos[j * 3];
+    const y = pos[j * 3 + 1];
+    const prev = contour[contour.length - 1];
+    if (prev && Math.abs(prev.x - x) < 1e-7 && Math.abs(prev.y - y) < 1e-7) continue;
+    contour.push(new THREE.Vector2(x, y));
+    ring.push(j);
+  }
   const back = (profile.length - 1) * N;
-  for (const [p0, p1, p2] of THREE.ShapeUtils.triangulateShape(contour, [])) {
+  for (const t of THREE.ShapeUtils.triangulateShape(contour, [])) {
+    const [p0, p1, p2] = t.map((k) => ring[k]);
     const area =
       (pos[p1 * 3] - pos[p0 * 3]) * (pos[p2 * 3 + 1] - pos[p0 * 3 + 1]) -
       (pos[p2 * 3] - pos[p0 * 3]) * (pos[p1 * 3 + 1] - pos[p0 * 3 + 1]);
@@ -247,10 +278,25 @@ registerStone('heart', {
   // carved heart on top of it would be the mistake the postmortem names: a mark
   // that parallels the silhouette adds no new shape, it only thickens what is
   // already there.
+  // Measured: ink covers 5.7% of the face in a box 65% by 30% of it, against
+  // fred's 6.4% in 56% by 45%. Inside the 5 to 10% the approved stones sit in
+  // and under fred, which is where a stone this small wants to be -- its
+  // silhouette is doing the talking.
+  //
+  // Letters come out 0.088 world tall against fred's 0.096 and cross's 0.122.
+  // Matching the set's letter SIZE is what has to hold rather than a coverage
+  // figure: a smaller face would otherwise get smaller writing and stop looking
+  // like it came from the same yard. They stop 8% short of the rim either side,
+  // which is as large as they go before the outer letters start rolling round
+  // the edge of the face.
+  //
+  // The block sits high on the face because the face is not the whole front of
+  // this stone: the crown carries the same texture up past it, so the words are
+  // centred on the 0.95 of visible front, not on the 0.80 of face.
   draw(ctx, w, h) {
-    const size = h * 0.14;
-    inkText(ctx, 'EVER', w / 2, h * 0.42, size, size * 0.05);
-    inkText(ctx, 'DEAR', w / 2, h * 0.59, size, size * 0.05);
+    const size = h * 0.17;
+    inkText(ctx, 'EVER', w / 2, h * 0.29, size, size * 0.05);
+    inkText(ctx, 'DEAR', w / 2, h * 0.48, size, size * 0.05);
   },
 
   extras({ body, material, shape, plinthH, halfWidth: W, height: H, edge, slabUV, disposables }) {
