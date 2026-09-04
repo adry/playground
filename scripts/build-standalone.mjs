@@ -21,9 +21,10 @@ await build({ logLevel: 'warn' });
 
 const html = await readFile(path.join(dist, 'ghostly', 'index.html'), 'utf8');
 const assets = await readdir(path.join(dist, 'assets'));
-// manualChunks folds the build into a single chunk, so anything other than one
-// file here means a page started shipping JS of its own. Inlining just the
-// first one would quietly ship a half-wired page, so stop instead.
+// The demo is the only page with a script, so the build emits exactly one
+// chunk. Anything else means a second page started shipping JS or the bundle
+// got split; inlining just the first file would quietly ship a half-wired
+// page, so stop instead.
 const jsFiles = assets.filter((f) => f.endsWith('.js'));
 if (jsFiles.length !== 1) {
   throw new Error(`expected one JS chunk in dist/assets, found ${jsFiles.length} -- check the rollup entries`);

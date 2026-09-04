@@ -77,7 +77,7 @@
 
   h1 {
     margin: 0;
-    font-size: clamp(2.75rem, 11vw, 6rem);
+    font-size: clamp(2.75rem, 12.5vw, 6rem);
     font-weight: 700;
     /* Lato is loose by default at display sizes. Pulling the tracking in is
        what makes the wordmark read as one shape instead of nine letters. */
@@ -88,7 +88,7 @@
 
   .tagline {
     margin: clamp(0.85rem, 2.5vw, 1.35rem) 0 0;
-    font-size: clamp(1.0625rem, 3.6vw, 1.5rem);
+    font-size: clamp(1.125rem, 4vw, 1.625rem);
     font-weight: 400;
     letter-spacing: -0.005em;
     line-height: 1.35;
@@ -98,7 +98,7 @@
   /* The gap between the title block and the index carries the hierarchy on its
      own, so the list needs no heading of its own to look separate. There is
      one anyway, for screen readers. */
-  .index { margin: clamp(3.25rem, 11vh, 6rem) 0 0; }
+  .index { margin: clamp(3rem, 10vh, 5.5rem) 0 0; }
 
   .visually-hidden {
     position: absolute;
@@ -144,17 +144,22 @@
   li a:hover .name,
   li a:focus-visible .name { text-decoration-color: currentColor; }
 
+  /* The nudge is hover only. The arrow sits flush with the row's right edge, so
+     on focus it would slide out under the ring and get clipped; keyboard focus
+     is already saying enough with the ring and the underline. */
   li a .arrow {
     flex: none;
     transition: transform 140ms ease;
   }
-  li a:hover .arrow,
-  li a:focus-visible .arrow { transform: translateX(0.3em); }
+  li a:hover .arrow { transform: translateX(0.3em); }
 
+  /* No offset, so the ring lands exactly on the row box: it reads as the row's
+     own hairlines going black for as long as it is focused. Offsetting it
+     outward instead puts the ring in the neighbouring row's whitespace, and
+     inward crops the arrow, which sits flush against the right edge. */
   li a:focus-visible {
     outline: 2px solid var(--ink);
-    outline-offset: 4px;
-    border-radius: 2px;
+    outline-offset: 0;
   }
 
   @media (prefers-reduced-motion: reduce) {

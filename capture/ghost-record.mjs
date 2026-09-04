@@ -36,7 +36,8 @@ function scriptedInput(t) {
 const lab = await openLab({
   width,
   height,
-  entry: '/',
+  // The demo moved off the site root when the studio index landed there.
+  entry: '/ghostly/',
   query: 'test=1',
   readyFlag: '__ghostReady',
   verbose: !!args.verbose,

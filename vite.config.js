@@ -13,9 +13,15 @@ export default defineConfig({
         main: 'index.html',
         ghostly: 'ghostly/index.html',
       },
-      // One chunk, so the standalone build can inline the whole thing into a
-      // single self-contained HTML file.
-      output: { manualChunks: () => 'app' },
+      // There is deliberately no manualChunks here. It used to force everything
+      // into one chunk so the standalone build could inline a single file, but
+      // with a second HTML entry Vite can no longer tell which page owns that
+      // chunk and injects the demo's bundle into the landing page as well,
+      // where it throws on the canvas it cannot find. Nothing needs forcing:
+      // the demo is the only page carrying a script, so it is the only JS
+      // entry and rollup emits exactly one chunk by itself. If that ever stops
+      // being true, scripts/build-standalone.mjs fails loudly rather than
+      // inlining half the app.
     },
   },
 });
