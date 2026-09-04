@@ -83,7 +83,7 @@ const COAL_FLAME = new THREE.Color('#ffa84a');
 // the ground, and its swing is the widest of the three (2.5 : 1 against their
 // 2.17 and 2.2) because an open fire in the wind is not a candle in a box.
 const LAMP = { min: 2.10, max: 5.30 };
-const CORE = { min: 1.60, max: 3.20 };   // the flame body, above 1 so it clips
+const CORE = { min: 1.90, max: 3.90 };   // the flame body, above 1 so it clips
 const TONGUE = { min: 0.62, max: 1.45 }; // the licks around it, additive
 const HALO = { min: 0.11, max: 0.30 };   // the bloom, additive
 const COALS = { min: 0.80, max: 2.10 };  // emissive on the coal bed
@@ -319,6 +319,36 @@ function flameGeometry(amp, height, { rows = 26, segments = 20, fade, section = 
 // round so the middle is brightest and the edge goes to nothing is both what
 // the eye expects of a glowing volume and the thing that puts the licks back in
 // the soft vinyl register the rest of the prop is in.
+// The same dot product used on an OPAQUE surface, multiplying colour instead of
+// alpha. A flame is a glowing volume, so you look through more of it at the
+// middle than at the edge, and the edge is therefore both dimmer and redder:
+// the core is driven well past 1 so its middle clips to white through ACES,
+// while the rim comes back down into the orange the colour actually is. Without
+// this the core is one flat bright shape with a hard outline, which is a
+// lightbulb. It is one dot product and it is the single biggest thing on the
+// whole prop per line of code.
+function limbDarken(material, key, floor = 0.42, power = 0.55) {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBN;\nvarying vec3 vBP;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+  vBN = normalize(mat3(modelMatrix) * normal);
+  vBP = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBN;\nvarying vec3 vBP;')
+      .replace('#include <opaque_fragment>', `
+  vec3 vd = isOrthographic
+    ? normalize(vec3(viewMatrix[0].z, viewMatrix[1].z, viewMatrix[2].z))
+    : normalize(cameraPosition - vBP);
+  float d = clamp(dot(normalize(vBN), vd), 0.0, 1.0);
+  gl_FragColor = vec4(outgoingLight * (FLOOR + (1.0 - FLOOR) * pow(d, POWER)), diffuseColor.a);`
+        .replace(/FLOOR/g, floor.toFixed(3))
+        .replace('POWER', power.toFixed(2)));
+  };
+  material.customProgramCacheKey = () => key;
+  return material;
+}
+
 function softLimb(material, key, power = 2.2) {
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
@@ -580,11 +610,11 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
     section: (a, t) => 1 + 0.090 * Math.cos(3 * a + 2.6 * t) + 0.045 * Math.cos(5 * a - 1.4 * t),
     curl: 0.14,
   });
-  const coreMat = new THREE.MeshBasicMaterial({
+  const coreMat = limbDarken(new THREE.MeshBasicMaterial({
     color: CORE_FLAME.clone(),
     vertexColors: true,
     toneMapped: true,
-  });
+  }), 'brazier-core', 0.38, 0.50);
   const core = new THREE.Mesh(coreGeo, coreMat);
   core.position.y = FIRE_Y;
   core.castShadow = false;

@@ -288,6 +288,7 @@ export function bakeFoliageTint(geometry, {
   jitter = 0.05,      // per-vertex speckle, breaks the smoothness of the ramp
   root = 0.55,        // multiplier at the buried end of a clump: the crevice
   spread = 0.22,      // how much clumps differ from one another in value
+  warm = 0.34,        // hue split: lit foliage warmer, shaded foliage cooler
   top,                // world y that counts as the crown
   rand = null,
 } = {}) {
@@ -319,9 +320,14 @@ export function bakeFoliageTint(geometry, {
       t *= 1 - spread * 0.5 + lumpTint[i] * spread;
     }
     if (rand) t *= 1 - jitter * 0.5 + rand() * jitter;
-    col[i * 3] = t;
+    // Warm where it is bright, cool where it is dark. One directional key and a
+    // blue hemisphere fill already do a little of this, but not nearly enough on
+    // a surface this dark, and a foliage mass that is one hue at every value
+    // reads as painted plastic. Costs nothing: it is the same vertex colour.
+    const k = warm * (t - 1);
+    col[i * 3] = t * (1 + k);
     col[i * 3 + 1] = t;
-    col[i * 3 + 2] = t;
+    col[i * 3 + 2] = t * (1 - k);
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return geometry;

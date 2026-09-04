@@ -43,6 +43,10 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   const rand = foliageRng(seed * 7919 + 131);
 
   const group = new THREE.Group();
+  // Inner group carries the seeded lean, the same arrangement the tombstones
+  // use, so the caller still owns position and rotation.y on the outer one.
+  const body = new THREE.Group();
+  group.add(body);
   const disposables = [];
 
   // --- proportions ----------------------------------------------------------
@@ -56,10 +60,14 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   // yBias slightly negative so the lobes favour the flanks and the skirt: the
   // top of a bush is where it is most even, the bottom is where it is most
   // overgrown, and a lobe set biased upward gave a mushroom.
+  // Few and large rather than many and small. Nine modest lobes averaged out
+  // into a dome with a texture on it; seven big ones give the mass actual
+  // shoulders and hollows, which is what the clumps then need in order to sit at
+  // different depths instead of paving an even sphere.
   const massLobes = makeLobes(rand, {
-    count: 9,
-    amp: [0.10, 0.27],
-    tight: [2.1, 4.8],
+    count: 7,
+    amp: [0.15, 0.36],
+    tight: [1.7, 4.0],
     yBias: -0.06,
   });
   const massGeo = blobGeometry({
@@ -70,14 +78,14 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   });
   // The mass is only ever seen through the gaps between clumps, which are the
   // deepest part of the bush, so it is darkened hard.
-  bakeFoliageTint(massGeo, { top: H, floor: 0.34, ceil: 0.86, down: 0.72, rand });
+  bakeFoliageTint(massGeo, { top: H, floor: 0.30, ceil: 0.84, down: 0.66, rand });
   bakeWind(massGeo, { top: H * 0.90, base: 0, power: 1.8, flutter: 0 });
   disposables.push(massGeo);
 
   const massMat = foliageMaterial(FOLIAGE.deep);
   disposables.push(massMat);
   const mass = new THREE.Mesh(massGeo, massMat);
-  group.add(mass);
+  body.add(mass);
 
   // --- the clumps -----------------------------------------------------------
   // Placed on the mass's own vertices rather than on an idealised sphere, so a
@@ -138,14 +146,14 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   }
 
   const clumpGeo = mergeLumps(clumpParts);
-  bakeFoliageTint(clumpGeo, { top: H, floor: 0.40, ceil: 1.26, down: 0.58, root: 0.36, spread: 0.26, rand });
+  bakeFoliageTint(clumpGeo, { top: H, floor: 0.40, ceil: 1.34, down: 0.52, root: 0.34, spread: 0.26, rand });
   bakeWind(clumpGeo, { top: H * 0.90, base: 0, power: 1.8 });
   disposables.push(clumpGeo);
 
   const clumpMat = foliageMaterial(FOLIAGE.mid);
   disposables.push(clumpMat);
   const tufts = new THREE.Mesh(clumpGeo, clumpMat);
-  group.add(tufts);
+  body.add(tufts);
 
   // --- wind -----------------------------------------------------------------
   // The two meshes are driven with IDENTICAL bend parameters and differ only in
@@ -168,6 +176,12 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   // darkens the floor where the bush actually meets it. Same patch the rest of
   // the set uses, sized to the footprint rather than to the widest point: the
   // dome overhangs its own foot and a patch at full width read as a puddle.
+  // Nothing grows plumb. Small enough that the silhouette still reads upright,
+  // and well inside the depth the dome is buried at, so no daylight opens under
+  // the lean.
+  body.rotation.z = (rand() - 0.5) * 0.10;
+  body.rotation.x = (rand() - 0.5) * 0.08;
+
   const patch = contactShadow({ radius: W * 0.40, opacity: 0.34, softness: 0.62 });
   group.add(patch);
   disposables.push({ dispose: () => patch.userData.dispose?.() });

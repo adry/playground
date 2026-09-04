@@ -1,143 +1,134 @@
 import * as THREE from 'three';
 import { registerStone, buildArcSweepGeometry, inkText } from '../tombstones.js';
 
-// The Greek stele: the tall thin one with a palmette on its head.
+// The Greek stele: the tall thin one, with a palmette on its head.
 //
-// A narrow upright slab, a moulded cornice capping it, and above that an
-// anthemion -- a fan of five fat leaves springing out of a pinched little base.
-// The obelisk is the other tall stone in the set and the two must never be
-// confused, so everything that separates them lives in the top third: the
-// obelisk closes with a small pyramid and nothing else, this one flares twice,
-// once into a cornice that overhangs the shaft by a quarter of its half width
-// and once into a fan wider than the shaft is.
+// A narrow upright slab, a moulded cornice overhanging it, and above that an
+// anthemion -- a fan of five fat leaves springing out of a small base. The
+// obelisk is the other tall stone in the set and the two must never be
+// confused, so everything that separates them is in the top third. The obelisk
+// closes with one small pyramid and nothing else; this one flares twice, first
+// into a cornice a quarter wider than the shaft and then into a fan wider than
+// both.
 //
-// WHY IT IS BUILT THIS WAY
+// WHY IT IS TWO PIECES AND NOT ONE
 //
-// The whole crown -- cornice and palmette together -- is ONE outline swept
-// through the house's quarter-round profile by buildArcSweepGeometry, sunk into
-// a squared-off slab exactly as heart.js sinks its lobes. It is not a stack of
-// parts. A cornice modelled as a separate block sitting on a shaft gives you two
-// solids meeting in a crease, and a palmette modelled as leaves bolted onto a
-// cornice gives you five more; that is six creases on the one part of the stone
-// the eye actually goes to, in a set whose whole premise is that nothing is
-// faceted or chipped. Authored as an arc chain instead, the silhouette runs from
-// the foot of the shaft to the tip of the middle leaf without a single corner in
-// it, and every ring of the sweep is the same chain with the same tangency
-// angles, so the normals stay analytic.
+// heart.js records the shoulder-cove trick and this stone is built on it: a lobe
+// tangent to a straight side from the inside buries its own top by one rim
+// radius, and a concave cove is what lets it stand clear instead. A palmette is
+// a row of lobes doing exactly that. What heart.js also records is the price,
+// and on a fan of five that price is what decides the whole design.
 //
-// THE ONE THING THAT DECIDES THE SHAPE: A LOBE CANNOT REACH BACKWARDS
+// The rim is a fixed 0.062. A convex arc keeps its radius MINUS the rim on the
+// flat front face, so no leaf may be thinner than about 0.17 across or the
+// sweep folds. Five leaves that thick, plus four gaps wide enough to read as
+// gaps, is a fan 0.78 across and 0.39 tall; hang it off a shoulder cove, which
+// lifts it by another rim-and-a-half, and stand it on a cornice that needs a
+// 0.09 roll for the same reason, and the crown alone comes to 0.88. Added to a
+// shaft long enough to be worth carving, that is a stone taller than the
+// obelisk, which is the one thing it may not be. Five leaves scaled down
+// instead have no gaps at all: at the rim's floor the notches between them come
+// out shallower than a leaf is thick and the fan reads as one bobble with
+// scratches on it, which is the failure the brief names.
 //
-// heart.js records the shoulder-cove trick -- a lobe tangent to a straight side
-// from the inside buries its own top by one rim radius, and a concave cove is
-// what lets it flare out clear of the stone instead. A palmette is a row of
-// lobes doing exactly that, so the same cove appears here under the outermost
-// leaf. What is new is the DIRECTION it has to be built in, and it cost a whole
-// pass to find.
+// So the palmette is swept separately with a rim of its own, 0.045, on a plate
+// 0.16 deep against the shaft's 0.23. That buys leaves 0.13 across with notches
+// a leaf and a half deep, and a crown that fits. It is also what an akroterion
+// actually is: a thinner slab set on the cornice, not part of the shaft. The
+// joint is buried -- the palmette's base runs down inside the cornice and comes
+// up through its flat top -- so nothing creases, which is the rule the joint had
+// to satisfy however it was made.
 //
-// Walk the outline counter-clockwise. Up the right side, out over the cornice,
-// and once you are past the cornice's widest point every remaining step along
-// the top runs inward, in -x. A leaf standing outboard of that point can only be
-// reached by turning round, and the only curve that turns round is a cove swept
-// through more than half a turn: a hook, with the cornice's top ledge caught in
-// its mouth. It is not a fillet, it is a cave, and it reads as a chip out of the
-// stone. So the rule the crown is drawn to is that the palmette must live INSIDE
-// the cornice's overhang, and the base cove hangs off the cornice's own top roll
-// rather than off a ledge stuck out past it. What you get for obeying it is the
-// silhouette this stone wanted anyway: the cornice is the widest thing on the
-// piece, the fan sits just inside it, and the shaft is narrower than both.
+// WHY THE PALMETTE MUST STAY INSIDE THE CORNICE'S OVERHANG
 //
-// WHY FIVE LEAVES
-//
-// Because the rim radius is a fixed 0.062 and the stone is small. A leaf is a
-// convex arc, so the flat front face keeps its radius MINUS the rim; under the
-// rim it inverts and the sweep folds. That puts a hard floor of about 0.08 under
-// a leaf's silhouette radius, i.e. a leaf is at least 0.16 thick, and five of
-// them plus four gaps of 0.04 is 1.0 of arc to lay out. Laid on a fan of radius
-// 0.29 that comes to a crown 0.73 across on a 0.61 shaft, which is already as
-// wide as this stone can be and stay the narrow one. Seven leaves at the same
-// thickness would need a fan half again as big; seven THIN leaves is the version
-// the house style forbids, because at scene scale a 0.03 leaf is a scratch and
-// the fan collapses into a single bobble. Three read as a trefoil, not a
-// palmette. Five is what the rim radius and the width budget leave, and it is
-// also what an Attic anthemion of this size actually carries.
+// Walk the outline counter-clockwise. Once past the cornice's widest point every
+// step along the top runs inward, so a leaf standing outboard of it can only be
+// reached by turning round, and turning round costs a fillet of nearly half a
+// turn: a hook with the cornice's ledge caught in its mouth, which reads as a
+// chip. The pocket UNDER the outer leaves is fine and in fact wanted -- a
+// palmette's outer leaves do stand clear with air beneath them -- but it has to
+// be entered through the base's own vertical side, which is what the little
+// pillar under the fan is for. Outboard of that, the cornice is the widest thing
+// on the stone and the fan sits just inside it.
 
 // --- the numbers -----------------------------------------------------------
 //
-// 0.61 across the shaft by 0.90 tall, on a 0.13 plinth, topping out at 1.73 with
-// the palmette. Against the set: the cross is 0.92 by 1.56 overall and the
-// obelisk 0.60 by 1.85. So the face is the second narrowest in the set, a hair
-// inside heart's 0.62 and just outside the obelisk's 0.60, and the height sits
+// 0.61 across the shaft by 0.92 tall, on a 0.12 plinth, topping out near 1.73
+// with the palmette. Against the set: the cross is 0.92 by 1.56 overall and the
+// obelisk 0.60 by 1.85. The face is the second narrowest in the set, a hair
+// inside heart's 0.62 and just outside the obelisk's 0.60, and the height falls
 // between the tallest slab and the obelisk rather than beside either.
 //
-// Face aspect is 0.678, so the inscription canvas comes out 694 texels wide
-// against the cross's 688. That is the whole reason the shaft is not thinner:
-// the engraving treatment has a measured working range and a face much under
-// 600 texels leaves no room for a groove that is both fine and legible.
+// Face aspect 0.663, so the inscription canvas comes out 679 texels wide against
+// the cross's 688. That is why the shaft is not thinner still: the engraving
+// treatment has a measured working range, and a face much under 600 texels
+// leaves no room for a groove that is both fine and legible.
 //
-// Depth 0.23 on a 0.61 width. A stele is a plank, and the reference ones are
-// thinner than this, but the crown has to be the same slab all the way through
-// and a leaf 0.16 across on a plank 0.18 thick reads as a paper cut-out.
+// Depth 0.23 on a 0.61 width, the same third the rest of the set runs at.
 const W = 0.305;
-const H = 0.90;
-const SHAPE = { halfWidth: W, height: H, depth: 0.23, plinth: 0.13 };
+const H = 0.92;
+const SHAPE = { halfWidth: W, height: H, depth: 0.23, plinth: 0.12 };
 
-// How far the crown reaches down inside the slab. Only has to swallow the
-// slab's squared top and the joint; the rest is margin. Kept short so the
-// inscription sits entirely below it and never lands on the two coincident
-// front faces.
+// How far the cornice reaches down inside the slab. Only has to swallow the
+// slab's squared top and the joint. Kept short so the inscription sits entirely
+// below it and never lands where the two front faces are coincident.
 const SINK = 0.16;
 
 // --- the cornice -----------------------------------------------------------
 //
 // Four moves, each tangent to the last, springing from the shaft's own side at
-// exactly y = H so the crown's straight flanks are coincident with the slab's
-// rather than a hair outside them:
+// exactly y = H so the crown's flanks are coincident with the slab's rather than
+// a hair outside them, which is the difference between two surfaces that shade
+// identically and a band of stipple across the stone.
 //
-//   coveR/coveSweep  the cove under the overhang. A cove, not a ledge: an
-//                    overhang with a flat soffit is a shelf, and a shelf on a
-//                    vinyl toy is the one edge the rim cannot round.
-//   fascia           the straight outward-leaning band above it, the only flat
-//                    on the whole crown and what makes the cornice read as
-//                    MOULDED rather than as a bulge.
-//   rollR            the fat roll over the top. Has to clear the 0.062 rim, so
-//                    it is 0.075 and the cornice is 0.20 tall because of it.
-//                    That is not waste: it is the second-biggest feature on the
-//                    stone and it is what stops the palmette reading as a
-//                    flower stuck on a post.
-const CORNICE = { coveR: 0.06, coveSweep: (52 * Math.PI) / 180, fascia: 0.029, rollR: 0.075 };
+//   coveR/coveSweep  the cove under the overhang. A cove, not a soffit: a flat
+//                    underside is a shelf, and a shelf is the one edge the rim
+//                    cannot round.
+//   fascia           the straight outward-leaning band above it. The only flat
+//                    on the crown, and what makes the cornice read as MOULDED
+//                    rather than as a bulge.
+//   rollR            the roll over the top. It has to clear the 0.062 rim with
+//                    something left over, so it is 0.088 and the cornice is 0.22
+//                    tall because of it. That is not waste: it is the
+//                    second-biggest feature on the stone, and it is what stops
+//                    the palmette reading as a flower stuck on a post.
+//   halfWidth        where the roll's crown lands. The overhang is 0.09 a side,
+//                    30% of the shaft's half width.
+const CORNICE = {
+  coveR: 0.055,
+  coveSweep: (46 * Math.PI) / 180,
+  rollR: 0.088,
+  halfWidth: 0.395,
+};
 
 // --- the palmette ----------------------------------------------------------
 //
-// `ledge` is the short flat run between the top of the cornice roll and the
-// start of the base cove; both are horizontal there, so the straight between
-// them is exactly tangent and costs nothing. It is small on purpose -- it is
-// the only thing separating the cornice's top from the fan, and every unit of
-// it has to come out of the fan's half width, because the base cove's centre
-// sits at the end of it and the outermost leaf must stay inboard of that
-// centre. See the note above.
+// `depth`/`edge` are the plate's own, and the reason for them is above.
 //
-// `coveR` is the pinch. It sets how far the neck necks in (the base is
-// 2*(cove centre - coveR) across) and it also lifts the whole fan by about
-// twice itself, since the outer leaf hangs off the far side of the cove
-// circle. 0.05 buys a base 0.48 across under a fan 0.73 across, which is the
-// "springing from a small base" read, for 0.10 of height.
+// `baseHalf` is the little pillar the fan springs from, and `pillar` how far it
+// stands above the cornice before the shoulder cove starts flaring. `coveR` is
+// the cove itself: it sets how far the outer leaves stand clear of the cornice
+// and it lifts the whole fan by about its own radius plus a leaf's, so it is the
+// most expensive number on the stone and stays small.
 //
-// The leaves are given as (angle off vertical, length from the fan's origin,
-// radius). Angles at 40 degrees apart put the outer pair nearly horizontal,
-// which is where an anthemion's outer leaves go, and 40 is also the tightest
-// spacing that leaves a real gap between two leaves this fat: the chord
-// between neighbouring leaf centres is 2*len*sin(20 degrees), so at len 0.29
-// they are 0.198 apart with 0.16 of leaf between them and 0.038 of air. The
-// middle leaf is a shade longer and fatter than its neighbours, which is what
-// keeps the fan from reading as a scallop shell.
+// The leaves are (angle off vertical, length from the fan's origin, radius).
+// 48 degrees apart puts the outer pair a few degrees past horizontal, where an
+// anthemion's outer leaves go, and it is also the spacing that leaves real air
+// between leaves this fat: neighbouring centres are 2*len*sin(24 degrees)
+// apart, which at len 0.27 is 0.22 with 0.13 of leaf between them. The middle
+// leaf is longer and fatter than its neighbours so the fan does not read as a
+// scallop shell, and the notches come out a leaf and a half deep.
 const PALMETTE = {
-  ledge: 0.015,
-  coveR: 0.05,
-  valleyR: 0.032,
+  depth: 0.16,
+  edge: 0.045,
+  baseHalf: 0.20,
+  pillar: 0.04,
+  coveR: 0.045,
+  valleyR: 0.05,
   leaves: [
-    { ang: 0, len: 0.300, rad: 0.084 },
-    { ang: 40, len: 0.288, rad: 0.080 },
-    { ang: 80, len: 0.290, rad: 0.080 },
+    { ang: 0, len: 0.285, rad: 0.068 },
+    { ang: 48, len: 0.268, rad: 0.065 },
+    { ang: 96, len: 0.270, rad: 0.065 },
   ],
 };
 
@@ -146,13 +137,13 @@ const PALMETTE = {
 
 const TAU = Math.PI * 2;
 
-// One arc, with its sweep normalised. Every convex arc in this chain is walked
-// counter-clockwise and every concave one clockwise -- that is what "sign" means
-// once the outline itself is counter-clockwise -- and no arc here turns through
-// a full circle, so folding the difference into (0, 2pi) with the sign picks the
-// right branch without any of the callers having to think about it. The base
-// cove turns through 174 degrees and the outermost leaf through 250; getting
-// either of those branches backwards is a stone with its top inside out.
+// One arc, with its sweep normalised. Once the outline itself runs
+// counter-clockwise every convex arc on it is walked counter-clockwise and every
+// concave one clockwise, and nothing here turns through a full circle, so
+// folding the difference into (0, 2pi) with the sign picks the right branch
+// without any caller having to think about it. The shoulder cove turns through
+// 100 degrees and the outermost leaf through 250; getting either branch
+// backwards is a stone with its top inside out.
 function arc(cx, cy, r, a0, a1, sign) {
   let d = (a1 - a0) % TAU;
   if (sign > 0 && d <= 0) d += TAU;
@@ -160,10 +151,14 @@ function arc(cx, cy, r, a0, a1, sign) {
   return { cx, cy, r, a0, a1: a0 + d, sign };
 }
 
-// Centre of the fillet of radius rv that is externally tangent to both lobes,
-// on the far side from `away`. Two circles of radius R+rv about the two lobe
-// centres cross twice; one crossing is the notch between the lobes and the other
-// is buried inside the fan.
+// The left half of a symmetric outline: the same arcs with x negated, walked
+// backwards, which is the only way five leaves are guaranteed to match.
+const mirrored = (arcs) => arcs.map((c) => arc(-c.cx, c.cy, c.r, Math.PI - c.a1, Math.PI - c.a0, c.sign)).reverse();
+
+// Centre of the fillet of radius rv externally tangent to both lobes, on the far
+// side from `away`. Two circles of radius R+rv about the lobe centres cross
+// twice; one crossing is the notch between the leaves and the other is buried
+// inside the fan.
 function filletCentre(c1, R1, c2, R2, rv, away) {
   const dx = c2.x - c1.x;
   const dy = c2.y - c1.y;
@@ -178,132 +173,141 @@ function filletCentre(c1, R1, c2, R2, rv, away) {
     { x: mx - (h * dy) / d, y: my + (h * dx) / d },
     { x: mx + (h * dy) / d, y: my - (h * dx) / d },
   ];
-  return Math.hypot(p[0].x - away.x, p[0].y - away.y) > Math.hypot(p[1].x - away.x, p[1].y - away.y) ? p[0] : p[1];
+  const far = (q) => Math.hypot(q.x - away.x, q.y - away.y);
+  return far(p[0]) > far(p[1]) ? p[0] : p[1];
 }
 
 const angleTo = (from, to) => Math.atan2(to.y - from.y, to.x - from.x);
 
-// The whole silhouette, counter-clockwise from the buried bottom-right corner.
-// Only the right half is authored; the left is the same chain walked backwards
-// with x negated, which is the only way five leaves are guaranteed to match.
-function steleOutline() {
-  const right = [];
-  const y0 = H - SINK;
-  const rb = 0.09; // buried, so any value that fits inside the slab will do
-  right.push(arc(W - rb, y0 + rb, rb, -Math.PI / 2, 0, 1));
-
-  // cornice: cove, fascia, roll
-  const { coveR: rc, coveSweep: phi, fascia: Lf, rollR: rq } = CORNICE;
-  right.push(arc(W + rc, H, rc, Math.PI, Math.PI - phi, -1));
+// Where the cornice's flat top sits, and how wide it is. Both pieces need it:
+// the cornice ends there and the palmette stands on it.
+function corniceTop() {
+  const { coveR: rc, coveSweep: phi, rollR: rq, halfWidth } = CORNICE;
+  const cx = halfWidth - rq;
+  // The cove leaves the shaft at y = H and the fascia is whatever straight run
+  // is left between the top of the cove and the start of the roll. Its length
+  // falls out of the two x positions, and its rise out of its own slope.
   const coveEnd = { x: W + rc * (1 - Math.cos(phi)), y: H + rc * Math.sin(phi) };
-  // Outward normal where the cove stops, and the direction the outline travels
-  // there, which is that normal turned a quarter turn counter-clockwise.
-  const n = { x: Math.cos(phi), y: -Math.sin(phi) };
-  const t = { x: Math.sin(phi), y: Math.cos(phi) };
-  const fascEnd = { x: coveEnd.x + Lf * t.x, y: coveEnd.y + Lf * t.y };
-  const Cq = { x: fascEnd.x - rq * n.x, y: fascEnd.y - rq * n.y };
-  right.push(arc(Cq.x, Cq.y, rq, -phi, Math.PI / 2, 1));
-  const ledgeY = Cq.y + rq;
+  const n = { x: Math.cos(phi), y: -Math.sin(phi) }; // outward normal where the cove stops
+  const fascia = (cx + rq * n.x - coveEnd.x) / Math.sin(phi);
+  const cy = coveEnd.y + fascia * Math.cos(phi) - rq * n.y;
+  return { cx, cy, coveEnd, n, fascia, y: cy + rq };
+}
 
-  // palmette: the base cove hangs off the end of the short ledge, tangent to it
-  // from above, and the outermost leaf hangs off the far side of the cove.
-  const rs = PALMETTE.coveR;
-  const Cs = { x: Cq.x - PALMETTE.ledge, y: ledgeY + rs };
-  const leaves = PALMETTE.leaves.map((L) => ({ ...L, a: (L.ang * Math.PI) / 180 }));
+// The cornice, counter-clockwise from its buried bottom-right corner, closing
+// across a flat top that the palmette stands on.
+function corniceOutline() {
+  const t = corniceTop();
+  const rb = 0.09; // buried inside the slab, so any radius that fits will do
+  const right = [
+    arc(W - rb, H - SINK + rb, rb, -Math.PI / 2, 0, 1),
+    arc(W + CORNICE.coveR, H, CORNICE.coveR, Math.PI, Math.PI - CORNICE.coveSweep, -1),
+    arc(t.cx, t.cy, CORNICE.rollR, -CORNICE.coveSweep, Math.PI / 2, 1),
+  ];
+  return [...right, ...mirrored(right)];
+}
+
+// The palmette. Its own sweep, its own rim, and its base runs down inside the
+// cornice so the two never meet in a crease.
+function palmetteOutline() {
+  const ledgeY = corniceTop().y;
+  const P = PALMETTE;
+  const leaves = P.leaves.map((L) => ({ ...L, a: (L.ang * Math.PI) / 180 }));
   const outer = leaves[leaves.length - 1];
+
+  // The fan's origin is wherever it has to be for the outer leaf to hang off the
+  // shoulder cove. Solve the cove's flare from the leaf's x, then read the
+  // origin back off the leaf.
+  const ys = ledgeY + P.pillar;
+  const cove = { x: P.baseHalf + P.coveR, y: ys };
+  const reach = outer.rad + P.coveR;
   const lx = outer.len * Math.sin(outer.a);
-  const dx = lx - Cs.x; // negative: the leaf stands inboard of the cove's centre
-  const reach = outer.rad + rs;
-  const dy = Math.sqrt(Math.max(1e-6, reach * reach - dx * dx));
-  // Everything hangs off this: the fan's origin is wherever it has to be for the
-  // outer leaf to land on the cove.
-  const O = { x: 0, y: Cs.y + dy - outer.len * Math.cos(outer.a) };
+  const b = Math.acos(Math.max(-1, Math.min(1, (cove.x - lx) / reach)));
+  const O = { x: 0, y: ys + reach * Math.sin(b) - outer.len * Math.cos(outer.a) };
   const centres = leaves.map((L) => ({ x: L.len * Math.sin(L.a), y: O.y + L.len * Math.cos(L.a) }));
 
-  const baseA = Math.atan2(dy, dx);
-  right.push(arc(Cs.x, Cs.y, rs, -Math.PI / 2, baseA, -1));
+  const rb = 0.04;
+  const yBot = ledgeY - 0.12; // buried in the cornice
+  const right = [
+    arc(P.baseHalf - rb, yBot + rb, rb, -Math.PI / 2, 0, 1),
+    arc(cove.x, cove.y, P.coveR, Math.PI, Math.PI - b, -1),
+  ];
 
-  // Outermost leaf inward: each leaf runs from where it met the last thing to
-  // where it meets the notch above it, and each notch is walked the other way.
-  let entry = baseA + Math.PI;
+  // Outermost leaf inward: each leaf runs from where it met the last thing round
+  // to the notch above it, and each notch is walked the other way.
+  let entry = -b;
   for (let i = leaves.length - 1; i > 0; i--) {
     const c1 = centres[i];
     const c2 = centres[i - 1];
-    const f = filletCentre(c1, leaves[i].rad, c2, leaves[i - 1].rad, PALMETTE.valleyR, O);
+    const f = filletCentre(c1, leaves[i].rad, c2, leaves[i - 1].rad, P.valleyR, O);
     const a1 = angleTo(c1, f);
     const a2 = angleTo(c2, f);
     right.push(arc(c1.x, c1.y, leaves[i].rad, entry, a1, 1));
-    right.push(arc(f.x, f.y, PALMETTE.valleyR, a1 + Math.PI, a2 + Math.PI, -1));
+    right.push(arc(f.x, f.y, P.valleyR, a1 + Math.PI, a2 + Math.PI, -1));
     entry = a2;
   }
-
   // The middle leaf straddles the axis, so it is one arc from its right notch
   // round to the mirror of it.
-  const mid = centres[0];
-  const crown = arc(mid.x, mid.y, leaves[0].rad, entry, Math.PI - entry, 1);
-
-  const left = right
-    .map((c) => arc(-c.cx, c.cy, c.r, Math.PI - c.a1, Math.PI - c.a0, c.sign))
-    .reverse();
-  return [...right, crown, ...left];
+  const crown = arc(centres[0].x, centres[0].y, leaves[0].rad, entry, Math.PI - entry, 1);
+  return [...right, crown, ...mirrored(right)];
 }
 
 // ---------------------------------------------------------------------------
 
 registerStone('stele', {
   shape: SHAPE,
-  // Both ends squared. The crown supplies the top and swallows the slab's own,
-  // and a stele's foot is cut square to drop into a socket -- the registry's
-  // default 0.09 would have rounded the shaft away just where it comes out of
-  // the plinth, on a shaft this narrow.
+  // Both ends squared. The cornice supplies the top and swallows the slab's own,
+  // and a stele's foot is cut square to drop into a socket -- on a shaft this
+  // narrow the registry's default 0.09 would round it away just where it comes
+  // out of the plinth.
   topRadius: 0,
   bottomRadius: 0,
 
-  // A name and a farewell, which is the entire text on most Attic grave stelai.
-  // XAIPE is the Greek word as it is actually cut -- chi alpha iota rho epsilon
-  // are the same five shapes in this alphabet -- so it needs no font this
-  // canvas does not have.
-  //
-  // Measured off the artwork: ink covers 4.6% of the face, in a box 74% of the
-  // face wide by 25% of it tall. The approved stones run 5 to 10% and the
-  // rejected set 12 to 19%, so this sits a shade under the quiet end, which is
-  // where a stone whose silhouette is doing this much talking belongs. It is
-  // also why there is no motif: the postmortem's rule is that a complex
-  // silhouette gets no marking and a simple one gets exactly one, never both,
-  // and the palmette is about as complex as this set gets.
-  //
-  // Letters come out 0.108 world tall against the cross's 0.122 and heart's
-  // 0.088. Matching the set's letter SIZE is what has to hold rather than a
-  // coverage figure -- a narrow face given proportionally narrow writing stops
-  // looking like it came from the same yard -- and at this size the six letters
-  // of the longer line fill 74% of the face, which is as wide as they go before
-  // the outer ones start rolling round the rim.
+  // A name and a farewell, which is the whole text on most Attic grave stelai.
+  // XAIPE is the Greek word as it is actually cut: chi alpha iota rho epsilon
+  // are the same five shapes in this alphabet, so it needs no font this canvas
+  // does not have.
   //
   // Both lines sit in the upper half, under the cornice, where a stele's
-  // inscription is cut. The long blank run below them is the same trick the
-  // obelisk uses: the eye finds the words, falls down the empty shaft, and the
-  // drop is what sells the height.
+  // inscription goes. The long blank run below them is the obelisk's trick: the
+  // eye finds the words, falls down the empty shaft, and the drop is what sells
+  // the height.
   draw(ctx, w, h) {
-    const size = h * 0.12;
-    inkText(ctx, 'HEGESO', w / 2, h * 0.3, size, size * 0.04);
-    inkText(ctx, 'XAIPE', w / 2, h * 0.46, size, size * 0.10);
+    const size = h * 0.115;
+    inkText(ctx, 'HEGESO', w / 2, h * 0.28, size, size * 0.04);
+    inkText(ctx, 'XAIPE', w / 2, h * 0.44, size, size * 0.1);
   },
 
   extras({ body, material, shape, plinthH, edge, slabUV, disposables }) {
-    const geo = buildArcSweepGeometry({
-      outline: steleOutline(),
-      depth: shape.depth,
-      edge, // the slab's rim radius: the two have to agree or the joint shows
-      // The slab's own mapping, so the crown's front face carries the same
-      // texture in the same place and the coincident faces shade identically.
-      // It clamps v, which is what the crown standing above the face needs.
-      uv: slabUV,
-    });
-    const crown = new THREE.Mesh(geo, material);
-    crown.position.y = plinthH;
-    crown.castShadow = true;
-    crown.receiveShadow = true;
-    body.add(crown);
-    disposables.push(geo);
+    const add = (geo, z = 0) => {
+      const mesh = new THREE.Mesh(geo, material);
+      mesh.position.set(0, plinthH, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      body.add(mesh);
+      disposables.push(geo);
+    };
+
+    // The cornice takes the slab's own rim radius -- the two have to agree or
+    // the joint shows -- and the slab's own UV mapping, so the coincident front
+    // faces carry the same texture in the same place and shade identically.
+    // slabUV clamps v, which is what anything standing above the face needs.
+    add(
+      buildArcSweepGeometry({
+        outline: corniceOutline(),
+        depth: shape.depth,
+        edge,
+        uv: slabUV,
+      }),
+    );
+
+    add(
+      buildArcSweepGeometry({
+        outline: palmetteOutline(),
+        depth: PALMETTE.depth,
+        edge: PALMETTE.edge,
+        uv: slabUV,
+      }),
+    );
   },
 });

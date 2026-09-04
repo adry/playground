@@ -107,6 +107,11 @@ const AROUND = Math.round(SEGMENTS.radial * 0.84);
 
 const GLASS_TINT = '#a9c3ce';
 const WAX = '#efe4cd';
+// The stub in the jar that went out. Greyed and taken down, because a spent
+// candle is the one thing in this cluster that has to read as NOT lit, and at
+// prop scale the tipped jar's own dead white wax was the brightest surface on
+// the whole group.
+const SPENT = '#cdc3b1';
 const WICK = '#2a2118';
 
 // The lamp's colour, converted by hand because these are a light's colour and
@@ -517,7 +522,7 @@ export function createCandleJars({ seed = 1, scale = 1 } = {}) {
     // inside wall have to survive two crossings rather than one.
     uBodyA: { value: 0.20 },
     uWash: { value: placed.map(() => 0) },
-    uSoot: { value: placed.map((J) => (J.lit ? 0.34 + 0.12 * ((J.burn * 7) % 1) : 0.40)) },
+    uSoot: { value: placed.map((J) => (J.lit ? 0.34 + 0.12 * ((J.burn * 7) % 1) : 0.58)) },
     uFlameH: { value: placed.map((J) => J.flameH) },
   };
 
@@ -580,6 +585,7 @@ varying float vFlameH;`)
   // and it kills the flame's own core.
   const waxParts = [];
   const waxCol = new THREE.Color(WAX);
+  const spentCol = new THREE.Color(SPENT);
   const wickCol = new THREE.Color(WICK);
   placed.forEach((J, i) => {
     const rIn = J.rOut * 0.92 - J.roll * Math.cos(Math.PI / 6);
@@ -609,7 +615,7 @@ varying float vFlameH;`)
     } else {
       waxGeo = new THREE.LatheGeometry(candleProfile(rIn, J.waxTop), Math.round(AROUND * 0.7));
     }
-    waxParts.push(tag(waxGeo, i, 1, waxCol));
+    waxParts.push(tag(waxGeo, i, 1, J.lit ? waxCol : spentCol));
 
     // Two millimetres of dark, and it matters: without it the flame floats a
     // hair above the wax and the whole thing goes to plastic.
