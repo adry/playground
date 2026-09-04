@@ -21,6 +21,13 @@ const height = Number(args.h || 900);
 const fps = Number(args.fps || 60);
 const seconds = Number(args.seconds || 22);
 const outFile = args.out || `out/chase-${width}x${height}.mp4`;
+// 'chase' builds the ghost and the skeleton and nothing else: a clip about two
+// characters does not want a graveyard competing behind them.
+const sceneMode = args.scene || 'chase';
+// Half-height of the orthographic box, so smaller is tighter. The shipped pages
+// use 6.2 and the ghost's own clip was shot at that; 5.4 is a little closer,
+// which is what was asked for once the props came out.
+const view = Number(args.view || 5.4);
 
 // The scene starts the ghost at the world origin and buries the skeleton at
 // world (0.57, 1.98), about two units away, which is already inside its seven
@@ -30,30 +37,39 @@ const TO_SKULL = { x: 0.275, y: 0.961 };     // unit vector, ghost to skeleton
 const AWAY = { x: -TO_SKULL.x, y: -TO_SKULL.y };
 const scale = (v, k) => ({ x: v.x * k, y: v.y * k });
 
-// The chase only reads if the skeleton stays in frame, and the camera follows
-// the GHOST. Full stick is about 4 units a second and the skeleton's top speed
-// is 1.25, so a flat-out run leaves it behind in three seconds and the rest of
-// the clip is an empty floor. At 0.33 the ghost makes about 1.4, which opens
-// the gap slowly enough to stay a chase.
+// The flee runs along world +X, which is EXACTLY the screen's bottom right:
+// screen-right is (x - z) / sqrt(2) and screen-up is -(x + z) / sqrt(2), so
+// (1, 0) lands on (0.707, -0.707). That is the direction that matters here,
+// because the ghost turns to face where it is going, and a ghost running down
+// the screen is a ghost you can see the eyes of. Running up the screen shows
+// you a bedsheet.
+//
+// The chase also only reads if the skeleton stays in frame, and the camera
+// follows the GHOST. Full stick is about 4 units a second against the
+// skeleton's top speed of 1.25, so a flat-out run leaves it behind in three
+// seconds and spends the rest of the clip on empty floor. At 0.33 the ghost
+// makes about 1.4 and the gap opens slowly enough to stay a chase.
 const FLEE = 0.33;
 
 function scriptedInput(t) {
-  if (t < 0.4) return { x: 0, y: 0 };                       // a hand breaks the surface
-  if (t < 1.1) return scale(TO_SKULL, 0.26);                // curiosity, drifts closer
-  if (t < 1.5) return { x: 0, y: 0 };                       // the skull comes up
-  if (t < 2.4) return scale(AWAY, 0.5);                     // and he backs off fast
-  if (t < 5.9) return { x: 0, y: 0 };                       // watches it climb out and stand
-  if (t < 9.0) return scale(AWAY, 0.30);                    // gives ground
-  if (t < 13.0) return scale(AWAY, FLEE);                   // and runs
-  if (t < 17.0) return { x: 0.23, y: -0.23 };               // cuts right
-  return { x: 0.31, y: 0.10 };                              // and across the front
+  if (t < 0.4) return { x: 0, y: 0 };            // a hand breaks the surface
+  if (t < 1.1) return scale(TO_SKULL, 0.26);     // curiosity, drifts closer
+  if (t < 1.5) return { x: 0, y: 0 };            // the skull comes up
+  if (t < 2.4) return scale(AWAY, 0.5);          // and he backs off fast
+  if (t < 5.9) return { x: 0, y: 0 };            // watches it climb out and stand
+  if (t < 8.5) return { x: 0.28, y: 0 };         // gives ground, down and right
+  // Then the run, weaving gently. The weave is small on purpose: it swings the
+  // ghost's yaw enough to keep the face alive without ever turning it away.
+  if (t < 13.0) return { x: FLEE, y: 0.08 };
+  if (t < 17.5) return { x: FLEE, y: -0.07 };
+  return { x: FLEE, y: 0.05 };
 }
 
 const lab = await openLab({
   width,
   height,
   entry: '/lab/',
-  query: 'test=1',
+  query: `test=1&scene=${sceneMode}&view=${view}`,
   readyFlag: '__ghostReady',
   verbose: !!args.verbose,
 });
@@ -62,7 +78,7 @@ await lab.page.evaluate((o) => window.__ghost.setSize(o.w, o.h), { w: width, h: 
 await mkdir(path.dirname(outFile), { recursive: true });
 
 const frames = Math.round(seconds * fps);
-console.log(`${width}x${height} - ${fps}fps - ${seconds}s - ${frames} frames`);
+console.log(`${width}x${height} - ${fps}fps - ${seconds}s - ${frames} frames - scene=${sceneMode} view=${view}`);
 
 const ff = spawn(ffmpegPath, [
   '-y',

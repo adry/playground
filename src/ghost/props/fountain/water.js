@@ -9,10 +9,10 @@ import * as THREE from 'three';
 // water from a moving stripe is that a stream ACCELERATES, and three things
 // follow from that, all of which are here:
 //
-//   1. It thins. Volume through any cross-section is constant, so area times
-//      speed is constant and the radius goes as one over the square root of the
-//      speed. The strand is fat at the lip and about half as wide by the time
-//      it lands, and that is not an art choice, it is the same equation.
+//   1. It thins. Volume through any cross-section is constant, so the AREA of
+//      that cross-section goes as one over the speed. Which of the ribbon's two
+//      axes gives that area up is a separate question, and the answer for a
+//      sheet peeling off a lip is that it keeps its width and loses its depth.
 //   2. Its features accelerate. Every wobble and every bead is sampled at the
 //      EMISSION time of the water that is passing through that point, which is
 //      `uTime - tau`, where tau is the flight time to get there. A feature is a
@@ -25,7 +25,18 @@ import * as THREE from 'three';
 //      pinches almost shut between them near the bottom.
 //
 // It is also a ribbon and not a cylinder: wide and flat where it leaves the
-// lip, pulled round by the time it lands.
+// lip, and flatter still by the time it lands.
+//
+// WHY THIS WAS ICICLES, TWICE. The first pass thinned by one over root speed,
+// which is only a factor of two over a fall this short, and then multiplied
+// that by a second envelope: `1.0 + flatten * (1 - smoothstep(0, 0.7, t))`,
+// which quietly narrowed the wide axis by another 1.55 over the first two
+// thirds of the drop. Two monotone tapers multiplied together is 3.3 from lip
+// to tip, and 3.3 IS an icicle however good the reasoning behind either factor
+// was. On top of that the bead term `1 - amp * pow(w, 3.5)` only ever SUBTRACTED
+// radius, so as `amp` ramped up along the fall it worked as a third taper.
+// Both are fixed below: the area loss is spent on the thin axis alone, and the
+// bead term swells between the necks by as much as the necks take out.
 //
 // Everything above is one function, `flowPoint(t, angle)`, evaluated in the
 // vertex shader. Nothing about the geometry is precomputed on the CPU, and the
@@ -34,7 +45,10 @@ import * as THREE from 'three';
 
 export const WATER_COLOUR = '#93b2c6';
 
-const RINGS = 44; // steps down the fall
+// Rings buy bead resolution and nothing else, so the count is tied to the bead
+// frequency rather than picked: a strand carries a dozen or so necks and each
+// one needs enough rings across it not to alias into a straight taper.
+const RINGS = 120; // steps down the fall
 const CROSS = 8; // steps round the ribbon
 
 // ---------------------------------------------------------------------------
@@ -46,13 +60,15 @@ attribute float aA;
 attribute vec3 aOrigin;
 attribute vec3 aVel;
 attribute vec3 aSide;
-attribute vec4 aShape; // flight time, lip radius, phase seed, flatten
+attribute vec4 aShape; // flight time, lip half-width, phase seed, lip aspect
 
 uniform float uTime;
 uniform float uG;
+uniform float uSheet;
 uniform float uBeadAmp;
 uniform float uBreakAmp;
 uniform float uBeadFreq;
+uniform float uFoot;
 uniform float uWaver;
 
 vec3 flowPoint(float t, float ang) {
@@ -60,60 +76,77 @@ vec3 flowPoint(float t, float ang) {
   vec3 vel = aVel + vec3(0.0, -uG * tau, 0.0);
   vec3 p = aOrigin + aVel * tau + vec3(0.0, -0.5 * uG * tau * tau, 0.0);
 
-  // continuity: area times speed is constant, so radius goes as 1/sqrt(speed)
   float sp = max(length(vel), 1e-4);
   float s0 = max(length(aVel), 1e-4);
-  // Capped on the way up: at the top of a jet's arc the vertical speed passes
-  // through zero, and an uncapped 1/sqrt(speed) puts a blob there.
-  float r = aShape.y * min(1.25, sqrt(s0 / sp));
+
+  // Continuity, spent on the right axis. Volume through any cross-section is
+  // constant, so AREA times speed is, and the area shrinks as s0/sp. A round
+  // stream would pay for that equally on both axes and lose 1/sqrt(sp) of its
+  // silhouette; a ribbon does not. It keeps its width and thins front to back,
+  // so `stretch` hands the area loss to the thin axis and the wide axis, which
+  // is the one the camera reads, only narrows by about a third over the fall.
+  // Capped because at the top of a jet's arc the vertical speed passes through
+  // zero and an uncapped ratio puts a blob there.
+  float area = min(1.45, s0 / sp);
+  float stretch = 1.0 + uSheet * t;
+  float wide = aShape.y * sqrt(area * stretch);
+  float thin = (aShape.y / aShape.w) * sqrt(area / stretch);
 
   // the water passing through here left the lip at this moment
   float ph = uTime - tau + aShape.z;
 
   // Two amplitudes, not one. A stream leaving a lip is smooth for the first
   // stretch and only ripples gently; it is further down, once it has thinned,
-  // that surface tension starts pinching it apart. A single ramp gave every
-  // strand one big taper and they came back reading as icicles.
-  float amp = uBeadAmp * smoothstep(0.10, 0.60, t) + uBreakAmp * smoothstep(0.64, 1.0, t);
+  // that surface tension starts pinching it apart. The last tenth eases off
+  // again so the strand meets the water on a swell and not on a neck.
+  float amp = (uBeadAmp * smoothstep(0.32, 0.90, t) + uBreakAmp * smoothstep(0.68, 1.0, t))
+            * (1.0 - 0.80 * smoothstep(0.90, 1.0, t));
 
-  // And a NOTCH, not a sine. A sinusoidal radius makes a chain of pointed
-  // spindles, which is the second thing that read as icicles. Water necks: it
-  // stays full most of the way and pinches hard over a short stretch, and by
-  // the bottom those pinches are deep enough to cut it into drops. Raising the
-  // cosine to a power is what makes the narrow part narrow.
-  float w = 0.5 + 0.5 * cos(6.2831853 * uBeadFreq * ph);
-  float swell = 0.5 + 0.5 * cos(6.2831853 * uBeadFreq * 0.41 * ph + 1.7);
-  // Plus a fine ripple that never stops, so the edge of the strand is never a
-  // straight line even where it is not beading yet.
-  float fine = 0.045 * sin(6.2831853 * uBeadFreq * 2.4 * ph + 0.6);
-  r *= max(0.13, 1.0 - amp * pow(w, 3.5) + 0.20 * amp * swell + fine);
+  // A NOTCH, not a sine: a sinusoidal radius makes a chain of pointed spindles.
+  // Water necks. It stays full most of the way and pinches hard over a short
+  // stretch, and raising the cosine to a fourth power is what makes the narrow
+  // part narrow and leaves the fat part fat.
+  //
+  // The bead term has to be volume-neutral or it doubles as a taper: `neck`
+  // averages about a fifth over a cycle, so the constant here is set to give
+  // back between the necks roughly what the necks take out, and `amp` can then
+  // ramp all the way up without the mean radius sagging.
+  float neck = pow(0.5 + 0.5 * cos(6.2831853 * uBeadFreq * ph), 4.0);
+  float girth = 1.0 + amp * (0.34 - 1.25 * neck);
+  // A slow swelling and a fine ripple, both running the whole length, so the
+  // edge of the strand is never a straight line even where it is not beading.
+  girth += 0.13 * sin(6.2831853 * uBeadFreq * 0.11 * ph + 2.1);
+  girth += 0.05 * sin(6.2831853 * uBeadFreq * 2.3 * ph + 0.6);
+  girth = max(0.17, girth);
 
-  // The foot, where the stream goes into the pool and spreads. Without it the
-  // strand ends on a needle point hanging over the water.
-  r *= 1.0 + 0.85 * smoothstep(0.93, 1.0, t);
+  // The foot, where the stream goes into the pool and spreads. It is wide by
+  // the time it reaches the waterline rather than at the very last ring,
+  // because the last stretch is under the water and nobody sees it.
+  girth *= 1.0 + uFoot * smoothstep(0.86, 0.97, t);
 
-  // A ribbon at the lip, pulled round by surface tension on the way down. It
-  // is called ribbon rather than flat because flat is a GLSL keyword.
-  float ribbon = aShape.w * (1.0 - smoothstep(0.0, 0.70, t));
-  float wide = r * (1.0 + ribbon);
-  float thin = r * (1.0 - 0.70 * ribbon);
+  wide *= girth;
+  thin *= girth;
 
   vec3 T = vel / sp;
   vec3 W = normalize(aSide - T * dot(aSide, T));
   vec3 N = cross(T, W);
 
-  float sway = uWaver * smoothstep(0.10, 1.0, t);
-  p += W * (sway * sin(6.2831853 * 0.82 * ph));
-  p += N * (sway * 0.65 * sin(6.2831853 * 0.57 * ph + 1.7));
+  float sway = uWaver * smoothstep(0.06, 0.85, t);
+  p += W * (sway * sin(6.2831853 * 0.86 * ph + aShape.z));
+  p += N * (sway * 0.55 * sin(6.2831853 * 0.61 * ph + 1.7));
 
   return p + N * (thin * cos(ang)) + W * (wide * sin(ang));
 }
 `;
 
+// The differencing step down the strand is one ring, not a fixed 0.02. At the
+// bead frequency this shader now runs, 0.02 of t is a quarter of a neck, and a
+// normal taken over a quarter of a neck is the normal of the average shape:
+// the beads were there in the silhouette and absent from the shading.
 const STRAND_BODY = `
   vec3 wPos = flowPoint(aT, aA);
-  float sgn = aT < 0.97 ? 1.0 : -1.0;
-  vec3 dT = flowPoint(aT + sgn * 0.02, aA) - wPos;
+  float sgn = aT < 0.985 ? 1.0 : -1.0;
+  vec3 dT = flowPoint(aT + sgn * ${(1 / RINGS).toFixed(6)}, aA) - wPos;
   vec3 dA = flowPoint(aT, aA + 0.14) - wPos;
   vec3 wNormal = normalize(cross(sgn * dT, dA));
 `;
@@ -128,12 +161,14 @@ function strandGeometry(strands) {
   for (let i = 0; i < rows; i++) {
     const t = i / RINGS;
     // Alpha along the fall: nearly sheer where it peels off the lip so the
-    // strand grows out of the stone instead of being stuck on it, solid through
-    // the body, softening again as it breaks up into the pool. The last stretch
-    // also lightens, because water that has started to come apart is full of
-    // air and air is white.
-    const alpha = 0.42 + 0.58 * Math.min(1, t / 0.16) - 0.34 * Math.max(0, (t - 0.86) / 0.14);
-    const airy = 1 + 0.18 * Math.max(0, (t - 0.55) / 0.45);
+    // strand grows out of the stone instead of being stuck on it, and solid all
+    // the rest of the way. It used to fade out again over the last seventh,
+    // which is exactly the stretch that has to be legible against a pale pool:
+    // the strand went transparent at the one place it had to arrive. What the
+    // last stretch does instead is LIGHTEN, because water that has started to
+    // come apart is full of air and air is white.
+    const alpha = 0.46 + 0.54 * Math.min(1, t / 0.14);
+    const airy = 1 + 0.30 * Math.max(0, (t - 0.62) / 0.38);
     for (let j = 0; j < CROSS; j++) {
       const k = i * CROSS + j;
       aT[k] = t;
@@ -172,7 +207,7 @@ function strandGeometry(strands) {
     org.set([s.origin.x, s.origin.y, s.origin.z], i * 3);
     vel.set([s.vel.x, s.vel.y, s.vel.z], i * 3);
     side.set([s.side.x, s.side.y, s.side.z], i * 3);
-    shape.set([s.tau, s.rLip, s.seed, s.flatten], i * 4);
+    shape.set([s.tau, s.halfWidth, s.seed, s.aspect], i * 4);
   });
   geo.setAttribute('aOrigin', new THREE.InstancedBufferAttribute(org, 3));
   geo.setAttribute('aVel', new THREE.InstancedBufferAttribute(vel, 3));
@@ -200,6 +235,8 @@ uniform float uRingSpeed;
 uniform float uDecay;
 uniform float uSwell;
 uniform float uChop;
+uniform float uFoam;
+uniform float uFoamTight;
 `;
 
 // Shared by both stages: the vertex stage displaces by the field, the fragment
@@ -233,6 +270,24 @@ vec2 chopGradient(vec2 q) {
   float k2 = 31.0;
   return uChop * (k1 * cos(dot(q, d1) * k1 - uTime * 3.1) * d1
                 + k2 * cos(dot(q, d2) * k2 + uTime * 2.3) * d2);
+}
+
+// Aerated water where a strand goes in. A strand that lands in the middle of a
+// disc of flat colour arrives nowhere: the ring train alone is a normal-map
+// effect and at this camera elevation it is far too subtle to say "the water
+// comes down HERE". This is the same ring of impact points as the field above,
+// read as a patch of white that breathes rather than as a height.
+float poolFoam(vec2 q, vec4 pl) {
+  float f = 0.0;
+  for (int k = 0; k < 12; k++) {
+    if (float(k) >= pl.y) break;
+    float ang = 6.2831853 * (float(k) / pl.y) + pl.z;
+    vec2 c = vec2(cos(ang), sin(ang)) * pl.x;
+    float d = distance(q, c);
+    float pulse = 0.86 + 0.14 * sin(6.2831853 * (d * uRingFreq - uTime * uRingSpeed));
+    f += exp(-d * uFoamTight) * pulse;
+  }
+  return clamp(f, 0.0, 1.0);
 }
 
 vec2 poolGradient(vec2 q, vec4 pl) {
@@ -339,10 +394,19 @@ export function createWater({ strands, pools }) {
   const uniforms = {
     uTime: { value: 0 },
     uG: { value: 3.4 },
-    uBeadAmp: { value: 0.42 },
-    uBreakAmp: { value: 0.62 },
-    uBeadFreq: { value: 10.5 },
-    uWaver: { value: 0.022 },
+    // How much flatter the ribbon gets between the lip and the water. This is
+    // the knob that decides how much of the continuity loss the silhouette
+    // pays: at 1.05 the wide axis narrows by about 1.4 over the whole fall,
+    // which is a taper you can see and not one you can name.
+    uSheet: { value: 1.05 },
+    uBeadAmp: { value: 0.34 },
+    uBreakAmp: { value: 0.58 },
+    // Beads have to be about as long as the strand is wide, or each one reads
+    // as a taper in its own right. At 28 a strand carries a dozen necks, the
+    // ones near the bottom about two strand-widths apart.
+    uBeadFreq: { value: 28.0 },
+    uFoot: { value: 1.35 },
+    uWaver: { value: 0.026 },
     // Rings die back quickly on purpose. Nine ring trains crossing a pool is
     // what really happens and it looked like crumpled foil: the eye reads
     // interference as noise, not as water. Damped, each strand keeps its own

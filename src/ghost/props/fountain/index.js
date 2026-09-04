@@ -25,14 +25,16 @@ export { createBrokenColumn, createFallenDrum, createMarbleChips } from './rubbl
 // just left instead of running back down its underside.
 const SPILL = { speed: 0.42, out: 0.055 };
 
-// How far past the surface a strand is flown before it stops. A strand that
-// ends exactly on the waterline reads as hanging above it, because the last
-// ring is the thinnest thing on the strand and the surface it is meant to be
-// entering is transparent. Run it under instead.
-const PIERCE = 0.016;
+// How far past the surface a strand is flown before it stops. The flight time
+// is SOLVED to the receiving pool's own height, so a strand always arrives; the
+// pierce is what stops it arriving on its very last ring, which is the one ring
+// whose width the shader has no room left to control. Deep enough now that the
+// widened foot straddles the waterline and the tip itself is under the water,
+// where the pool's own depth buffer hides it.
+const PIERCE = 0.030;
 const JETS = { at: -Math.PI / 4, count: 2, r: 0.052, y: 1.792, up: 0.38, out: 0.26 };
 
-function strandsFor({ profile, displace, rng, tag, count, phase, target, rLip, flatten, dropBelowLip }) {
+function strandsFor({ profile, displace, rng, tag, count, phase, target, halfWidth, aspect, dropBelowLip }) {
   const out = [];
   for (let k = 0; k < count; k++) {
     const theta = phase + (k / count) * Math.PI * 2;
@@ -55,9 +57,9 @@ function strandsFor({ profile, displace, rng, tag, count, phase, target, rLip, f
       tau,
       // Seeded jitter on the thickness and the phase only. Jittering the flight
       // time would land the strand off the water.
-      rLip: rLip * (0.88 + rng() * 0.24),
+      halfWidth: halfWidth * (0.88 + rng() * 0.24),
       seed: rng() * 3.0,
-      flatten,
+      aspect,
       landing: lip.r + SPILL.out * tau,
     });
   }
@@ -84,12 +86,12 @@ export function createFountain({ seed = 1, scale = 1 } = {}) {
   const bowlStrands = strandsFor({
     profile, displace, rng,
     tag: 'bowl-rim', count: BOWL_LOBES, phase: 0,
-    target: TIERS.basin, rLip: 0.0185, flatten: 0.55, dropBelowLip: 0.009,
+    target: TIERS.basin, halfWidth: 0.0310, aspect: 1.90, dropBelowLip: 0.009,
   });
   const dishStrands = strandsFor({
     profile, displace, rng,
     tag: 'dish-rim', count: DISH_LOBES, phase: 0,
-    target: TIERS.bowl, rLip: 0.0145, flatten: 0.52, dropBelowLip: 0.006,
+    target: TIERS.bowl, halfWidth: 0.0245, aspect: 1.85, dropBelowLip: 0.006,
   });
 
   // The finial throws two arcs sideways into the top dish. Same shader as a
@@ -106,10 +108,10 @@ export function createFountain({ seed = 1, scale = 1 } = {}) {
       vel: new THREE.Vector3(JETS.out * cos, JETS.up, JETS.out * sin),
       side: new THREE.Vector3(-sin, 0, cos),
       tau,
-      rLip: 0.0128,
+      halfWidth: 0.0150,
       seed: rng() * 3.0,
-      // A jet leaves a hole rather than a lip, so it starts round.
-      flatten: 0.14,
+      // A jet leaves a hole rather than a lip, so it starts nearly round.
+      aspect: 1.12,
       landing: JETS.r + JETS.out * tau,
     });
   }

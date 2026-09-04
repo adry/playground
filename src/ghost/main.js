@@ -39,7 +39,12 @@ scene.fog = new THREE.Fog(BACKDROP, 24, 52);
 
 // True isometric-ish: 45 degrees around, ~30 degrees up, orthographic so there
 // is no perspective convergence.
-const VIEW_SIZE = 6.2;
+//
+// The half-height of the orthographic box, so smaller is tighter. 6.2 is what
+// both shipped pages use and is not a capture setting; ?view= only exists so a
+// recorder can frame a subject closer without the scene forking. It is ignored
+// unless it parses to a positive number.
+const VIEW_SIZE = Number(params.get('view')) > 0 ? Number(params.get('view')) : 6.2;
 const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 const camTarget = new THREE.Vector3(0, 0.75, 0);
@@ -202,7 +207,22 @@ scene.add(ghost.mesh);
 // floor: nothing half-finished, nothing that might be mid-rework. /lab/ loads
 // everything currently being built. The two share this file rather than
 // forking it, so the public page never drifts away from what is being tested.
-const SCENE = document.body.dataset.scene === 'minimal' ? 'minimal' : 'full';
+// Which world to build. The page decides, and a recorder may narrow it.
+//
+//   minimal  the ghost and the floor, nothing else. What /ghostly/ ships.
+//   full     everything currently being built. What /lab/ ships.
+//   chase    the ghost and the skeleton, and nothing to look at but them.
+//
+// 'chase' exists because a clip of the skeleton coming after the ghost is a
+// clip about two characters, and a graveyard behind them is competition. It is
+// reachable only by ?scene=, never by a page, so nothing ships it.
+const SCENE_OVERRIDE = params.get('scene');
+const SCENE = SCENE_OVERRIDE === 'chase' ? 'chase'
+  : document.body.dataset.scene === 'minimal' ? 'minimal' : 'full';
+// Everything except the two characters is gated on this rather than on
+// SCENE === 'full' directly, so adding a mode does not mean auditing every
+// prop block for the one that was missed.
+const SHOW_PROPS = SCENE === 'full';
 const props = [];
 // Scene-level updaters that are not props in their own right, such as the one
 // driving the gate from the ghost's motion.
@@ -278,7 +298,7 @@ const GRAVES = [
   { variant: 'bat', right: 4.4, up: 3.0, yaw: Math.PI / 4 - 0.60 },
 ];
 
-if (SCENE === 'full') {
+if (SHOW_PROPS) {
   for (const [i, g] of GRAVES.entries()) {
     const [x, z] = atScreen(...clearOfGate(g.right, g.up));
     addProp(createTombstone({ variant: g.variant, seed: 11 + i * 13 }), x, z, g.yaw);
@@ -294,7 +314,7 @@ const PUMPKINS = [
   { variant: 'tall', right: 1.1, up: -2.9, yaw: Math.PI / 4 + 0.18 },
 ];
 
-if (SCENE === 'full') {
+if (SHOW_PROPS) {
   for (const [i, spot] of PUMPKINS.entries()) {
     const [x, z] = atScreen(...clearOfGate(spot.right, spot.up));
     addProp(createPumpkin({ variant: spot.variant, seed: 3 + i * 7 }), x, z, spot.yaw);
@@ -388,13 +408,24 @@ if (SCENE === 'full') {
 
   fencePlot({ right: 1.0, up: FENCE_UP_PLOT, w: 3, h: 2, seed: 40, gates: { front: 1 }, broken: { back: 1, right: 0 } });
 
-  // The skeleton, buried on the path between the two plots, waiting for the
-  // ghost to come within seven units. Turned a little off square because
-  // dead-on hides the depth of the ribcage and the pelvis both.
-  //
-  // The rig is only the model; perform.js drives it, and it is the one prop
-  // that needs to know where the ghost is, so it is wrapped at the call site
-  // rather than by widening the prop signature for everything else.
+  // The wreckage sits in the breach in the right plot's back fence.
+  const [bx, bz] = atScreen(1.0 + 1.5 * PANEL, 0.6 + 2 * PANEL - 0.35);
+  addProp(createDebrisPile({ seed: 7 }), bx, bz, ACROSS);
+  addProp(createChipScatter({ seed: 7, count: 150 }), bx, bz, ACROSS);
+}
+
+// The skeleton is a CHARACTER, not scenery, so it is gated on its own rather
+// than living inside the props block: 'chase' wants it with nothing else in
+// the frame, and /ghostly/ wants neither.
+//
+// Buried on the path between the two plots, waiting for the ghost to come
+// within seven units. Turned a little off square because dead-on hides the
+// depth of the ribcage and the pelvis both.
+//
+// The rig is only the model; perform.js drives it, and it is the one prop that
+// needs to know where the ghost is, so it is wrapped at the call site rather
+// than by widening the prop signature for everything else.
+if (SCENE !== 'minimal') {
   const [skx, skz] = atScreen(-1.0, -1.8);
   const skeleton = createSkeletonRig();
   skeleton.group.position.set(skx, 0, skz);
@@ -413,11 +444,6 @@ if (SCENE === 'full') {
   // The performance steps the debris itself. Updating `bones` here as well
   // would advance it twice a frame and every shed bone would fall at 2g.
   props.push({ update: (time, dt) => skeletonPerf.update(dt, ghost.pos) });
-
-  // The wreckage sits in the breach in the right plot's back fence.
-  const [bx, bz] = atScreen(1.0 + 1.5 * PANEL, 0.6 + 2 * PANEL - 0.35);
-  addProp(createDebrisPile({ seed: 7 }), bx, bz, ACROSS);
-  addProp(createChipScatter({ seed: 7, count: 150 }), bx, bz, ACROSS);
 }
 
 const input = new Input(canvas, camera);
