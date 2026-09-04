@@ -95,19 +95,6 @@ void SOLE_Y;
 const KNEE_Z = frac(0.0040);             // 0.010, knee slightly ahead of the hip
 const ANKLE_Z = -frac(0.0040);           // -0.010, and the ankle behind it again
 
-// The foot has two budgets and they are different numbers, so quantities below
-// are written as a fraction of whichever one governs them: horizontal extents
-// and radii against FOOT, heights against RISE.
-const FOOT = M.leg.foot;                 // 0.250, heel point to longest toe tip
-const RISE = M.y.ankle;                  // 0.075, ankle pivot down to the sole
-
-// Foot bulbs are flattened, and then placed by their FLATTENED half height.
-// Placing them by their radius instead lifts the whole character 14% of a toe
-// off the floor, which is small enough to survive a render and large enough to
-// look like the figure is hovering.
-const FOOT_SQUASH = 0.86;
-const seat = (r, scaleY = 1) => -RISE + r * FOOT_SQUASH * scaleY;
-
 // --- the hip bone ------------------------------------------------------------
 //
 // Three parts, not one, and the reason is that a hip bone is three things:
@@ -317,7 +304,11 @@ const RIM = [
   [0.0758, 0.0986],
   [0.0713, 0.1272],                   // and up the sacroiliac face
 ];
-const RIM_R = frac(0.0072);           // 0.018, against a 0.028 plate
+// 0.0155 against a 0.028 plate, so it is a shade over half the thickness: just
+// enough to round the edge and almost nothing proud of the faces. At 0.018 it
+// stood 4mm out on each side and the blade read as a flat panel inside a raised
+// border, picture-frame rather than one continuous curve.
+const RIM_R = frac(0.0062);
 
 // THREE.Shape draws straight lines between the points it is handed, so the
 // outline above extrudes as a faceted crystal: the first render of this part
@@ -419,51 +410,80 @@ function onPlate(map, s, x, y) {
 
 // --- the foot ----------------------------------------------------------------
 //
-// One ray per metatarsal, hallux first. x is signed lateral in the foot's own
-// frame (negative is medial, towards the other foot), z is forward, and all of
-// them are fractions of FOOT. `dirX` is the direction the toe leaves its
-// metatarsal head in, which is what fans the forefoot out; `phalanx` is the
-// real bone count, two on the hallux and three everywhere else.
+// Three budgets, and which one a number belongs to matters more here than
+// anywhere else in the file. An earlier version put everything against foot
+// LENGTH, so when M.leg.foot was corrected from f(0.100) to f(0.142) the heel
+// bulb grew with it and the foot came out standing on a ball half the height of
+// the ankle. Lengths go against FOOT, widths against FOOT_WIDE, and anything
+// that decides how TALL a piece of the foot is goes against RISE, because RISE
+// is the only height there is between the ankle pivot and the floor.
+const FOOT = M.leg.foot;                 // 0.355, heel point to longest toe tip
+const FOOT_WIDE = M.leg.footWidth;       // 0.150, across the ball
+const RISE = M.y.ankle;                  // 0.075, ankle pivot down to the sole
+const TOE_OUT = M.leg.toeOut;            // 0.14 radians
+
+// Where the ankle sits along the foot. A quarter back, three quarters forward:
+// adding the new length symmetrically instead would have put a fifth of a foot
+// behind the heel and the figure would be standing on skis.
+const HEEL_BACK = 0.25;
+const TOE_FRONT = 0.75;
+
+// Foot bulbs are flattened, and then placed by their FLATTENED half height.
+// Placing them by their radius instead lifts the whole character 14% of a toe
+// off the floor, which is small enough to survive a render and large enough to
+// look like the figure is hovering.
+const FOOT_SQUASH = 0.86;
+const seat = (r, scaleY = 1) => -RISE + r * FOOT_SQUASH * scaleY;
+
+// Calcaneus, midfoot and the tarsal block. All three are sized off RISE, and
+// the heel is stretched front to back rather than made bigger: a round heel the
+// size the silhouette wants is a beach ball from directly behind, which is the
+// one view the rejected build was never checked from.
 //
-// The previous build's foot was a tube plus a sphere and it read as a blob from
+// The heel is also NARROW: 0.067 against the forefoot's 0.150. A foot that is
+// the same width all the way along is a rectangle stuck on an ankle, and the
+// taper from heel to ball is most of what stops that.
+const HEEL = { r: 0.52 * RISE, scale: [0.86, 1.0, 1.25] };
+const TARSAL = { z: 0.127, r: 0.52 * RISE, scale: [1.25, 1.0, 0.78], lift: 0.004 };
+const SWEEP_R = 0.40 * RISE;
+const SWEEP_WIDE = 1.22;                 // ... stretched in x only, see below
+
+// One ray per metatarsal, hallux first. `headX` is a fraction of the HALF width,
+// `headZ` and `phalanx` are fractions of FOOT, and the three radii are fractions
+// of FOOT_WIDE. `dirX` is the direction the toe leaves its metatarsal head in,
+// which is what fans the forefoot; `phalanx` is the real bone count, two on the
+// hallux and three everywhere else.
+//
+// The previous build's foot was a tube and a sphere and it read as a blob from
 // every angle but the front. The fix is that the forefoot is five separate
-// bones with daylight between them, and that the heel, the arch and the ball
-// are one continuous sweep behind them rather than a ball stuck on a stick.
-const RAYS = [
-  { headX: -0.128, headZ: 0.352, shaftR: 0.062, headR: 0.086, toeR: 0.074, dirX: -0.30, phalanx: [0.096, 0.076] },
-  { headX: -0.056, headZ: 0.402, shaftR: 0.048, headR: 0.068, toeR: 0.058, dirX: -0.12, phalanx: [0.070, 0.046, 0.040] },
-  { headX: 0.016, headZ: 0.394, shaftR: 0.046, headR: 0.066, toeR: 0.056, dirX: 0.04, phalanx: [0.064, 0.044, 0.038] },
-  { headX: 0.084, headZ: 0.360, shaftR: 0.044, headR: 0.062, toeR: 0.054, dirX: 0.18, phalanx: [0.054, 0.038, 0.034] },
-  { headX: 0.152, headZ: 0.300, shaftR: 0.044, headR: 0.064, toeR: 0.052, dirX: 0.32, phalanx: [0.044, 0.030, 0.030] },
-];
-
-// The heel, the sweep and the tarsal block, all as fractions of FOOT.
+// bones with daylight between them, that the heel, the arch and the ball are
+// one continuous sweep behind them, and that the metatarsals are long enough to
+// be seen: they run from the tarsal block at 0.127 of the foot out to the ball
+// at 0.43 to 0.48, which is a third of the whole foot out in the open.
+// Two things about the radii that the first long-footed pass got wrong.
 //
-// The sole is close to flat rather than deeply arched, and that is deliberate:
-// the arch here is the line of the INSTEP, which is the curve you actually see,
-// and it comes from the talus and the tarsal block sitting on top of the sweep.
-// Modelling a lifted sole instead puts the whole midfoot in the air, and then
-// the only thing touching the ground at the back is a ball, which is exactly
-// what made the rejected build's feet read as blobs from behind.
-// Stretched front to back rather than made bigger. A round heel the size the
-// silhouette wants is a beach ball from directly behind, which is the one view
-// the rejected build was never checked from.
-const HEEL = { z: -0.176, r: 0.150, scale: [1.0, 1.0, 1.30] };
-// Squashed hard in z rather than made small. A round tarsal block the width of
-// the forefoot swallows every metatarsal whole, and then the foot is a dome
-// with toes stuck on it, which is the blob the rejected build was rejected for.
-// Flattened front to back it is an instep instead, and the five rays get 40% of
-// their length back out in the open where they can be seen.
-const TARSAL = { z: 0.084, r: 0.168, scale: [1.05, 1.0, 0.72] };
-// As fat as the tarsal block's underside allows. The waist is nearly off for
-// this one bone: bone.js's 0.62 pinches the midfoot into an hourglass from the
-// side, and a foot is not two lumps with a stick between them.
-const SWEEP_R = 0.124;
-
-// A standing foot toes out a little. It is a rotation on a node BELOW the ankle
-// joint, not on the joint itself, so `ankleL.rotation` is still identity in the
-// rest pose and still world-aligned the way PARTS.md requires.
-const TOE_OUT = 0.11;
+// The metatarsals are FAT enough to overlap each other. Five separate rods
+// across a 0.15 forefoot are 0.026 apart, and at a radius that keeps daylight
+// between them they are 0.012 wide over a length of 0.12, which renders as a
+// bundle of wires. The photo does not show five metatarsals: it shows one
+// smooth mass with five toes on the front of it, so these are sized to merge.
+// They are still five separate bones, which is what the inventory asks for.
+//
+// The toes are THINNER than the metatarsal heads they leave, and they diverge,
+// so the gaps open up as they run forward. That is where the five digits have
+// to read, and it is the only place they do in the photo either.
+//
+// `dirX` is small compared with an earlier pass, and deliberately: the splay
+// that matters is M.leg.toeOut, which turns the WHOLE foot off the walking
+// line. Fanning the toes as hard as well put the foot 22% over
+// M.leg.footWidth, and the widest part of a foot is the ball, not the tips.
+const RAYS = [
+  { headX: -0.62, headZ: 0.430, shaftR: 0.150, headR: 0.165, toeR: 0.125, dirX: -0.06, phalanx: [0.130, 0.100] },
+  { headX: -0.24, headZ: 0.480, shaftR: 0.115, headR: 0.125, toeR: 0.093, dirX: -0.04, phalanx: [0.108, 0.068, 0.056] },
+  { headX: 0.06, headZ: 0.470, shaftR: 0.112, headR: 0.122, toeR: 0.090, dirX: 0.04, phalanx: [0.098, 0.062, 0.052] },
+  { headX: 0.34, headZ: 0.440, shaftR: 0.108, headR: 0.117, toeR: 0.086, dirX: 0.14, phalanx: [0.082, 0.054, 0.046] },
+  { headX: 0.66, headZ: 0.390, shaftR: 0.108, headR: 0.120, toeR: 0.086, dirX: 0.24, phalanx: [0.066, 0.044, 0.042] },
+];
 
 export function buildLower({ material }) {
   const geometries = [];
@@ -646,60 +666,65 @@ export function buildLower({ material }) {
     ankle.add(foot);
 
     // Calcaneus, the midfoot sweep and the tarsal block. One line of bone from
-    // the back of the heel to the ball of the foot, at a constant height so the
-    // sole is flat, with the shaft's own waist lifting the middle of it just
-    // enough to be an arch. Everything is placed by its squashed half height,
-    // so the heel bulb touches y = 0 exactly and the tube clears it by a
-    // millimetre.
-    const heelR = HEEL.r * FOOT;
-    const heelZ = HEEL.z * FOOT;
+    // the back of the heel to the ball of the foot, with the tarsal block
+    // lifted a hair so the middle of the sole clears the floor and the arch is
+    // an arch. Every piece is placed by its own squashed half height, which is
+    // the only reason the sole comes out on exactly y = 0.
+    const heelR = HEEL.r;
     const heelY = seat(heelR);
-    const heel = put(foot, bulb(heelR, { squash: FOOT_SQUASH }), 0, heelY, heelZ);
-    heel.scale.set(...HEEL.scale);
+    const heelZ = -HEEL_BACK * FOOT + heelR * HEEL.scale[2];
+    put(foot, bulb(heelR, { squash: FOOT_SQUASH }), 0, heelY, heelZ)
+      .scale.set(...HEEL.scale);
 
+    const tarsalR = TARSAL.r;
     const tarsalZ = TARSAL.z * FOOT;
-    const tarsalR = TARSAL.r * FOOT;
-    const soleY = seat(tarsalR);
+    const tarsalY = seat(tarsalR) + TARSAL.lift;
+
     // Widened in x only. The tube's radius is capped by how deep the tarsal
     // block can be without its underside going through the floor, and at that
     // radius the midfoot is narrower than the heel, so from behind the heel
     // reads as a ball on a stick. Stretching sideways costs nothing: it is the
-    // one direction with no constraint on it.
-    const midfoot = put(foot, shaft(
+    // one direction with no constraint on it. Kept just under the heel's width,
+    // because wider and the tube's rim stands proud of the heel as a hard fin.
+    put(foot, shaft(
       new THREE.CatmullRomCurve3([
         V(0, heelY, heelZ),
-        V(0, (heelY + soleY) * 0.5, (heelZ + tarsalZ) * 0.5),
-        V(0, soleY, tarsalZ),
+        V(0, (heelY + tarsalY) * 0.5, (heelZ + tarsalZ) * 0.5),
+        V(0, tarsalY, tarsalZ),
       ]),
-      SWEEP_R * FOOT,
-      { waist: 0.94, segments: 16 },
-    ));
-        // Just under the heel's width. Wider than the heel and the tube's rim
-    // stands proud of it as a hard fin, which is the one thing bone.js warns
-    // about; narrower and the heel is a ball on a stick from directly behind.
-    midfoot.scale.set(1.15, 1.0, 1.0);
+      SWEEP_R,
+      { waist: 0.94, segments: 18 },
+    )).scale.set(SWEEP_WIDE, 1, 1);
 
     // The remaining tarsals (navicular, cuboid, three cuneiforms) are one
     // rounded block. PARTS.md names the calcaneus and the talus for this part
     // and stops there, the same allowance the hand gets for its carpals, and at
     // this size five separate pebbles would be five specks.
-    const tarsal = put(foot, bulb(tarsalR, { squash: FOOT_SQUASH }), 0, soleY, tarsalZ);
-    tarsal.scale.set(...TARSAL.scale);
+    put(foot, bulb(tarsalR, { squash: FOOT_SQUASH }), 0, tarsalY, tarsalZ)
+      .scale.set(...TARSAL.scale);
 
     // --- metatarsals and toes ----------------------------------------------
     // Every ray leaves the tarsal block, so their open ends are all capped by
     // it and the forefoot fans from one point the way a real one does.
+    const halfWide = FOOT_WIDE / 2;
     for (const ray of RAYS) {
       // The bases converge on the tarsal block at 30% of the head's spread, so
       // the rays radiate rather than run parallel, and every base ring is
       // buried inside the block that caps it.
-      const base = V(s * ray.headX * 0.30 * FOOT, soleY, tarsalZ);
-      const headR = ray.headR * FOOT;
-      const head = V(s * ray.headX * FOOT, seat(headR), ray.headZ * FOOT);
-      put(foot, straightShaft(base, head, ray.shaftR * FOOT, { segments: 8, waist: 0.80 }));
+      const base = V(s * ray.headX * 0.30 * halfWide, tarsalY, tarsalZ);
+      const headR = ray.headR * FOOT_WIDE;
+      const head = V(s * ray.headX * halfWide, seat(headR), ray.headZ * FOOT);
+      // Tapered to 80% of the head's radius at the head end, and it has to be:
+      // a metatarsal fat enough at the base to merge with its neighbours is
+      // fatter than the head bulb is TALL, so run at one radius it pushes the
+      // ball of the foot a millimetre through the floor. The sole is the one
+      // number this part cannot get wrong.
+      put(foot, straightShaft(base, head, ray.shaftR * FOOT_WIDE, {
+        endRadius: ray.headR * FOOT_WIDE * 0.80, segments: 12, waist: 0.92,
+      }));
       put(foot, bulb(headR, { squash: FOOT_SQUASH }), head.x, head.y, head.z);
 
-      const toeR = ray.toeR * FOOT;
+      const toeR = ray.toeR * FOOT_WIDE;
       const toeY = seat(toeR);
       const dir = V(s * ray.dirX, 0, 1).normalize();
       let p = V(head.x, toeY, head.z);

@@ -159,11 +159,12 @@ const VARIANTS = {
   // This is the variant the face has to be told about. Left where classic wears
   // it the eyes land near s = 0.68, which on this profile is a third of the way
   // up the neck, and the carving comes out on the stalk with the bulb blank
-  // underneath. The whole face is dropped onto the bulb instead and squashed to
-  // fit between the base turn and the waist: s -0.55 up to about 0.0, which is
-  // 0.60 of the range classic uses.
+  // underneath. The whole face is dropped onto the bulb instead and squashed
+  // to fit between the base turn and the waist: it now runs s -0.59 to +0.02,
+  // two thirds of the range classic's wears, with the widest ring at -0.36
+  // sitting through the middle of it.
   gourd: {
-    bodyR: 0.240, bodyH: 0.440,
+    bodyR: 0.240, bodyH: 0.400,
     eq: -0.36,          // widest ring low down, where the bulb is
     top: neckHalf({ waist: 0.42, swell: 0.55, tip: 0.22 }), botN: 2.20,
     dip: 0.10,          // a neck ends in a small round top, not in a dish
@@ -171,8 +172,8 @@ const VARIANTS = {
     lobes: [9, 3],
     rib: [0.055, 0.020], ribTop: 0.22, ribFrom: -0.30,
     shellT: 0.0168,     // 7% of its own body radius, as classic's is
-    face: { zx: 1.15, zy: 0.60, lift: -0.162 },
-    flameY: 0.548,
+    face: { zx: 1.20, zy: 0.66, lift: -0.128 },
+    flameY: 0.662,
     stem: { girth: 0.80, length: 1.9 },
   },
 
@@ -182,7 +183,7 @@ const VARIANTS = {
   // The transcription says 0.62 tall to 1 wide, and that is the one number in
   // it that cannot be taken at face value: the classic already measures 0.657,
   // so 0.62 would be a 5% difference described as "lower and wider". The
-  // relationship is the reliable half of the description, so this goes to 0.54
+  // relationship is the reliable half of the description, so this goes to 0.53
   // where the difference is legible standing next to the classic.
   squat: {
     bodyR: 0.450, bodyH: 0.324,
@@ -191,27 +192,38 @@ const VARIANTS = {
     base: [0.66, 0.77],   // broad foot; it is the one that looks planted
     lobes: [10, 3],
     rib: [0.140, 0.035], ribTop: 1, ribFrom: 0,
-    shellT: 0.0315,
-    face: { zx: 1, zy: 0.98, lift: 0 },
-    flameY: 1.302,
+    // The one variant where 7% of the body radius is the wrong rule. What
+    // actually has to survive is the grin's band against the wall's depth, and
+    // that ratio is 1.23 * bodyH / bodyR -- so the flatter the pumpkin the
+    // worse it gets, and 7% of this radius came out at 2.4 band-heights where
+    // classic has 3.1. Rendered, the near lip ate the channel and the middle of
+    // the grin closed into a wavy line with the teeth gone. 0.0255 is 5.7% of
+    // the radius and puts it back to 3.2.
+    shellT: 0.0255,
+    face: { zx: 1.12, zy: 1.02, lift: -0.005 },
+    flameY: 1.282,
     stem: { girth: 1.10, length: 0.95 },
   },
 
   // 4. Tall round. Nearly spherical, a touch taller than wide, ribs moderate --
   // a big heavy specimen rather than a squashed one.
   tall: {
-    bodyR: 0.335, bodyH: 0.470,
+    bodyR: 0.355, bodyH: 0.432,
     eq: 0.02,           // the mass a hair above centre, which is what "heavy" is not
-    top: superHalf(2.00), botN: 2.05,
-    dip: 0.24,
-    base: [0.74, 0.85],
+    // A true ellipse both halves and only 1.02 tall to 1 wide. 1.09 was tried
+    // and it read as a barrel: past about 1.05 the ellipse's flanks are long
+    // enough that the ribs run down them as parallel lines and the silhouette
+    // stops being a sphere with a face on it.
+    top: superHalf(2.00), botN: 2.00,
+    dip: 0.20,
+    base: [0.77, 0.88],
     lobes: [10, 3],
     rib: [0.080, 0.025], ribTop: 1, ribFrom: 0,
-    shellT: 0.0235,
-    // Its s range is classic's, but its bodyH is a third larger, so the face
+    shellT: 0.0249,
+    // Its s range is classic's, but its bodyH is a quarter larger, so the face
     // has to be shortened or it comes out stretched down the belly.
-    face: { zx: 1, zy: 0.86, lift: 0.015 },
-    flameY: 1.225,
+    face: { zx: 1, zy: 0.90, lift: 0.005 },
+    flameY: 1.146,
     stem: { girth: 1.05, length: 1.05 },
   },
 
@@ -220,16 +232,22 @@ const VARIANTS = {
   // low-exponent superellipse, which runs out toward a cone and is exactly the
   // soft shoulder wanted.
   pear: {
-    bodyR: 0.270, bodyH: 0.400,
-    eq: -0.26,
-    top: superHalf(1.45), botN: 2.20,
+    bodyR: 0.270, bodyH: 0.378,
+    // The exponent is the whole variant and the window is narrow: 1.45 came
+    // out a cone with a straight sloping shoulder, 1.90 an egg with the mass
+    // back in the middle, and 1.62 over a 2.30 bottom still read as a tall egg
+    // because the lower half fell away too early to be a bulb. 1.55 over 2.40
+    // -- a fuller, squarer bottom under a softer taper -- with the widest ring
+    // more than a third of the way down is the one that reads as a pear.
+    eq: -0.36,
+    top: superHalf(1.55), botN: 2.40,
     dip: 0.14,
-    base: [0.78, 0.89],
+    base: [0.83, 0.94],
     lobes: [9, 3],
     rib: [0.070, 0.020], ribTop: 0.55, ribFrom: -0.05,
     shellT: 0.0189,
-    face: { zx: 1.08, zy: 0.76, lift: -0.075 },
-    flameY: 0.859,
+    face: { zx: 1.08, zy: 0.80, lift: -0.075 },
+    flameY: 0.810,
     stem: { girth: 0.85, length: 1.6 },
   },
 
@@ -237,17 +255,26 @@ const VARIANTS = {
   // fatter stem, about a third the height of the classic.
   //
   // The two numbers that are not just classic scaled down are the face and the
-  // shell. Everything in this file is scale-invariant -- the grid cell, the
-  // skirt and the wall are all in face space or in fractions of bodyR -- so a
-  // pure shrink would work geometrically and still fail, because at scene scale
-  // this thing is about thirty pixels tall and a proportional face is three
-  // pixels of it. So the carving is blown up to 1.3 in both axes, taking it to
-  // most of the front of the body, and the shell is thinned to 5.5% of the body
-  // radius rather than 7% so the grin's band is 5.7 wall-thicknesses tall
-  // instead of classic's 3.1 and survives being seen from three quarters.
+  // shell. Everything else in this file is scale-invariant -- the grid cell,
+  // the skirt and the wall are all in face space or in fractions of bodyR -- so
+  // a pure shrink works geometrically and still fails, because at scene scale
+  // this thing is thirty pixels tall and a proportional face is three pixels
+  // of it.
   //
-  // The upper teeth also go: see TOOTH_X. Fewer, bigger features is the whole
-  // trade here, and a lost tooth is cheaper than a mouth that mushes shut.
+  // So the carving is opened out to fill most of the front. Nearly all of that
+  // has to come from the width: 1.30 in Y was tried first and it is more than
+  // the body has to give. The face's ring is s = Y/BODY_H - baseDeep whatever
+  // the variant, so stretching Y walks the eyes straight up the profile, and
+  // at 1.30 their apexes came out at s = 0.82 -- inside the stem dish, where
+  // the outline has to cross rings that are pinching shut and the cut tore into
+  // streaks running up to the stalk. 1.25 across by 1.10 up, dropped 0.02 to
+  // put the apexes back at classic's s = 0.67, is what the body will take.
+  //
+  // The shell is then thinned to 5.5% of the body radius rather than 7%, which
+  // leaves the grin's band 4.0 wall-thicknesses tall against classic's 3.1.
+  // That is what buys the third tooth: budgeted for losing the two upper ones
+  // -- a lost tooth being cheaper than a mouth that mushes shut -- and in the
+  // event the band was deep enough that all three survive three quarters.
   tiny: {
     bodyR: 0.155, bodyH: 0.125,
     eq: 0, top: superHalf(2.30), botN: 2.30,
@@ -256,9 +283,8 @@ const VARIANTS = {
     lobes: [8, 2],      // 8..9: fewer lobes, so each one is a bigger event
     rib: [0.150, 0.035], ribTop: 1, ribFrom: 0,
     shellT: 0.0085,
-    face: { zx: 1.30, zy: 1.30, lift: 0 },
-    upperTeeth: false,
-    flameY: 1.302,
+    face: { zx: 1.25, zy: 1.10, lift: -0.020 },
+    flameY: 1.222,
     stem: { girth: 1.55, length: 0.95 },
   },
 };
@@ -703,13 +729,6 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // way down; past a half and the channel of light behind them closes, which is
   // what turned the first grin into five separate boxes.
   const TOOTH_X = 0.122, TOOTH_HW = 0.046, TOOTH_DEPTH = 0.042, TOOTH_RAMP = 0.16;
-  // Which of them are actually cut. Every variant has both except `tiny`, whose
-  // whole grin is about eight pixels tall at scene scale: three teeth in that
-  // reads as noise on the edge of the band, and the two upper ones are the pair
-  // that goes, because it is the broad lower dome that gives the grin its two
-  // lobes and its shape at a glance. Tried the other way round first and the
-  // small one came out as a plain slot with a nick in the top of it.
-  const UPPER_TEETH = V.upperTeeth === false ? [] : [-TOOTH_X, TOOTH_X];
   // The lower tooth is a dome five times wider than it is tall, not the tall
   // block it was. Root rather than parabola so the top is broad and the flanks
   // land softly on the lower edge instead of cutting two square notches in it.
@@ -727,7 +746,7 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
     const gap = top0 - bot0;
     // Two teeth hang down from the upper edge, just inside the eyes.
     let bite = 0;
-    for (const tx of UPPER_TEETH) {
+    for (const tx of [-TOOTH_X, TOOTH_X]) {
       bite += TOOTH_DEPTH * block(Math.abs(x - tx) / TOOTH_HW, TOOTH_RAMP);
     }
     // One broad tooth rises from the lower edge in the middle.

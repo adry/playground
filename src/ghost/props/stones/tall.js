@@ -759,7 +759,7 @@ function inkSunAndBook(ctx, w, h) {
   // corners and read as a black belt.
   const by = h * 0.505;
   const bw = S * 0.300;
-  const bh = S * 0.335;
+  const bh = S * 0.375;
   // One page. The two edges that carry "open book" are the top, which peaks at
   // the spine, and the bottom, which sags to it: a shape whose top and bottom
   // both bulged outward read as two bricks with a gap.
@@ -903,16 +903,19 @@ function roundedRect(halfWidth, height, r) {
 // and the cross came out with a slot cut down it. So the arms are thicker, and
 // the ring is enlarged to keep the openings the arms would otherwise close.
 const CELTIC = {
-  H: 0.94,             // cross alone, on top of 0.163 of stepped plinth
-  W: 0.385,            // arm span 0.77
-  arm: 0.088,          // half-thickness of the arms and of the upper shaft
-  foot: 0.132,         // the shaft widens toward the base, as the reference's does
-  cross: 0.555,        // height of the crossing's centre
-  R: 0.285,            // arms and head stand 0.10 proud of the ring
-  Ri: 0.175,           // 0.11 of band against an 0.036 round; clears 0.088 * 1.41
-  depth: 0.165,
-  edge: 0.036,
-  groove: 0.060,       // inset of the groove from the silhouette
+  H: 0.96,             // cross alone, on top of 0.156 of stepped plinth
+  W: 0.368,            // arm span 0.736
+  arm: 0.084,          // half-thickness of the arms and of the upper shaft
+  foot: 0.126,         // the shaft widens toward the base, as the reference's does
+  // The crossing sits at 62% of the cross's height. At 59% the shaft below the
+  // ring was barely longer than the head above it and the piece read as a
+  // wheel on a stub rather than as a standing cross.
+  cross: 0.592,
+  R: 0.272,            // arms and head stand 0.096 proud of the ring
+  Ri: 0.167,           // 0.105 of band against an 0.034 round; clears 0.084 * 1.41
+  depth: 0.158,
+  edge: 0.034,
+  groove: 0.058,       // inset of the groove from the silhouette
 };
 
 const ARCH = {
@@ -1075,8 +1078,8 @@ export function createTallStone({ variant = 'celtic', seed = 1, scale = 1 } = {}
     const C = CELTIC;
     const yc = C.cross;
     const a = C.arm;
-    const plinth1 = 0.088;
-    const plinth2 = 0.075;
+    const plinth1 = 0.084;
+    const plinth2 = 0.072;
     const base = plinth1 + plinth2;
 
     // The plus, counter-clockwise from the bottom of the right-hand side. The
@@ -1088,7 +1091,7 @@ export function createTallStone({ variant = 'celtic', seed = 1, scale = 1 } = {}
     ];
     // Arm-end and head radii are just under the arm's own half-thickness, so
     // the ends come out properly round rather than as clipped tabs.
-    const rr = [0.05, 0.058, 0.07, 0.07, 0.058, 0.062, 0.062, 0.058, 0.07, 0.07, 0.058, 0.05];
+    const rr = [0.048, 0.055, 0.067, 0.067, 0.055, 0.06, 0.06, 0.055, 0.067, 0.067, 0.055, 0.048];
     const plus = roundPolygon(pts, rr);
     const ring = [
       [{ cx: 0, cy: yc, r: C.R, a0: 0, a1: TAU }],
@@ -1132,8 +1135,8 @@ export function createTallStone({ variant = 'celtic', seed = 1, scale = 1 } = {}
     // rather than crossing them, which is what turns the join into a joint.
     add(buildOutlineSlab({ loops: ring, depth: C.depth * 0.94, edge, uv: crossUV }), base);
 
-    const p1W = 0.258;
-    const p2W = 0.214;
+    const p1W = 0.248;
+    const p2W = 0.205;
     add(buildOutlineSlab({
       loops: [roundedRect(p1W, plinth1, 0.05)],
       depth: 0.30,
