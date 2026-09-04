@@ -113,7 +113,7 @@ async function buildLineup() {
   const [
     ghostMod, pumpkin, tombstones, panel, broken, debris, gate, skeleton, fountain, shed,
     street, pillar, post, crook, groundLantern,
-    kerbGround, sandPath, gravelPath, bush, holeMod,
+    kerbGround, sandPath, gravelPath, bush, holeMod, dirt, flies,
   ] = await Promise.all([
     import('../ghost/ghost.js'),
     import('../ghost/props/pumpkin.js'),
@@ -135,6 +135,8 @@ async function buildLineup() {
     import('../ghost/props/ground/gravelpath.js'),
     import('../ghost/props/foliage/bush.js'),
     import('../ghost/props/ground/hole.js'),
+    import('../ghost/props/ground/dirtpile.js'),
+    import('../ghost/props/fireflies.js'),
   ]);
 
   // Slot 0, and the reason the grid is offset rather than the ghost. See
@@ -253,6 +255,26 @@ async function buildLineup() {
     // interest is entirely in looking INTO it.
     place({ label: 'grave hole', group: h.group, spin: false, update: h.update });
     h.registerWith(ground);
+  }
+
+  place({ label: 'dirt pile', group: dirt.createDirtPile({ seed: 2, spade: true }).group });
+
+  // The fireflies get a cell of their own rather than being sprinkled over the
+  // whole lineup, because they are the one asset here that is judged on its
+  // MOTION and a single one parked beside a headstone tells you nothing about
+  // whether a field of them beats in unison.
+  {
+    // The field takes explicit anchors because a level puts them on corridor
+    // centrelines. Here they are a ring, which is the arrangement that shows
+    // the drift and the pulse against each other at a glance.
+    const points = [];
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      const r = 0.7 + (i % 3) * 0.28;
+      points.push({ x: Math.cos(a) * r, z: Math.sin(a) * r });
+    }
+    const f = flies.createFireflies({ seed: 5, points });
+    place({ label: 'fireflies', group: f.group, spin: false, update: f.update });
   }
 
   // --- camera ---------------------------------------------------------------

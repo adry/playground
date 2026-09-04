@@ -14,6 +14,7 @@ import './heart.js';      // 1.08, the smallest
 import './scroll.js';     // 0.93 tall, 1.46 wide, the only one wider than tall
 import './ledger.js';     // lying down
 import './bench.js';      // 0.81, furniture
+import './book.js';       // 0.81, an open volume on a lectern wedge
 import './chest.js';     // 0.85 tall and 1.63 long, a closed box tomb
 import './kerb.js';      // a 2.35 by 0.90 plot, the largest footprint
 import './urn.js';        // 1.55, pedestal and draped vessel
@@ -27,6 +28,7 @@ import './wings.js';      // 1.54, the tall narrow one whose top is the widest
 import './draped.js';     // 1.56, a pall laid over the stone
 import './celtic.js';     // 1.62, ringed and pierced
 import './gothic.js';     // 1.70, tallest and narrowest
+import './stele.js';      // 1.73, cornice and palmette
 import './obelisk.js';    // 1.85, the tallest thing in the graveyard
 
 export { VARIANTS, createTombstone } from '../tombstones.js';
