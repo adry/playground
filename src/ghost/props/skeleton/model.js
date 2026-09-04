@@ -24,9 +24,9 @@ import { toyMaterial, SEGMENTS, contactShadow } from '../style.js';
 // later. Sampled off the reference, which is warm cream ivory rather than
 // white, and distinctly pinker on the body than on the cranium.
 const BONE = {
-  body: '#f0dcc5',
-  skull: '#f4ebdc',
-  tooth: '#fbf4e8',
+  body: '#f2dcc2',
+  skull: '#f5ecdd',
+  tooth: '#f7eddd',
   hollow: '#2b211a',
 };
 
@@ -43,10 +43,10 @@ const Y = {
   waist: 1.420,   // spineLower, sitting on top of the sacrum
   chest: 1.570,   // spineUpper, at the bottom of the ribcage
   neck: 1.945,
-  head: 2.120,    // the atlas; the crown lands at 2.5 from here
+  head: 2.116,    // the atlas; the crown lands at exactly 2.5 from here
   shoulder: 1.906,
 };
-const X = { hip: 0.175, knee: 0.205, ankle: 0.255, shoulder: 0.255 };
+const X = { hip: 0.175, knee: 0.203, ankle: 0.235, shoulder: 0.255 };
 
 // The A-pose flare, measured off the reference: the shoulders sit 0.255 out
 // from the centreline and the wrists 0.475, so the arms hang a long way from
@@ -55,7 +55,7 @@ const X = { hip: 0.175, knee: 0.205, ankle: 0.255, shoulder: 0.255 };
 // and because it leaves each joint's local axes world-aligned -- an animator
 // writing elbowL.rotation.x then gets a forward bend, not a diagonal one.
 const ARM = { outElbow: 0.150, dropElbow: 0.355, outWrist: 0.068, dropWrist: 0.349 };
-const LEG = { outKnee: 0.030, dropKnee: 0.550, outAnkle: 0.050, dropAnkle: 0.575 };
+const LEG = { outKnee: 0.028, dropKnee: 0.550, outAnkle: 0.032, dropAnkle: 0.575 };
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smoothstep = (e0, e1, x) => {
@@ -292,14 +292,18 @@ function plateGeometry(outline, holes, { depth = 0.04, bevel = 0.012, samples = 
     return p.map((v) => new THREE.Vector2(v.x, v.y));
   };
   const shape = new THREE.Shape(loop(outline, samples));
-  for (const h of holes) shape.holes.push(new THREE.Path(loop(h, 60).reverse()));
+  for (const h of holes) shape.holes.push(new THREE.Path(loop(h, 60)));
   const core = Math.max(0.002, depth - 2 * bevel);
   const geo = new THREE.ExtrudeGeometry(shape, {
     depth: core,
     bevelEnabled: true,
     bevelThickness: bevel,
     bevelSize: bevel,
-    bevelOffset: -bevel,
+    // bevelOffset must stay 0. Setting it to -bevelSize keeps the authored
+    // outline as the true silhouette, but it also grows the hole contours, and
+    // in that combination the extruder's cap triangulation silently stops
+    // cutting the holes at all: the pelvis comes out as a solid paddle.
+    bevelOffset: 0,
     bevelSegments: 5,
     curveSegments: 1,
     steps: 1,
@@ -317,7 +321,7 @@ function plateGeometry(outline, holes, { depth = 0.04, bevel = 0.012, samples = 
 // maxilla push fixes the second.
 const SKULL = {
   cy: 0.206, cz: -0.018,     // centre, relative to the atlas at Y.head
-  rx: 0.184, ry: 0.178, rz: 0.196,
+  rx: 0.184, ry: 0.178, rz: 0.178,
   eyeX: 0.077, eyeY: 0.158,  // socket centres, measured off the reference
   eyeA: 0.057, eyeB: 0.058,  // half-extents of the oval before the slant trims it
   noseY: 0.100,
@@ -353,7 +357,7 @@ function skullBase(u, v, out) {
   z += Math.pow(fr, 1.4) * clamp01(ring / 0.55) *
     (0.055 * smoothstep(0.160, 0.030, y) + 0.012 * smoothstep(0.265, 0.130, y));
   // The occiput hangs back and down behind the ear.
-  z -= 0.030 * Math.pow(Math.max(0, -front), 1.6) * smoothstep(0.310, 0.100, y);
+  z -= 0.020 * Math.pow(Math.max(0, -front), 1.6) * smoothstep(0.310, 0.100, y);
 
   // Cheekbones. Small, but without them the face below the sockets is a
   // featureless sheet and the whole head goes soft.
@@ -403,7 +407,7 @@ function buildSkullGeometry() {
     // Shallow. A deeper well folds the surface back through itself and the
     // shading tears into black streaks along the rim.
     d -= 0.030 * socket;
-    dark = Math.max(dark, smoothstep(0.06, 0.46, socket));
+    dark = Math.max(dark, smoothstep(0.10, 0.40, socket));
 
     // Brow ridge, riding just above the slant. The two sides meet in a V over
     // the nose bridge; that V is what the reference's scowl actually is.
@@ -469,7 +473,7 @@ function ribGeometry(side, [ySpine, halfW, halfD, arc, drop, attached]) {
     ]);
   }
   const radius = (t) => {
-    const base = 0.0180 - 0.0060 * t;
+    const base = 0.0205 - 0.0068 * t;
     const head = 1 + 0.45 * Math.exp(-Math.pow(t / 0.11, 2));   // the rib head
     // A free rib needs a real rounded tip; an attached one is buried in the
     // sternum, so it only needs enough of a roll-off to close cleanly.
@@ -511,12 +515,36 @@ const HIP_OUTLINE = [
 // between the brim and the sacrum, and losing either one takes the butterfly
 // with it.
 const HIP_HOLE = [
-  [0.112, -0.024],
-  [0.162, -0.064],
-  [0.160, -0.118],
-  [0.106, -0.142],
-  [0.056, -0.108],
-  [0.056, -0.052],
+  [0.108, -0.030],
+  [0.156, -0.070],
+  [0.152, -0.118],
+  [0.104, -0.142],
+  [0.060, -0.110],
+  [0.062, -0.060],
+];
+
+// The sacrum, authored in the same flat XY as the hip bones: a wedge that is
+// broad where the two blades bury into it and tapers away to the tail.
+// Shoulder blade: a rounded triangle, point down. As a lens it read as a
+// pancake stuck on the ribs; the corners are what make it a scapula.
+const SCAPULA_OUTLINE = [
+  [-0.052, 0.062],
+  [0.020, 0.078],
+  [0.062, 0.046],
+  [0.048, -0.024],
+  [0.012, -0.080],
+  [-0.030, -0.030],
+];
+
+const SACRUM_OUTLINE = [
+  [0, 0.108],
+  [0.062, 0.090],
+  [0.054, 0.020],
+  [0.032, -0.050],
+  [0, -0.090],
+  [-0.032, -0.050],
+  [-0.054, 0.020],
+  [-0.062, 0.090],
 ];
 
 export function createSkeletonRig({ scale = 1 } = {}) {
@@ -583,16 +611,19 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     half.translate(-side * PIVOT, 0, 0);
     const blade = mesh(half, pelvis);
     blade.position.x = side * PIVOT;
-    blade.rotation.y = -side * 0.40;
+    blade.rotation.y = -side * 0.34;
   }
 
   // Sacrum: a wedge at the back of the midline, deliberately oversized so the
   // inner corners of both blades bury into it and there is no seam to see.
-  const sacrum = mesh(ballGeometry(1, 0.056, 0.104, 0.030), pelvis);
-  sacrum.position.set(0, 0.052, -0.046);
-  sacrum.rotation.x = -0.16;
-  const coccyx = mesh(ballGeometry(1, 0.024, 0.040, 0.020), pelvis);
-  coccyx.position.set(0, -0.060, -0.038);
+  // Sacrum: broad at the top where the blades bury into it, tapering to the
+  // tail. A ball was quicker and read as a pudding sitting in the bowl.
+  const sacrum = mesh(
+    plateGeometry(SACRUM_OUTLINE, [], { depth: 0.044, bevel: 0.015, samples: 90 }),
+    pelvis,
+  );
+  sacrum.position.set(0, 0.040, -0.052);
+  sacrum.rotation.x = -0.20;
 
   // --- Spine ---------------------------------------------------------------
   const spineLower = node(root, 'spineLower', [0, Y.waist - Y.hip, -0.026]);
@@ -618,18 +649,18 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   for (let i = 0; i < 8; i++) {
     const t = i / 7;
     const v = mesh(drumGeometry(0.036 - 0.007 * t, 0.026, 0.010), spineUpper);
-    v.position.set(0, 0.012 + i * 0.048, -0.128 + 0.076 * t * t);
-    const spine = mesh(ballGeometry(0.014, 0.8, 1.2, 1.6), spineUpper);
-    spine.position.set(0, 0.004 + i * 0.048, -0.156 + 0.076 * t * t);
+    v.position.set(0, 0.012 + i * 0.048, -0.150 + 0.090 * t * t);
+    const spine = mesh(ballGeometry(0.015, 0.8, 1.3, 1.7), spineUpper);
+    spine.position.set(0, 0.002 + i * 0.048, -0.186 + 0.104 * t * t);
   }
 
-  const neck = node(spineUpper, 'neck', [0, Y.neck - Y.chest, -0.052]);
+  const neck = node(spineUpper, 'neck', [0, Y.neck - Y.chest, -0.058]);
   joints.neck = neck;
   for (let i = 0; i < 4; i++) {
     const v = mesh(drumGeometry(0.031 - 0.002 * i, 0.029, 0.011), neck);
     v.position.set(0, 0.010 + i * 0.043, 0.002 * i);
   }
-  const head = node(neck, 'head', [0, Y.head - Y.neck, 0.038]);
+  const head = node(neck, 'head', [0, Y.head - Y.neck, 0.018]);
   joints.head = head;
 
   // --- Head ----------------------------------------------------------------
@@ -667,15 +698,15 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     const yaw = Math.atan2(dx, dz);
     upperArch.push([x, z, yaw]);
     const t = mesh(nubGeometry(0.0092, 0.016, 0.0070), head, matTooth);
-    t.position.set(x, 0.028, z);
+    t.position.set(x, 0.030, z);
     t.rotation.y = yaw;
   }
 
   // The dark behind the teeth. A shallow blob rather than a hollowed skull: the
   // gap between the rows is a couple of millimetres and all it needs is
   // something dark sitting just behind it.
-  const cavity = mesh(ballGeometry(1, 0.066, 0.032, 0.068), head, matHollow);
-  cavity.position.set(0, 0.004, 0.100);
+  const cavity = mesh(ballGeometry(1, 0.066, 0.032, 0.062), head, matHollow);
+  cavity.position.set(0, 0.004, 0.080);
   cavity.castShadow = false;
 
   // Jaw. Hinged at the condyles, separate geometry, so it can drop.
@@ -692,22 +723,22 @@ export function createSkeletonRig({ scale = 1 } = {}) {
 
   const JW = 0.106;    // half-width of the mandible at the angle of the jaw
   const jawBody = curveThrough([
-    [-JW, -0.112, 0.044],
-    [-0.102, -0.118, 0.132],
-    [-0.080, -0.122, 0.206],
-    [-0.042, -0.124, 0.246],
-    [0, -0.125, 0.258],
-    [0.042, -0.124, 0.246],
-    [0.080, -0.122, 0.206],
-    [0.102, -0.118, 0.132],
-    [JW, -0.112, 0.044],
+    [-JW, -0.112, 0.040],
+    [-0.102, -0.118, 0.106],
+    [-0.080, -0.122, 0.160],
+    [-0.042, -0.124, 0.186],
+    [0, -0.125, 0.194],
+    [0.042, -0.124, 0.186],
+    [0.080, -0.122, 0.160],
+    [0.102, -0.118, 0.106],
+    [JW, -0.112, 0.040],
   ]);
   mesh(
     sweepTube(jawBody, (t) => {
       // Deeper through the chin, shallower at the back, and taller than it is
       // deep everywhere: a round tube here reads as a wire coat hanger.
       const front = Math.sin(Math.PI * t);
-      return [0.014 + 0.009 * front, 0.023 + 0.005 * front];
+      return [0.015 + 0.010 * front, 0.026 + 0.007 * front];
     }, { along: 56, around: 18, up: [0, 1, 0] }),
     jaw,
   );
@@ -717,10 +748,10 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     mesh(
       sweepTube(
         curveThrough([
-          [side * JW, -0.116, 0.042],
-          [side * 0.111, -0.072, 0.008],
-          [side * 0.115, -0.026, -0.010],
-          [side * 0.114, 0.000, -0.004],
+          [side * JW, -0.116, 0.038],
+          [side * 0.111, -0.072, 0.004],
+          [side * 0.115, -0.026, -0.012],
+          [side * 0.114, 0.000, -0.006],
         ]),
         shaftProfile(0.019, { endA: 1.20, endB: 1.20, waist: 0.10 }),
         { along: 26, around: 16 },
@@ -736,7 +767,7 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   for (let i = 0; i < LOWER_TEETH; i++) {
     const [ux, uz, ua] = upperArch[Math.round((i / (LOWER_TEETH - 1)) * (UPPER_TEETH - 1))];
     const t = mesh(nubGeometry(0.0094, 0.013, 0.0070), jaw, matTooth);
-    t.position.set(ux * 0.93, -0.087, (uz - SKULL.cz) * 0.93 + SKULL.cz + 0.050);
+    t.position.set(ux * 0.93, -0.094, (uz - SKULL.cz) * 0.93 + SKULL.cz + 0.050);
     t.rotation.y = ua;
   }
 
@@ -757,8 +788,8 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   // since the reference's is a plate sitting proud of the rib ends.
   mesh(
     sweepTube(
-      curveThrough([[0, 0.132, 0.150], [0, 0.205, 0.145], [0, 0.295, 0.129], [0, 0.376, 0.112]]),
-      (t) => [0.010 + 0.029 * smoothstep(0.0, 0.70, t) - 0.005 * smoothstep(0.86, 1.0, t), 0.017],
+      curveThrough([[0, 0.146, 0.149], [0, 0.212, 0.144], [0, 0.298, 0.128], [0, 0.376, 0.112]]),
+      (t) => [0.017 + 0.022 * smoothstep(0.0, 0.66, t) - 0.005 * smoothstep(0.86, 1.0, t), 0.017],
       { along: 40, around: 20, up: [0, 0, 1] },
     ),
     spineUpper,
@@ -783,9 +814,16 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     );
     // Scapula, a lens behind the shoulder. It barely shows from the front and
     // carries the whole back view.
-    const blade = mesh(ballGeometry(1, 0.074, 0.066, 0.016), spineUpper);
-    blade.position.set(side * 0.158, 0.286, -0.104);
-    blade.rotation.set(0.10, side * -0.42, side * 0.30);
+    const blade = mesh(
+      plateGeometry(
+        side < 0 ? SCAPULA_OUTLINE.map(([x, y]) => [-x, y]).reverse() : SCAPULA_OUTLINE,
+        [],
+        { depth: 0.026, bevel: 0.009, samples: 80 },
+      ),
+      spineUpper,
+    );
+    blade.position.set(side * 0.150, 0.272, -0.164);
+    blade.rotation.set(0.20, side * 0.62, side * 0.20);
   }
 
   // --- Arms ----------------------------------------------------------------
@@ -843,7 +881,7 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     mesh(
       sweepTube(
         curveThrough([[0, -0.006, 0.002], [0, -0.030, 0.006], [side * 0.004, -0.052, 0.004]]),
-        (t) => [0.024 + 0.010 * Math.sin(Math.PI * t), 0.0135],
+        (t) => [0.027 + 0.012 * Math.sin(Math.PI * t), 0.0150],
         { along: 18, around: 18, up: [0, 0, 1] },
       ),
       wrist,
@@ -851,14 +889,14 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     // Digits hang off knuckles that belong to the palm, so shedding one leaves
     // a rounded stub rather than a cut face.
     const DIGITS = [
-      [-0.023, -0.052, 0.004, -0.14, 0.052],
-      [-0.008, -0.056, 0.006, -0.04, 0.058],
-      [0.008, -0.055, 0.005, 0.05, 0.054],
-      [0.028, -0.038, 0.002, 0.85, 0.038],   // thumb, off the side and shorter
+      [-0.026, -0.056, 0.004, -0.14, 0.060],
+      [-0.009, -0.060, 0.006, -0.04, 0.067],
+      [0.009, -0.059, 0.005, 0.05, 0.062],
+      [0.031, -0.040, 0.002, 0.85, 0.044],   // thumb, off the side and shorter
     ];
     DIGITS.forEach(([dx, dy, dz, splay, len], k) => {
       const kx = side * dx;
-      const knuckle = mesh(ballGeometry(0.0105), wrist);
+      const knuckle = mesh(ballGeometry(0.0115), wrist);
       knuckle.position.set(kx, dy, dz);
       const tip = [
         kx + Math.sin(splay) * len * (k === 3 ? side : 1),
@@ -872,7 +910,7 @@ export function createSkeletonRig({ scale = 1 } = {}) {
             [(kx + tip[0]) / 2, (dy + tip[1]) / 2 + 0.002, (dz + tip[2]) / 2 + 0.003],
             tip,
           ]),
-          (t) => 0.0088 * (1 - 0.22 * t) *
+          (t) => 0.0098 * (1 - 0.22 * t) *
             (1 + 0.20 * Math.exp(-Math.pow((t - 0.5) / 0.18, 2))) *
             Math.sqrt(Math.max(0.05, 1 - Math.pow(Math.max(0, t - 0.82) / 0.18, 2))),
           { along: 18, around: 12 },
@@ -904,7 +942,7 @@ export function createSkeletonRig({ scale = 1 } = {}) {
           [side * 0.034, -0.450, 0.014],
           [side * LEG.outKnee, -LEG.dropKnee, 0],
         ]),
-        shaftProfile(0.0305, { endA: 1.05, endB: 1.32, waist: 0.16, spread: 0.20 }),
+        shaftProfile(0.0330, { endA: 1.05, endB: 1.30, waist: 0.16, spread: 0.20 }),
         { along: 46, around: 20 },
       ),
       hip,
@@ -930,7 +968,7 @@ export function createSkeletonRig({ scale = 1 } = {}) {
         ),
         knee,
       );
-    shin(0, 0.0282, 1.30, 1.22);
+    shin(0, 0.0302, 1.30, 1.22);
     shin(0.028, 0.0135, 1.20, 1.15);   // fibula, outboard and thin
 
     const ankle = node(knee, `ankle${S}`, [side * LEG.outAnkle, -LEG.dropAnkle, 0]);
@@ -939,7 +977,9 @@ export function createSkeletonRig({ scale = 1 } = {}) {
 
     // Foot. Toed out, as the reference's are, on a node under the ankle so the
     // ankle joint itself stays axis aligned.
-    const foot = node(ankle, `foot${S}`, [0, 0, 0], [0, side * 0.20, 0]);
+    // Lifted 4mm: the sole of the swept foot dips just below its lowest
+    // control point, and the contract wants the soles exactly on y = 0.
+    const foot = node(ankle, `foot${S}`, [0, 0.004, 0], [0, side * 0.20, 0]);
     mesh(
       sweepTube(
         curveThrough([
@@ -953,6 +993,9 @@ export function createSkeletonRig({ scale = 1 } = {}) {
       ),
       foot,
     );
+    const heel = mesh(ballGeometry(1, 0.040, 0.040, 0.034), foot);
+    heel.position.set(0, -0.082, -0.070);
+
     for (let k = 0; k < 5; k++) {
       const f = k / 4;
       const x = -0.040 + 0.020 * k;

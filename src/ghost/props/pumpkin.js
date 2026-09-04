@@ -295,11 +295,12 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // Everything below is authored against the nominal BODY_R / BODY_H; facePoint
   // rescales it onto whatever body the seed actually built.
 
-  // Eyes. Big tilted triangles, not the tidy symmetric ones we had: on the
-  // reference each base slopes down toward the nose by about 15 degrees and the
-  // apex leans back out over the outer corner, which is what stops them reading
-  // as a pair of tents. The outer corner also reaches much further round the
-  // body than the inner one -- the eyes are set wide.
+  // Eyes. Tilted triangles, not the level symmetric ones we had: on the
+  // reference each base slopes down toward the nose by about 15 degrees, and
+  // measured along that tilted base the apex sits a quarter of the way out
+  // toward the outer corner rather than over the middle. That lean is most of
+  // what stops them reading as a pair of tents. They are also set wide: the
+  // outer corner reaches a good deal further round the body than the inner one.
   const EYE = {
     apexX: 0.1393, apexY: 0.4807,   // apex, high on the shoulder
     outX: 0.2004, outY: 0.4049,     // outer base corner, the high end of the base
@@ -311,9 +312,10 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     EYE.inX * dir, EYE.inY,
   );
 
-  // Nose: a small apex-up triangle, and small is the point. It measures about a
-  // third of an eye by area on the reference; ours used to be nearly half, which
-  // is what made the middle of the face look crowded.
+  // Nose: an apex-up triangle a little under half an eye by area, sitting well
+  // clear of both. The old one was closer to the mouth than to the eyes and the
+  // bottom of the face read as crowded; on the reference there is a clear band
+  // of shell between its base and the grin.
   const NOSE_W = 0.0362, NOSE_TIP = 0.3975, NOSE_BASE = 0.3344;
   const nose = triSampler(0, NOSE_TIP, -NOSE_W, NOSE_BASE, NOSE_W, NOSE_BASE);
 
@@ -329,13 +331,13 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   const topAt = (q) => M_TOP + (M_TIP - M_TOP) * Math.pow(q, 3.2);
   const botAt = (q) => M_BOT + (M_TIP - M_BOT) * Math.pow(q, 6.0);
 
-  // Teeth are blocks, not spikes. A plateau with only the outer fifth of each
-  // flank ramped gives a trapezoid with shoulders you can actually see; the
-  // little linear spikes we had before merged into the grin and read as a W.
-  // ramp is the fraction of the half width given over to the flank: small keeps
-  // the sides near vertical, which is what the reference's teeth do. Smoothstep
-  // rather than a straight line so the shoulder is a corner and not a staircase
-  // across the sampling grid.
+  // Teeth are blocks, not spikes: the little linear triangles we had before
+  // merged into the grin and the whole mouth read as a W. block() is a plateau
+  // with only the outermost `ramp` of each flank falling away, which gives a
+  // trapezoid with shoulders you can actually see; a small ramp keeps the sides
+  // near vertical, the way the reference's upper teeth are cut. Smoothstep and
+  // not a straight line, so a shoulder lands as a corner rather than a
+  // staircase across the sampling grid.
   const block = (d, ramp) => {
     const t = Math.min(1, Math.max(0, (1 - d) / ramp));
     return t * t * (3 - 2 * t);
@@ -459,31 +461,52 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // shell has no real holes, so it would block everything.
   //
   // What the light physically does is leave through the cuts, so it is a cone
-  // aimed out of the face and tilted down at the floor. Wide and very soft,
-  // because three separate openings scatter it rather than one aperture.
-  const LIGHT_DISTANCE = 2.8;
+  // aimed out of the face and tilted down at the floor.
+  //
+  // Where the cone starts turned out to matter more than how wide it is. Parked
+  // at the middle of the shell it was a quarter of a unit above the floor, and
+  // the ring of floor the pumpkin actually stands on sat four degrees off the
+  // cone's axis at a range of 0.39 -- which, falling off as d^1.5, lit that ring
+  // to near white. That was the reported bug: a bright collar between the
+  // pumpkin and its own shadow, with the contact patch and the key light's cast
+  // shadow both drowned underneath it. Nothing about the shadow maps was wrong.
+  //
+  // So the lamp is parked where the light really leaves, just inside the carved
+  // face at mouth height, and the cone is narrow enough that the floor within
+  // the base is behind it rather than under it. The pool now starts a little
+  // clear of the pumpkin and washes forward, which is what was wanted anyway.
+  const LIGHT_DISTANCE = 3.2;
   const light = new THREE.SpotLight(
     new THREE.Color(PALETTE.glow),
     (LAMP.min + LAMP.max) / 2,
     LIGHT_DISTANCE * scale,
-    0.98,  // half-cone, wide enough that the pool is not a torch beam
-    0.9,   // penumbra: almost all edge, so there is no visible cone rim
-    1.5,
+    0.52,  // half-cone: the lower edge clears the base ring by a few centimetres
+    0.92,  // penumbra: nearly all edge, so the pool has no rim to read as a stain
+    // Gentler than inverse-square. Three openings scattering light is a soft
+    // source, and a steep decay is exactly what made the near field explode.
+    0.9,
   );
-  light.position.set(0, yBase * 0.9, 0);
+  const faceDir = new THREE.Vector3(Math.sin(FACE_YAW), 0, Math.cos(FACE_YAW));
+  light.position.copy(faceDir).multiplyScalar(bodyR * 0.50);
+  light.position.y = yBase * 1.25;
   light.castShadow = false;
 
   // The target is parented to the group, so the cone turns with the pumpkin
   // instead of staying pinned to a world direction.
-  const faceDir = new THREE.Vector3(Math.sin(FACE_YAW), 0, Math.cos(FACE_YAW));
   const lightTarget = new THREE.Object3D();
   // Local units: the group is scaled below, so these must not be pre-scaled.
-  lightTarget.position.copy(faceDir).multiplyScalar(1.15);
-  lightTarget.position.y = -0.5;
+  // Aimed low and long rather than steeply down: with the cone this narrow, a
+  // steep aim put the whole pool in one puddle a foot from the pumpkin and it
+  // read as a spotlight. Flatter, it runs out to a couple of units and fades.
+  lightTarget.position.copy(faceDir).multiplyScalar(1.9);
+  lightTarget.position.y = -0.42;
   light.target = lightTarget;
 
   const group = new THREE.Group();
-  const contact = contactShadow({ radius: 0.46, opacity: 0.4 });
+  // Tighter and darker than the old 0.46/0.40. With the spill pulled off it the
+  // contact is the only thing holding the pumpkin down, and a pumpkin meets the
+  // floor on a small ring rather than over its whole width.
+  const contact = contactShadow({ radius: 0.42, opacity: 0.52, softness: 0.62 });
   group.add(shell, face, halo, stem, light, lightTarget, contact);
   group.scale.setScalar(scale);
 

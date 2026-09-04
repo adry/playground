@@ -163,39 +163,52 @@ function inkCross(ctx, cx, cy, h) {
   ctx.fill();
 }
 
-// The Batman silhouette, as one closed outline rather than a body with wings
-// stuck on. The earlier version built it out of two ellipses and a sagging
-// three-finger membrane per side: at the size this is actually seen it read as
-// a moth, and nothing about it said Batman.
+// The Batman silhouette, traced off .ref/ref-bat.png rather than invented.
+// Two earlier passes were drawn from a description and both failed the only
+// test that matters: shrunk to the sixty-odd pixels the mark actually occupies
+// on a stone in the scene, they collapsed into a moustache. What survives at
+// that size is a small number of large features, and the reference has exactly
+// six per side: an ear, one long concave crescent along the top of the wing, a
+// hooked tip, a slender outer blade ending in a point, one lobe hanging under
+// the wing, and the body edge running down to the tail.
 //
-// Only the right half is authored, from the notch between the ears round to the
-// point of the tail; the left half is the same segments walked backwards with x
-// negated, which is the only way the two ears and the two wingtips are
-// guaranteed to match.
+// Numbers come from a column scan of the reference: x is in half-spans and y is
+// in the same units measured from the centre of the mark's bounding box, so the
+// artwork is 2.0 by 0.866, the reference's 2.31:1. Y stays as a squash knob but
+// wants to be 1: the proportions are already the reference's.
 //
-// Units are half-spans in x. In y they are half-spans times Y, so the logo can
-// be squashed to its very wide aspect without every number being rewritten.
-// Each entry is one cubic: two control points then the end point.
-const BAT_TOP = [0, -0.06]; // notch between the ears, on the mirror line
+// Only the right half is authored, from the middle of the flat top of the head
+// round to the point of the tail; the left half is the same segments walked
+// backwards with x negated, which is the only way the two ears and the two
+// wingtips are guaranteed to match. Each entry is one cubic: two control points
+// then the end point.
+const BAT_TOP = [0, -0.222]; // middle of the head's flat top, on the mirror line
 const BAT_HALF = [
-  [0.045, -0.06, 0.09, -0.27, 0.115, -0.34], // top of the head, curving up into the ear point
-  // Down past the head to the shoulder. The head is deliberately small: a pass
-  // with ears half again this tall turned the logo into a pair of horns.
-  [0.145, -0.28, 0.18, -0.14, 0.21, -0.05],
-  // Upper wing edge: it sags to about level with the shoulder halfway out, then
-  // sweeps up to the tip. That thin waist with flared tips is the signature of
-  // the logo; a wing of even thickness kills it.
-  [0.52, 0.10, 0.86, -0.06, 1.0, -0.34],
-  // Lower edge of the wingtip. It leaves the tip almost antiparallel to the
-  // upper edge arriving there, which keeps the tip a point -- but only just:
-  // pushed any further the outer third of the wing became a thin crescent.
-  [1.02, -0.02, 0.92, 0.16, 0.78, 0.24],
-  [0.70, 0.08, 0.58, 0.12, 0.48, 0.34], // scallop: membrane arcs up, cusps hang down
-  [0.38, 0.14, 0.29, 0.13, 0.21, 0.28], // second scallop, in to where the body starts
-  [0.18, 0.38, 0.12, 0.44, 0.0, 0.52], // side of the body down to the tail point
+  // The ears are the one place this departs from the trace. The reference's are
+  // needle thin, and at scene scale they are narrower than the blur that gives
+  // the groove its walls, so they came out as a single nub with a crack in it.
+  // Widened by a third at the base and lengthened a little; everything else is
+  // the reference's own geometry.
+  [0.013, -0.222, 0.027, -0.222, 0.040, -0.222], // flat top of the head
+  [0.058, -0.270, 0.077, -0.317, 0.095, -0.365], // inner edge of the ear, dead straight
+  [0.113, -0.286, 0.132, -0.207, 0.150, -0.128], // outer edge, down to the shoulder
+  // The crescent. It leaves the shoulder level and climbs barely a twelfth of a
+  // span over two thirds of its length, which is what makes the hook at the end
+  // of it read as a hook.
+  [0.240, -0.128, 0.380, -0.157, 0.459, -0.199],
+  // The hook: out to its widest at x 0.53, then back inward and up to the tip.
+  // The tip overhangs the curve below it, so this segment reverses in x.
+  [0.560, -0.248, 0.532, -0.338, 0.478, -0.433],
+  [0.608, -0.400, 0.700, -0.354, 0.800, -0.275], // outer edge of the blade
+  [0.880, -0.215, 0.978, -0.060, 1.000, 0.054], // out to the wing's outer point
+  [0.880, 0.030, 0.730, -0.020, 0.600, 0.077], // underside of the blade, nearly flat
+  [0.578, 0.090, 0.546, 0.160, 0.535, 0.221], // plunge to the lobe's hanging point
+  [0.480, 0.188, 0.410, 0.172, 0.360, 0.172], // up over the notch between lobe and body
+  [0.290, 0.172, 0.210, 0.203, 0.150, 0.248], // and away down the side of the body
+  [0.100, 0.286, 0.045, 0.367, 0.000, 0.432], // to the tail point at bottom centre
 ];
 
-function inkBat(ctx, cx, cy, halfSpan, Y = 0.82) {
+function inkBat(ctx, cx, cy, halfSpan, Y = 1) {
   const px = (x) => cx + x * halfSpan;
   const py = (y) => cy + y * halfSpan * Y;
   ctx.beginPath();
@@ -236,9 +249,11 @@ function drawInscription(variant, w, h) {
   } else if (variant === 'bat') {
     // No lettering under the bat. The reference stone carries the mark alone,
     // and an R.I.P. below it only crowded a symbol that wants the whole face.
-    // Span is 0.68 of the face, not more: the outer eighth of the face is the
-    // slab's rounded edge, and wingtips that reach it get bent round the corner.
-    inkBat(ctx, w / 2, h * 0.47, w * 0.37);
+    // Span is 0.80 of the face: the outer eighth of the half-width is the slab's
+    // rounded edge, and wingtips that reach it get bent round the corner. cy is
+    // the centre of the mark's own bounding box, so it sits square on the face
+    // instead of hanging off whatever its tallest feature happens to be.
+    inkBat(ctx, w / 2, h * 0.46, w * 0.40);
   } else {
     inkCross(ctx, w / 2, h * 0.28, h * 0.22);
     inkText(ctx, 'R.I.P.', w / 2, h * 0.55, h * 0.135, h * 0.011);
@@ -407,9 +422,10 @@ function buildTextures(variant, faceAspect, rng) {
   // A wide, weak smudge first: the ambient light that never reaches into a cut,
   // spilling a little past its edges the way a real occlusion does.
   stamp(cc, marks, 0.16, 'multiply', WALL * 1.6);
-  // Then the body of the recess. Deeper than the old 0.4 -- with the lips
-  // carrying the shape, a dark floor no longer flattens the letter.
-  stamp(cc, marks, 0.44);
+  // Then the body of the recess. The lips carry the shape, so this only has to
+  // be dark enough to read as shadow: pushed harder it goes to ink, and the
+  // reference's carving is grey stone in shade, not a printed letter.
+  stamp(cc, marks, 0.36);
   // Shaded upper-inner wall, and the catch-light on the lower one.
   stamp(cc, topLip, 0.4, 'multiply', 1.5);
   stamp(cc, bottomLip, 0.42, 'screen', 1.5);
