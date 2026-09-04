@@ -106,7 +106,7 @@ const CLOTH = {
   // flat sheet. Ridges alone, added to an even thickness, came out as three
   // gentle swells that the light never found: the piece read as icing.
   foldBias: 0.34,
-  foldDepth: 0.95, // ridge height as a fraction of the cloth's thickness
+  foldDepth: 2.60, // ridge height as a fraction of the cloth's thickness
   hemWave: 0.055, // and how much lower the hem hangs under a ridge
   // Folds gather where the cloth hangs free and die where it is pulled over the
   // shoulder. Measured in material distance past the edge of the top face, so

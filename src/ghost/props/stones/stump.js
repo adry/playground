@@ -180,7 +180,7 @@ function stubProfile(len, r0, r1) {
 const STUBS = [
   { theta: 2.95, y: 0.895, tilt: 0.74, len: 0.235, r0: 0.116, r1: 0.062, seg: 26 },
   { theta: -0.35, y: 0.500, tilt: 0.58, len: 0.195, r0: 0.098, r1: 0.055, seg: 24 },
-  { theta: 4.62, y: 1.040, tilt: 0.80, len: 0.150, r0: 0.082, r1: 0.050, seg: 20 },
+  { theta: 4.46, y: 1.115, tilt: 0.92, len: 0.130, r0: 0.074, r1: 0.046, seg: 20 },
 ];
 
 // A nail head: a squat dome on a buried base disc.

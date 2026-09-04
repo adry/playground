@@ -155,7 +155,7 @@ function makeNoise(seed) {
 // two reasons: the seam vertex is not duplicated so no crease runs up the
 // piece, and a profile that reaches radius zero at either end is welded to a
 // single pole vertex, where THREE.LatheGeometry would leave the end open.
-function revolve(profile, segments = 28, rowT = null, fade = null) {
+function revolve(profile, segments = 28, rowT = null, fade = null, section = null) {
   const rows = profile.length;
   const verts = [];
   const uvs = [];
@@ -173,11 +173,8 @@ function revolve(profile, segments = 28, rowT = null, fade = null) {
     const v = (1 + fade.heat * heat) * k;
     return [v, v, v];
   };
-  const cs = [];
-  for (let j = 0; j < segments; j++) {
-    const a = (j / segments) * Math.PI * 2;
-    cs.push([Math.cos(a), Math.sin(a)]);
-  }
+  const ang = [];
+  for (let j = 0; j < segments; j++) ang.push((j / segments) * Math.PI * 2);
   for (let i = 0; i < rows; i++) {
     const { x: r, y } = profile[i];
     if (r < 1e-6 && (i === 0 || i === rows - 1)) {
@@ -188,8 +185,10 @@ function revolve(profile, segments = 28, rowT = null, fade = null) {
       continue;
     }
     rowStart[i] = verts.length / 3;
+    const ti = rowT ? rowT[i] : i / (rows - 1);
     for (let j = 0; j < segments; j++) {
-      verts.push(cs[j][0] * r, y, cs[j][1] * r);
+      const rr = r * (section ? section(ang[j], ti) : 1);
+      verts.push(Math.cos(ang[j]) * rr, y, Math.sin(ang[j]) * rr);
       uvs.push(j / segments, i / (rows - 1));
       if (rowT) cols.push(...shade(rowT[i]));
     }
@@ -279,7 +278,7 @@ const FLAME_LOBE = [
 // silhouette edge at the top of a flame is the single most artificial thing a
 // stylised fire can have, and this is what removes it without a texture, an
 // alpha map or a sort order.
-function flameGeometry(amp, height, { rows = 26, segments = 20, fade } = {}) {
+function flameGeometry(amp, height, { rows = 26, segments = 20, fade, section = null } = {}) {
   const spline = new THREE.SplineCurve(FLAME_LOBE.map(([t, r]) => new THREE.Vector2(t, r)));
   const pts = [];
   const ts = [];
@@ -291,7 +290,7 @@ function flameGeometry(amp, height, { rows = 26, segments = 20, fade } = {}) {
   }
   // Force the last row onto the axis so revolve() welds the tip shut.
   pts[pts.length - 1].x = 0;
-  return revolve(pts, segments, ts, fade);
+  return revolve(pts, segments, ts, fade, section);
 }
 
 // Alpha off the dot of the surface normal with the view, so a surface fades out
@@ -552,8 +551,18 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
   // Floored at 0.42 rather than run to zero: the core is opaque, so a tip that
   // faded all the way out would be a black point against a bright sky rather
   // than a cool one against the fire.
+  // The cross section is not a circle, and that is the last thing that stops the
+  // core reading as a hot air balloon. A body of revolution has a perfectly
+  // even silhouette from every angle, which is exactly what fire never has. A
+  // three lobed rose with a five lobed one under it, both twisting as they rise,
+  // puts three soft vertical creases up the flame that catch the vertex heat
+  // gradient at different rates, so the outline breaks and the surface has
+  // somewhere for the light to change. It is 0.09 and 0.045 of the radius,
+  // which is nothing, and it is the difference between fire and fruit.
   const coreGeo = flameGeometry(0.158, 0.455, {
-    rows: 26, segments: 22, fade: { floor: 0.42, power: 1.1, heat: 0.80 },
+    rows: 28, segments: 30,
+    fade: { floor: 0.42, power: 1.1, heat: 0.80 },
+    section: (a, t) => 1 + 0.090 * Math.cos(3 * a + 2.6 * t) + 0.045 * Math.cos(5 * a - 1.4 * t),
   });
   const coreMat = new THREE.MeshBasicMaterial({
     color: CORE_FLAME.clone(),
@@ -568,7 +577,9 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
   // Tongues. Three, at three sizes and three offsets, so no two are ever at the
   // same height at the same moment and the fire never looks symmetrical.
   const tongueGeo = flameGeometry(0.092, 0.270, {
-    rows: 22, segments: 16, fade: { floor: 0.0, power: 1.35, heat: 0.55 },
+    rows: 20, segments: 18,
+    fade: { floor: 0.0, power: 1.35, heat: 0.55 },
+    section: (a, t) => 1 + 0.075 * Math.cos(2 * a + 3.1 * t),
   });
   const tongueMat = softLimb(new THREE.MeshBasicMaterial({
     color: BLOOM_FLAME.clone(),

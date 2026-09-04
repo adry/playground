@@ -112,10 +112,11 @@ async function buildLineup() {
 
   const [
     ghostMod, pumpkin, tombstones, panel, broken, debris, gate, skeleton, fountain, shed,
+    street, pillar, post, crook, groundLantern,
   ] = await Promise.all([
     import('../ghost/ghost.js'),
     import('../ghost/props/pumpkin.js'),
-    import('../ghost/props/tombstones.js'),
+    import('../ghost/props/stones/index.js'),
     import('../ghost/props/fence/panel.js'),
     import('../ghost/props/fence/broken.js'),
     import('../ghost/props/fence/debris.js'),
@@ -123,6 +124,11 @@ async function buildLineup() {
     import('../ghost/props/skeleton/model.js'),
     import('../ghost/props/fountain/index.js'),
     import('../ghost/props/shed/index.js'),
+    import('../ghost/props/lanterns/street.js'),
+    import('../ghost/props/lanterns/pillar.js'),
+    import('../ghost/props/lanterns/post.js'),
+    import('../ghost/props/lanterns/crook.js'),
+    import('../ghost/props/lanterns/ground.js'),
   ]);
 
   // Slot 0, and the reason the grid is offset rather than the ghost. See
@@ -190,6 +196,19 @@ async function buildLineup() {
   }
 
   place({ label: 'shed', group: shed.createShed({ seed: 3 }).group });
+
+  // The lanterns. Each carries its own light, so this row is the one place in
+  // the project where all of them burn at once: worth watching for whether they
+  // agree about what a flame in this world looks like.
+  for (const [label, made] of [
+    ['lantern ground', groundLantern.createGroundLantern({ seed: 1 })],
+    ['lantern post', post.createPostLantern({ seed: 1 })],
+    ['lantern pillar', pillar.createPillarLantern({ seed: 1 })],
+    ['lantern crook', crook.createCrookLantern({ seed: 1 })],
+    ['lantern street', street.createStreetLamp({ seed: 1 })],
+  ]) {
+    place({ label, group: made.group, update: made.update });
+  }
 
   // --- camera ---------------------------------------------------------------
   const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();

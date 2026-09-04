@@ -273,17 +273,12 @@ const GLASS_FRAG = `
   // air: without it a ray through the near pane goes out through the far one
   // and finds the scene's pale backdrop.
   float d = length(vec2(vPane.x * 0.85, (vPane.y + 0.40) * 1.05));
-  // The 0.42 floor is not padding, and it is HIGHER than the pillar lantern's
-  // 0.30 for a reason that is about where this prop hangs rather than about
-  // taste. A pillar lantern stands on top of its pillar, so what a ray through
-  // its near pane finds after the far one is mostly sky. This one hangs off a
-  // wall at chest height: what is behind it is the wall, a fence post, a shed
-  // side, a big pale object a hand's breadth away and filling the whole
-  // background. Straight through, the top half of every pane read as a window
-  // onto pale timber. What a lit lantern actually has up there is a boxful of
-  // warm air, so the floor carries that everywhere inside the glass and the
-  // falloff only says where the flame is brightest.
-  float lit = (0.42 + 0.68 * exp(-d * d * 3.20)) * mix(1.0, 1.55, back);
+  // The floor is the warm air the box is full of, and the falloff only says
+  // where the flame is brightest. It is a touch lower than the pillar
+  // lantern's, because here the reflector behind the glass is a REAL surface
+  // lit by the real point light, and that carries most of what this term was
+  // faking there.
+  float lit = (0.32 + 0.72 * exp(-d * d * 3.20)) * mix(1.0, 1.55, back);
 
   vec3 body = outgoingLight + uGlowCol * (uGlow * lit);
 
@@ -693,6 +688,26 @@ function cageGeometry() {
     }
   }
 
+  // The REFLECTOR: the wall-facing face, sheet iron rather than glass. See the
+  // note on glassGeometry for why. It is flush with the corner uprights' outer
+  // face and it laps 7mm into each of them, so no seam of daylight can open at
+  // the two back corners, which is the one way this could have gone wrong.
+  //
+  // It is a rounded slab and not a plane: a plane has no thickness to catch the
+  // key at its edges and, more to the point, the flame is 80mm off it and a
+  // point light on a flat plane draws a hard elliptical hot spot. The 14mm of
+  // roll on its rim breaks that into something with a shape.
+  const back = bar({
+    length: BOX_H - 0.004,
+    w: 2 * (BOX_R - BAR * 0.33),
+    d: 0.014,
+    p: 0.30,
+    ends: 0.006,
+    rows: 10,
+    ring: 22,
+  });
+  parts.push(placed(back, { y: BOX_BOT + 0.002, z: REACH - (BOX_R - 0.007) }));
+
   // The floor, which is also what stops you seeing down through the box.
   parts.push(placed(loftY({
     y0: BOX_BOT + 0.004,
@@ -786,16 +801,37 @@ function footGeometry() {
   return placed(loftY({ y0, y1, at, rows: 34, ring: 28 }), { z: REACH });
 }
 
-// Four bowed panes. `aPane` is -1..1 across each one and `aYaw` is the face it
-// was built on, which together are the whole coordinate system the glass shader
-// works in.
+// THREE bowed panes, not four, and this is the one place where being a wall
+// lantern changes the model rather than only its origin.
+//
+// A lantern glazed on four sides has nothing behind its far pane but whatever
+// the world puts there, and pillar.js found what that costs: the pale backdrop
+// comes straight through and the top half of every pane reads as milk. Standing
+// on a pillar that is mostly sky, and a warm floor under the transmitted term
+// covers it. This one hangs at chest height off a post or a shed side, so what
+// is behind it is a big pale sunlit object 200mm away filling the entire
+// background, and no floor under the transmitted term was enough: at the
+// strength that made the box read as lit, the glass had stopped being glass.
+//
+// The honest answer is that a real bracket lantern is not glazed on the wall
+// side. There is nothing back there to light, so that face is sheet iron and it
+// works as a reflector. So: three panes, and the fourth face is the plate built
+// in cageGeometry. It costs nothing, it removes the failure instead of
+// covering it, and it pays twice over, because the one PointLight in the box is
+// 80mm off that plate and lights it to a warm glow that every pane then has
+// behind it.
+//
+// `aPane` is -1..1 across each one and `aYaw` is the face it was built on,
+// which together are the whole coordinate system the glass shader works in.
 function glassGeometry() {
   const hh = (PANE_TOP - PANE_BOT) / 2;
   const mid = (PANE_TOP + PANE_BOT) / 2;
   const NU = 10, NV = 14;
 
   const pos = [], pane = [], yaw = [], index = [];
-  for (let k = 0; k < 4; k++) {
+  // k = 2 is the face whose normal is -Z, the one turned to the wall. It is the
+  // reflector, not glass.
+  for (const k of [0, 1, 3]) {
     const a = (k * Math.PI) / 2;
     const ca = Math.cos(a), sa = Math.sin(a);
     const base = pos.length / 3;
@@ -972,7 +1008,7 @@ export function createBracketLantern({ seed = 1, scale = 1 } = {}) {
     uShine: { value: 95.0 },
     // How much of the pane is glass and how much is air. Low: the flame and the
     // far frame have to be seen through it.
-    uBodyA: { value: 0.190 },
+    uBodyA: { value: 0.300 },
     uWave: { value: 0.048 },
     uSeed: { value: rand() * 6.283 },
   };

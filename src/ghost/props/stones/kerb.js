@@ -62,10 +62,12 @@ const PLOT_L = 2.35; // head to foot, along +z, out toward the viewer
 const PLOT_W = 0.90;
 const BAR_W = 0.18; // side and foot kerb, seen from above
 const BAR_H = 0.15; // and standing proud of the turf
-// The head kerb is the base stone: deeper than the tablet's plinth so nothing
-// overhangs it, and a little taller than the other three so the head of the
-// plot has some weight to it.
-const HEAD_D = 0.38;
+// The head kerb is the base stone: it runs the full width of the plot, stands a
+// little taller than the other three so the head has some weight to it, and is
+// deep enough that the tablet's plinth sits well inside its footprint. Half way
+// between the two, the plinth and the kerb read as one doubled ledge with a
+// stone balanced on it rather than as a stone set on a base.
+const HEAD_D = 0.44;
 const HEAD_H = 0.175;
 // Bedded, not placed on top. It also buys the piece its tolerance: the registry
 // applies a seeded lean AFTER extras runs, and across a 2.15 footprint a lean of
@@ -87,10 +89,19 @@ const HEAD_Z = -0.21; // outer face of the head kerb, behind the tablet
 const FOOT_Z = HEAD_Z + PLOT_L;
 const RAIL_Z0 = HEAD_Z + HEAD_D - LAP; // rails start inside the head kerb
 
-// The bed of chippings, level with the middle of the kerb. Filled to the top it
-// reads as a solid slab with a rim; a skim in the bottom of a deep tray reads
-// as a box.
-const BED_H = 0.062;
+// The bed of chippings. BED_TOP is the surface height above the floor, and it
+// is the number that matters: the kerb stands 0.10 proud of the turf, so half
+// of that is a plot filled to the middle of its kerb. Filled to the top it
+// reads as a solid slab with a rim, and a skim in the bottom of a deep tray
+// reads as a box. The pad has real thickness under it, enough that its own
+// rounded rim finishes below the floor and never shows a lip.
+//
+// This is also the one number that has to be set from the floor rather than
+// from the pad's centre. Written as a centre height it put the surface 8 mm up,
+// which sank the pad's rounded corners BELOW the floor: the floor then drew
+// over them and a wedge of bare turf appeared inside the frame at each corner.
+const BED_TOP = 0.045;
+const BED_H = 0.075;
 
 registerStone('kerb', {
   // The smallest tablet in the set on purpose: 0.83 of its own plus the height
@@ -98,7 +109,7 @@ registerStone('kerb', {
   // proportion a kerb set really has. The face is 0.60 by 0.70, so the
   // inscription canvas comes out 878 px wide, well clear of the 500 px floor
   // the engraving treatment needs.
-  shape: { halfWidth: 0.30, height: 0.70, depth: 0.20, plinth: 0.13 },
+  shape: { halfWidth: 0.30, height: 0.70, depth: 0.18, plinth: 0.13 },
   // A true half-round arch, the set's own default. The silhouette is not where
   // this piece spends its difference: the tablet stays family, and what is new
   // is all on the ground around it.
@@ -187,6 +198,20 @@ registerStone('kerb', {
       kerb.add(bar);
     }
 
+    // EXPERIMENT: corner posts at the foot.
+    const POST = 0.17;
+    const POST_H = 0.26;
+    const postGeo = barGeo(POST / 2, POST_H, POST);
+    disposables.push(postGeo);
+    for (const sx of [-1, 1]) {
+      const post = new THREE.Mesh(postGeo, material);
+      post.position.set(sx * (PLOT_W / 2 - POST / 2), -SINK, FOOT_Z - POST / 2);
+      post.rotation.y = (rng() - 0.5) * 0.03;
+      post.castShadow = true;
+      post.receiveShadow = true;
+      kerb.add(post);
+    }
+
     // --- the bed of chippings ------------------------------------------------
     //
     // Flat, for the reason set out at the top of the file. It gets its own
@@ -225,9 +250,9 @@ registerStone('kerb', {
     const bed = new THREE.Mesh(bedGeo, bedMaterial);
     // Laid face up. Rotating -90 about x sends the builder's y down -z and its
     // depth up into y, so the pad spans z in [-bedLen, 0] and y in [-BED_H/2,
-    // BED_H/2]: hence the half-thickness lift and the length shift.
+    // BED_H/2]: hence the half-thickness offset and the length shift.
     bed.rotation.x = -Math.PI / 2;
-    bed.position.set(0, BED_H / 2 - SINK - 0.004, bedZ0 + bedLen);
+    bed.position.set(0, BED_TOP - BED_H / 2, bedZ0 + bedLen);
     bed.receiveShadow = true; // the kerb's shadow across it is the only relief
     kerb.add(bed); // the bed is allowed to have
   },

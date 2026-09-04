@@ -325,16 +325,19 @@ function makeRng(seed) {
 // any one channel, it is that the two carriers' derivatives cancel wherever
 // they are near a simple ratio: 11.7 over 6.4 is 1.83, close enough to 2 that
 // the envelope of the sum's slope collapses twice a beat. Moving them to 7.2
-// and 12.1 (1.68) and raising both amplitudes takes it to 8 to 9.6% with the
-// longest dead run six frames, an eyeblink.
+// and 12.1 (1.68) and raising both amplitudes to 0.044 and 0.030 takes it to
+// 5.9 to 6.8% of all frames, measured over two minutes at five seeds. The
+// number that actually matters is the WORST fifteen second window inside that,
+// because that is what a viewer sees: 7.5 to 9.6%, longest dead run four
+// frames. The amplitudes are set by that measurement and not by taste.
 function makeFlicker({ seed, phase, f1, f2 }) {
   const noise = makeNoise(seed);
   return (time) => {
     const t = time + phase;
     const swing = (f, o) => (noise(t * f + o) - 0.5) * 2;
-    const wobble = (f, drift, o) => Math.sin(Math.PI * 2 * (t * f + noise(t * drift + o) * 6));
+    const wobble = (f, drift, o) => Math.sin(Math.PI * 2 * (t * f + noise(t * drift + o) * 7));
 
-    const tremble = 0.035 * wobble(f1, 0.62, 12.4) + 0.024 * wobble(f2, 0.95, 55.1);
+    const tremble = 0.044 * wobble(f1, 0.70, 12.4) + 0.030 * wobble(f2, 1.05, 55.1);
 
     // The breathing underneath, over a second or two. Summed noise is right for
     // this one and its stalls are a feature: a lull is what the slow channel is

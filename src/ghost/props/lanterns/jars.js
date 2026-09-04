@@ -84,10 +84,10 @@ const INNER_FILLET = 0.008;
 // jar's mouth points, and it is set across the view rather than along it for
 // the same reason: a jar lying on its side pointing at the camera is a circle.
 const JARS = [
-  { x: -0.078, z:  0.056, rOut: 0.062, hgt: 0.100, roll: 0.0105, burn: 0.58, lit: true },
-  { x:  0.085, z:  0.035, rOut: 0.054, hgt: 0.084, roll: 0.0095, burn: 0.34, lit: true },
-  { x:  0.032, z: -0.109, rOut: 0.072, hgt: 0.118, roll: 0.0115, burn: 0.82, lit: true },
-  { x: -0.062, z:  0.175, rOut: 0.051, hgt: 0.086, roll: 0.0095, burn: 0.46, lit: false, tipped: true, lie: 2.10 },
+  { x: -0.070, z:  0.050, rOut: 0.062, hgt: 0.100, roll: 0.0105, burn: 0.55, lit: true },
+  { x:  0.076, z:  0.031, rOut: 0.054, hgt: 0.084, roll: 0.0095, burn: 0.50, lit: true },
+  { x:  0.028, z: -0.098, rOut: 0.072, hgt: 0.118, roll: 0.0115, burn: 0.82, lit: true },
+  { x: -0.058, z:  0.163, rOut: 0.051, hgt: 0.086, roll: 0.0095, burn: 0.26, lit: false, tipped: true, lie: 2.10 },
 ];
 
 // Segments round a jar. SEGMENTS.radial is 48 and sized for props a good deal
@@ -299,8 +299,8 @@ const CARRIERS = [
 // flicker with it, which is the same failure the ground lantern found.
 const LAMP = { min: 0.13, max: 0.31 };
 const CORE = { min: 1.15, max: 2.45 };   // flame body, above 1 so ACES clips it
-const HALO = { min: 0.10, max: 0.26 };   // the soft shell around it
-const WASH = { min: 0.85, max: 2.10 };   // the candle on the inside of the glass
+const HALO = { min: 0.14, max: 0.34 };   // the soft shell around it
+const WASH = { min: 1.00, max: 2.45 };   // the candle on the inside of the glass
 
 // How the flame's colour is mixed between ember and flame. Levered about the
 // level's own mean rather than fed the level straight, because the level lives
@@ -504,7 +504,7 @@ export function createCandleJars({ seed = 1, scale = 1 } = {}) {
     // and pushing it as hard as the pane needed turned the jars into pale
     // plastic. Swept at 3, 4.5, 6, 9 and 13: under 4 the glass stops existing
     // and the wax floats, over about 9 it goes milky and swallows the candle.
-    uRimGain: { value: 6.0 },
+    uRimGain: { value: 5.5 },
     // The key's own lobe, broad rather than tight. A jar's wall is curved in
     // one direction, so a tight lobe fires as a hard vertical line down one
     // side; broadened, it becomes the soft band of light down the shoulder that
@@ -515,9 +515,9 @@ export function createCandleJars({ seed = 1, scale = 1 } = {}) {
     // How much of what is behind the glass the glass hides, face on. Lower than
     // the ground lantern's pane: you look INTO these, so the candle and the far
     // inside wall have to survive two crossings rather than one.
-    uBodyA: { value: 0.13 },
+    uBodyA: { value: 0.20 },
     uWash: { value: placed.map(() => 0) },
-    uSoot: { value: placed.map((J) => (J.lit ? 0.26 + 0.10 * ((J.burn * 7) % 1) : 0.30)) },
+    uSoot: { value: placed.map((J) => (J.lit ? 0.34 + 0.12 * ((J.burn * 7) % 1) : 0.40)) },
     uFlameH: { value: placed.map((J) => J.flameH) },
   };
 
@@ -605,7 +605,7 @@ varying float vFlameH;`)
       // on. Built lying down in jar space rather than tipped with the jar, so
       // its own axis stays with the jar's and it simply rests off centre.
       waxGeo = new THREE.LatheGeometry(candleProfile(rIn, J.waxTop), Math.round(AROUND * 0.7));
-      waxGeo.translate(rIn * 0.20, 0, 0);
+      waxGeo.translate(rIn * 0.32, 0, 0);
     } else {
       waxGeo = new THREE.LatheGeometry(candleProfile(rIn, J.waxTop), Math.round(AROUND * 0.7));
     }
@@ -616,7 +616,7 @@ varying float vFlameH;`)
     const wickGeo = new THREE.CapsuleGeometry(0.0021, 0.0075, 3, 8);
     const wm = new THREE.Matrix4()
       .makeRotationZ(J.lit ? 0.2 : 0.9)
-      .setPosition(J.tipped ? rIn * 0.20 : 0, J.waxTop + 0.001, 0);
+      .setPosition(J.tipped ? rIn * 0.32 : 0, J.waxTop + 0.001, 0);
     wickGeo.applyMatrix4(wm);
     waxParts.push(tag(wickGeo, i, 0, wickCol));
   });
@@ -680,8 +680,8 @@ varying float vGlow;`)
     }
     return pts;
   };
-  const coreGeo = new THREE.LatheGeometry(flameProfile(0.0115, 0.041), 20);
-  const haloGeo = new THREE.LatheGeometry(flameProfile(0.026, 0.058), 20);
+  const coreGeo = new THREE.LatheGeometry(flameProfile(0.0125, 0.044), 20);
+  const haloGeo = new THREE.LatheGeometry(flameProfile(0.029, 0.064), 20);
   // A vertical gradient baked into the core, and it is the fix for the one
   // thing that was wrong with copying the ground lantern's flame straight
   // across. A single flat emissive colour bright enough for ACES to clip it is
@@ -694,7 +694,7 @@ varying float vGlow;`)
     const pos = coreGeo.attributes.position.array;
     const c = new Float32Array(coreGeo.attributes.position.count * 3);
     for (let v = 0; v < coreGeo.attributes.position.count; v++) {
-      const u = pos[v * 3 + 1] / 0.041;
+      const u = pos[v * 3 + 1] / 0.044;
       const t = Math.min(1, Math.max(0, (u - 0.06) / 0.46));
       const k = t * t * (3 - 2 * t);
       c[v * 3] = 0.30 + 0.70 * k;

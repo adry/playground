@@ -160,55 +160,54 @@ function sweep({ plan, rings, uv }) {
   return geo;
 }
 
+// --- the pyramid's meridian, solved once -----------------------------------
+//
+// The buried base ring, and the scale from the ledge outline up to it.
+const R0 = XL + (BURY * Math.sin(PHI)) / Math.cos(PHI);
+const Y0 = H - BURY;
+// Centre of the apex arc, on the axis. The slope line is y = H + K*(XL - x)
+// with K its rise over run, and the circle of radius TIP tangent to that line
+// has its centre TIP/sin(PHI) below where the line crosses the axis. The apex
+// is TIP above the centre, so rounding the point off costs 0.056 of height,
+// which the numbers at the top already account for.
+const CENTRE_Y = H + (Math.cos(PHI) / Math.sin(PHI)) * XL - TIP / Math.sin(PHI);
+const APEX = CENTRE_Y + TIP;
+
 // The pyramid itself, in the base block's own frame.
 //
-// Two straight-sided sections and one arc, tangent throughout:
+// One straight section and one arc, tangent where they meet:
 //
-//   1. the slope, from a ring buried BURY under the base's top face up to
-//      where the apex arc takes over,
-//   2. the apex arc, a circle of radius TIP on the axis, tangent to the slope,
-//      because the house style has no points in it.
+//   1. the slope, from a ring buried BURY under the base's top face up to where
+//      the apex arc takes over. Straight, so two rings carry it exactly.
+//   2. the apex arc, a circle of radius TIP on the axis, because the house
+//      style has no points in it.
 //
 // The foot is buried rather than landed flush, and that is deliberate. The slab
 // under it is flat there and the slope crosses it at 52 degrees, so the two
 // surfaces separate at once and the intersection is a clean line. The joint the
 // obelisk had to solve -- two surfaces running parallel a hair apart, which on a
 // 16-bit depth buffer is a band of stipple rather than a hairline -- cannot
-// happen here because nothing is parallel to anything.
-// The buried base ring, and the scale from the ledge outline up to it.
-const R0 = XL + (BURY * Math.sin(PHI)) / Math.cos(PHI);
-const Y0 = H - BURY;
-// Centre of the apex arc, on the axis. The slope line is y = H + K*(XL - x)
-// with K the rise over run, and the circle of radius TIP tangent to it has its
-// centre TIP/sin(PHI) below where that line crosses the axis. The apex itself
-// is TIP above the centre, so rounding the point off costs 0.056 of height,
-// which the numbers at the top already account for.
-const CENTRE_Y = H + (Math.cos(PHI) / Math.sin(PHI)) * XL - TIP / Math.sin(PHI);
-const APEX = CENTRE_Y + TIP;
-
+// happen here, because nothing is parallel to anything.
 function pyramidGeometry({ uv }) {
-  const r0 = R0;
-  const k = r0 / XL;
-  const y0 = Y0;
-  const centreY = CENTRE_Y;
+  const k = R0 / XL; // the ledge outline, grown to the buried ring
   const rings = [];
-  const at = (r, y, phi) => rings.push({ y, s: r / r0, dy: Math.cos(phi), ds: -Math.sin(phi) / r0 });
+  const at = (r, y, phi) => rings.push({ y, s: r / R0, dy: Math.cos(phi), ds: -Math.sin(phi) / R0 });
 
-  // Tangency point: on the arc, the point whose outward normal points along the
-  // slope's own normal, which is at angle PHI off the horizontal.
-  const tx = TIP * Math.cos(PHI);
-  const ty = centreY + TIP * Math.sin(PHI);
-
-  at(r0, y0, PHI);
-  at(tx, ty, PHI);
+  at(R0, Y0, PHI);
+  // Tangency: the point of the arc whose outward normal already points along
+  // the slope's own, which is PHI off the horizontal.
+  at(TIP * Math.cos(PHI), CENTRE_Y + TIP * Math.sin(PHI), PHI);
   const SEG = 8;
   for (let i = 1; i <= SEG; i++) {
     const a = PHI + (Math.PI / 2 - PHI) * (i / SEG);
-    at(TIP * Math.cos(a), centreY + TIP * Math.sin(a), a);
+    at(TIP * Math.cos(a), CENTRE_Y + TIP * Math.sin(a), a);
   }
 
   return sweep({
-    plan: planOutline(r0, ZL * k, HIP * k, 10),
+    // The hips are the plan's four corner arcs carried up the slope. Because
+    // every ring is a uniform scale of the one outline, they stay round the
+    // whole way and meet the apex arc without a crease.
+    plan: planOutline(R0, ZL * k, HIP * k, 10),
     rings,
     uv,
   });

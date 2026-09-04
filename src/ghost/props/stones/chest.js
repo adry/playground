@@ -7,12 +7,13 @@ import { registerStone, buildSlabGeometry } from '../tombstones.js';
 // that overhangs on every side.
 //
 // The set is a row of uprights, so what this piece adds is mass and a
-// horizontal. It is 1.48 long and 0.82 tall against the cross stone's 0.92 by
-// 1.56: half the height, a third again the width, and about four times the
-// footprint. That is the whole identity, and it is in the silhouette, which is
-// what .ref/STONES-POSTMORTEM.md says the last rejected batch spent on outlines
-// and marks instead. Blacked out at 80 px this reads as a long bar with a lid
-// on it, and nothing else in the graveyard has that shape.
+// horizontal. It stands 0.845 to the cross stone's 1.56 and its base is 1.63
+// long to that stone's 1.07: a little over half the height, half again the
+// length, and two and a half times the footprint. That is the whole identity
+// and it is all in the silhouette, which is what .ref/STONES-POSTMORTEM.md says
+// the last rejected batch spent on outlines and marks instead. At the ninety
+// pixels it occupies in the scene it reads as a long low box with a lid on it,
+// and nothing else in the graveyard has that shape.
 //
 // Three decisions worth writing down:
 //
@@ -39,8 +40,10 @@ import { registerStone, buildSlabGeometry } from '../tombstones.js';
 //    it.
 
 // Body. Height here is the registry's "up the face" axis, so the carved panel
-// is 1.48 by 0.54 and its canvas comes out 2806 by 1024: a very wide face, and
-// wide is the safe side of the engraving treatment's working range.
+// is 1.48 by 0.58 and its canvas comes out 2611 by 1024. That is a very wide
+// face, and wide is the safe side of the engraving treatment: what it could not
+// do was the narrow ones, where the groove wall has no room to be both fine and
+// legible.
 const HALF_LEN = 0.74;
 const BODY_H = 0.58;
 const BODY_D = 0.62;
@@ -49,19 +52,25 @@ const BODY_D = 0.62;
 // projecting base course a chest tomb stands on, so it is used as one.
 const PLINTH = 0.16;
 
-// The lid. Overhang is the piece's one strong horizontal shadow line, so it is
-// generous: 0.10 all round, which clears the base mould by 25mm at the ends and
-// 35mm front and back, and the thickness is kept under the base's so the tomb
-// reads as sitting DOWN on the ground rather than balancing on a stalk.
+// The lid: 1.60 by 0.74 by 0.105, oversailing the body by 62mm all round and
+// dying flush with the base mould. Overhang is the piece's one strong
+// horizontal shadow line and it was tuned by eye against exactly one failure
+// mode: at 0.10 with a thicker slab the reveal under it opens up, the body
+// reads as a panel set BETWEEN legs, and the whole thing turns into a table.
+// Pulled in to 62mm and thinned, it reads as a lid on a box. The thickness
+// stays under the base's, so the tomb sits DOWN on the ground rather than
+// balancing on a stalk.
 const CAP_OVER = 0.062;
 const CAP_T = 0.105;
 const CAP_EDGE = 0.045;
 
 // Corner posts. A chest tomb's long side is a panel with a colonnette at each
-// end, and at this scale that is one rounded post, not a base, shaft and cap.
-// Radius is set so the post stands 55mm proud of the panel: enough to catch the
-// key light down one side and throw the panel into its own frame, little enough
-// that it never competes with the mark in the middle.
+// end, and at this scale that is one fat rounded post, not a base, shaft and
+// cap. They stand 32mm proud of the panel, which is enough for the key to catch
+// one side of each and frame the field between them, and little enough that
+// they stay corners of the box instead of legs under a top. Without them the
+// piece is a rounded brick with a plate on it; that was rendered and it reads
+// as a butter dish.
 const POST_R = 0.105;
 const POST_PROUD = 0.032;
 
@@ -86,10 +95,16 @@ const SINK = 0.026;
 // motif this particular monument carries: on a chest tomb the long panel is
 // where the memento mori goes.
 //
-// One figure and nothing else. No lettering under it, no date, no border: the
-// panel is 2.7 times as wide as it is tall and the temptation is to fill it,
-// which is the exact move that got the last set called busy. A lot of clean
-// stone around one dark shape is the read.
+// One figure and nothing else. No lettering beside it, no date, no border: the
+// panel is two and a half times as wide as it is tall and the temptation is to
+// fill it, which is the exact move that got the last set called busy. A lot of
+// clean stone around one dark shape is the read.
+//
+// Measured, not guessed: 7.4% of the face, with an ink box 17% of the width by
+// 74% of the height, against 3.6, 6.3, 9.1 and 9.1 for the approved cross,
+// FRED, bat and ledger. Mid-band, and a long way under the 12 to 19 that got
+// the last set rejected. Exported for that measurement and no other reason: the
+// only way to weigh a mark is to draw it on a bare canvas and count it.
 export function drawChestMark(ctx, w, h) {
   const cx = w / 2;
   const cy = h * 0.47; // a shade above centre: the bottom of the panel is where the grime is
@@ -149,7 +164,7 @@ function paintUV(geo, fn) {
 // The strip is plain stone from top to bottom, so v is free, and what it buys
 // is which part of the mottle a piece lands on. The lid is mapped across its
 // DEPTH rather than up its 0.105 of thickness, because by height every vertex
-// in it lands on the same row of the map and a 1.65 by 0.82 plate comes out as
+// in it lands on the same row of the map and a 1.60 by 0.74 plate comes out as
 // one row of pixels smeared over the whole thing. This band sits above the
 // grime wash, which dies out at 0.68, so the lid stays the clean top surface it
 // should be and still gets a real swell of mottle across it.
@@ -159,16 +174,16 @@ registerStone('chest', {
   shape: { halfWidth: HALF_LEN, height: BODY_H, depth: BODY_D, plinth: PLINTH },
   // A box, so both ends of the outline are the same soft rounded rectangle
   // rather than an arch. 0.13 is as round as the corners can go before a
-  // 0.54-tall body starts reading as a lozenge.
+  // 0.58-tall body starts reading as a lozenge.
   topRadius: 0.13,
   bottomRadius: 0.13,
   draw: drawChestMark,
 
   extras({ body, material, rng, plinthH, halfWidth, height, disposables, stripUV }) {
-    const meshes = body.children.filter((o) => o.isMesh);
-    // Told apart by where they sit rather than by the order they arrive in: the
-    // registry lifts the slab onto the plinth and leaves the plinth at origin.
-    const slab = meshes.find((m) => Math.abs(m.position.y - plinthH) < 1e-6) || meshes[0];
+    // Captured before anything of ours is added, so the sink at the bottom of
+    // this function moves the registry's slab and plinth only: everything built
+    // here is placed at its sunk height already.
+    const registryMeshes = body.children.filter((o) => o.isMesh);
 
     const add = (geo, x, y, z) => {
       const m = new THREE.Mesh(geo, material);
@@ -241,7 +256,6 @@ registerStone('chest', {
     add(postGeo, 0, 0, 0);
 
     // Bed the whole thing down. See SINK.
-    for (const m of meshes) m.position.y -= SINK;
-    slab.updateMatrix();
+    for (const m of registryMeshes) m.position.y -= SINK;
   },
 });

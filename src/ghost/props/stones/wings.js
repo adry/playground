@@ -71,7 +71,7 @@ import { registerStone, buildArcSweepGeometry, inkText } from '../tombstones.js'
 // shaft to be wider than, and the postmortem's first rule is that a grave
 // marker reads by its vertical. The face works out 627 by 1024 texels, which is
 // dead centre of the 528 to 638 the engraving treatment was calibrated on.
-const SHAPE = { halfWidth: 0.30, height: 0.98, depth: 0.28, plinth: 0.18 };
+const SHAPE = { halfWidth: 0.30, height: 0.96, depth: 0.28, plinth: 0.18 };
 
 // How far the crown sinks into the slab. Only has to bury the slab's top edge
 // rounding and the joint; the rest is margin.
@@ -80,25 +80,30 @@ const CROWN_SINK = 0.22;
 // The central boss: the roundel where the skull would be. Its circle reaches
 // well below the top of the slab, so it is a dome standing out of the stone
 // rather than a ball balanced on it.
-const BOSS = { r: 0.15, y: 1.20 };
+const BOSS = { r: 0.17, y: 1.18 };
 
 const WING = {
-  cove: 0.075, // the shoulder cove the wing flares out of
-  // How far round that cove the wing is carried, in degrees. It is also the
+  cove: 0.09, // the shoulder cove the wing flares out of
+  // Where on the shaft the wings spring from. Below the slab's own shoulder, so
+  // the crown swallows the slab's top corners and the shaft appears to run up
+  // between the wings rather than stopping under them.
+  spring: 0.84,
+  // How far round the cove the wing is carried, in degrees. It is also the
   // angle the underside leaves the shaft at, measured off vertical, so a small
   // value grows the wing straight up the side and 90 sends it out flat.
-  flare: 62,
-  rake: 24, // degrees above horizontal that the lobe centres climb going out
+  flare: 55,
   // The three lobes, inner to outer. The first is placed by its tangency with
-  // the cove; the others follow along the rake, `step` from the one before.
-  // The tip is the smallest, so the wing ends in a roll rather than a paddle.
+  // the cove; each of the others sits `step` from the one before, `rake` degrees
+  // above horizontal. The rake steepens down the wing, so the wing goes OUT
+  // first and UP after, which is what keeps a wing this long inside a 1.20 span
+  // and puts the lift at the tip where the eye reads it.
   lobes: [
-    { r: 0.085 },
-    { r: 0.082, step: 0.150 },
-    { r: 0.068, step: 0.140 },
+    { r: 0.115 },
+    { r: 0.105, step: 0.155, rake: 18 },
+    { r: 0.095, step: 0.150, rake: 55 },
   ],
-  notch: 0.016, // the cleft fillet between two lobes
-  top: 0.24, // the long concave top edge, tip lobe to boss
+  notch: 0.022, // the cleft fillet between two lobes
+  top: 0.22, // the long concave top edge, tip lobe to boss
 };
 
 // ---------------------------------------------------------------------------
@@ -157,27 +162,25 @@ const mirror = (arcs) =>
 function halfOutline(W, H, edge) {
   const rb = Math.max(edge, 0.09); // buried corners, never tighter than the rim
   const yb = H - CROWN_SINK;
-  const ys = H - edge; // where the slab's straight side stops and its corner starts
+  const ys = Math.min(WING.spring, H - edge); // never above where the slab's own corner starts
 
-  // The shoulder cove, tangent to the straight side at exactly the height the
-  // slab's own corner rounding begins, so the crown's silhouette leaves the
-  // slab's already parallel to it. This is the one place the wing meets the
-  // shaft, and it is a cove rather than a notch: the wing GROWS from the
-  // shoulder. The notches are all further out, between the lobes.
+  // The shoulder cove, tangent to the straight side, so the crown's silhouette
+  // leaves the slab's already parallel to it. This is the one place the wing
+  // meets the shaft, and it is a cove rather than a notch: the wing GROWS from
+  // the shoulder. The clefts are all further out, between the lobes.
   const cove = { x: W + WING.cove, y: ys };
   const b = WING.flare * D;
 
-  // Lobe one hangs off the cove, tangent to it; the rest march out along the
-  // rake. Tangency between the cove and lobe one is on the line between their
+  // Lobe one hangs off the cove, tangent to it; the rest march out along their
+  // own rakes. Tangency between two circles is on the line between their
   // centres, so lobe one's centre is simply (cove r + lobe r) away in the
   // direction the flare picked.
   const dir = { x: Math.cos(Math.PI - b), y: Math.sin(Math.PI - b) };
-  const rake = { x: Math.cos(WING.rake * D), y: Math.sin(WING.rake * D) };
   const lobes = [];
   for (const [i, l] of WING.lobes.entries()) {
     const prev = lobes[i - 1];
     const c = prev
-      ? { x: prev.c.x + l.step * rake.x, y: prev.c.y + l.step * rake.y }
+      ? { x: prev.c.x + l.step * Math.cos(l.rake * D), y: prev.c.y + l.step * Math.sin(l.rake * D) }
       : { x: cove.x + (WING.cove + l.r) * dir.x, y: cove.y + (WING.cove + l.r) * dir.y };
     lobes.push({ c, r: l.r });
   }
