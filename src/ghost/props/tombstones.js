@@ -16,7 +16,49 @@ import { PALETTE, SEGMENTS, toyMaterial } from './style.js';
 // one along its bottom lip. Together they are what makes it a carving and not
 // a print.
 
+// The three the set started with, plus whatever registerStone() has added.
+// Kept as a live array rather than a constant so a scene or a lab can list the
+// set without knowing which modules happen to be loaded.
 export const VARIANTS = ['cross', 'bat', 'fred'];
+
+// --- the registry ----------------------------------------------------------
+//
+// New stones are separate modules that call registerStone() rather than edits
+// to this file, because ten of them landing in one file is ten conflicts.
+// Registering buys the whole treatment: the same swept quarter-round slab, the
+// same weathered canvas, the same two-map carving, the same plinth, grime and
+// contact shadow. That matters more than it sounds. The last attempt at new
+// stones failed with two agents independently concluding the MARKS were never
+// the problem: silhouette carries the identity, and the engraving treatment has
+// a face-width range it works in. Stay inside the treatment and vary the
+// silhouette, the proportions and the mark.
+//
+//   registerStone('obelisk', {
+//     shape: { halfWidth: 0.30, height: 1.60, depth: 0.28, plinth: 0.20 },
+//     topRadius: 0.04,          // optional, defaults to a half-round arch
+//     draw(ctx, w, h) { ... },  // optional, the carved mark, black on clear
+//     extras({ body, material, shape, rng }) { ... },  // optional, more meshes
+//   })
+//
+// `draw` is handed the FACE canvas in pixels, origin top left, with fillStyle
+// already black. Everything it paints is read as cut into the stone: dark floor
+// on the colour map, and a normal map baked from a blurred copy so the mark
+// reads lower rather than printed. inkText, inkCross and inkBat are exported
+// for it.
+//
+// `extras` runs after the slab and plinth are built and parented, and is the
+// place for anything that is not a flat face: a cross finial, an urn, a broken
+// corner. Add meshes to `body` with the `material` handed in, so a new piece
+// cannot drift away from the set's colour.
+const REGISTRY = new Map();
+
+export function registerStone(name, def) {
+  if (REGISTRY.has(name)) throw new Error(`stone "${name}" is registered twice`);
+  REGISTRY.set(name, def);
+  if (!VARIANTS.includes(name)) VARIANTS.push(name);
+}
+
+export { inkText, inkCross, inkBat };
 
 // ---------------------------------------------------------------------------
 // deterministic noise
@@ -241,6 +283,12 @@ function drawInscription(variant, w, h) {
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#000000';
 
+  const reg = REGISTRY.get(variant);
+  if (reg) {
+    reg.draw?.(ctx, w, h);
+    return c;
+  }
+
   if (variant === 'fred') {
     // Three lines centred on the middle of the face, a shade above it. Font
     // metrics are not involved: inkText centres each line on its own ink, so
@@ -464,7 +512,8 @@ const SHAPES = {
 };
 
 export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {}) {
-  const shape = SHAPES[variant] || SHAPES.cross;
+  const def = REGISTRY.get(variant);
+  const shape = def?.shape || SHAPES[variant] || SHAPES.cross;
   const rng = mulberry32(seed * 2654435761 + 17);
 
   const group = new THREE.Group();
@@ -507,7 +556,10 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
     depth: shape.depth,
     edge,
     bottomRadius: 0.09,
-    topRadius: W, // arch: a true half-round, tangent to the sides
+    // Arch by default: a true half-round, tangent to the sides. A registered
+    // stone may ask for less, down to the edge radius, which squares the top
+    // off. Above W the outline stops being convex and the sweep folds.
+    topRadius: Math.max(edge, Math.min(W, def?.topRadius ?? W)),
     uv: slabUV,
   });
   const slab = new THREE.Mesh(slabGeo, material);
@@ -534,6 +586,12 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
     m.receiveShadow = true;
     body.add(m);
   }
+
+  // Anything that is not a flat face: a finial, an urn, a broken-off corner.
+  // It runs before the lean is applied, so an extra sits on the stone rather
+  // than beside it, and it is handed the same material so a new piece cannot
+  // drift away from the set's colour.
+  def?.extras?.({ body, material, shape, rng, plinthH, halfWidth: W, height: H });
 
   // A hand-placed stone never stands perfectly true. Small enough that the
   // silhouette still reads upright; sunk a hair so no gap opens under the lean.
