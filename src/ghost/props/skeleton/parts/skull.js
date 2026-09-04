@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import M, { LEFT_X } from '../metrics.js';
-import { shaft, straightShaft, jointBall } from './bone.js';
+import { shaft, jointBall, plate } from './bone.js';
 
 // The skull.
 //
@@ -98,12 +98,12 @@ const HS = M.skull.height;                    // crown to chin, the unit for the
 // went on the back of the vault below ear level, where a real skull has mastoid
 // and jaw and nothing else.
 //
-// At 0.055 the braincase is 0.786 as tall as it is long and its floor sits just
+// At 0.085 the braincase is 0.756 as tall as it is long and its floor sits just
 // under the level of the tooth crowns, which is where a real one sits. What is
 // below it is what is below a real one: the condyles, the foramen, the mastoid
 // processes and the mandible, all of which are their own blobs and all of which
 // still reach up past this line, so the base closes.
-const VAULT_BASE = 0.055 * HS;
+const VAULT_BASE = 0.085 * HS;
 // How the skull's depth is split about the atlas. The occipital condyles are
 // behind the middle of a real skull, but only just: put them much further back
 // and the whole head reads as an egg tipping forward off the neck, which was
@@ -191,7 +191,10 @@ const VZ_A = (Z_VAULT_FRONT - Z_BACK) / 2;
 // Squarer in section than the old 2.02, which is what flattens the crown. The
 // profiles below narrow the top at the same time, so it comes out a broad dome
 // rather than the helmet a high exponent alone gives.
-const VAULT_PV = 2.30;
+// Raised from 2.30. A flatter crown makes the braincase read longer against its
+// own height, which is the third of the profile faults: 0.79 as tall as it is
+// long against a real 0.73.
+const VAULT_PV = 2.42;
 const VAULT_UNIT = Math.min(HW, VY_A, VZ_A);
 // The vault's own maximum half-width, as a fraction of HW. It is deliberately
 // short of 1, because the vault is not the widest thing on the head: the
@@ -219,7 +222,7 @@ const smoothstep = (a, b, x) => {
 // the head and not a band.
 const vaultWidth = (v) => WIDTH_PEAK * (1
   - 0.24 * smoothstep(0.70, 1.06, v)
-  - 0.36 * (1 - smoothstep(0.02, 0.62, v)));
+  - 0.22 * (1 - smoothstep(0.02, 0.62, v)));
 // How square the cross-section is. Flat sides and a flat frontal plane across
 // the temples, rounding off toward the crown and the base -- one exponent for
 // the whole vault cannot do that: high enough for a face plane the sockets can
@@ -236,19 +239,32 @@ const vaultPlan = (v) => 2.30
 // instead of over it. It falls away below the orbit too, where the maxilla
 // takes the front over.
 const vaultFront = (v) => 1
-  - 0.34 * smoothstep(0.46, 1.08, v)
+  - 0.36 * smoothstep(0.52, 1.16, v)
   - 0.30 * (1 - smoothstep(0.10, 0.40, v));
-// How far it reaches back. Full between v = 0.50 and 0.68, which is above ear
-// level and level with the parietal eminence, and tucking in hard above and
-// below: that is what makes the occiput read as a projection rather than as the
-// back half of a sphere. The old peak sat at v = 0.30 to 0.46, which is at and
-// below the ear, and a bulge down there is not an occiput -- it is the back of
-// an egg, and in profile that is exactly what it looked like. It never exceeds
-// 1: M.skull.depth is the budget and the occiput spends all of it, it does not
-// get to overspend.
+// How far it reaches back.
+//
+// This function was wrong twice in opposite directions and the second one was
+// worse. It first peaked at v = 0.30 to 0.46, at and below the ear, which is
+// the back of an egg. It was then moved up to v = 0.50 to 0.68 on a reading of
+// the reference that put the most posterior point level with the parietal
+// eminence, and that is far too high: it landed 0.30 below the crown, up in the
+// top third of the head, and because nothing brought the outline back in below
+// it the whole silhouette read as a teardrop or a bicycle helmet.
+//
+// The plateau is v = 0.29 to 0.40 now, which measures 0.44 below the crown --
+// a little above the ear canal at 0.645, which is where a real opisthocranion
+// is. What matters at least as much is the LOWER term. The back of a real skull
+// does not just stop being widest below the occiput, it curves back IN and DOWN
+// toward the base, so the outline closes underneath; at the vault's floor this
+// has come forward by more than half the depth it spends at the occiput. That
+// returning curve is the single thing whose absence made the old profile read
+// as a helmet, and it is not visible in any three-quarter view.
+//
+// It never exceeds 1: M.skull.depth is the budget and the occiput spends all of
+// it, it does not get to overspend.
 const vaultBack = (v) => 1
-  - 0.26 * smoothstep(0.75, 1.05, v)
-  - 0.58 * (1 - smoothstep(0.00, 0.64, v));
+  - 0.50 * smoothstep(0.40, 1.04, v)
+  - 0.700 * (1 - smoothstep(-0.05, 0.29, v));
 // The plan view's own taper: how wide the section is at a given point along its
 // OWN depth, front to back. This is the piece that only became possible when
 // the plan stopped being square. A skull seen from above is a blunt egg, widest
@@ -361,7 +377,11 @@ const HINGE_Z = -0.085 * M.skull.depth;
 // is wider than a bigonial one, but a real skull is also wider at the ear than
 // this one gets to be, and of the two errors a condyle outside the silhouette
 // is the one that shows.
-const HINGE_X = 0.58 * (M.skull.width / 2);
+// Widened from 0.58. The condyle still has to be narrower than the gonion, and
+// is, but at 0.58 the whole top of the ramus -- the notch and the coronoid with
+// it -- sat medial to the surface of the cheek and was invisible in profile. A
+// notch nobody can see is not a notch.
+const HINGE_X = 0.63 * (M.skull.width / 2);
 const FORAMEN_Z = -0.150 * M.skull.depth;
 
 // --- the openings ----------------------------------------------------------
@@ -1323,13 +1343,13 @@ export function buildSkull({ material }) {
   // with surfaceRho, which is how the old arch was placed. That was the bug in
   // miniature: a path that follows the surface cannot stand off it. The standoff
   // is the whole point, so it is a number here, checked below and reported.
-  const ARCH_R = 0.026 * HS;
-  const ARCH_FLAT = 1.55;               // taller than it is thick, as a real arch is
+  const ARCH_R = 0.032 * HS;
+  const ARCH_FLAT = 1.70;               // taller than it is thick, as a real arch is
   const archPath = (side) => new THREE.CatmullRomCurve3([
     new THREE.Vector3(side * 0.300 * M.skull.width, ORBIT_V - 0.180 * HS, 0.272 * M.skull.depth),
-    new THREE.Vector3(side * 0.405 * M.skull.width, ORBIT_V - 0.148 * HS, 0.175 * M.skull.depth),
-    new THREE.Vector3(side * 0.445 * M.skull.width, ORBIT_V - 0.132 * HS, 0.040 * M.skull.depth),
-    new THREE.Vector3(side * 0.425 * M.skull.width, ORBIT_V - 0.118 * HS, -0.085 * M.skull.depth),
+    new THREE.Vector3(side * 0.402 * M.skull.width, ORBIT_V - 0.148 * HS, 0.175 * M.skull.depth),
+    new THREE.Vector3(side * 0.435 * M.skull.width, ORBIT_V - 0.132 * HS, 0.040 * M.skull.depth),
+    new THREE.Vector3(side * 0.418 * M.skull.width, ORBIT_V - 0.118 * HS, -0.085 * M.skull.depth),
     new THREE.Vector3(side * 0.352 * M.skull.width, ORBIT_V - 0.098 * HS, -0.180 * M.skull.depth),
   ], false, 'centripetal', 0.5);
   // How much daylight there is behind the middle of the arch: the bar's inner
@@ -1699,25 +1719,59 @@ export function buildSkull({ material }) {
     // bone.js has no end cap of its own: uncapped, the bar's back end showed as
     // a scoop out of the jaw from any three-quarter view. It also thickens the
     // gonion, which is what a real one does anyway.
-    const cap = track(jointBall(JAW_R * 0.88, { squash: 1 }));
+    const cap = track(jointBall(JAW_R * 0.72, { squash: 1 }));
     cap.scale(1, JAW_SQUASH * 0.80, 1);
     cap.translate(side * gonionX, gonionY, gonion.z);
     jawRoot.add(add(cap, material, 'jaw-gonion'));
 
-    // The ramus is a flat plate, so it is swept round and then squeezed to a
-    // little over half its width -- and its two ends no longer share an x, because the
-    // condyle leans in. Squeezing about the mid plane would drag both ends with
-    // it, so the sweep is built PRE-STRETCHED about that plane by the reciprocal
-    // and the squeeze lands the ends exactly back on gonion and hinge.
-    const mx = (gonionX + HINGE_X) / 2;
-    const SQ = 0.55;
-    const preX = (x) => side * (mx + (x - mx) / SQ);
-    const a = new THREE.Vector3(preX(gonionX), gonionY - JAW_R * 0.35, gonion.z);
-    const b = new THREE.Vector3(preX(HINGE_X), HINGE_Y, HINGE_Z);
-    const ramus = track(straightShaft(a, b, RAMUS_R, { waist: 0.86, endRadius: RAMUS_R * 0.60, segments: 20 }));
-    ramus.translate(-side * mx, 0, 0);
-    ramus.scale(SQ, 1, 1);
-    ramus.translate(side * mx, 0, 0);
+    // The ramus. It used to be a swept round tube squeezed to half its width,
+    // which in profile is a rod: no top edge, so no mandibular notch, so no
+    // angle to the jaw at all and the whole mandible read as one sausage. It is
+    // an extruded PLATE now, authored as an outline in the profile plane, which
+    // is the plane the shape actually lives in -- posterior border, condylar
+    // neck, the notch, the coronoid process, anterior border, and the lower
+    // edge running inside the body's bar. plate()'s bevel does the house
+    // rounding, and the notch is cut deeper than the bevel is wide so that it
+    // survives being rounded off.
+    //
+    // A flat plate cannot have its two ends at different x, and they have to be:
+    // the gonion is wide and the condyle is narrow. So it is built at x = 0 and
+    // SHEARED, each vertex moved out by the lean its own height calls for.
+    // The old pre-stretch-and-squeeze trick did the same job for a swept tube
+    // and does not generalise to an extrusion.
+    // The outline is run through a CLOSED Catmull-Rom before it is extruded.
+    // plate() takes a THREE.Shape, and a Shape built straight from these eleven
+    // points is a polygon: the first attempt at this read as a flat card with
+    // corners stuck on the side of the jaw, because plate()'s bevel rounds the
+    // EDGE of an extrusion and does nothing at all to the corners of its
+    // outline. Resampling the loop as a spline is what makes it a bone.
+    const RAMUS_T = 0.038 * HS;
+    const ramusOutline = new THREE.CatmullRomCurve3([
+      [gonion.z - 0.004, gonionY - 0.012],   // buried in the gonion's cap
+      [gonion.z - 0.010, gonionY + 0.052],   // posterior border
+      [HINGE_Z - 0.009, HINGE_Y - 0.016],    // condylar neck
+      [HINGE_Z + 0.002, HINGE_Y + 0.001],    // the condyle itself
+      [HINGE_Z + 0.017, HINGE_Y - 0.026],    // down into the notch
+      [HINGE_Z + 0.032, HINGE_Y - 0.031],    // the mandibular notch's floor
+      [HINGE_Z + 0.048, HINGE_Y - 0.008],    // the coronoid process
+      [HINGE_Z + 0.038, HINGE_Y - 0.050],    // anterior border
+      [HINGE_Z + 0.024, HINGE_Y - 0.076],
+      [gonion.z + 0.030, gonionY - 0.010],   // lower edge, inside the body
+    ].map(([z, y]) => new THREE.Vector3(z, y, 0)), true, 'centripetal', 0.5)
+      .getPoints(72)
+      .map((q) => new THREE.Vector2(q.x, q.y));
+    const ramus = track(plate(ramusOutline, RAMUS_T, { bevel: 0.45, bevelSegments: 3 }));
+    ramus.rotateY(-Math.PI / 2);
+    {
+      const pos = ramus.attributes.position;
+      const span = HINGE_Y - gonionY;
+      for (let i = 0; i < pos.count; i++) {
+        const t = Math.max(0, Math.min(1, (pos.getY(i) - gonionY) / span));
+        pos.setX(i, pos.getX(i) + side * (gonionX + (HINGE_X - gonionX) * t));
+      }
+      pos.needsUpdate = true;
+      ramus.computeVertexNormals();
+    }
     jawRoot.add(add(ramus, material, 'jaw-ramus'));
     const ball = track(jointBall(RAMUS_R * 0.66));
     ball.translate(side * HINGE_X, HINGE_Y, HINGE_Z);
@@ -1755,6 +1809,7 @@ export function buildSkull({ material }) {
     nasalW: NASAL_W,
     orbitDiverge: orbitDiverge * (180 / Math.PI),
     zygGap: archGap,
+    vaultBase: VAULT_BASE,
   };
 
   return {
