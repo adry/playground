@@ -31,6 +31,8 @@ import { Spring, easeOutBack, easeInOutCubic, easeOutElastic } from './motion.js
 
 const D = Math.PI / 180;
 const TAU = Math.PI * 2;
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 // --- the figure's own numbers ------------------------------------------------
 
@@ -72,6 +74,10 @@ const FOOT_LIFT = 0.13;               // peak of the swing arc
 // stance and the arm that decides how far it can toe off before the tip is
 // through the floor.
 const TOE_AHEAD = M.leg.foot * 0.749;
+// And how far the heel reaches behind it, which limits the other direction: at
+// touchdown the ankle is at standing height and any toes-up at all would put
+// the heel through the floor.
+const HEEL_BACK = M.leg.foot * 0.248;
 const BOB = 0.045;                    // pelvis rise and fall, twice a cycle
 const SWAY = 0.035;                   // pelvis shift toward the stance foot
 
@@ -303,11 +309,12 @@ export function createSkeletonPerformance({
   // limb in the sagittal plane and rotation.x preserves the local X coordinate,
   // so each leg is exactly a two link chain in its own YZ plane: link lengths
   // are the projections, and the rest angles are where those projections point.
-  function chainSpec(rootJoint, mid, tip) {
+  function chainSpec(rootJoint, mid, tip, fallbackBend) {
     const kp = mid.position;
     const ap = tip.position;
     const alpha1 = Math.atan2(kp.z, kp.y);
     const alpha2 = Math.atan2(ap.z, ap.y);
+    const rest = wrap(alpha2 - alpha1);
     return {
       root: rootJoint.position.clone(),
       a1: Math.hypot(kp.y, kp.z),
@@ -317,8 +324,9 @@ export function createSkeletonPerformance({
       cx: kp.x + ap.x,          // lateral offset the sagittal solve cannot change
       // Which way the middle joint already bends in the rest pose. A knee is a
       // few degrees flexed and an elbow a few degrees the other way, and that
-      // is the whole of what tells the solver which is which.
-      bend: Math.sign(wrap(alpha2 - alpha1)) || 1,
+      // is the whole of what tells the solver which is which. A limb built dead
+      // straight would say nothing, so the caller's answer stands in.
+      bend: Math.abs(rest) > 0.01 ? Math.sign(rest) : fallbackBend,
       span: Math.hypot(kp.y, kp.z) + Math.hypot(ap.y, ap.z),
     };
   }
@@ -326,10 +334,12 @@ export function createSkeletonPerformance({
   const LEG = {};
   const ARM = {};
   for (const side of ['L', 'R']) {
-    LEG[side] = chainSpec(J[`hip${side}`], J[`knee${side}`], J[`ankle${side}`]);
+    // The knee folds backward and the elbow forward, which is the fallback if
+    // the rest pose ever comes through with a dead straight limb.
+    LEG[side] = chainSpec(J[`hip${side}`], J[`knee${side}`], J[`ankle${side}`], 1);
     // The arm's own root sits at the shoulder anchor's origin, so the offset
     // inside its parent is zero and the targets are solved in that parent.
-    ARM[side] = chainSpec(J[`shoulder${side}`], J[`elbow${side}`], J[`wrist${side}`]);
+    ARM[side] = chainSpec(J[`shoulder${side}`], J[`elbow${side}`], J[`wrist${side}`], -1);
   }
 
   // Solve one leg so its ankle pivot lands on `t`, expressed in the ROOT's
@@ -449,6 +459,11 @@ export function createSkeletonPerformance({
   const v2 = new THREE.Vector3();
   const v3 = new THREE.Vector3();
   const target = new THREE.Vector3();
+  const qWant = new THREE.Quaternion();
+  const qTmp = new THREE.Quaternion();
+  const qParent = new THREE.Quaternion();
+  const eul = new THREE.Euler();
+  const footPitch = { L: 0, R: 0 };
 
   group.updateMatrixWorld(true);
   J.head.getWorldPosition(headPrev);
@@ -932,8 +947,25 @@ export function createSkeletonPerformance({
   // at 0.19 below and 0.248 in front of the pivot those two components are all
   // this needs. Nothing about the walk cycle is fed to the jaw: it bounces on
   // every footfall because the skull does.
-  const JAW_R_Y = 0.19;
-  const JAW_R_Z = 0.248;
+  // Measured off the rig rather than written down, because the lever arms are
+  // the whole of the sensitivity and the skull has been resized twice already.
+  const jawBox = new THREE.Box3();
+  {
+    J.jaw.updateWorldMatrix(true, true);
+    const inv = new THREE.Matrix4().copy(J.jaw.matrixWorld).invert();
+    const p = new THREE.Vector3();
+    J.jaw.traverse((o) => {
+      const attr = o.geometry?.attributes?.position;
+      if (!attr) return;
+      const m = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
+      const stride = Math.max(1, Math.ceil(attr.count / 400));
+      for (let i = 0; i < attr.count; i += stride) {
+        jawBox.expandByPoint(p.fromBufferAttribute(attr, i).applyMatrix4(m));
+      }
+    });
+  }
+  const JAW_R_Y = jawBox.isEmpty() ? 0.17 : Math.max(0.02, -jawBox.min.y);
+  const JAW_R_Z = jawBox.isEmpty() ? 0.22 : Math.max(0.02, jawBox.max.z);
   const JAW_GAIN = 0.040;
 
   function driveJaw(dt) {
@@ -1093,7 +1125,7 @@ export function createSkeletonPerformance({
         // The ankle pivot's world target, and the pitch the foot holds to get
         // there. Both come out of the same question: where is this foot
         // touching the floor, and how is it standing on that.
-        let footPitch = 0;
+        let pitchNow = 0;
         if (f.swing < 1) {
           // In the air. The arc is a half sine in height and an ease along the
           // ground, so the foot leaves and lands soft and travels fastest in
@@ -1109,7 +1141,11 @@ export function createSkeletonPerformance({
           // the real clearance is also what makes the foot roll off the ground
           // rather than flick off it.
           const raw = 0.5 * (1 - u) ** 1.5 - 0.22 * u * u;
-          footPitch = Math.min(raw, Math.asin(clamp(above / (TOE_AHEAD * scale), 0, 0.98)));
+          pitchNow = clamp(
+            raw,
+            -Math.asin(clamp(above / (HEEL_BACK * scale), 0, 0.98)),
+            Math.asin(clamp(above / (TOE_AHEAD * scale), 0, 0.98)),
+          );
         } else {
           // Planted. The heel comes off as the body walks past, and from then
           // on the foot is pivoting on its toe: the ankle rises and moves
@@ -1118,18 +1154,19 @@ export function createSkeletonPerformance({
           // stride, and it is also why the ankle is placed by rotating it about
           // the toe rather than by adding a fudge to its height.
           group.worldToLocal(v3.copy(f.plant));
-          footPitch = smoothstep(0.03, LIFT_BEHIND, -v3.z) * MAX_HEEL;
-          const ch = Math.cos(footPitch);
-          const sh = Math.sin(footPitch);
+          pitchNow = smoothstep(0.03, LIFT_BEHIND, -v3.z) * MAX_HEEL;
+          const ch = Math.cos(pitchNow);
+          const sh = Math.sin(pitchNow);
           const ahead = (TOE_AHEAD * (1 - ch) + M.y.ankle * sh) * scale;
           v1.copy(f.plant);
           v1.x += Math.sin(f.yaw) * ahead;
           v1.z += Math.cos(f.yaw) * ahead;
           v1.y += (M.y.ankle * ch + TOE_AHEAD * sh) * scale;
         }
+        footPitch[side] = pitchNow;
         J.root.worldToLocal(v1);
         const ik = solveChain(LEG[side], v1);
-        const swingPitch = footPitch;
+        const swingPitch = pitchNow;
         const kneeWorld = S.root.value + ik.hipX + ik.knee;
         hipX = mix(hipX, ik.hipX, legBlend);
         hipZ = mix(hipZ, ik.hipZ, legBlend);
@@ -1148,11 +1185,31 @@ export function createSkeletonPerformance({
       J[`hip${side}`].rotation.set(hipX, 0, hipZ);
       J[`knee${side}`].rotation.x = knee;
       J[`ankle${side}`].rotation.x = ankle;
-      // The sole stays level side to side. The pelvis rolls and the hip swings
-      // the leg out sideways to reach a plant, and without this the foot goes
-      // with them and stands on its outside edge, with the far edge a couple of
-      // centimetres under the floor.
-      J[`ankle${side}`].rotation.z = -(S.roll.value + hipZ) * legBlend;
+
+      if (legBlend > 0) {
+        // The foot's orientation is set in WORLD terms and then pulled back
+        // into the ankle's parent, rather than being written as three local
+        // Euler angles. Two things go wrong with the Euler version and both are
+        // visible. Everything below the hip inherits the body's yaw, so a
+        // planted foot spins on the spot as the body turns and at the top turn
+        // rate that drags the toe a quarter of a metre sideways; and the pelvis
+        // roll plus the hip's own sideways swing tip the sole onto its outside
+        // edge, which puts the far edge through the floor. Composing the
+        // parent's rotation from the values just written and inverting it fixes
+        // both exactly, and costs six quaternion multiplies.
+        const f = feet[side];
+        qWant.setFromAxisAngle(X_AXIS, footPitch[side]);
+        qTmp.setFromAxisAngle(Y_AXIS, f.swing >= 1 ? f.yaw : yaw);
+        qWant.premultiply(qTmp);
+
+        qParent.setFromAxisAngle(Y_AXIS, yaw);
+        qParent.multiply(qTmp.setFromEuler(eul.set(S.root.value, 0, S.roll.value, 'XYZ')));
+        qParent.multiply(qTmp.setFromEuler(eul.set(hipX, 0, hipZ, 'XYZ')));
+        qParent.multiply(qTmp.setFromAxisAngle(X_AXIS, knee));
+
+        qWant.premultiply(qParent.invert());
+        J[`ankle${side}`].quaternion.slerp(qWant, legBlend);
+      }
     }
   }
 

@@ -60,23 +60,35 @@ export const M = {
     // These two were 0.141 and 0.150, an index of 0.94, which is not a human
     // skull of any type and is most of why the head read as a ball.
     //
-    // The second correction is the one that matters more. A real skull is also
-    // slightly LONGER than it is tall: the lateral landmark table in
-    // `.ref/SKULL-ANATOMY.md` puts vertex to gnathion at 0.94 of the glabella
-    // to opisthocranion length. At 0.125 over 0.160 the height came out at
-    // 1.044 of the length, taller than long by 11%, and because the crown, the
-    // chin and the eye line are all pinned, the whole of that excess landed in
-    // the braincase: it had to stretch 1.37x as hard as the face did, which is
-    // why the face read small no matter how far forward the skull build pushed
-    // it. No shaping inside skull.js can fix that; it is the box, not the
-    // shape in it. These two grow to put the length where the table wants it,
-    // holding the 0.78 index (0.1386 / 0.1777 = 0.780) and leaving every y
-    // landmark, and therefore every other part of the figure, untouched.
-    // The alternative was to shrink M.skull.height to f(0.1504), which reaches
-    // the same ratio but moves the chin and drags the neck and the whole axial
-    // chain with it.
-    width: f(0.1386),
-    depth: f(0.1777),
+    // These have now been round the loop twice and the second trip reversed the
+    // first, so the history is worth keeping.
+    //
+    // An earlier pass grew them to f(0.1386) and f(0.1777) on the strength of a
+    // line in `.ref/SKULL-ANATOMY.md` saying vertex to gnathion is 0.94 of the
+    // glabella to opisthocranion length, that is, that a skull is slightly
+    // LONGER than it is tall. Measured off the reference photograph it is
+    // 1.075, taller than long, and craniometry agrees. The prose was wrong, and
+    // it was wrong in the same way the eye-line rule in that file was wrong:
+    // both were rules of thumb for a head with a face on it rather than
+    // measurements of a bare skull.
+    //
+    // So they come back down, 13% smaller, with the cranial index held at 0.75
+    // (0.1169 / 0.1553), which is inside the real 0.75 to 0.80 range. Every
+    // M.y landmark is untouched either way, so the neck and the whole axial
+    // chain never moved through any of this.
+    //
+    // KNOWN INCONSISTENCY, and the reason these two are worth reading twice.
+    // The rebuilt skull.js does not actually READ either of them any more: it
+    // carries its own copy of the same measurements, because it derives its
+    // silhouette from three authored curves off the photograph rather than
+    // from a box. So editing these changes nothing you can see today, which is
+    // exactly the sort of number that quietly rots. They are kept, and kept
+    // truthful, because they are the figure's published head size and the next
+    // part that needs one should find the right value here rather than a stale
+    // one. If skull.js is ever refactored to take its proportions from this
+    // file, these are already the numbers it wants.
+    width: f(0.1169),
+    depth: f(0.1553),
     // The mandible is a thin deep bar: this is the whole mouth from the tooth
     // line down to the chin point, and getting it wrong is what made an
     // earlier build's head oversized. f(0.037) was measured off the photo and
@@ -84,12 +96,19 @@ export const M = {
     // f(0.0273), and every remaining miss below the Frankfurt horizontal in
     // the rebuilt skull traced back to this one number.
     jawHeight: f(0.0273),
-    // The slant is how far the top edge of each orbit cuts down toward the
-    // nose. 0.60 was the original brief and it gave the skull a hard glare;
-    // the user asked for a friendlier face, so it is 0.12 now, which reads as
-    // a gentle curve rather than a scowl. It is the single strongest control
-    // over the character's expression, so change it knowingly.
-    socket: { width: f(0.049), height: f(0.043), slant: 0.12 },
+    // Measured on the photograph's front view the orbit is 47 by 36 pixels
+    // against a 219 pixel skull. The old f(0.049) by f(0.043) was 36% too wide
+    // and 51% too tall, and an oversized eye socket is the single loudest
+    // "cartoon" signal a skull can send: it is what the eye reads first and it
+    // shrinks everything around it by comparison.
+    //
+    // `slant` is how far the top edge of each orbit cuts down toward the nose,
+    // and it stays at 0.12. 0.60 was the original brief and it gave the skull a
+    // hard glare; the user asked for a friendlier face. It is the single
+    // strongest control over this character's expression, so change it
+    // knowingly, and note that shrinking the sockets above did NOT make the
+    // face meaner, it made the rest of the head read at its proper size.
+    socket: { width: f(0.0359), height: f(0.0284), slant: 0.12 },
     teeth: { upper: 11, lower: 9 },
   },
 

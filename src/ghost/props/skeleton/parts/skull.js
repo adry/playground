@@ -70,14 +70,27 @@ import { shaft } from './bone.js';
 //     egg and no shaping inside this file can fix it, which is the same failure
 //     mode the file's own history describes for the previous pair of numbers.
 //   * M.skull.socket is far too big. Measured on the front view the orbit is
-//     47 px wide by 36 px tall against a 219 px skull, so 0.215 and 0.165 of
-//     crown-to-chin: `width: f(0.0359)`, `height: f(0.0292)` against the
-//     metric's f(0.049) and f(0.043). The metric's socket is 37% too wide and
-//     52% too tall, and a socket that size is the single strongest reason the
+//     47 px wide by 36 px tall against a 219 px skull, so 0.215 and 0.170 of
+//     crown-to-chin: `width: f(0.0359)`, `height: f(0.0284)` against the
+//     metric's f(0.049) and f(0.043). The metric's socket is 36% too wide and
+//     51% too tall, and a socket that size is the single strongest reason the
 //     head reads as a cartoon: it fills the space the brow, the cheekbone and
 //     the temporal fossa all need, and it is what makes the ear canal and the
 //     orbit's lower rim irreconcilable. The previous pass reported the height
 //     alone at 0.242 of skull length against a real 0.19 and it was right.
+//
+// TWO PLACES `.ref/SKULL-ANATOMY.md` IS ALSO WRONG, both checked against the
+// photograph rather than against the table:
+//
+//   * It says the nasal aperture is "about half the orbit's height". It is
+//     TALLER than the orbit, not half it. Nasion to nasospinale measured on the
+//     lateral is 0.193 of crown-to-chin against an orbit 0.170 tall, and the
+//     craniometric means (52 mm nasal height, 34 mm orbital height) put the
+//     ratio at 1.5. Half would leave a keyhole punched into the middle of the
+//     maxilla, which is what an earlier build had. It is 0.220 here.
+//   * The table's eye line at half of vertex-to-chin: already corrected in the
+//     file, and this build was measured off the photograph before the
+//     correction landed, so it is at 0.435, which is the same answer.
 //
 // M.skull.socket.slant stays at 0.12. The user asked for a friendly face rather
 // than a scowl and that is what the slant does; a smaller socket does not bring
@@ -932,10 +945,10 @@ export function buildSkull({ material }) {
     [-0.62, -0.30, 0.05, 0.40, 0.72, 1.00].map((kx) => {
       const [u, v] = socketToFace(side, kx * SOCKET.a, Math.pow(socketTop(kx), 0.45) * SOCKET.b + 0.030 * HS);
       const ang = u / FACE_R;
-      const rho = surfaceRho(base, ang, v) - 0.048 * HS;
+      const rho = surfaceRho(base, ang, v) - 0.040 * HS;
       return new THREE.Vector3(Math.sin(ang) * rho, v, Math.cos(ang) * rho);
     }),
-    0.058 * HS,
+    0.066 * HS,
   ));
 
   // Bone directly above every upper tooth, all the way to the back of the row.
@@ -1708,8 +1721,11 @@ export function buildSkull({ material }) {
   const cavityMat = new THREE.MeshStandardMaterial({ color: 0x241b14, roughness: 0.95, metalness: 0 });
   materials.push(cavityMat);
   const cavityGeo = track(new THREE.SphereGeometry(1, 20, 14));
-  cavityGeo.scale(0.145 * SKULL_W, 0.050 * HS, 0.145 * SKULL_L);
-  cavityGeo.translate(0, Y_BITE - 0.024 * HS, LZ(0.800));
+  // Measured against the rows rather than guessed: its top has to sit BELOW the
+  // upper crowns' tips and its front BEHIND the lower row's outer face, or the
+  // black bubble shows through the bite as a slot twice the height of the gap.
+  cavityGeo.scale(0.140 * SKULL_W, 0.044 * HS, 0.125 * SKULL_L);
+  cavityGeo.translate(0, Y_BITE - 0.037 * HS, LZ(0.790));
   group.add(new THREE.Mesh(cavityGeo, cavityMat));
 
   // -------------------------------------------------------------- upper teeth
