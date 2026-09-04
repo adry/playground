@@ -58,15 +58,32 @@ export const M = {
     // A real braincase is LONGER front to back than it is wide: the cranial
     // index, breadth over length, runs 0.75 to 0.80 across human populations.
     // These two were 0.141 and 0.150, an index of 0.94, which is not a human
-    // skull of any type and is most of why the head read as a ball. 0.125 over
-    // 0.160 is an index of 0.78, and the width also matches the reference
-    // photo's 0.746 of the head's own height.
-    width: f(0.125),
-    depth: f(0.160),
-    // The mandible is a thin deep bar. Measured off the photo the whole mouth
-    // from the tooth line to the chin point is only this tall, and getting it
-    // wrong is what made an earlier build's head oversized.
-    jawHeight: f(0.037),
+    // skull of any type and is most of why the head read as a ball.
+    //
+    // The second correction is the one that matters more. A real skull is also
+    // slightly LONGER than it is tall: the lateral landmark table in
+    // `.ref/SKULL-ANATOMY.md` puts vertex to gnathion at 0.94 of the glabella
+    // to opisthocranion length. At 0.125 over 0.160 the height came out at
+    // 1.044 of the length, taller than long by 11%, and because the crown, the
+    // chin and the eye line are all pinned, the whole of that excess landed in
+    // the braincase: it had to stretch 1.37x as hard as the face did, which is
+    // why the face read small no matter how far forward the skull build pushed
+    // it. No shaping inside skull.js can fix that; it is the box, not the
+    // shape in it. These two grow to put the length where the table wants it,
+    // holding the 0.78 index (0.1386 / 0.1777 = 0.780) and leaving every y
+    // landmark, and therefore every other part of the figure, untouched.
+    // The alternative was to shrink M.skull.height to f(0.1504), which reaches
+    // the same ratio but moves the chin and drags the neck and the whole axial
+    // chain with it.
+    width: f(0.1386),
+    depth: f(0.1777),
+    // The mandible is a thin deep bar: this is the whole mouth from the tooth
+    // line down to the chin point, and getting it wrong is what made an
+    // earlier build's head oversized. f(0.037) was measured off the photo and
+    // overshot; the landmark table's gnathion and tooth-crown rows put it at
+    // f(0.0273), and every remaining miss below the Frankfurt horizontal in
+    // the rebuilt skull traced back to this one number.
+    jawHeight: f(0.0273),
     // The slant is how far the top edge of each orbit cuts down toward the
     // nose. 0.60 was the original brief and it gave the skull a hard glare;
     // the user asked for a friendlier face, so it is 0.12 now, which reads as

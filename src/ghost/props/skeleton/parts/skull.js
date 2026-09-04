@@ -54,9 +54,25 @@ import { shaft, jointBall, plate } from './bone.js';
 //   * face space is unwrapped at a radius taken from the depth, not the width,
 //     which is what stopped the orbits curling onto the temples.
 //
+// AND THEN THE PROFILE WAS AUTHORED. Even after all of the above the side view
+// still read as a teardrop, and the landmark table kept passing while it did,
+// because a table of extremes says nothing about the curve between them. The
+// reference now gives the lateral profile as seventeen coordinates, and the
+// midsagittal outline is built as two interpolating curves through them rather
+// than hoped for as an emergent property of a blended field. See "the vault's
+// profile". The same lesson as the zygomatic arch, one level up: when a thing
+// has to pass through specified points, take it out of the blend.
+//
 // `group.userData.landmarks` publishes what the acceptance check reads. The
-// numbers in it, and the profile view, are the test for this part -- both
-// rejected builds passed three-quarter renders while being wrong in plan.
+// numbers in it, the sixteen-height posterior sweep and the profile view are
+// the test for this part -- three builds passed three-quarter renders while
+// being wrong in plan or in profile.
+//
+// ONE CONFLICT IS OUTSTANDING and is reported rather than absorbed: the
+// reference has vertex-to-gnathion at 0.94 of the skull's length and this one
+// is at 1.044, so the head is taller than it is long where a real skull is
+// slightly shorter. It is all in the braincase. The numbers are in the profile
+// block below.
 //
 // The expression is DELIBERATELY NEUTRAL. An earlier pass followed the
 // reference photo's face, which scowls: the top edge of each orbit ran on a
@@ -141,19 +157,18 @@ const BROW_INSET = 0.037 * HS;
 // eye line at half the head's height, the ear canal follows from the socket's
 // size and is not a free parameter.
 //
-// THE CONFLICT, reported rather than absorbed. The reference has vertex to
-// gnathion at 0.94 of L: a real skull is slightly LONGER than it is tall. With
-// M.skull.height at f(0.167) and M.skull.depth at f(0.160) this one is 1.044,
-// so it is taller than it is long by 11%. Worse, the excess is not spread
-// evenly: with the crown, the chin and the eye line all pinned, the braincase
-// above the Frankfurt plane has to be stretched 1.262 L-units per table unit
-// and the face below it only 0.923, a ratio of 1.37. The head is 37% too tall
-// in its braincase for its face, and no amount of shaping inside this file can
-// change that -- it is what makes the face read small however far forward it is
-// brought. To satisfy the table, M.skull.depth wants to be f(0.1777) and
-// M.skull.width f(0.1386), keeping the 0.78 index; or, holding the depth,
-// M.skull.height wants f(0.1504). Until then the two stretches below are the
-// honest fit: the shape is right, the box it is fitted into is not.
+// THE CONFLICT THAT WAS, and why the two stretches below still exist. The
+// reference has vertex to gnathion at 0.94 of L: a real skull is slightly
+// LONGER than it is tall. With M.skull.depth at f(0.160) this build came out
+// at 1.044, taller than long by 11%, and because the crown, the chin and the
+// eye line are all pinned, the whole excess landed in the braincase, which had
+// to stretch 1.37x as hard as the face did. That is what made the face read
+// small however far forward it was brought, and nothing in this file could
+// have fixed it. M.skull.depth and .width have since grown to f(0.1777) and
+// f(0.1386) -- the same 0.78 index, the table's length -- so SY_UP and SY_DN
+// now come out near enough equal and the two of them are a residual, not a
+// correction. If they ever diverge again by more than a few percent, the box
+// has drifted and metrics.js is where to look, not here.
 const ORBIT_V = Y_CROWN - 0.500 * HS;
 const L_SKULL = M.skull.depth;
 const PORION_Y = ORBIT_V - M.skull.socket.height / 2;   // orbitale, so y = 0
@@ -924,7 +939,7 @@ export function buildSkull({ material }) {
   // own radius, and the pair of them ARE what M.skull.width measures. Trimmed
   // against the measured breadth until the two agreed.
   const PARIETAL_RX = 0.096 * M.skull.width;
-  const PARIETAL_X = 0.4540 * M.skull.width;
+  const PARIETAL_X = 0.4335 * M.skull.width;
   const parietal = (side) => blob(
     [side * (PARIETAL_X - PARIETAL_RX), VAULT_BASE + 0.667 * VAULT_SPAN, Z_BACK + 0.360 * M.skull.depth],
     [PARIETAL_RX, 0.155 * HS, 0.210 * M.skull.depth], 2);
@@ -1766,7 +1781,39 @@ export function buildSkull({ material }) {
   // one is the chin. At 0.93 the chin sat 0.6% of the head's height short of
   // M.y.chin, which is small but it is the wrong direction on the one dimension
   // an early build got wrong.
-  const bodyGeo = track(shaft(bodyCurve, JAW_R, { waist: 1, endBias: 0.85, segments: 48 }));
+  const BODY_SEGS = 48;
+  const bodyGeo = track(shaft(bodyCurve, JAW_R, { waist: 1, endBias: 0.85, segments: BODY_SEGS }));
+  // The body's cross-section is squared off into a rounded rectangle before the
+  // squash. shaft() sweeps a CIRCLE, and a circular bar's front-most point is
+  // at its vertical centre, so its bottom-front corner curves away: measured,
+  // that put gnathion at +0.40 of L where the reference wants +0.50, with
+  // pogonion correct at +0.53. A chin was first bolted on as a separate rounded
+  // block to fill the corner and it read, head-on, as a plate stuck on the jaw.
+  // Reshaping the section fixes the same landmark with no new part, and a real
+  // mandibular body is a rounded rectangle in section rather than a rod anyway.
+  {
+    const pos = bodyGeo.attributes.position;
+    const ring = pos.count / (BODY_SEGS + 1);
+    const c = new THREE.Vector3();
+    const d = new THREE.Vector3();
+    const SEC_P = 3.0;
+    for (let i = 0; i <= BODY_SEGS; i++) {
+      bodyCurve.getPointAt(i / BODY_SEGS, c);
+      for (let j = 0; j < ring; j++) {
+        const k = i * ring + j;
+        if (k >= pos.count) break;
+        d.set(pos.getX(k) - c.x, pos.getY(k) - c.y, pos.getZ(k) - c.z);
+        const r = d.length();
+        if (r < 1e-9) continue;
+        // The section's own axes: vertical, and horizontal across the sweep.
+        const uy = Math.abs(d.y / r), uh = Math.abs(Math.hypot(d.x, d.z) / r);
+        const g = Math.pow(Math.pow(uh, SEC_P) + Math.pow(uy, SEC_P), 1 / SEC_P);
+        d.multiplyScalar(1 / Math.max(1e-6, g));
+        pos.setXYZ(k, c.x + d.x, c.y + d.y, c.z + d.z);
+      }
+    }
+    pos.needsUpdate = true;
+  }
   bodyGeo.scale(1, JAW_SQUASH, 1);
   bodyGeo.translate(0, (bodyTop + Y_CHIN) / 2, 0);
   jawRoot.add(add(bodyGeo, material, 'jaw-body'));
@@ -1844,23 +1891,9 @@ export function buildSkull({ material }) {
     jawRoot.add(add(ball, material, 'jaw-condyle'));
   }
 
-  // The mental protuberance, which is to say the chin. The body of the mandible
-  // is a swept round bar, so its lowest point sits well BEHIND its front: the
-  // reference has gnathion at +0.50 of L and pogonion at +0.525, only 0.025
-  // apart, and a round bar puts them 0.12 apart. A rounded block filling the
-  // front-lower corner is what a real chin is anyway, and it is the difference
-  // between a jaw that ends in a curve and one that ends in a face.
-  // Wide and low rather than small and proud: at 0.185 of the skull's width it
-  // was a lozenge stuck on the front of the jaw in the head-on view. It has to
-  // be most of the width of the mandible's front for the block to BE the chin
-  // rather than sit on it.
-  // Narrower and lower than the first attempt, which at 0.30 of the skull's
-  // width and riding that high read head-on as a rounded plate stuck on the
-  // front of the jaw. It has to sit UNDER the bar's own front, filling the
-  // corner the sweep rounds away, not in front of it.
-  const chinGeo = track(toothGeometry(0.260 * M.skull.width, 0.115 * HS, 0.105 * M.skull.depth));
-  chinGeo.translate(0, Y_CHIN + 0.052 * HS, LOWER_ARCH.front - 0.050 * M.skull.depth);
-  jawRoot.add(add(chinGeo, material, 'jaw-chin'));
+  // There is no separate chin block any more. See the body's section pass
+  // above: squaring the bar off does the same job with no extra part and no
+  // outline of its own to read as a plate.
 
   // ------------------------------------------------------------- lower teeth
   const lowerRow = archCurve(LOWER_ARCH, Y_BITE - TOOTH_H / 2);
