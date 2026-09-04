@@ -28,12 +28,26 @@ const RADIAL = 20;   // enough that a shaft's silhouette is smooth at prop size
 
 // A long bone: swept along `path`, fat at both ends, waisted in between.
 //
-// `path` is a THREE.Curve. `r` is the end radius; the waist is M.shaftWaist of
-// it. `endBias` shifts where the fattening starts, so a femur can be more
-// swollen at the knee than at the hip the way a real one is.
+// `path` is a THREE.Curve. `r` is the radius at the t=0 end; `endRadius` is the
+// radius at t=1 and defaults to the same. The waist is `waist` of that, at
+// `waistAt` along the length.
+//
+// `endBias` only sharpens or softens the shoulder of the curve, and it does so
+// at BOTH ends: it is fed a symmetric distance-from-nearer-end, so it cannot
+// make one end fatter than the other. An earlier comment here claimed it could,
+// which sent one agent chasing it and then writing its own taper. To swell the
+// knee more than the hip, pass a larger `endRadius`; to move the narrowest
+// point off centre, pass `waistAt`.
 // NOTE: TubeGeometry has no end caps either, so a free end reads as a chip out
 // of the bone. Cap every free end with a bulb, or bury it inside the next one.
-export function shaft(path, r, { waist = M.shaftWaist, endBias = 0.5, segments = 28 } = {}) {
+export function shaft(path, r, {
+  waist = M.shaftWaist,
+  endBias = 0.5,
+  segments = 28,
+  endRadius = null,     // radius at t=1; null means the same as r
+  waistAt = 0.5,        // where along the length the narrowest point sits
+} = {}) {
+  const r1 = endRadius === null ? r : endRadius;
   const geo = new THREE.TubeGeometry(path, segments, 1, RADIAL, false);
   const pos = geo.attributes.position;
   const v = new THREE.Vector3();
@@ -46,10 +60,13 @@ export function shaft(path, r, { waist = M.shaftWaist, endBias = 0.5, segments =
   for (let i = 0; i <= segments; i++) {
     const t = i / segments;
     // Distance from the nearer end, remapped so endBias moves the shoulder of
-    // the curve without changing the values at t=0 and t=1.
-    const d = Math.min(t, 1 - t) / 0.5;
+    // the curve without changing the values at t=0 and t=1. With the default
+    // waistAt this is exactly the original symmetric curve, so existing bones
+    // are unchanged.
+    const w = Math.min(0.999, Math.max(0.001, waistAt));
+    const d = t < w ? t / w : (1 - t) / (1 - w);
     const k = Math.pow(d, Math.max(0.05, endBias) * 2);
-    const radius = r * (1 - (1 - waist) * k);
+    const radius = (r + (r1 - r) * t) * (1 - (1 - waist) * k);
 
     centre.copy(path.getPointAt(t));
     for (let j = 0; j <= RADIAL; j++) {
@@ -102,6 +119,14 @@ export function jointBall(r, { squash = 0.88, axis = null } = {}) {
 // bevelSegments is a parameter rather than a constant because 4 puts four
 // visible facet bands round the rim of a thick plate with a generous bevel.
 // Raise it for anything seen edge-on.
+//
+// The bevel also MOVES THE OUTLINE. Three grows the outer contour outward by
+// bevelSize at each face, and further at a sharp corner, and shrinks a hole's
+// contour by the same. So a plate whose extremes have to hit a metric needs
+// measuring and refitting afterwards, and a hole large enough to see through
+// can leave struts that pinch out to nothing at the surface. Building a pierced
+// plate as a loop of rods is often the better answer, which is what the pelvis
+// ended up doing.
 export function plate(points, thickness, { bevel = 0.4, holes = [], curveSegments = 16, bevelSegments = 4 } = {}) {
   const shape = new THREE.Shape(points);
   for (const h of holes) shape.holes.push(new THREE.Path(h));

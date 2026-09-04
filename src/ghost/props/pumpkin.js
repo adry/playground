@@ -72,7 +72,7 @@ const RINGS = SEGMENTS.height * 4;
 // A candle does not swing three to one. The old 1.05..3.10 pumped the pool on
 // the floor hard enough to read as a light being turned up and down; this is
 // still plainly alive at the far end of the swing without doing that.
-const LAMP = { min: 2.90, max: 6.30 };     // SpotLight intensity
+const LAMP = { min: 4.00, max: 8.60 };     // SpotLight intensity
 // Brought down hard, and this is the fix the report was actually asking for.
 // At 1.18..1.82 the plate tone-mapped to a flat #f3e0aa -- 95% luminance,
 // brighter than anything else in frame -- and the cut wall built at such
@@ -1065,14 +1065,20 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // floor at a glancing 24 degrees, which stretches everything along its axis
   // by roughly two and a half to one, and unsquashed the face lands as a long
   // smear with nothing readable in it.
-  const GOBO_SPAN = 0.80, GOBO_SQUASH = 0.42;
+  const GOBO_SPAN = 0.88, GOBO_SQUASH = 0.45;
   // The openings are not pinholes and the shell is SHELL_T thick, so the edges
   // are already soft by the time the light is outside the pumpkin. A crisp
   // stencil reads as a decal lying on the floor.
   const GOBO_BLUR = 3;
-  // and the cone still carries a wash under all of it. A real pumpkin throws a
-  // glow with the shapes inside it, not three cutouts on unlit ground.
-  const GOBO_FLOOR = 0.32;
+  // The wash the pool needs is the same shapes again, blurred until they are
+  // only a glow, rather than a flat level across the whole texture. Flat was
+  // tried first and is what kept the face reading as a smudge: the cone is 60
+  // degrees wide and aimed nearly flat, so a level wash runs a good two units
+  // past the face and drowns it in featureless light. A halo that hugs the
+  // carving keeps the pool the size of the thing throwing it, and it is also
+  // the truer picture -- light out of three holes does not fill a hemisphere.
+  const GOBO_HALO = 26;   // blur, in texels, of the glow around the shapes
+  const GOBO_WASH = 0.55; // how much of the mask is that glow rather than shape
 
   const goboMap = (() => {
     // Props are built head-less in tests; with no canvas there is no mask and
@@ -1112,15 +1118,26 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = GOBO_SIZE;
     const ctx = canvas.getContext('2d');
-    const floor = Math.round(GOBO_FLOOR * 255);
-    ctx.fillStyle = `rgb(${floor},${floor},${floor})`;
+    ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, GOBO_SIZE, GOBO_SIZE);
-    // Added rather than drawn over, at exactly the headroom the wash leaves, so
-    // the middle of an opening reaches 1.0 and nothing clips.
     ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = 1 - GOBO_FLOOR;
-    ctx.filter = `blur(${GOBO_BLUR}px)`;
-    ctx.drawImage(shapes, 0, 0);
+    for (const [blur, weight] of [[GOBO_HALO, GOBO_WASH], [GOBO_BLUR, 1 - GOBO_WASH]]) {
+      ctx.filter = `blur(${blur}px)`;
+      ctx.globalAlpha = weight;
+      ctx.drawImage(shapes, 0, 0);
+    }
+    // Normalised to a peak of 1, so LAMP on its own says how bright the pumpkin
+    // throws and the two blurs above only say what shape it throws. Without
+    // this, nudging the halo's width silently changes the brightness as well.
+    const px = ctx.getImageData(0, 0, GOBO_SIZE, GOBO_SIZE);
+    let peak = 1;
+    for (let i = 0; i < px.data.length; i += 4) if (px.data[i] > peak) peak = px.data[i];
+    const gain = 255 / peak;
+    for (let i = 0; i < px.data.length; i += 4) {
+      const v = Math.min(255, px.data[i] * gain);
+      px.data[i] = px.data[i + 1] = px.data[i + 2] = v;
+    }
+    ctx.putImageData(px, 0, 0);
 
     const tex = new THREE.CanvasTexture(canvas);
     // Left raw on purpose: three multiplies the light's colour by this sample

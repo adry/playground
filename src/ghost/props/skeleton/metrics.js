@@ -47,6 +47,9 @@ export const M = {
     ribcageTop: f(0.807),
     shoulder: f(0.775),          // glenoid, the pivot
     chin: f(0.833),
+    // Where the skull parents. Derived rather than measured: it is the only
+    // value that makes crown minus chin come out at M.skull.height.
+    atlas: f(0.807) + f(0.058),
     crown: f(1.000),
   },
 
@@ -97,7 +100,14 @@ export const M = {
   },
 
   leg: {
-    femur: f(0.221),
+    // The landmark heights are the constraint, not this number: hip minus knee
+    // is f(0.230) of vertical drop alone, and the femur also splays outward
+    // from f(0.050) at the hip to f(0.078) at the knee, so the bone itself has
+    // to be a little longer than the drop. An earlier f(0.221) here was shorter
+    // than the vertical gap it had to span, which is geometrically impossible
+    // and sent the legs build into honouring the landmarks and reporting the
+    // conflict. Believe M.y first; these lengths follow from it.
+    femur: f(0.232),
     tibia: f(0.230),
     foot: f(0.100),
     hipSeparation: f(0.100),
