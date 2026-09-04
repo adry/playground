@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import {
-  FOLIAGE, foliageMaterial, foliageRng, makeLobes, lumpPositions, icosphere,
-  mergeLumps, bakeFoliageTint, bakeWind, attachWind, disposeWind, updateWind,
-  windUniforms,
+  FOLIAGE, foliageMaterial, foliageRng, mergeLumps, bakeFoliageTint, bakeWind,
+  attachWind, disposeWind, updateWind, windUniforms,
 } from '../foliage/wind.js';
 
 // Graveyard grass: the unmown tufty stuff that grows between plots and creeps
@@ -34,11 +33,13 @@ import {
 // at full width, arc over, and TAPER, and a lozenge that does not taper reads
 // as a bean sprout however you scale it.
 //
-// Both were built and rendered side by side (out/grass/ab-*.png). At scene size
-// the lozenge patch reads as gravel with a green cast: every clump is a cluster
-// of blunt ellipses whose top and bottom ends look the same, so nothing in it
-// points anywhere. The tapered blade below costs 38 triangles against the
-// lozenge's 80 at the detail the silhouette needed, and it reads as grass.
+// Both were built and rendered side by side, same clump layout, same seed:
+// out/grass/grass-ab.png. The lozenge patch reads as clusters of green
+// sausages. Every lump has the same blunt end at the top as at the bottom, so
+// nothing in it points anywhere, and at scene size that collapses into dark
+// blobs (out/grass/grass-abscene-lozenge-crop4x.png). It is also DEARER: a
+// lozenge needs icosphere detail 1 to keep a smooth silhouette, which is 80
+// triangles, against 22 to 28 for the blade below.
 //
 // So bladeGeometry() is local, and it is the only thing here that is. It is a
 // swept tapered strip: a centreline that leaves the ground near-vertical and
@@ -61,27 +62,31 @@ import {
 // blade is two pixels wide. Nothing about an individual blade survives that, so
 // the work is done by:
 //
-//   - CHUNK. Blades are 4:1 rather than the 30:1 of real grass. Anything finer
-//     aliases into the film grain this project bans, and at 2 pixels wide there
-//     is nothing to lose by being fat.
+//   - CHUNK. Blades are 5:1 to 10:1 rather than the 30:1 of real grass.
+//     Anything finer aliases into the film grain this project bans, and at two
+//     pixels wide there is nothing to lose by being fat.
 //   - VALUE. bakeFoliageTint's crevice term is fed a per-blade base-to-tip ramp
 //     through mergeLumps' lumpU, so every blade is dark at the foot and bright
 //     at the tip. That gradient is the whole read of the patch from across the
 //     yard: the mass goes dark at the ground and the tops catch the key.
-//   - THATCH. Each clump sits on a small buried dome of dead litter. That is
-//     bush.js's answer to ground contact and it is the answer here too: a dome
-//     tangent to the floor shows a hairline of daylight at 38 degrees, a dome
-//     sunk into it meets the floor along a real curve. It also stops the patch
-//     reading as blades stuck into bare ground.
+//   - THATCH. Every clump carries dead blades folded past 70 degrees, lying
+//     over its own foot, and more of them are strewn between the clumps. They
+//     are what stops the patch reading as green marks stuck into bare floor,
+//     and they are what dresses the ground without putting anything flat on it.
+//     See the note further down on the two flat layers that were tried first.
 //
 // --- THE FLOOR -------------------------------------------------------------
 //
-// Nothing here is flat, and nothing here is coplanar with anything. sandpath.js
-// needs polygonOffset because a ribbon has to lie ON the floor; grass does not,
-// so the settled answer for the z-fight is simply not to have one. The only
-// horizontal surfaces in the prop are the thatch domes, and every one of them
-// crosses y = 0 rather than resting on it. Verified at a grazing camera in
-// out/grass/graze.png.
+// NOTHING IN THIS PROP IS COPLANAR WITH THE FLOOR, so the prop carries no depth
+// bias at all. sandpath.js needs polygonOffset because a ribbon has to lie ON
+// the floor and its rim is at exactly y = 0; grass has no such surface. Every
+// blade, living or dead, starts 3.5cm BELOW y = 0 and cuts up through it, which
+// is bush.js's buried-skirt argument applied to a much smaller thing: a blade
+// standing tangent to the floor shows a hairline of daylight round its foot at
+// 38 degrees, a blade driven through it does not. Two flat ground layers were
+// built and both are rejected, for reasons that were never about z-fighting;
+// see the note above scatterClumps. Verified at a grazing camera in
+// out/grass/grass-graze.png and out/grass/wind/windgraze-t*.png.
 
 // --- proportions -----------------------------------------------------------
 //
@@ -161,10 +166,10 @@ const DRY_RATIO = [
 //
 // Local space: the blade grows up +y and arcs towards +x. The caller yaws it.
 //
-// `rings` is segments above ground. Two is enough for a short upright blade and
-// five for a long one that folds right over; anything more is subdivision you
-// cannot see at eight pixels tall. The base ring is a thirteenth ring pushed
-// down the blade's own axis, so the foot is buried at any tilt.
+// `rings` is segments above ground: two for a short upright blade, three for a
+// long one that folds right over. One further ring is added below them, pushed
+// back down the blade's own axis by `bury`, so the foot is under the floor at
+// any tilt and there is no daylight where the blade meets the ground.
 function bladeGeometry({
   rings = 3,
   length = 0.16,
@@ -262,17 +267,17 @@ function bladeGeometry({
 
 // --- a clump ---------------------------------------------------------------
 //
-// A handful of blades out of one foot, plus the thatch mound they grow from.
+// A handful of blades out of one foot, plus the dead ones lying over it.
 // Blades fan on a golden angle rather than at random: five random azimuths
 // leave one side of the clump bare about a third of the time, and a bald flank
 // is very visible at a fixed camera azimuth.
 //
 // The arc is the whole prop. The first pass built blades that left the ground
-// at 8 degrees and reached 50 at the tip, and what came back (out/grass/
-// grass-square-agave.png) was a bed of aloes: a ring of stiff spikes standing
-// up out of a green pad. Grass is a FOUNTAIN. The long blades here fold to
-// between 55 and 85 degrees off vertical, so their tips run out sideways over
-// the ground and the clump has an outline that spreads rather than points.
+// at 3 degrees and reached 50 at the tip, and what came back
+// (out/grass/grass-square-agave.png) was a bed of aloes: a ring of stiff spikes
+// standing up out of a green pad. Grass is a FOUNTAIN. A long blade here folds
+// to as much as 87 degrees off vertical, so its tip runs out sideways over the
+// ground and the clump spreads instead of pointing.
 function buildClump(rand, {
   x = 0, z = 0, height, blades, vigour = 0.6, phase, spread = 1, thatch = true, dead,
 }) {
@@ -280,11 +285,10 @@ function buildClump(rand, {
   const m = new THREE.Matrix4();
   const foot = new THREE.Vector3();
 
-  // How dry the whole clump is. Grass in a graveyard goes over in patches, so
-  // this is per clump with a per-blade wobble on top, not per blade.
-  // Graveyard grass goes over in patches, so this is per clump with a per-blade
-  // wobble on top, not per blade. A flat random gives every clump a middling
-  // dryness and the patch one colour; the curve here puts most clumps green and
+  // How dry the whole clump is. Graveyard grass goes over in patches, so this
+  // is per clump with a per-blade wobble on top, not per blade. A flat random
+  // gives every clump a middling
+  // dryness and the patch one colour; the split here puts most clumps green and
   // a real minority right over, which is the variation that reads.
   const clumpDry = Math.pow(rand(), 2.2) < 0.25 ? 0.75 + rand() * 0.25 : Math.pow(rand(), 1.6) * 0.7;
   const spin = rand() * Math.PI * 2;
@@ -310,10 +314,9 @@ function buildClump(rand, {
     // Pulled a third of the way towards the clump's flop direction, which
     // clusters the long blades without collapsing the fan onto one line.
     az += Math.atan2(Math.sin(flopAz - az), Math.cos(flopAz - az)) * 0.10;
-    // One blade in the clump makes the full height; the rest are shorter, so
-    // the clump has a crown rather than a flat top.
-    // Skewed short. A uniform spread of lengths gives every clump the same
-    // even rosette, which is an aloe; a tussock is a crowd of short blades with
+    // One blade in the clump makes the full height and the rest are skewed
+    // short. A uniform spread of lengths gives every clump the same even
+    // rosette, which is an aloe; a tussock is a crowd of short blades with
     // three or four long ones flopping out of it.
     const lengthK = b === 0 ? 1 : 0.30 + Math.pow(rand(), 1.7) * 0.70;
     const len = (height / ARC_LOSS) * lengthK;
@@ -341,9 +344,8 @@ function buildClump(rand, {
       twist: (rand() - 0.5) * 1.0,
     });
 
-    // Feet are scattered across the mound, not stacked on one point: a fan out
-    // of a single vertex is a firework, and it leaves the mound showing round
-    // the outside of it.
+    // Feet are scattered over the clump's footprint, not stacked on one point:
+    // a fan out of a single vertex is a firework.
     const fr = (0.010 + rand() * 0.048) * spread * (0.6 + 0.7 * vigour);
     foot.set(x + Math.cos(az) * fr * ex, 0, z + Math.sin(az) * fr * ez);
     m.makeRotationY(-az).premultiply(leanM).setPosition(foot);
@@ -364,15 +366,16 @@ function buildClump(rand, {
   }
 
   // The thatch: last year's growth, dead, flattened and lying over the foot of
-  // the clump. Same primitive, folded past 70 degrees so it runs out along the
+  // the clump. Same primitive, folded past 55 degrees so it runs out along the
   // ground rather than standing up, and painted at full dryness.
   //
-  // This started as a small lumpy dome, which is bush.js's answer to ground
-  // contact and is the wrong one here. At three centimetres tall a detail-0
-  // dome is a faceted dark pebble, and every clump in the patch had one sitting
-  // under it like a moulded base (out/grass/grass-square-pads.png). Dead grass
-  // is grass. The blades' own buried feet make the ground contact instead, and
-  // these lying-over blades are what hides them.
+  // This started as a small lumpy dome per clump, which is bush.js's answer to
+  // ground contact and is the wrong one here. At three centimetres tall a
+  // detail-0 dome is a faceted dark pebble, and every clump in the patch had
+  // one sitting under it like a moulded base
+  // (out/grass/grass-square-pads.png). Dead grass is grass. The blades' own
+  // buried feet make the ground contact instead, and these lying-over blades
+  // are what hides them.
   if (thatch) {
     const n = dead === undefined ? 3 + Math.round(vigour * 3) : dead;
     for (let b = 0; b < n; b++) {
@@ -488,7 +491,7 @@ function scatterClumps(rand, radius, density) {
     // Thinned towards the rim and allowed a little past it, so the patch fades
     // out instead of ending on a drawn circle. A circular edge is the single
     // thing that would give away a scattered patch as a placed prop.
-    if (rr > 1.08) continue;
+    if (rr > 1.03) continue;
     const t = Math.max(0, Math.min(1, (rr - 0.58) / 0.5));
     if (rand() < t * t * (3 - 2 * t) * 0.85) continue;
 
@@ -503,7 +506,7 @@ function scatterClumps(rand, radius, density) {
 
 // --- the prop --------------------------------------------------------------
 
-function buildGrass({ seed, radius, density, scale, sites, strays = 0 }) {
+function buildGrass({ seed, radius, scale, sites, strays = 0 }) {
   const rand = foliageRng(seed * 6151 + 907);
   const group = new THREE.Group();
 
@@ -551,19 +554,18 @@ function buildGrass({ seed, radius, density, scale, sites, strays = 0 }) {
 
   // Loose blades in the gaps. Without them the patch is a set of separate
   // little plants standing on a bare floor; with them the clumps are joined by
-  // something and the whole thing reads as one overgrown piece of ground. They
-  // carry no thatch, because a single blade has not built a mound.
+  // something and the whole thing reads as one overgrown piece of ground.
   for (let i = 0; i < strays; i++) {
     const base = sites[(rand() * sites.length) | 0];
     const a = rand() * Math.PI * 2;
     const d = radius * (0.07 + rand() * 0.26);
     const x = base.x + Math.cos(a) * d;
     const z = base.z + Math.sin(a) * d;
-    if (Math.hypot(x, z) > radius * 1.1) continue;
-    // Two in five are FALLEN: dead blades lying over the floor rather than
+    if (Math.hypot(x, z) > radius * 1.02) continue;
+    // One in three is FALLEN: dead blades lying over the floor rather than
     // standing in it. They are what dresses the bare ground between the
     // tussocks, and they are grass rather than a flat disc of colour, which is
-    // the whole argument in the note above.
+    // the whole argument in the note above scatterClumps.
     const fallen = rand() < 0.36;
     const c = buildClump(rand, {
       x, z,
@@ -591,6 +593,19 @@ function buildGrass({ seed, radius, density, scale, sites, strays = 0 }) {
   geo.computeVertexNormals();
   const top = wantTop;
 
+  // The footprint the patch ACTUALLY covers, which is not `radius`. The scatter
+  // is allowed a little past the rim, the blades of a rim clump reach further
+  // out again, and the settle above scales x and z along with y. A layout
+  // generator that spaced patches by `radius` would overlap them by about a
+  // quarter without meaning to, so the measured number is the one reported.
+  const pos = geo.getAttribute('position');
+  let reach = 0;
+  for (let i = 0; i < pos.count; i++) {
+    const d = pos.getX(i) * pos.getX(i) + pos.getZ(i) * pos.getZ(i);
+    if (d > reach) reach = d;
+  }
+  reach = Math.sqrt(reach);
+
   // Value first, then hue. bakeFoliageTint OVERWRITES the colour attribute
   // rather than multiplying into it, so the dryness pass has to come second and
   // multiply into what the bake left.
@@ -611,17 +626,12 @@ function buildGrass({ seed, radius, density, scale, sites, strays = 0 }) {
   // a stiff frame and bends near its crown, a blade bends all the way along.
   bakeWind(geo, { top, base: 0, power: 1.45 });
 
-  const material = foliageMaterial(FOLIAGE.light, {
-    roughness: 0.93,
-    // For the litter mat's rim, which is coplanar with the floor by
-    // construction. sandpath.js's fix, and its argument: the bias belongs in
-    // the depth buffer, where the fight is, not in a lift that would show as a
-    // lip at this camera. Harmless to the blades, which are coplanar with
-    // nothing.
-    polygonOffset: true,
-    polygonOffsetFactor: -2,
-    polygonOffsetUnits: -4,
-  });
+  // No polygonOffset. It was here while the litter mat was, and sandpath.js's
+  // argument for it was the right one, but with the mat gone the prop has no
+  // surface coplanar with anything and a depth bias with nothing to fix is a
+  // bias that will one day pull a blade in front of a headstone it is standing
+  // behind.
+  const material = foliageMaterial(FOLIAGE.light, { roughness: 0.93 });
   const mesh = new THREE.Mesh(geo, material);
   group.add(mesh);
 
@@ -650,7 +660,9 @@ function buildGrass({ seed, radius, density, scale, sites, strays = 0 }) {
       // what they were asked for: a blade's arc decides where it ends up.
       shortest: Math.min(...tops) * K * scale,
       tallest: Math.max(...tops) * K * scale,
+      // What was asked for, and what it actually covers.
       radius: radius * scale,
+      reach: reach * scale,
       clumps: sites.length,
       triangles: geo.getIndex().count / 3,
     },
@@ -699,8 +711,13 @@ function paintDryness(geo, parts) {
  *
  * @param {object}  opts
  * @param {number}  opts.seed     every blade, clump and colour hangs off this
- * @param {number}  opts.radius   world units; clumps fill a disc of this radius
- *                                and fray a little past it
+ * @param {number}  opts.radius   world units; the disc the CLUMPS are scattered
+ *                                in. The finished patch covers about half as
+ *                                much again, because the blades of a rim clump
+ *                                reach out past their own foot and the height
+ *                                settle scales x and z with y; size.reach is
+ *                                the measured number and is the one to space
+ *                                patches by
  * @param {number}  opts.density  clumps per unit area, relative to the default
  * @param {number}  opts.scale    applied to the whole group
  * @returns {{ group: THREE.Group, size: object, update: Function, dispose: Function }}
@@ -710,7 +727,7 @@ export function createGrassPatch({ seed = 1, radius = 1.0, density = 1, scale = 
   const sites = scatterClumps(foliageRng(seed * 2654435761 + 41), r, Math.max(0.05, density));
   if (!sites.length) sites.push({ x: 0, z: 0 });
   return buildGrass({
-    seed, radius: r, density, scale, sites,
+    seed, radius: r, scale, sites,
     strays: Math.round(sites.length * STRAY_SHARE),
   });
 }
@@ -732,7 +749,6 @@ export function createGrassTuft({ seed = 1, scale = 1 } = {}) {
   return buildGrass({
     seed,
     radius: 0.10,
-    density: 1,
     scale,
     sites: [{ x: 0, z: 0, spread: 1.15 }],
   });

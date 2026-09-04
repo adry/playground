@@ -34,8 +34,32 @@ import * as THREE from 'three';
 //
 // The instanced chips on top are NOT the mass. They are there for the rim: the
 // one place the silhouette does resolve is where the path edge crosses the
-// floor, and a perfectly smooth rim line gives the game away. A few hundred
-// real pebbles straddling that line break it, and cost one draw call.
+// floor, and a perfectly smooth rim line gives the game away. A couple of
+// hundred real pebbles straddling that line break it, and cost one draw call.
+//
+// 4. EVERY GAP BETWEEN TWO CHIPS IS PAINTED DARK, in the map and on the
+//    instances both. This is the fourth decision and it was learned the
+//    expensive way, so it is written down at the top rather than buried with
+//    the code that does it. The first version of this prop was pitched lighter
+//    than the floor and cooler, on the reasoning that chippings are paler than
+//    earth. At close range it looked like gravel. Seen in the asset lineup at
+//    the size the prop is actually used, about ninety pixels across the whole
+//    bend, it read unmistakably as ICE: a bright cold patch with a hard edge.
+//
+//    Two things were wrong and only one of them was colour. A field of rounded
+//    pale objects lit from above, with nothing dark between them, IS a snow
+//    field, whatever value you paint it: the shape of the thing does the
+//    talking and no amount of pulling the value down changes the shape. The
+//    fix is form, not value. Every gap between chips carries a baked occlusion
+//    term (AO_DEPTH), every instanced pebble carries one down its underside
+//    (CHIP_AO), and only then does the colour choice below start to matter.
+//
+//    The other thing was the direction of the value. Nothing lying on the
+//    ground in a graveyard is brighter than the ground except a light source.
+//    A trodden surface reads as trodden because it is darker than what it is
+//    laid on, and this one now measures (135, 132, 130) against the lineup
+//    floor's (149, 152, 162): darker, and neutral with a hair of warmth rather
+//    than blue, so it belongs with the kerb stones instead of with frost.
 
 // --- z-fighting ------------------------------------------------------------
 //
@@ -167,11 +191,19 @@ const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); retu
 // PALETTE.stone, a warm neutral grey. The sand path is much warmer than this
 // and a good deal lighter, so the two are still told apart instantly.
 const GRAVEL = {
-  base: '#93908a',
-  pale: '#b0aca3',   // the top of a chip catching the key
-  dark: '#78766f',   // a chip that has sat wet
-  crevice: '#3f3e3c', // the gap between chips, which is where all the depth is
+  base: '#8b8a88',
+  pale: '#a5a39e',   // the top of a chip catching the key
+  dark: '#6f6e6b',   // a chip that has sat wet
+  crevice: '#434240', // the gap between chips, which is where all the depth is
 };
+
+// How dark the underside of a loose chip goes. Same argument as AO_DEPTH and
+// the same failure without it: an instanced pebble is a smooth closed surface
+// whose every visible facet points at the sky, so lit by a key from above it is
+// the brightest thing in the frame however dark you paint it. Bedded in gravel
+// its lower half sees almost no sky at all, and painting that in is what turns
+// a scatter of bright dots into stones lying in a path.
+const CHIP_AO = 0.55;
 
 // How dark a gap between two chips goes. This is the number the whole prop
 // turns on and it is the one the first pass did not have: a field of pale
@@ -394,14 +426,14 @@ function gravelTextures(seed) {
       // blotches a hand's width across, and the path reads as a stained
       // surface rather than an even bed of chippings. Even is the brief.
       c.copy(base);
-      if (t < 0.45) c.lerp(dark, ((0.45 - t) / 0.45) * 0.55);
-      else c.lerp(pale, ((t - 0.45) / 0.55) * 0.30);
+      if (t < 0.45) c.lerp(dark, ((0.45 - t) / 0.45) * 0.68);
+      else c.lerp(pale, ((t - 0.45) / 0.55) * 0.40);
       // Only the very top of a chip lifts toward the pale end. Lifting the
       // whole chip is what turned this into a field of white pebbles: a stone
       // has one lit crown and a lot of flank, and the flank is the mid tone.
       c.lerp(pale, smoothstep(0.74, 1.0, h) * 0.20);
       // And then the gaps go down, hard. See AO_DEPTH.
-      c.lerp(crev, Math.pow(occ, 1.5) * AO_DEPTH);
+      c.lerp(crev, Math.pow(occ, 1.8) * AO_DEPTH);
       // Every mix above ran in LINEAR space, which is where mixing belongs, and
       // the map is tagged sRGB, so the bytes have to be encoded on the way out.
       // Writing the linear values straight into an sRGB texture was a real bug
@@ -783,13 +815,28 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
       p.setXYZ(i, v.x * f, v.y * f, v.z * f);
     }
     unit.computeVertexNormals();
-    // White vertex colours, because instanceColor only reaches the fragment
-    // under USE_COLOR, which is material.vertexColors -- and with that on and
-    // no colour attribute present the shader reads the disabled attribute's
-    // default of black and every chip renders black. This has cost this repo a
-    // prop before; see fence/debris.js.
-    const white = new Float32Array(p.count * 3).fill(1);
-    unit.setAttribute('color', new THREE.BufferAttribute(white, 3));
+    // The colour attribute is doing two jobs, and the first one is not
+    // optional. instanceColor only reaches the fragment under USE_COLOR, which
+    // is material.vertexColors, and with that on and no colour attribute
+    // present the shader reads the disabled attribute's default of black and
+    // every chip renders black. This has cost this repo a prop before; see
+    // fence/debris.js. So the attribute has to exist.
+    //
+    // Its second job is the occlusion. Rather than fill it with white, it
+    // carries a top-to-bottom ramp: the crown of the pebble keeps its full
+    // colour, the flank loses some, the underside goes to CHIP_AO. It costs
+    // nothing, it multiplies against the per-instance tint rather than
+    // replacing it, and it is baked once into a geometry that a couple of
+    // hundred instances share.
+    const shade = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i);
+      const len = Math.hypot(v.x, v.y, v.z) || 1;
+      const occ = smoothstep(0.15, -0.70, v.y / len);
+      const k = 1 - CHIP_AO * occ;
+      shade[i * 3] = k; shade[i * 3 + 1] = k; shade[i * 3 + 2] = k;
+    }
+    unit.setAttribute('color', new THREE.BufferAttribute(shade, 3));
   }
 
   const chipMat = new THREE.MeshStandardMaterial({
@@ -809,9 +856,15 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
     const p = new THREE.Vector3();
     const sc = new THREE.Vector3();
     const col = new THREE.Color();
-    const base = new THREE.Color(GRAVEL.base);
-    const dark = new THREE.Color(GRAVEL.dark);
-    const crev = new THREE.Color(GRAVEL.crevice);
+    const pale = new THREE.Color(GRAVEL.pale);
+    // Not all the way to the crevice colour: that is the bottom of a gap, and
+    // a whole pebble painted it reads as a hole rather than as a dark stone.
+    const chipLow = new THREE.Color(GRAVEL.dark).lerp(new THREE.Color(GRAVEL.crevice), 0.45);
+    // Centred between the mass's mid tone and its dark stones. Sitting the
+    // whole population on `dark` overcorrected the original fault and turned
+    // the chips into dark dots, which is the same mistake with the sign
+    // flipped: they should be stones OF this path, not stones ON it.
+    const chipMid = new THREE.Color(GRAVEL.dark).lerp(new THREE.Color(GRAVEL.base), 0.5);
 
     for (let i = 0; i < chipCount; i++) {
       const f = rand() * (N - 1);
@@ -854,16 +907,17 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
       q.setFromEuler(e);
       chips.setMatrixAt(i, m.compose(p, q, sc));
 
-      // Deliberately DARKER than the mass, which looks wrong written down and
-      // is right on screen. A chip standing proud presents a face pointing
-      // straight at the sky, while the mass around it is a field of broken
-      // normals averaging well off vertical. Give the two the same albedo and
-      // the chips come out as chalk-white pebbles scattered on grey gravel.
-      // Taking the instances down about a fifth lands them on the same value.
+      // Pitched a little under the mass's mid tone, which looks wrong written
+      // down and is right on screen. A chip standing proud presents a face
+      // pointing straight at the sky, while the mass around it is a field of
+      // broken normals averaging well off vertical, so the same albedo renders
+      // brighter on the chip. Between this and the CHIP_AO ramp baked into the
+      // geometry the two land on the same value, and the chips read as stones
+      // OF the path rather than as pale pebbles dropped on top of it.
       const t = rand();
-      col.copy(dark);
-      if (t < 0.5) col.lerp(crev, ((0.5 - t) / 0.5) * 0.55);
-      else col.lerp(base, ((t - 0.5) / 0.5) * 0.60);
+      col.copy(chipMid);
+      if (t < 0.5) col.lerp(chipLow, ((0.5 - t) / 0.5) * 0.85);
+      else col.lerp(pale, ((t - 0.5) / 0.5) * 0.55);
       chips.setColorAt(i, col);
     }
     chips.instanceMatrix.needsUpdate = true;

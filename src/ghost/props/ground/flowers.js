@@ -18,25 +18,28 @@ import {
 //
 // FOUR KINDS, AND WHY THOSE FOUR.
 //
-// They are chosen for silhouette, not for botany. At the size these are
-// actually seen (see SCALE below, a clump is twenty to thirty pixels tall) the
-// species is unreadable and the OUTLINE is the whole read, so the set is picked
-// so that four clumps in a row are four different shapes:
+// They are chosen for silhouette, not for botany. Measured at the shipped
+// framing, 900 pixels at view 6.2, a clump occupies between 25 x 16 and 46 x 29
+// pixels, so a head is four pixels and the species is unreadable: the OUTLINE
+// is the whole read. The set is therefore picked so that four clumps in a row
+// are four different shapes.
 //
 //   'daisies'  a low spreading mound speckled with flat pale heads. WIDE and
-//              FLAT. The self-seeded stuff that comes up in the gravel.
-//   'spires'   five or six upright tapering spikes. TALL and VERTICAL, the only
-//              variant with a strong up-down grain, and the tallest at 0.38.
+//              FLAT, 0.22 tall by 0.70 across, the widest thing here.
+//   'spires'   four or five upright tapering spikes over a leaf rosette. TALL
+//              and VERTICAL, the only one with an up-down grain, and the
+//              tallest at 0.36.
 //   'posy'     a cut bunch tied at the waist and laid down against a stone.
-//              DIAGONAL and lying, with the heads bunched at one end. It is the
-//              only one that reads as put there by a person rather than grown.
+//              DIAGONAL, lying at about 25 degrees with the heads bunched at
+//              the raised end. The only one that reads as put there by a person
+//              rather than grown.
 //   'jar'      a zinc pot of chrysanthemums. A hard straight-sided cylinder
-//              under a round ball of heads: the only manufactured edge in the
+//              under a dense ball of heads: the only manufactured edge in the
 //              set, and the only one whose flowers hinge above the ground.
 //
-// A fifth (a wreath ring, a laid single stem) was cut for the same reason a
-// third tier of fuzz was cut from the bush: two variants that share a
-// silhouette are one variant with extra draw calls.
+// Anything that would have shared one of those four outlines (a wreath ring is
+// a daisy mound with a hole nobody can resolve; a single laid stem is a thinner
+// posy) is not a fifth variant, it is the same variant with extra draw calls.
 //
 // COLOUR, which is the hard part.
 //
@@ -47,8 +50,16 @@ import {
 // petal is small, so a colour that reads as "pink" on a wall reads as a hot
 // speck at twenty pixels. Everything here is therefore a TINT: a pale base with
 // the chroma taken out of it, and exactly one deeper accent per variant carried
-// on a fraction of the heads. Measured off a 900px render at view 6.2, no petal
-// pixel in the set exceeds 0.93 luminance or 0.30 saturation.
+// on a fraction of the heads.
+//
+// Every colour below was chosen by rendering it rather than by reading the hex,
+// because this scene does not render a colour anywhere near where it is
+// authored. Measured on the shipped frame, the pipeline multiplies the
+// saturation of a lit petal by about 1.45: an albedo at 0.40 saturation comes
+// back at 0.58 and reads as a hot dot. So the working limit for anything that
+// covers a whole head is about 0.30 in the albedo, and the numbers in the
+// comments below are what the rendered pixels actually measured, not what the
+// hex says.
 //
 // The accent costs nothing, which is worth spelling out because it is what lets
 // a clump be two colours in one draw call. The material carries the LIGHTEST
@@ -281,7 +292,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 // Build the placement matrix for one part: aim its +y along `dir`, spin it about
 // its own axis so no two lumps off the same seed are the same lump, and drop it
 // at `p`.
-function placeAt(p, dir, spin) {
+function placeAt(p, dir, spin = 0) {
   const q = new THREE.Quaternion().setFromUnitVectors(UP, dir.clone().normalize());
   const m = new THREE.Matrix4().makeRotationFromQuaternion(q);
   return m.multiply(new THREE.Matrix4().makeRotationY(spin)).setPosition(p);
@@ -565,21 +576,21 @@ function buildSpires(rand, { R, tall, base, accent, accentOdds }) {
     const seedV = Math.abs(axis.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
     const side = new THREE.Vector3().crossVectors(axis, seedV).normalize();
     const side2 = new THREE.Vector3().crossVectors(axis, side).normalize();
-    const whorls = 4 + ((rand() * 2) | 0);
+    const whorls = 5 + ((rand() * 2) | 0);
     for (let k = 0; k < whorls; k++) {
       const t = 0.08 + (k / whorls) * 0.86;
-      const per = t < 0.50 ? 3 : 2;
+      const per = t < 0.55 ? 4 : 3;
       const shrink = 1 - 0.80 * Math.pow(t, 1.5);
       const a0 = rand() * Math.PI * 2;
       for (let j = 0; j < per; j++) {
         const ang = a0 + (j / per) * Math.PI * 2;
-        const ring = w * 0.42 * shrink;
+        const ring = w * 0.40 * shrink;
         const out = side.clone().multiplyScalar(Math.cos(ang)).addScaledVector(side2, Math.sin(ang));
         const bp = bottom.clone().addScaledVector(axis, spikeH * t).addScaledVector(out, ring);
         const bd = out.clone().multiplyScalar(0.95).addScaledVector(axis, -0.30 + rand() * 0.7).normalize();
         petals.push(budPart(rand, {
           p: bp, dir: bd,
-          width: w * (0.62 + rand() * 0.22) * shrink,
+          width: w * (0.46 + rand() * 0.18) * shrink,
           flat: 0.78,
           detail: 1,
           lobes: budLobes(rand, { petals: 4, amp: 0.44, tight: 4.0, ring: 0.20, boss: 0.16 }),
@@ -600,9 +611,23 @@ function buildPosy(rand, { R, tall, base, accent, accentOdds }) {
   const petals = [];
   // The bunch's own axis, in plan. The caller's yaw turns the whole clump, so
   // this only has to be a direction, not a chosen one.
-  const yaw = rand() * Math.PI * 2;
+  // The bunch is aimed ACROSS THE SCREEN rather than anywhere, and this is the
+  // one place the prop is allowed to know where the camera is. It is the same
+  // fact wind.js picks its default wind direction from: the scene camera is
+  // fixed at 45 degrees of azimuth, so the world direction (1, 0, -1) is the
+  // one that maps to pure screen-horizontal. A bunch pointing along (1, 0, 1)
+  // instead is pointing straight into the lens, its whole length foreshortens
+  // to nothing, and what is on screen is a standing bundle of stems. Left to a
+  // free yaw that happened about a quarter of the time, which is a quarter of
+  // all posies not reading as the thing the variant exists to be.
+  //
+  // Plus or minus 43 degrees of spread and a coin flip end for end still gives
+  // four distinguishable lays, and the outer group's rotation.y is left at zero
+  // for this variant alone so nothing downstream spins it back onto the dead
+  // axis.
+  const yaw = -Math.PI / 4 + (rand() - 0.5) * 1.5 + (rand() < 0.5 ? 0 : Math.PI);
   const ax = Math.cos(yaw), az = Math.sin(yaw);
-  const len = R * (0.95 + rand() * 0.25);
+  const len = R * (1.20 + rand() * 0.28);
   // The prop angle is SOLVED, not chosen, and this is the one place in the file
   // where that matters. Every other variant stands up, so fitting it to a
   // promised height afterwards costs nothing; a bunch lying down is mostly
@@ -611,7 +636,13 @@ function buildPosy(rand, { R, tall, base, accent, accentOdds }) {
   // built at the length it should be and tipped up by exactly the angle that
   // puts the heads at the height it should be, and the fit downstream is then
   // very nearly a no-op.
-  const sinA = Math.min(0.66, (tall * 0.80) / len);
+  // Capped at 0.50, which is 30 degrees. Without a cap the solve happily
+  // returns a bunch standing at 45 degrees when the length rolls short, and a
+  // bunch at 45 degrees does not read as laid down at all: it reads as a
+  // bouquet stood in an invisible vase, which is what the first render of this
+  // fix showed. Below 30 degrees it is unmistakably lying on the ground, which
+  // is the only thing this variant is for.
+  const sinA = Math.min(0.50, (tall * 0.78) / len);
   const cosA = Math.sqrt(1 - sinA * sinA);
 
   const n = 7 + ((rand() * 3) | 0);
@@ -655,7 +686,7 @@ function buildPosy(rand, { R, tall, base, accent, accentOdds }) {
   const tie = tieDir.clone().multiplyScalar(len * 0.10);
   tie.y += 0.004;
   foliage.push({
-    positions: fitLump(lumpPositions({ detail: 1, lobes: [] }), R * 0.30, R * 0.20),
+    positions: fitLump(lumpPositions({ detail: 1, lobes: [] }), R * 0.36, R * 0.17),
     index: icosphere(1).index,
     matrix: placeAt(tie, tieDir, 0),
     phase: 0.5, tint: 0.7, flutter: 0,
@@ -842,7 +873,6 @@ export function createFlowerClump({ seed = 1, variant, radius = 0.45, scale = 1 
   attachWind(leaves, { ...bend, flutter: 0.014 * TALL, flutRate: 1.7 });
   attachWind(blooms, { ...bend, flutter: 0.022 * TALL, flutRate: 1.7 });
 
-  let pot = null;
   if (built.pot) {
     // LatheGeometry works out its own normals, and they are RIGHT: it knows
     // which of its duplicated seam vertices belong together. Calling
@@ -853,7 +883,9 @@ export function createFlowerClump({ seed = 1, variant, radius = 0.45, scale = 1 
       built.pot.prof.map((v) => new THREE.Vector2(v.x * K, v.y * K)), 32);
     const potMat = toyMaterial(FLOWER.zinc, { roughness: 0.78 });
     disposables.push(potGeo, potMat);
-    pot = new THREE.Mesh(potGeo, potMat);
+    const pot = new THREE.Mesh(potGeo, potMat);
+    // No wind on it. A zinc pot does not bend, and the flowers above it are
+    // hinged at its rim instead, which is what bakeWind's `base` is for.
     pot.castShadow = true;
     pot.receiveShadow = true;
     body.add(pot);
@@ -861,11 +893,14 @@ export function createFlowerClump({ seed = 1, variant, radius = 0.45, scale = 1 
 
   // Nothing grows plumb, and nothing anybody laid down is square. Small enough
   // that the silhouette still reads upright and well inside the depth the feet
-  // are buried at, so no daylight opens under the lean. The pot is excluded: a
-  // leaning pot reads as a knocked-over pot.
+  // are buried at, so no daylight opens under the lean. The jar gets a third of
+  // it: a pot is a made object that was PUT there, so a visible lean on one
+  // reads as knocked over rather than as grown crooked.
   body.rotation.z = (rand() - 0.5) * (kind === 'jar' ? 0.04 : 0.13);
   body.rotation.x = (rand() - 0.5) * (kind === 'jar' ? 0.04 : 0.11);
-  body.rotation.y = rand() * Math.PI * 2;
+  // Free, except for the posy, whose own lay angle is aimed at the camera on
+  // purpose. See buildPosy.
+  body.rotation.y = kind === 'posy' ? 0 : rand() * Math.PI * 2;
 
   // The contact term. The key and the camera are on the same side of the yard,
   // so the clump's own cast shadow falls away behind it and nothing darkens the
