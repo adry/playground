@@ -10,7 +10,8 @@
     "standalone": "node scripts/build-standalone.mjs",
     "shot": "node capture/ghost-shot.mjs",
     "eyes": "node capture/ghost-eyes.mjs",
-    "record": "node capture/ghost-record.mjs"
+    "record": "node capture/ghost-record.mjs",
+    "record:pumpkin": "node capture/pumpkin-record.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"
