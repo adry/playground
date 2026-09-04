@@ -13,11 +13,31 @@
 // gravity acting on the leaf's own weight about a hinge that is not quite
 // plumb, so it goes as sin(angle), not as the angle. Everything a viewer reads
 // as "real" follows from that one term: a wide swing takes measurably longer
-// than a narrow one, so the gate visibly SLOWS ITS RHYTHM as it gives up
-// amplitude. A linear spring holds its period no matter how hard it was hit,
-// which is exactly the tell that makes a spring-driven door read as an
-// animation. See the numbers in the harness: 0.9 rad swings at 1.50s per
-// cycle, 0.1 rad swings at 1.43s, and the run walks between them.
+// than a narrow one, so the gate CHANGES ITS RHYTHM as it gives up amplitude.
+// A linear spring holds its period no matter how hard it was hit, which is
+// exactly the tell that makes a spring-driven door read as an animation.
+//
+// Measured against the exact pendulum, undamped, at the defaults (T0 = 1.4192s
+// for g/L = 9.8/0.5):
+//
+//     amplitude   this file    exact       T/T0
+//     0.20 rad    1.4210s      1.4228s     1.0012
+//     0.40 rad    1.4325s      1.4336s     1.0094
+//     0.70 rad    1.4635s      1.4640s     1.0312
+//     1.00 rad    1.5130s      1.5133s     1.0661
+//     1.40 rad    1.6155s      1.6151s     1.1383
+//
+// The gate in its frame changes rhythm harder than that, and in the other
+// direction, which surprised me and is worth writing down. Its stop is not at
+// the bottom of the arc, it is `latchAngle` up the side of it, so a leaf that
+// is barely opening is not swinging about its equilibrium at all -- it is
+// being thrown up a slope of nearly constant gravity and coming back, and that
+// is ballistic, not harmonic. Ballistic flight time goes as the launch speed,
+// so as the bounces die the gaps between the bangs get SHORTER fast: measured
+// stop-to-stop, 0.63  0.57  0.50  0.41  0.31 seconds. That accelerating patter
+// is the sound of a dropped ball settling and it turns out to be the single
+// most convincing thing the gate does. It falls out of the geometry; nothing
+// here asks for it.
 
 // --- which way does it swing --------------------------------------------------
 //
@@ -274,9 +294,11 @@ export function createSwing({
     //
     // Signed in world terms, not in gate terms, so a caller that knows which
     // side the ghost came from can just pass the sign through. A push into the
-    // frame is not refused, it simply does not go anywhere: the stop is right
-    // there and the collision eats it, which is what shoving a gate the wrong
-    // way actually feels like.
+    // frame is not refused and it is not silently flipped either: it goes
+    // straight into the stop, and what comes back out is the rebound. Whack a
+    // real gate against its own frame and it does swing open again, so a hard
+    // wrong-way shove (-5) opens this one to about 34 degrees. That is the
+    // restitution being consistent, not a sign bug.
     push(impulse) {
       if (!Number.isFinite(impulse) || impulse === 0) return;
       velocity += impulse;

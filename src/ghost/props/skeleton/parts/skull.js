@@ -132,8 +132,8 @@ const smoothstep = (a, b, x) => {
 // crown broadside: a vault that is still full width up there fills the head
 // crop with forehead.
 const vaultWidth = (v) => 1
-  - 0.26 * smoothstep(0.50, 1.00, v)
-  - 0.11 * (1 - smoothstep(0.02, 0.36, v));
+  - 0.185 * smoothstep(0.58, 1.00, v)
+  - 0.110 * (1 - smoothstep(0.02, 0.36, v));
 // How square the cross-section is. Flat sides and a flat frontal plane across
 // the temples, rounding off toward the crown and the base -- one exponent for
 // the whole vault cannot do that: high enough for a face plane the sockets can
@@ -154,7 +154,7 @@ const vaultFront = (v) => 1
 // the back half of a sphere. It never exceeds 1: M.skull.depth is the budget
 // and the occiput spends all of it, it does not get to overspend.
 const vaultBack = (v) => 1
-  - 0.36 * smoothstep(0.38, 1.00, v)
+  - 0.28 * smoothstep(0.40, 1.00, v)
   - 0.34 * (1 - smoothstep(0.00, 0.26, v));
 
 function vaultField(x, y, z) {
@@ -201,7 +201,7 @@ const AJAR = 0.018 * HS;
 // M.skull.jawHeight allows. A round swept tube cannot be thin one way and deep
 // the other, so the body is swept round and then squashed.
 const JAW_R = 0.043 * HS;                     // half the bar's side-to-side wall
-const RAMUS_R = 0.052 * HS;
+const RAMUS_R = 0.062 * HS;
 // How far past the last molar the body runs, and how far it swings OUT on the
 // way. The flare is the fix for a jaw with no visible angle: at extend 1.62 and
 // no flare the gonion sat at 0.56 of the skull's half-width, tucked inside the
@@ -209,13 +209,20 @@ const RAMUS_R = 0.052 * HS;
 // head with no corner to it. A real bigonial breadth is about 0.72 of the
 // cranium's; 0.67 is as far as this can go before the condyle, which rides the
 // same x, floats clear of the skull at the hinge.
-const JAW_EXTEND = 1.68;
-const JAW_FLARE = 0.16;
+const JAW_EXTEND = 1.55;
+const JAW_FLARE = 0.55;
 // The hinge. Level with the root of the zygomatic arch and just behind the
 // middle of the skull, which is where the fossa is; the condyle balls sit half
 // buried in the skull base there so the joint has somewhere to be.
 const HINGE_Y = 0.096 * HS;
 const HINGE_Z = -0.080 * M.skull.depth;
+// The condyle rides NARROWER than the gonion, so the ramus leans inward on its
+// way up and the joint tucks under the root of the zygomatic arch instead of
+// standing off the side of the head as a bare knob. A real bicondylar breadth
+// is wider than a bigonial one, but a real skull is also wider at the ear than
+// this one gets to be, and of the two errors a condyle outside the silhouette
+// is the one that shows.
+const HINGE_X = 0.58 * (M.skull.width / 2);
 const FORAMEN_Z = -0.150 * M.skull.depth;
 
 // --- the openings ----------------------------------------------------------
@@ -671,9 +678,14 @@ export function buildSkull({ material }) {
   // It stands only 0.012 of the head's height proud. The zygomatic arch's
   // history is the warning here: a ridge on the side of a skull turns into a
   // moulding seam the moment it is tall enough to catch a specular.
-  const TEMP_R = 0.032 * HS;
-  const TEMP_INSET = 0.020 * HS;
-  const TEMPORAL = [[0.90, 0.498], [1.22, 0.545], [1.58, 0.560], [1.94, 0.528], [2.26, 0.448]];
+  const TEMP_R = 0.034 * HS;
+  const TEMP_INSET = 0.026 * HS;
+  // [bearing, height BELOW THE CROWN as a fraction of the skull's height]. It
+  // starts level with the top of the orbit and climbs, which is the whole
+  // character of the line; run at the orbit's own height all the way round -- as
+  // it was on the first attempt -- it crosses the middle of the side of the head
+  // and reads as a dent, not a line.
+  const TEMPORAL = [[0.88, 0.336], [1.24, 0.302], [1.62, 0.288], [1.98, 0.312], [2.32, 0.392]];
   const temporals = [-1, 1].map((side) => tube(
     TEMPORAL.map(([a, h]) => {
       const ang = side * a;
@@ -1306,17 +1318,23 @@ export function buildSkull({ material }) {
     cap.translate(side * gonionX, gonionY, gonion.z);
     jawRoot.add(add(cap, material));
 
-    const a = new THREE.Vector3(side * gonionX, gonionY - JAW_R * 0.35, gonion.z);
-    const b = new THREE.Vector3(side * gonionX, HINGE_Y, HINGE_Z);
+    // The ramus is a flat plate, so it is swept round and then squeezed to a
+    // little over half its width -- and its two ends no longer share an x, because the
+    // condyle leans in. Squeezing about the mid plane would drag both ends with
+    // it, so the sweep is built PRE-STRETCHED about that plane by the reciprocal
+    // and the squeeze lands the ends exactly back on gonion and hinge.
+    const mx = (gonionX + HINGE_X) / 2;
+    const SQ = 0.55;
+    const preX = (x) => side * (mx + (x - mx) / SQ);
+    const a = new THREE.Vector3(preX(gonionX), gonionY - JAW_R * 0.35, gonion.z);
+    const b = new THREE.Vector3(preX(HINGE_X), HINGE_Y, HINGE_Z);
     const ramus = track(straightShaft(a, b, RAMUS_R, { waist: 0.80, segments: 20 }));
-    // Both ends share an x, so the plate can be squeezed about that plane
-    // without dragging the condyle off the hinge axis.
-    ramus.translate(-side * gonionX, 0, 0);
-    ramus.scale(0.68, 1, 1.05);
-    ramus.translate(side * gonionX, 0, 0);
+    ramus.translate(-side * mx, 0, 0);
+    ramus.scale(SQ, 1, 1);
+    ramus.translate(side * mx, 0, 0);
     jawRoot.add(add(ramus, material));
-    const ball = track(jointBall(RAMUS_R * 0.80));
-    ball.translate(b.x, b.y, b.z);
+    const ball = track(jointBall(RAMUS_R * 0.66));
+    ball.translate(side * HINGE_X, HINGE_Y, HINGE_Z);
     jawRoot.add(add(ball, material));
   }
 
