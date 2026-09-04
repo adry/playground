@@ -22,11 +22,12 @@ import { shaft, straightShaft, jointBall, plate } from './bone.js';
 //      tall and too wide, so poseAndFit() measures the finished slab and maps
 //      it onto the box instead of trusting arithmetic done in a comment.
 //
-// Three things here are local rather than from bone.js, and all three are a
-// transform applied to a vocabulary primitive rather than a new primitive:
-// smoothOutline() before the extruder, poseAndFit() after it, and taper(),
-// which gives a shaft a different radius at each end because bone.js cannot.
-// Each says at its own definition what went wrong without it.
+// Three helpers here are local rather than from bone.js, and none of them is a
+// new primitive: smoothOutline() conditions the outline before the extruder,
+// poseAndFit() moves and measures the slab after it, and ringCurve() hands
+// shaft() a circular arc. Each says at its own definition what went wrong
+// without it. A fourth, a taper, used to live here and is gone: bone.js's
+// shaft() now takes endRadius and does it properly.
 
 // --- local constants ---------------------------------------------------------
 //
@@ -102,140 +103,150 @@ const RISE = M.y.ankle;                  // 0.075, ankle pivot down to the sole
 const FOOT_SQUASH = 0.86;
 const seat = (r, scaleY = 1) => -RISE + r * FOOT_SQUASH * scaleY;
 
-// A shaft that is fatter at one end than the other.
-//
-// bone.js cannot do this. Its `endBias` reads as though it can -- the comment
-// says "so a femur can be more swollen at the knee than at the hip the way a
-// real one is" -- but the term it feeds is `Math.min(t, 1 - t)`, which is
-// symmetric, so endBias moves both ends together and never one. Reported back
-// as a bug in the vocabulary rather than worked around silently.
-//
-// It matters here more than anywhere else in the figure. A femur with the same
-// radius at both ends has to choose between a knee the width of the photo's
-// and a hip twice the width of the photo's, and picking either one wrong is
-// visible from across the room. Same for the tibia into the ankle.
-//
-// This rescales the rings shaft() already built, about the same path points it
-// built them around, so the waist and the sweep are untouched.
-function taper(geo, path, segments, from, to) {
-  const pos = geo.attributes.position;
-  const perRing = pos.count / (segments + 1);
-  const v = new THREE.Vector3();
-  const c = new THREE.Vector3();
-  for (let i = 0; i <= segments; i++) {
-    const t = i / segments;
-    const k = from + (to - from) * t;
-    c.copy(path.getPointAt(t));
-    for (let j = 0; j < perRing; j++) {
-      const idx = i * perRing + j;
-      v.fromBufferAttribute(pos, idx).sub(c).multiplyScalar(k).add(c);
-      pos.setXYZ(idx, v.x, v.y, v.z);
-    }
-  }
-  pos.needsUpdate = true;
-  geo.computeVertexNormals();
-  return geo;
-}
-
-// straightShaft() builds its own curve and does not hand it back, so a tapered
-// straight bone has to rebuild the same curve to taper against it. Same
-// arithmetic as bone.js, kept in one place here so the two cannot drift.
-function taperedBone(a, b, r, { bow = 0, bowAxis = null, from = 1, to = 1, segments = 28, ...rest }) {
-  const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
-  if (bow !== 0) {
-    const axis = bowAxis
-      ? bowAxis.clone().normalize()
-      : new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3(0, 0, 1)).normalize();
-    mid.addScaledVector(axis, bow * a.distanceTo(b));
-  }
-  const path = new THREE.QuadraticBezierCurve3(a.clone(), mid, b.clone());
-  return taper(shaft(path, r, { segments, ...rest }), path, segments, from, to);
-}
-
 // --- the hip bone ------------------------------------------------------------
+//
+// Three parts, not one, and the reason is that a hip bone is three things:
+// a thin flaring blade, a thick socket, and a thick ring round a hole. Built as
+// one plate it can only be one of them, and the first version was: two tall
+// narrow paddles hanging down with a coat hanger dangling off each. Held next
+// to the photo they were not the same object.
+//
+//   BLADE     an extruded plate. Broad at the crest and tapering hard down to
+//             the socket, so it reads as a wing flaring up and out rather than
+//             as a slab bolted on.
+//   SOCKET    a thick lens with a raised rim swept round it, deep enough that
+//             the femoral head sits IN something. This is the single strongest
+//             read in the pelvis and the first version had none of it.
+//   RING      the ischiopubic mass. Still rods, because the extruder pinches
+//             the struts out of a pierced plate, but three times thicker than
+//             the first attempt, rooted INSIDE the socket rather than hung off
+//             the plate, and sweeping forward to meet its mirror image at the
+//             symphysis. That forward sweep is the bowl: without it you look
+//             straight through the front of the pelvis.
 
 const PELVIS_TOP = M.y.pelvisTop - M.y.hip;              // +0.200
 const PELVIS_BOTTOM = PELVIS_TOP - M.pelvis.height;      // -0.090
 const PELVIS_HALF = M.pelvis.width / 2;                  // 0.210
-// Half the gap at the pubic symphysis. In the photo the two pubic bones do not
-// meet: there is a clear slot of daylight between them, and closing it is what
-// turns a pelvis into a bucket.
-const SYMPHYSIS_X = frac(0.0104);                        // 0.026
+// Half the seam at the pubic symphysis. The two pubic bodies MEET here: in the
+// photo it is a joint line across a solid block, not the finger-wide slot the
+// first version left, which had each side dangling on its own.
+const SYMPHYSIS_X = frac(0.0028);                        // 0.007, so a 0.014 seam
 
-// The hip bone is built in two pieces, and the reason is the obturator foramen.
+// The blade's outline, walked once from the back of the iliac crest, in a flat
+// authoring frame that poseAndFit maps onto its own box. x is lateral, y is up
+// from the femoral head.
 //
-// It began as one plate with the foramen cut as a hole in the shape. That is
-// the obvious way to do it and it does not work: the extruder's bevel grows the
-// outer contour outward AND the hole's contour inward by bevelSize at each
-// face, so a hole big enough to see through leaves struts that are 4mm wide in
-// the middle and gone entirely at the surface. Shrinking the bevel to save the
-// struts costs the rounded rim that makes the thing look like a toy.
+// Traced off the photo at the scale that reproduces M.pelvis.width, and the two
+// things that matter about it are the TAPER and where it STOPS.
 //
-// So the plate is the ILIUM plus the body around the acetabulum, with no holes
-// in it at all and as generous a bevel as it likes, and the ischiopubic ring
-// below it is four rods and two bulbs. That is also closer to the photo, where
-// the bone round the foramen plainly reads as a loop of rounded rod rather than
-// as a pierced sheet.
+// The taper: 0.146 across at the crest, 0.043 across where it reaches the
+// socket. Getting that wrong is most of what made the first version read as a
+// paddle bolted on -- it was near enough the same width all the way down, so
+// nothing flared and nothing pointed at the hip joint.
 //
-// The left plate's outline, walked once from the back of the iliac crest. x is
-// lateral, y is up from the femoral head. Its extremes are the exact box
-// poseAndFit maps it onto, so they are named rather than typed twice.
+// Where it stops: at y = 0, level with the femoral head. In the photo the blade
+// ends there and everything below is socket and ischiopubic mass. Running it
+// lower, as the first version did, puts bone directly behind the obturator
+// foramen and there is no daylight through the hole any more.
 const PLATE_MEDIAL = 0.056;
-const PLATE_BOTTOM = -0.056;
+const PLATE_BOTTOM = 0.000;
 const HIP_OUTLINE = [
-  [PLATE_MEDIAL, 0.166],              // posterior end of the iliac crest
-  [0.090, 0.196],
-  [0.132, PELVIS_TOP],                // crest apex, out over the middle of the wing
-  [0.176, 0.190],
-  [0.202, 0.158],
-  [PELVIS_HALF, 0.108],               // iliac tubercle: the widest point of the figure
-  [0.206, 0.056],
-  [0.192, 0.006],                     // lateral rim of the acetabulum
-  [0.178, -0.036],
-  [0.150, PLATE_BOTTOM],              // body of the ischium
-  [0.120, -0.036],
-  [0.104, -0.014],                    // the upper-lateral edge of the foramen
-  [0.078, -0.006],                    // where the superior pubic ramus leaves
-  [0.086, 0.048],                     // The medial border runs back up in one gentle S.
-  [0.096, 0.092],                     // Traced faithfully it goes in, out and in again,
-  [0.082, 0.130],                     // and once splined that hooks over the hip joint
-  [0.062, 0.152],                     // like the brim of a hat.
+  [PLATE_MEDIAL, 0.128],              // posterior superior iliac spine, on the sacrum
+  [0.086, 0.172],
+  [0.128, 0.196],
+  [0.166, PELVIS_TOP],                // crest apex
+  [0.196, 0.180],
+  [PELVIS_HALF, 0.140],               // anterior superior iliac spine: the widest
+  [0.204, 0.098],                     // point in the lower body, and high up
+  [0.190, 0.062],                     // the outer border diving in towards the socket
+  [0.172, 0.026],
+  [0.150, PLATE_BOTTOM],              // lower tip, just lateral of the acetabulum
+  [0.118, 0.030],
+  [0.094, 0.056],                     // arcuate line
+  [0.076, 0.084],
+  [0.064, 0.108],
 ];
 
-// The ischiopubic ring, as centreline points. Rods run D -> A -> B -> C, with
-// bulbs at the pubic body (A) and the ischial tuberosity (B); D and C are both
-// buried inside the plate, so the loop has no open ends anywhere. The rods are
-// thin on purpose: measured off the photo the bone under the foramen is only
-// 21mm through, and anything fatter closes the hole, which is the whole point
-// of building it this way.
-//
-// FORAMEN is not drawn. It is the empty middle of that loop, and it is written
-// down so the clearances can be reasoned about rather than discovered.
-const FORAMEN = { x: 0.082, y: -0.050, r: 0.024 };
-const RING = {
-  A: [0.042, -0.044],                 // pubic body, at the symphysis
-  B: [0.092, -0.078],                 // ischial tuberosity, the lowest bone in the pelvis
-  C: [0.132, -0.024],                 // rooted in the plate under the acetabulum
-  D: [0.106, 0.014],                  // rooted in the plate at the arcuate line
-  rod: 0.011,
-  pubis: 0.016,                       // bulb at A. Its medial face is SYMPHYSIS_X.
-  ischium: 0.013,                     // bulb at B. Its underside is PELVIS_BOTTOM.
-  squash: 0.92,
-  // How much of the plate's forward pitch the ring keeps. All of it and the
-  // loop lies at 20 degrees to the frontal plane, so from the front the
-  // foramen is a slot rather than the round hole the photo shows; none of it
-  // and the ring stops meeting the plate it hangs off. A real ischiopubic ring
-  // is flatter than the blade above it, so this is closer to the anatomy too.
-  flatten: 0.75,
-};
-
-const HIP_THICKNESS = frac(0.0280);   // 0.070. A 0.058 plate over this much area
-                                      // reads as sheet metal rather than bone.
-const HIP_BEVEL = 0.34;               // no holes to protect, so round it properly
+// 0.034, traced off the crest ridge in the photo. It was 0.070 for one round,
+// on the theory that a thin plate reads as sheet metal. It does not: what read
+// as sheet metal was a bent cap with sliver triangles in it, and the fix for
+// that was to stop bending it. At 0.070 on a wing 0.146 across the blade is
+// half as thick as it is wide and comes out as a fat lozenge.
+const HIP_THICKNESS = frac(0.0136);
+const HIP_BEVEL = 0.42;               // no holes to protect, so round it properly
 // bone.js defaults to 4 bevel segments, which on a plate this thick with a
 // bevel this generous puts four flat bands round the rim. The hip bone is seen
 // edge-on from the side and from behind in every pose, so it pays for more.
 const HIP_BEVEL_SEGMENTS = 12;
+
+// The acetabulum, in the group frame. The socket is a lens flattened along the
+// lateral axis and set MEDIAL of the pivot, so the femoral head at HIP_X still
+// clears it sideways and reads as a ball; and a rim is swept round the pivot
+// as an arc of tube, open at the bottom front where the neck leaves.
+//
+// A rim on its own was tried first and thrown away: with nothing solid behind
+// it, a ring whose plane faces sideways is seen edge-on from every useful angle
+// and reads as a handle glued to the pelvis. On top of the lens it reads as the
+// lip of a cup, which is what the photo shows.
+const ACET = {
+  x: 0.114, y: -0.008, z: -0.002,
+  bossR: frac(0.0264),                // 0.066 before flattening
+  scale: [0.58, 0.86, 1.0],           // flattened along the lateral axis
+  rimR: frac(0.0212),                 // 0.053, so the 0.044 head fills the ring
+  rimTube: frac(0.0068),              // 0.017
+  // The rim's plane. It wants to face the way the socket opens, which is
+  // sideways, and a ring facing sideways is edge-on from the front and reads as
+  // nothing at all. Swung towards the front until it catches the light in the
+  // three-quarter views, which is where the cup has to read.
+  normal: [0.72, -0.26, 0.64],
+  gap: 1.86,                          // radians of rim left out for the notch
+  gapAt: -1.15,                       // pointing down and forward, where the neck goes
+};
+
+// The ischiopubic mass, as centreline points in the group frame. Authored with
+// an explicit z rather than inherited from the blade's pose, because the whole
+// point of it is to leave the blade's plane and sweep forward: Pu and Pd are
+// 0.09 in front of the socket and that distance IS the bowl.
+//
+// S and Q are both buried inside the acetabular lens, so the mass grows out of
+// the socket instead of hanging under the blade on two visible stalks.
+//
+// The rods are 0.021 to 0.027 in radius against the first attempt's 0.011. What
+// that costs is the size of the foramen: with the acetabulum at M's 0.125 there
+// is only 0.115 of width and 0.090 of height between it, the midline and the
+// floor, and thick bone all round a 0.055 hole does not fit in that. The photo
+// gets away with a bigger hole because its hip joints are 0.31 apart rather
+// than M.leg.hipSeparation's 0.25. Thick bone won the trade.
+const RING = {
+  S:  [0.104, 0.026, 0.004],          // superior ramus, rooted in the socket
+  Pu: [0.033, 0.008, 0.086],          // where it enters the pubic body
+  B:  [0.031, -0.010, 0.085],         // the pubic body itself, one block
+  Pd: [0.035, -0.028, 0.084],         // where the inferior ramus leaves it
+  T:  [0.086, -0.062, 0.030],         // ischial tuberosity: the lowest bone here
+  Q:  [0.108, -0.020, 0.000],         // ischium, rooted in the socket
+  // Thin enough to leave a hole, thick enough to be bone. The superior ramus is
+  // the one that decides: it runs straight across the top of the foramen and
+  // every millimetre of it comes off the hole, so it is the thinnest of the
+  // three and it is bowed upward as well.
+  superior: [frac(0.0092), frac(0.0084)],   // 0.023 at the socket, 0.021 at the pubis
+  superiorBow: 0.12,
+  inferior: [frac(0.0076), frac(0.0084)],
+  ischium: [frac(0.0096), frac(0.0108)],
+  body: frac(0.0120),                 // 0.030 before scaling
+  bodyScale: [0.80, 1.40, 0.95],
+  tuber: frac(0.0104),                // 0.026, the ischial tuberosity
+  tuberScale: [1.0, 1.12, 1.0],
+  // jointBall squashes by this before tuberScale gets a look in, and the
+  // tuberosity is placed by its finished half height, not its radius. Leaving
+  // it out puts the pelvis 1.2% short of M.pelvis.height, which is exactly the
+  // kind of quiet drift the fitting is here to stop.
+  tuberSquash: 0.88,
+};
+
+// The sacroiliac joint, on the blade's medial border. A rounded articular pad
+// that stands a little proud of the edge, so where the sacrum lands there is a
+// joint rather than two flat faces near each other.
+const SI = { x: 0.062, y: 0.108, r: frac(0.0112), scale: [0.70, 1.60, 1.05] };
 
 // THREE.Shape draws straight lines between the points it is handed, so the
 // outline above extrudes as a faceted crystal: the first render of this part
@@ -256,7 +267,28 @@ function smoothOutline(points, samples = 132) {
   return out;
 }
 
-// Turning the flat slab into a hip bone, in two steps that are both AFFINE.
+// A circular arc as a THREE.Curve, so shaft() can sweep a tube along it. The
+// acetabular rim is the one place in the lower body where a bone really is a
+// ring, and this keeps it inside the vocabulary instead of reaching for a torus.
+function ringCurve(centre, normal, radius, a0, a1, n = 26) {
+  const nrm = normal.clone().normalize();
+  const u = new THREE.Vector3(0, 1, 0).cross(nrm);
+  if (u.lengthSq() < 1e-8) u.set(1, 0, 0);
+  u.normalize();
+  const v = new THREE.Vector3().crossVectors(nrm, u).normalize();
+  const points = [];
+  for (let i = 0; i <= n; i++) {
+    const a = a0 + (a1 - a0) * (i / n);
+    points.push(
+      centre.clone()
+        .addScaledVector(u, Math.cos(a) * radius)
+        .addScaledVector(v, Math.sin(a) * radius),
+    );
+  }
+  return new THREE.CatmullRomCurve3(points);
+}
+
+// Turning the flat slab into a blade, in two steps that are both AFFINE.
 //
 // This started life as a per-vertex displacement field: push the pubis forward,
 // drag the blade back, and the bowl appears. It does, and it also ruins the
@@ -264,23 +296,22 @@ function smoothOutline(points, samples = 132) {
 // into long thin slivers, which is invisible while the cap is planar and very
 // visible the moment it is bent, so the iliac blade came out crossed with hard
 // diagonal creases. A rotation and a linear fit both keep the cap planar, so
-// the same bowl costs nothing in shading.
+// the same flare costs nothing in shading. The bowl is not the blade's job any
+// more in any case: the ischiopubic mass does that, out in front.
 //
 // PLATE_PITCH leans the crest back over the socket, PLATE_YAW swings the blade
-// back and the pubis forward. Held down to where the wing still faces mostly
-// forward: at half again these angles the plate is so nearly edge-on that the
-// front view loses the blade altogether and the pelvis reads as a curled leaf.
-const PLATE_PITCH = -0.34;
+// back and its lower end forward. Held down to where the wing still faces
+// mostly forward: at half again these angles it is so nearly edge-on that the
+// front view loses the blade altogether.
+const PLATE_PITCH = -0.30;
 const PLATE_YAW = 0.40;
 
-// The second step. ExtrudeGeometry's bevel grows the outline OUTWARD by
-// bevelSize, and a little further at a sharp corner, so the slab is measured
-// and mapped back onto exactly the box its outline was authored in. An untrue
-// pelvis is what got the previous build rejected, and 0.070 * 0.34 of bevel is
-// 15% of the plate's width all by itself.
-//
-// The map is returned as well as applied, because the ischiopubic ring is
-// authored in the same flat coordinates and has to land on the same bone.
+// ExtrudeGeometry's bevel grows the outline outward by bevelSize, and further
+// at a sharp corner, so the slab is measured and mapped back onto exactly the
+// box its outline was authored in. An untrue pelvis is what got the previous
+// build rejected, and 0.070 * 0.34 of bevel is 15% of the blade's width all by
+// itself. The map is returned as well as applied, so the sacroiliac pad can be
+// authored in the same flat coordinates and still land on the bone.
 function poseAndFit(geo, s) {
   const euler = new THREE.Euler(PLATE_PITCH, s * PLATE_YAW, 0, 'YXZ');
   geo.applyQuaternion(new THREE.Quaternion().setFromEuler(euler));
@@ -300,13 +331,15 @@ function poseAndFit(geo, s) {
     if (y < ylo) ylo = y;
     if (y > yhi) yhi = y;
   }
+  const ax = (PELVIS_HALF - PLATE_MEDIAL) / (hi - lo);
+  const ay = (PELVIS_TOP - PLATE_BOTTOM) / (yhi - ylo);
   const map = {
     euler,
     dz: -acetabulum.z,
-    ax: (PELVIS_HALF - PLATE_MEDIAL) / (hi - lo),
-    bx: PLATE_MEDIAL - ((PELVIS_HALF - PLATE_MEDIAL) / (hi - lo)) * lo,
-    ay: (PELVIS_TOP - PLATE_BOTTOM) / (yhi - ylo),
-    by: PLATE_BOTTOM - ((PELVIS_TOP - PLATE_BOTTOM) / (yhi - ylo)) * ylo,
+    ax,
+    bx: PLATE_MEDIAL - ax * lo,
+    ay,
+    by: PLATE_BOTTOM - ay * ylo,
   };
   for (let i = 0; i < pos.count; i++) {
     pos.setX(i, s * (map.ax * s * pos.getX(i) + map.bx));
@@ -317,8 +350,8 @@ function poseAndFit(geo, s) {
   return map;
 }
 
-// The same journey for a single point, so the ring meets the plate it is
-// authored against instead of hanging off it like a keyring.
+// The same journey for a single point, so anything authored against the flat
+// outline lands on the bone the outline became.
 function onPlate(map, s, x, y) {
   const p = new THREE.Vector3(s * x, y, 0).applyEuler(map.euler);
   return new THREE.Vector3(
@@ -399,44 +432,65 @@ export function buildLower({ material }) {
   const joints = {};
 
   for (const [tag, s] of [['L', 1], ['R', -1]]) {
-    // --- hip bone -----------------------------------------------------------
+    // --- iliac blade --------------------------------------------------------
     const outline = smoothOutline(HIP_OUTLINE.map(([x, y]) => new THREE.Vector2(s * x, y)));
     const slab = plate(outline, HIP_THICKNESS, { bevel: HIP_BEVEL, bevelSegments: HIP_BEVEL_SEGMENTS });
     const map = poseAndFit(slab, s);
     put(group, slab);
 
-    // The ischiopubic ring. Each rod is bowed AWAY from the middle of the
-    // foramen so the loop stays a loop: run them straight and the pubic ramus
-    // cuts a chord across the hole and there is nothing left to see through.
-    const ring = (name) => {
-      const p = onPlate(map, s, RING[name][0], RING[name][1]);
-      p.z *= RING.flatten;
-      return p;
-    };
-    const centre = onPlate(map, s, FORAMEN.x, FORAMEN.y);
-    centre.z *= RING.flatten;
-    const outward = (a, b) => new THREE.Vector3()
-      .addVectors(a, b).multiplyScalar(0.5).sub(centre).setZ(0).normalize();
-    const rA = ring('A');
-    const rB = ring('B');
-    const rC = ring('C');
-    const rD = ring('D');
+    const si = onPlate(map, s, SI.x, SI.y);
+    put(group, bulb(SI.r, { squash: 1 }), si.x, si.y, si.z).scale.set(...SI.scale);
 
-    // Two of the ring's four corners carry a number that has to be exact, and
-    // they are pinned here rather than trusted to survive the pose and the fit.
-    // The pubic body sets the width of the gap at the symphysis, and the
-    // ischial tuberosity is the lowest bone in the pelvis, so it alone decides
-    // whether the pelvis is M.pelvis.height tall. Everything else about both
-    // points -- their depth, their lean -- still comes from the plate.
-    rA.x = s * (SYMPHYSIS_X + RING.pubis);
-    rB.y = PELVIS_BOTTOM + RING.ischium * RING.squash;
-    for (const [a, b, bow] of [[rD, rA, 0.08], [rA, rB, 0.26], [rB, rC, 0.20]]) {
-      put(group, straightShaft(a, b, RING.rod, {
-        bow, bowAxis: outward(a, b), waist: 0.88, segments: 14,
-      }));
+    // --- acetabulum ---------------------------------------------------------
+    const socket = V(s * HIP_X, 0, 0);
+    put(group, bulb(ACET.bossR, { squash: 1 }), s * ACET.x, ACET.y, ACET.z)
+      .scale.set(ACET.flat, 1, 1);
+
+    // The rim, swept round the pivot itself so it stays concentric with the
+    // head no matter what the hip does. Open at the bottom front: that gap is
+    // the acetabular notch, and it is also where the femoral neck leaves, so
+    // without it the rim would saw through the neck at every angle of flexion.
+    const rimCurve = ringCurve(
+      socket,
+      V(s * 0.94, -0.20, 0.28),
+      ACET.rimR,
+      ACET.gapAt + ACET.gap / 2,
+      ACET.gapAt - ACET.gap / 2 + Math.PI * 2,
+    );
+    put(group, shaft(rimCurve, ACET.rimTube, { waist: 0.96, segments: 30 }));
+    for (const t of [0, 1]) {
+      const end = rimCurve.getPointAt(t);
+      put(group, bulb(ACET.rimTube * 1.12), end.x, end.y, end.z);
     }
-    put(group, bulb(RING.pubis, { squash: RING.squash }), rA.x, rA.y, rA.z);
-    put(group, bulb(RING.ischium, { squash: RING.squash }), rB.x, rB.y, rB.z);
+
+    // --- ischiopubic mass ---------------------------------------------------
+    const at = (k) => V(s * RING[k][0], RING[k][1], RING[k][2]);
+    const rS = at('S');
+    const rPu = at('Pu');
+    const rPd = at('Pd');
+    const rT = at('T');
+    const rQ = at('Q');
+
+    // The two numbers here that have to be exact, pinned rather than trusted:
+    // the pubic body sets the seam at the symphysis, and the ischial tuberosity
+    // is the lowest bone in the pelvis, so it alone decides whether the pelvis
+    // is M.pelvis.height tall.
+    const bodyX = s * (SYMPHYSIS_X + RING.body);
+    rPu.x = bodyX;
+    rPd.x = bodyX;
+    rT.y = PELVIS_BOTTOM + RING.tuber * RING.tuberSquash * RING.tuberScale[1];
+
+    for (const [a, b, r] of [
+      [rS, rPu, RING.superior],
+      [rPu, rPd, [RING.body * 0.98, RING.body * 0.98]],
+      [rPd, rT, RING.inferior],
+      [rT, rQ, RING.ischium],
+    ]) {
+      put(group, straightShaft(a, b, r[0], { endRadius: r[1], waist: 0.93, segments: 16 }));
+    }
+    put(group, bulb(RING.body), rPu.x, rPu.y, rPu.z);
+    put(group, bulb(RING.body), rPd.x, rPd.y, rPd.z);
+    put(group, bulb(RING.tuber), rT.x, rT.y, rT.z).scale.set(...RING.tuberScale);
 
     // --- hip joint ----------------------------------------------------------
     const hip = new THREE.Object3D();
@@ -466,14 +520,17 @@ export function buildLower({ material }) {
     troch.scale.set(1.14, 1.10, 0.94);
 
     // --- femur --------------------------------------------------------------
+    // Thin at the hip and swollen at the knee, which bone.js can now do itself:
+    // `r` is the radius at the trochanter and `endRadius` the one at the
+    // condyles. This part carried a local taper() until the vocabulary grew one.
     const kneeLocal = V(s * (KNEE_X - HIP_X), KNEE_Y, KNEE_Z);
-    put(hip, taperedBone(
+    put(hip, straightShaft(
       trochanter.clone().setZ(frac(0.0008)),
       kneeLocal,
-      R.femur,
+      R.femur * R.femurTaper,
       {
         bow: M.leg.bow, bowAxis: V(s * 0.86, 0, 0.51), endBias: 0.62, segments: 30,
-        from: R.femurTaper, to: 1,
+        endRadius: R.femur, waistAt: 0.46,
       },
     ));
 
@@ -496,13 +553,13 @@ export function buildLower({ material }) {
 
     // --- tibia and fibula ---------------------------------------------------
     const ankleLocal = V(s * (ANKLE_X - KNEE_X), ANKLE_Y - KNEE_Y, ANKLE_Z - KNEE_Z);
-    put(knee, taperedBone(
+    put(knee, straightShaft(
       V(-s * frac(0.0016), -frac(0.0008), frac(0.0004)),
       ankleLocal,
       R.tibia,
       {
         bow: M.leg.bow * 0.5, bowAxis: V(s, 0, 0), endBias: 0.58, segments: 26,
-        from: 1, to: R.tibiaTaper,
+        endRadius: R.tibia * R.tibiaTaper, waistAt: 0.54,
       },
     ));
     // Tibial tuberosity: the bump the kneecap's tendon pulls on. Small, but it

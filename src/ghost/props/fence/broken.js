@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import F from './metrics.js';
-import { woodMaterial, rng, board, pointedTop } from './wood.js';
+import { rng, board } from './wood.js';
+import {
+  PANEL_LAYOUT, panelParts, picketGeometry, postGeometry, railGeometry, woodPanelMaterial,
+} from './panel.js';
 
 // The breakage.
 //
@@ -52,60 +55,21 @@ const SPLIT_CHANCE = 0.55;
 // them apart is cheap and is most of what keeps a spray from looking stamped.
 const MIN_NEIGHBOUR_STEP = 0.16;   // of the length range
 
-// Fresh timber, in the two tones a torn fibre actually shows: down in the
-// socket it is shaded, out at the tip it is the bright fresh face. A single
-// flat torn colour across the whole spray reads as a plastic crown.
-//
-// The root is only PART of the way to the shade tone, and the ramp reaches the
-// tip colour early. First attempt ran the full shade-to-torn range over the
-// whole spike and the spray came out visibly browner than the weathered stump
-// under it, which is backwards: a fresh break is the pale warm thing and the
-// outside of the board is the dull one. What is wanted is a hint of occlusion
-// in the socket, not a two-tone paint job.
-// Not convertSRGBToLinear'd, and that is not an oversight. Colour management
-// is on, so THREE.Color's constructor has ALREADY taken the hex out of sRGB and
-// into the working space; converting again darkens it a second time and the
-// whole spray came out browner than the weathered stump it sits on, which is
-// the exact opposite of what a fresh break looks like.
-const TORN_TIP = new THREE.Color(F.wood.torn);
-const TORN_ROOT = new THREE.Color(F.wood.shade).lerp(TORN_TIP, 0.45);
-
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 // wood.js's rng is an xorshift, and xorshift has a fixed point at zero: seed 0
-// hashes to 0 and the generator then returns 0 forever. Every seed that reaches
-// this file goes through here so a caller passing 0 gets a fence rather than a
-// row of identical stubs.
+// hashes to 0 and the generator then returns 0 forever. The panel's own seeds
+// go straight to panelParts, but the stream that decides what breaks comes
+// through here, so a caller passing 0 gets a fence rather than a row of
+// identical stumps.
 function seeded(seed) {
   return rng((Math.abs(seed | 0) * 2 + 101) >>> 0);
 }
 
-// The torn material is white with the tone in the vertex colours, so one
-// material can carry the root-to-tip ramp and every splinter in a panel can be
-// merged into a single draw. Same trick the pumpkin's shell uses.
-export function tornMaterial(options = {}) {
-  return woodMaterial({ color: '#ffffff', vertexColors: true, roughness: 0.90, ...options });
-}
-
-// Iron left behind where a picket was torn off its rail.
+// Iron left behind where a picket was torn off its rail. The one thing in the
+// set that is not wood, so the one thing that does not use the wood material.
 function nailMaterial() {
   return new THREE.MeshStandardMaterial({ color: '#4a4640', roughness: 0.62, metalness: 0.35 });
-}
-
-function tintTorn(geo, length, tone) {
-  const pos = geo.attributes.position;
-  const colors = new Float32Array(pos.count * 3);
-  const c = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    // Brighten fast out of the socket: the shaded part is only the bit the
-    // neighbouring spikes actually shadow, which is the first millimetre.
-    const k = Math.pow(clamp01(pos.getY(i) / Math.max(1e-5, length)), 0.30);
-    c.copy(TORN_ROOT).lerp(TORN_TIP, k).multiplyScalar(tone);
-    colors[i * 3] = c.r;
-    colors[i * 3 + 1] = c.g;
-    colors[i * 3 + 2] = c.b;
-  }
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 }
 
 // The lengths of one tear, as mix values in 0..1 across the width.
@@ -152,7 +116,10 @@ function tearLengths(rand, n) {
 // even when their lengths differ.
 function widthCuts(rand, n) {
   const cuts = [0];
-  for (let i = 1; i < n; i++) cuts.push(i / n + (rand() - 0.5) * (0.80 / n));
+  // Plus or minus a quarter of a slice. Went to 0.40 first, which throws up the
+  // occasional slice nearly twice the average width, and a slice that wide is a
+  // block however it is tapered.
+  for (let i = 1; i < n; i++) cuts.push(i / n + (rand() - 0.5) * (0.50 / n));
   cuts.push(1);
   return cuts;
 }
@@ -179,15 +146,19 @@ function widthCuts(rand, n) {
 // Width runs out a little later than thickness, so the tip is a flattened blade
 // rather than a peg: wood splits along the grain, it does not sharpen like a
 // pencil.
-const SHOULDER = 0.16;      // of the length above the break plane
+// Where the shoulder sits, as a fraction of the length above the break plane.
+// Randomised per spike rather than fixed, because a fixed shoulder puts every
+// spike's waist at very nearly the same height and draws a visible collar right
+// round the break.
+const SHOULDER = [0.08, 0.30];
 
-function splinterProfile({ hold, shaft, taper, wobble, phase }) {
+function splinterProfile({ hold, shaft, shoulder, taper, wobble, phase }) {
   const shaftT = 0.45 + 0.55 * shaft;      // thickness necks less hard than width
   const tipW = taper * shaft;
   const tipT = taper * 0.55 * shaftT;
   return (t) => {
     const k = t <= hold ? 0 : (t - hold) / Math.max(1e-4, 1 - hold);
-    const nk = Math.min(1, k / SHOULDER);
+    const nk = Math.min(1, k / shoulder);
     const neck = nk * nk * (3 - 2 * nk);
     // High exponents on the run-out, so the shaft really is a shaft: near
     // parallel for most of its length and then a point. At 1.15 the run-out is
@@ -287,16 +258,21 @@ export function splinteredEnd({
       length: len,
       width: sw * (1 + SLICE_BLEED),
       thickness: st * (1 + SLICE_BLEED),
-      round: 0.55,
+      // Well under the 0.35 a board gets. Torn fibre has arrises on it; rounded
+      // off it comes back as a row of smooth teeth.
+      round: 0.22,
       // The curl. A torn fibre is never straight, and the bend is what sells it
       // as fibre rather than as a shard of something brittle.
       warp: (rand() * 2 - 1) * len * 0.07,
       warpAxis: rand() < 0.5 ? 'x' : 'z',
-      // The long ones are the thin ones. This is the same rule as the pairing
-      // above, applied a second time within the spike itself.
       profile: splinterProfile({
         hold,
-        shaft: 0.86 - 0.56 * m,
+        shoulder: SHOULDER[0] + rand() * (SHOULDER[1] - SHOULDER[0]),
+        // The long ones are the thin ones. Same rule as the pairing above,
+        // applied a second time inside the spike itself. Started at 0.86 for a
+        // nub, which left the short spikes as wide as they were tall: rounded
+        // blocks that read as molars rather than as broken fibre.
+        shaft: 0.70 - 0.42 * m,
         taper: F.splinter.taper,
         wobble: 0.06 + rand() * 0.07,
         phase: rand() * 6.283,
@@ -309,7 +285,7 @@ export function splinteredEnd({
       ring: 8,
     });
 
-    tintTorn(geo, len, 0.94 + rand() * 0.12);
+    geo.userData.splinterLength = len;
 
     // Drop the spike onto its root FIRST, so the lean that follows pivots about
     // the break plane rather than about the buried end. Pivoting about the root
@@ -363,8 +339,11 @@ export function splinteredEnd({
 
   return out;
 }
+// --- plumbing ---------------------------------------------------------------
 
 // Merge a list of geometries and dispose the parts, or return null for none.
+// Everything in a damaged panel shares one of two materials, so a whole panel
+// comes out as two draws.
 function fuse(list) {
   if (!list.length) return null;
   if (list.length === 1) return list[0];
@@ -373,8 +352,7 @@ function fuse(list) {
   return merged;
 }
 
-// A small collector: bodies (weathered) in one bucket, torn fibre in another,
-// so a whole damaged panel comes out as two draws and one dispose each.
+// Bodies (weathered) in one bucket, torn fibre in the other.
 function makeBuild() {
   return {
     body: [],
@@ -390,105 +368,148 @@ function meshesFrom(build, materials, out) {
   const torn = fuse(build.torn);
   if (body) { out.geometries.push(body); out.group.add(new THREE.Mesh(body, materials.wood)); }
   if (torn) { out.geometries.push(torn); out.group.add(new THREE.Mesh(torn, materials.torn)); }
+  for (const m of out.group.children) { m.castShadow = true; m.receiveShadow = true; }
+}
+
+// --- painting ---------------------------------------------------------------
+//
+// panel.js's material takes its tone from a `color` attribute and its grain
+// streaks from an `aGrain` attribute, and a board missing either comes out
+// black or ungrained beside its neighbours. picketGeometry and friends paint
+// themselves; the pieces this file has to cut for itself -- a stump, a headless
+// post -- do not exist there, so they are painted here.
+//
+// The two functions below therefore restate the tone ramp panel.js applies
+// privately in its paintBoard. That is a duplication and it is on purpose: it
+// draws from the SAME rng stream in the SAME order, so a stump rebuilt from a
+// picket's seed carries the grain phase and the weathering that picket would
+// have had, and a break lines up with the board it broke off. If paintBoard is
+// ever exported this should call it instead.
+
+const PALE = new THREE.Color(F.wood.pale);
+const SHADE = new THREE.Color(F.wood.shade);
+
+function paintCut(geo, rand, { axis = 0, groundEnd = true } = {}) {
+  const pos = geo.getAttribute('position');
+  const n = pos.count;
+  const colors = new Float32Array(n * 3);
+  const grain = new Float32Array(n * 2);
+  const c = new THREE.Color();
+  const phase = rand() * Math.PI * 2;
+  const tint = rand() * F.grain.tint;
+  const mottlePhase = rand() * Math.PI * 2;
+  for (let i = 0; i < n; i++) {
+    const along = axis === 1 ? pos.getX(i) : pos.getY(i);
+    let k = tint + 0.10 * (0.5 + 0.5 * Math.sin(along * 4.3 + mottlePhase))
+                 + 0.06 * (0.5 + 0.5 * Math.sin(along * 11.7 + phase));
+    if (groundEnd) k += Math.max(0, 1 - along / 0.09) * 0.22;
+    c.copy(PALE).lerp(SHADE, Math.min(1, k));
+    colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+    grain[i * 2] = phase; grain[i * 2 + 1] = axis;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute('aGrain', new THREE.BufferAttribute(grain, 2));
+  return geo;
+}
+
+// A whole spray, painted for the torn material. The material carries F.wood.torn
+// as its colour, so what the vertices carry here is only the shading: a little
+// darker down in the socket where the neighbouring spikes crowd it, full tone
+// out at the tip. A flat torn colour across the whole spray reads as a plastic
+// crown; the full shade-to-torn range across it reads as a two-tone paint job
+// and, worse, comes out browner than the weathered stump underneath, which is
+// backwards. A fresh break is the pale warm thing in the picture.
+function paintSpray(list, rand, axis = 0) {
+  const phase = rand() * Math.PI * 2;
+  for (const geo of list) {
+    const tone = 0.95 + rand() * 0.10;
+    const len = geo.userData.splinterLength || 1;
+    const base = geo.userData.splinterBase || 0;
+    const pos = geo.getAttribute('position');
+    const n = pos.count;
+    const colors = new Float32Array(n * 3);
+    const grain = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      const up = axis === 1 ? Math.abs(pos.getX(i) - base) : pos.getY(i) - base;
+      const k = 0.80 + 0.20 * Math.pow(clamp01(up / len), 0.30);
+      const v = k * tone;
+      colors[i * 3] = v; colors[i * 3 + 1] = v; colors[i * 3 + 2] = v;
+      grain[i * 2] = phase; grain[i * 2 + 1] = axis;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute('aGrain', new THREE.BufferAttribute(grain, 2));
+  }
+  return list;
 }
 
 // --- members ---------------------------------------------------------------
 
-// A picket, whole. Only used when the panel module has not supplied one; see
-// resolveParts below.
-function localPicket(rand, height, width, thickness) {
-  return board({
+// A stump: a picket cut off at a height, rebuilt from the same seed the intact
+// panel would have used, so it is the same board minus its top.
+//
+// The first draw off the stream has to be the warp, because that is what
+// picketGeometry draws first; get the order wrong and the stump bows a
+// different way from the picket beside it.
+function stumpGeometry({ rand, height, width }) {
+  const geo = board({
     length: height,
     width,
-    thickness,
-    warp: (rand() * 2 - 1) * F.picket.jitter.lean * width,
-    profile: pointedTop(height, width),
-    segments: 18,
+    thickness: F.picket.thickness,
+    round: F.picket.round,
+    warp: (rand() - 0.5) * 2 * F.picket.warp,
+    warpAxis: 'z',
+    segments: 14,
+    ring: 16,
   });
+  return paintCut(geo, rand);
 }
 
-function localPost(rand) {
-  return board({
-    length: F.post.height,
+function headlessPostGeometry({ rand, height }) {
+  const geo = board({
+    length: height,
     width: F.post.width,
     thickness: F.post.thickness,
     round: F.post.round,
-    warp: (rand() * 2 - 1) * 0.006,
-    segments: 10,
-    ring: 16,
-  });
-}
-
-// A rail runs along +x. board() builds along +y, so the cross section is
-// authored as width = the rail's vertical thickness and thickness = its depth
-// through the fence, and the whole thing is tipped over. Splinters for its torn
-// ends are generated in the same upright frame and tipped with it, which is why
-// they are collected before the rotation rather than after.
-function railPiece({ rand, from, to, tearAt, tearLo, warp = 0 }) {
-  const span = to - from;
-  const body = board({
-    length: span,
-    width: F.rail.thickness,
-    thickness: F.rail.depth,
-    round: 0.30,
-    warp,
+    warp: (rand() - 0.5) * 2 * F.post.warp,
     warpAxis: 'z',
-    segments: 12,
+    segments: 20,
+    ring: 20,
   });
-  const torn = [];
-  const addTear = (atTop) => {
-    const list = splinteredEnd({
-      rand,
-      width: F.rail.thickness,
-      thickness: F.rail.depth,
-      direction: atTop ? 1 : -1,
-      reach: 0.85,
-    });
-    for (const g of list) {
-      g.translate(0, atTop ? span : 0, 0);
-      torn.push(g);
-    }
-  };
-  if (tearAt) addTear(true);
-  if (tearLo) addTear(false);
-
-  const lay = (g) => { g.rotateZ(-Math.PI / 2); g.translate(from, 0, 0); return g; };
-  return { body: lay(body), torn: torn.map(lay) };
+  return paintCut(geo, rand);
 }
 
 /**
  * A picket snapped at a height, with a splintered top on the stump.
  *
- * `atFraction` is where along the picket it broke, so 0.35 is a low stump and
- * 0.8 is a picket that has lost only its point. The group's origin is the foot
- * of the picket, on the ground.
+ * `atFraction` is where along the picket it broke, so 0.8 is a picket that has
+ * lost only its point and 0.3 is a shin-high stump. The group's origin is the
+ * foot of the picket. `rand` is an rng() stream from wood.js, not Math.random.
  */
 export function brokenPicket({
-  rand = Math.random,
+  rand = rng(1),
   atFraction = 0.5,
   height = F.picket.height,
   width = F.picket.width,
-  thickness = F.picket.thickness,
   materials = null,
 } = {}) {
-  const mats = materials || { wood: woodMaterial(), torn: tornMaterial(), owned: true };
+  const mats = materials || {
+    wood: woodPanelMaterial(),
+    torn: woodPanelMaterial({ color: new THREE.Color(F.wood.torn) }),
+    owned: true,
+  };
   const breakAt = height * clamp01(atFraction);
   const build = makeBuild();
 
-  build.addBody(board({
-    length: breakAt,
-    width,
-    thickness,
-    warp: (rand() * 2 - 1) * F.picket.jitter.lean * width,
-    segments: 12,
-  }));
-  const spray = splinteredEnd({ rand, width, thickness, direction: 1 });
-  for (const g of spray) g.translate(0, breakAt, 0);
-  build.addTornAll(spray);
+  build.addBody(stumpGeometry({ rand, height: breakAt, width }));
+  const spray = splinteredEnd({ rand, width, thickness: F.picket.thickness, direction: 1 });
+  for (const g of spray) {
+    g.translate(0, breakAt, 0);
+    g.userData.splinterBase = breakAt;
+  }
+  build.addTornAll(paintSpray(spray, rand));
 
   const out = { group: new THREE.Group(), geometries: [] };
   meshesFrom(build, mats, out);
-  for (const m of out.group.children) { m.castShadow = true; m.receiveShadow = true; }
 
   return {
     group: out.group,
@@ -503,75 +524,36 @@ export function brokenPicket({
 
 // --- the panel -------------------------------------------------------------
 
-const HALF = F.panel.length / 2;
-// Pickets are nailed to the front of the rails and the rails are let into the
-// posts, so the three sit at three different depths. The rails are centred in
-// the post and the pickets hang off the front of them, which puts the picket
-// face a whisker proud of the post face -- which is how a picket fence looks.
-const RAIL_Z = 0;
-const PICKET_Z = -(F.rail.depth + F.picket.thickness) / 2;
-
-function fallbackLayout() {
-  const pitch = F.panel.length / F.panel.pickets;
-  const picketX = [];
-  for (let i = 0; i < F.panel.pickets; i++) picketX.push(-HALF + pitch * (i + 0.5));
-  return {
-    length: F.panel.length,
-    picketX,
-    picketZ: PICKET_Z,
-    postX: [-HALF, HALF],
-    postZ: 0,
-    railY: F.rail.at.map((f) => f * F.picket.height),
-    railZ: RAIL_Z,
-    railSpan: [-HALF, HALF],
-  };
-}
-
-// The panel module owns the intact fence and exports its parts so a damaged
-// panel lines up with an intact neighbour. It is loaded lazily and by hand
-// because the two files land at different times and a static import of a file
-// that is not there yet takes the whole build down; when it is absent the
-// locals above stand in and the geometry is the same vocabulary either way.
-let PANEL = null;
-export function usePanelParts(parts) { PANEL = parts || null; }
-
-function resolveLayout() {
-  const fallback = fallbackLayout();
-  const L = PANEL && PANEL.PANEL_LAYOUT;
-  if (!L) return fallback;
-  const picketX = L.picketX
-    || (Array.isArray(L.pickets) ? L.pickets.map((p) => (typeof p === 'number' ? p : p.x)) : null);
-  return {
-    length: L.length ?? fallback.length,
-    picketX: picketX ?? fallback.picketX,
-    picketZ: L.picketZ ?? fallback.picketZ,
-    postX: L.postX ?? fallback.postX,
-    postZ: L.postZ ?? fallback.postZ,
-    railY: L.railY ?? L.rails?.map((r) => (typeof r === 'number' ? r : r.y)) ?? fallback.railY,
-    railZ: L.railZ ?? fallback.railZ,
-    railSpan: L.railSpan ?? fallback.railSpan,
-  };
-}
+// Lay a spray down along X, the way railGeometry lays a rail down. +Y goes to
+// +X, so a spray built pointing up ends up pointing along the rail.
+const layAlongX = (g) => g.rotateZ(-Math.PI / 2);
 
 /**
  * A panel with some pickets whole, some snapped at different heights, some gone
  * entirely, and the rails torn through where a section is missing.
  *
- * damage runs 0 (intact) to 1 (mostly destroyed). It is not applied evenly: a
- * fence is not weathered down picket by picket, something came through it in
- * one place, so the damage is centred on a breach that widens as damage rises.
- * That is what lets a run of these read as one fence with a hole in it rather
- * than as several differently rotten fences.
+ * Built from panel.js's own parts and PANEL_LAYOUT, off the same seed, so a
+ * damaged panel butts an intact one and every board that survived is the board
+ * that would have been there.
+ *
+ * damage runs 0 (intact) to 1 (mostly destroyed), and it is deliberately NOT
+ * applied evenly. A fence does not rot away picket by picket; something came
+ * through it in one place. So the damage is centred on a breach that widens as
+ * damage rises, which is what lets a run of these read as one fence with a hole
+ * knocked in it rather than as several differently ruined fences.
  */
 export function createBrokenPanel({ seed = 1, damage = 0.5, scale = 1 } = {}) {
   const rand = seeded(seed);
   const dmg = clamp01(damage);
-  const layout = resolveLayout();
-  const materials = { wood: woodMaterial(), torn: tornMaterial() };
+  const parts = panelParts({ seed });
+  const materials = {
+    wood: woodPanelMaterial(),
+    torn: woodPanelMaterial({ color: new THREE.Color(F.wood.torn) }),
+  };
   const build = makeBuild();
-  const extras = [];        // meshes with their own material, ie the nails
+  const extras = [];
 
-  // One nail head shared by every nail in the panel, built only if the panel
+  // One nail head shared by every nail in the panel, built only if this panel
   // turns out to need one.
   let nailParts = null;
   const nails = () => {
@@ -583,143 +565,129 @@ export function createBrokenPanel({ seed = 1, damage = 0.5, scale = 1 } = {}) {
     return nailParts;
   };
 
-  const height = F.picket.height;
-  const railY = layout.railY;
+  const L = PANEL_LAYOUT.length;
+  const spanA = -L / 2;
+  const spanB = L / 2;
 
   // --- where the breach is -------------------------------------------------
-  const breachX = (rand() - 0.5) * layout.length * 0.55;
-  const breachHalf = (0.10 + 0.62 * dmg) * layout.length;
+  const breachX = (rand() - 0.5) * L * 0.55;
+  const breachHalf = (0.10 + 0.62 * dmg) * L;
 
   const state = [];         // 'whole' | 'snapped' | 'gone', per picket
-  const breakAt = [];
-  for (let i = 0; i < layout.picketX.length; i++) {
-    const x = layout.picketX[i];
-    const near = 1 - Math.min(1, Math.abs(x - breachX) / breachHalf);
-    // Smoothstep, so the breach has edges rather than a linear ramp that leaves
-    // every panel with one picket at every possible height.
+  const cutAt = [];
+  for (const p of parts.pickets) {
+    const near = 1 - Math.min(1, Math.abs(p.x - breachX) / breachHalf);
+    // Smoothstepped, so the breach has edges. A linear ramp leaves every panel
+    // with exactly one picket at every possible height, which is a gradient,
+    // not a hole.
     const soft = near * near * (3 - 2 * near);
     const sev = dmg * (0.30 + 0.85 * soft) + (rand() - 0.5) * 0.12;
-    if (sev < 0.30) { state.push('whole'); breakAt.push(1); }
+    if (sev < 0.30) { state.push('whole'); cutAt.push(1); }
     else if (sev < 0.66) {
       state.push('snapped');
-      // Just under the point at the shallow end, down to a shin-high stump at
+      // Just under the point at the shallow end of the band, down to a stump at
       // the deep end.
-      const f = 0.80 - ((sev - 0.30) / 0.36) * 0.56 + (rand() - 0.5) * 0.10;
-      breakAt.push(clamp01(f));
-    } else { state.push('gone'); breakAt.push(0); }
+      cutAt.push(clamp01(0.80 - ((sev - 0.30) / 0.36) * 0.56 + (rand() - 0.5) * 0.10));
+    } else { state.push('gone'); cutAt.push(0); }
   }
 
   // --- pickets -------------------------------------------------------------
-  for (let i = 0; i < layout.picketX.length; i++) {
-    const x = layout.picketX[i];
-    const w = F.picket.width * (1 + (rand() - 0.5) * F.picket.jitter.width);
-    const h = height * (1 + (rand() - 0.5) * F.picket.jitter.height);
-    const lean = (rand() - 0.5) * F.picket.jitter.lean;
-    const place = (g) => { g.rotateZ(lean); g.translate(x, 0, layout.picketZ); return g; };
+  parts.pickets.forEach((p, i) => {
+    // The board's own stream, so a picket this panel keeps is bit for bit the
+    // picket the intact panel would have put there.
+    const own = rng(p.seed);
+    // Baked rather than set on a mesh, because the whole panel merges into one
+    // geometry. Same order createFencePanel uses: lean about the foot, then
+    // twist, then into place.
+    const place = (g) => { g.rotateZ(p.lean); g.rotateY(p.twist); g.translate(p.x, p.y, p.z); return g; };
 
     if (state[i] === 'whole') {
-      const g = PANEL?.picketGeometry
-        ? PANEL.picketGeometry({ rand, seed: seed * 31 + i, index: i, height: h, width: w, thickness: F.picket.thickness })
-        : localPicket(rand, h, w, F.picket.thickness);
-      build.addBody(place(g));
-      continue;
+      build.addBody(place(picketGeometry({ rand: own, height: p.height, width: p.width })));
+      return;
     }
 
     if (state[i] === 'snapped') {
-      const at = h * breakAt[i];
-      build.addBody(place(board({
-        length: at,
-        width: w,
-        thickness: F.picket.thickness,
-        warp: (rand() * 2 - 1) * F.picket.jitter.lean * w,
-        segments: 12,
-      })));
-      const spray = splinteredEnd({ rand, width: w, thickness: F.picket.thickness, direction: 1 });
-      for (const g of spray) { g.translate(0, at, 0); build.addTorn(place(g)); }
-      continue;
+      const at = p.height * cutAt[i];
+      build.addBody(place(stumpGeometry({ rand: own, height: at, width: p.width })));
+      const spray = splinteredEnd({ rand, width: p.width, thickness: F.picket.thickness, direction: 1 });
+      for (const g of spray) { g.translate(0, at, 0); g.userData.splinterBase = at; }
+      for (const g of paintSpray(spray, rand)) build.addTorn(place(g));
+      return;
     }
 
-    // Gone. A picket that is gone still left something behind most of the time,
-    // and which something it left is the difference between a fence that was
-    // broken and a fence that was built with a gap in it.
+    // Gone. What a missing picket left behind is the difference between a fence
+    // that was broken and a fence that was built with a gap in it, so it is
+    // varied on purpose and one in four leaves nothing at all.
     const evidence = rand();
     if (evidence < 0.38) {
-      // A fragment still nailed across the lower rail, torn at both ends.
-      const y0 = railY[0] - 0.05 - rand() * 0.06;
-      const y1 = railY[0] + 0.04 + rand() * 0.09;
-      build.addBody(place(board({
-        length: y1 - y0,
-        width: w,
-        thickness: F.picket.thickness,
-        segments: 8,
-      }).translate(0, y0, 0)));
-      for (const g of splinteredEnd({ rand, width: w, thickness: F.picket.thickness, direction: 1 })) {
-        build.addTorn(place(g.translate(0, y1, 0)));
-      }
-      for (const g of splinteredEnd({ rand, width: w, thickness: F.picket.thickness, direction: -1 })) {
-        build.addTorn(place(g.translate(0, y0, 0)));
-      }
-    } else if (evidence < 0.72) {
-      // Nails left in the rails. Sub-pixel at scene scale, but at the zoom the
+      // A fragment still nailed across the lower rail, torn at both ends. The
+      // strongest of the three: it says the picket was pulled, not unscrewed.
+      const railLo = parts.rails[0].y;
+      const y0 = railLo - 0.05 - rand() * 0.06;
+      const y1 = railLo + 0.04 + rand() * 0.09;
+      build.addBody(place(stumpGeometry({ rand: own, height: y1 - y0, width: p.width }).translate(0, y0, 0)));
+      const up = splinteredEnd({ rand, width: p.width, thickness: F.picket.thickness, direction: 1 });
+      for (const g of up) { g.translate(0, y1, 0); g.userData.splinterBase = y1; }
+      for (const g of paintSpray(up, rand)) build.addTorn(place(g));
+      const down = splinteredEnd({ rand, width: p.width, thickness: F.picket.thickness, direction: -1 });
+      for (const g of down) { g.translate(0, y0, 0); g.userData.splinterBase = y0; }
+      for (const g of paintSpray(down, rand)) build.addTorn(place(g));
+    } else if (evidence < 0.74) {
+      // Nails left in the rails. Sub-pixel at scene scale, but at the zoom a
       // break is judged at they are the thing that says a picket used to be
       // here, and they cost two dozen triangles.
-      for (const y of railY) {
+      for (const r of parts.rails) {
         if (rand() < 0.25) continue;      // one of them pulled through
         const m = new THREE.Mesh(nails().geo, nails().mat);
-        m.position.set(x + (rand() - 0.5) * w * 0.4, y + (rand() - 0.5) * 0.012, layout.railZ - F.rail.depth / 2);
+        m.position.set(
+          p.x + (rand() - 0.5) * p.width * 0.4,
+          r.y + (rand() - 0.5) * 0.012,
+          r.z + F.rail.depth / 2,
+        );
         extras.push(m);
       }
     }
     // else: nothing at all. Some pickets just go.
-  }
+  });
 
   // --- rails ---------------------------------------------------------------
-  // Where a run of pickets is missing there is nothing holding the rail, so the
-  // rail is torn through as well. The two rails never tear at the same x: a
-  // matched pair of breaks reads as a cut-out, and one of the strongest reads
-  // in the reference is a rail snapped mid-span while its neighbour holds.
+  // A rail snapped mid-span is one of the strongest reads there is, and where a
+  // run of pickets is missing there is nothing holding the rail up at all. The
+  // two rails never tear at the same x: a matched pair of breaks reads as a
+  // rectangle cut out of the fence.
   const goneIdx = state.map((s, i) => (s === 'gone' ? i : -1)).filter((i) => i >= 0);
   let gap = null;
   if (goneIdx.length >= 2) {
-    // Longest contiguous run of missing pickets.
     let bestA = goneIdx[0], bestB = goneIdx[0], a = goneIdx[0], b = goneIdx[0];
     for (let k = 1; k < goneIdx.length; k++) {
       if (goneIdx[k] === b + 1) b = goneIdx[k];
       else { a = b = goneIdx[k]; }
       if (b - a > bestB - bestA) { bestA = a; bestB = b; }
     }
-    if (bestB > bestA) gap = [layout.picketX[bestA], layout.picketX[bestB]];
+    if (bestB > bestA) gap = [parts.pickets[bestA].x, parts.pickets[bestB].x];
   }
 
-  const [spanA, spanB] = layout.railSpan;
-  for (let r = 0; r < railY.length; r++) {
-    const y = railY[r];
-    const place = (g) => { g.translate(0, y, layout.railZ); return g; };
-
+  for (const r of parts.rails) {
+    const own = rng(r.seed);
     // A rail can also let go on its own once the fence is well gone, even where
     // the pickets beside it are still standing.
     const solo = !gap && dmg > 0.40 && rand() < (dmg - 0.40) * 1.3;
 
     if (!gap && !solo) {
-      const g = PANEL?.railGeometry
-        ? PANEL.railGeometry({ rand, index: r, from: spanA, to: spanB })
-        : railPiece({ rand, from: spanA, to: spanB }).body;
-      build.addBody(place(g));
+      build.addBody(railGeometry({ rand: own, length: r.length }).translate(r.x, r.y, r.z));
       continue;
     }
 
-    // Tear points, jittered per rail so the two rails never line up. Where a
-    // run of pickets is missing the rail loses a length of itself into the gap;
-    // where it simply let go it is one break with the two halves still meeting,
-    // parted by the kerf of fibre that went with the other side.
+    // Tear points, jittered per rail. Where a run of pickets is missing the
+    // rail loses a length of itself into the gap; where it simply let go it is
+    // one break, the two halves still meeting across the kerf of fibre that
+    // went with the other side.
     let tearL, tearR;
     if (gap) {
-      const lo = gap[0];
-      const hi = gap[1];
-      tearL = lo + (rand() - 0.4) * (hi - lo) * 0.45;
-      tearR = hi - (rand() - 0.4) * (hi - lo) * 0.45;
+      tearL = gap[0] + (rand() - 0.4) * (gap[1] - gap[0]) * 0.45;
+      tearR = gap[1] - (rand() - 0.4) * (gap[1] - gap[0]) * 0.45;
     } else {
-      const t = spanA + (spanB - spanA) * (0.28 + rand() * 0.44);
+      const t = spanA + L * (0.28 + rand() * 0.44);
       const kerf = 0.005 + rand() * 0.012;
       tearL = t - kerf;
       tearR = t + kerf;
@@ -730,67 +698,82 @@ export function createBrokenPanel({ seed = 1, damage = 0.5, scale = 1 } = {}) {
     const lostLeft = gap && dmg > 0.72 && rand() < (dmg - 0.72) * 1.6;
     const lostRight = gap && !lostLeft && dmg > 0.72 && rand() < (dmg - 0.72) * 1.6;
 
-    if (!lostLeft && tearL > spanA + 0.05) {
-      const piece = railPiece({ rand, from: spanA, to: tearL, tearAt: true });
-      // A free end with nothing under it drops. Rotated about the post end, so
-      // the rail stays let into the post and only the torn end sags.
-      const droop = gap ? -(0.015 + rand() * 0.045) : 0;
-      const sag = (g) => { g.translate(-spanA, 0, 0); g.rotateZ(droop); g.translate(spanA, 0, 0); return place(g); };
-      build.addBody(sag(piece.body));
-      for (const g of piece.torn) build.addTorn(sag(g));
-    }
-    if (!lostRight && tearR < spanB - 0.05) {
-      const piece = railPiece({ rand, from: tearR, to: spanB, tearLo: true });
-      const droop = gap ? (0.015 + rand() * 0.045) : 0;
-      const sag = (g) => { g.translate(-spanB, 0, 0); g.rotateZ(droop); g.translate(spanB, 0, 0); return place(g); };
-      build.addBody(sag(piece.body));
-      for (const g of piece.torn) build.addTorn(sag(g));
-    }
+    const half = (from, to, tearHigh) => {
+      const span = to - from;
+      if (span < 0.06) return;
+      // railGeometry hands back a rail centred on the origin, so the piece is
+      // built at its own length and then slid to where that length sits.
+      const body = railGeometry({ rand: own, length: span }).translate(from + span / 2, 0, 0);
+      const spray = splinteredEnd({
+        rand,
+        width: F.rail.thickness,
+        thickness: F.rail.depth,
+        direction: tearHigh ? 1 : -1,
+        // A rail is nearly twice as deep as a picket is thick, so F.splinter's
+        // multiples of thickness would hand it spikes as long as the gap. Pulled
+        // in, and the tear still comes out heavier than a picket's, which is
+        // right: it is a heavier board.
+        reach: 0.80,
+      });
+      for (const g of spray) layAlongX(g).translate(tearHigh ? to : from, 0, 0);
+      for (const g of spray) g.userData.splinterBase = tearHigh ? to : from;
+      paintSpray(spray, rand, 1);
+
+      // A free end with nothing under it drops. Pivoted about the post end, so
+      // the rail stays let into its post and only the torn end sags.
+      const pivot = tearHigh ? spanA : spanB;
+      const droop = gap ? (tearHigh ? -1 : 1) * (0.015 + rand() * 0.045) : 0;
+      const settle = (g) => {
+        if (droop) { g.translate(-pivot, 0, 0); g.rotateZ(droop); g.translate(pivot, 0, 0); }
+        return g.translate(0, r.y, r.z);
+      };
+      build.addBody(settle(body));
+      for (const g of spray) build.addTorn(settle(g));
+    };
+
+    if (!lostLeft) half(spanA, tearL, true);
+    if (!lostRight) half(tearR, spanB, false);
   }
 
   // --- posts ---------------------------------------------------------------
   // The posts are what is left standing when everything between them has gone,
-  // so they survive nearly always. At the very deep end one of them can lose
-  // its head, which is worth having because a broken post is a much heavier
-  // break than a broken picket and it changes the silhouette of the whole run.
+  // so they survive nearly always. At the very deep end one can lose its head,
+  // which is worth having: a broken post is a much heavier break than a broken
+  // picket and it changes the silhouette of a whole run.
   const postBroken = dmg > 0.80 && rand() < (dmg - 0.80) * 2.2 ? (rand() < 0.5 ? 0 : 1) : -1;
-  for (let p = 0; p < layout.postX.length; p++) {
-    const x = layout.postX[p];
-    const place = (g) => { g.translate(x, 0, layout.postZ); return g; };
-    if (p !== postBroken) {
-      const g = PANEL?.postGeometry ? PANEL.postGeometry({ rand, index: p }) : localPost(rand);
-      build.addBody(place(g));
-      continue;
+  parts.posts.forEach((p, i) => {
+    const own = rng(p.seed);
+    const place = (g) => g.translate(p.x, p.y, p.z);
+    if (i !== postBroken) {
+      build.addBody(place(postGeometry({ rand: own })));
+      return;
     }
     const at = F.post.height * (0.48 + rand() * 0.22);
-    build.addBody(place(board({
-      length: at,
+    build.addBody(place(headlessPostGeometry({ rand: own, height: at })));
+    const spray = splinteredEnd({
+      rand,
       width: F.post.width,
       thickness: F.post.thickness,
-      round: F.post.round,
-      segments: 8,
-      ring: 16,
-    })));
-    // reach is pulled well in here: F.splinter.length is in multiples of the
-    // board's THICKNESS, and a post is as thick as it is wide, so the honest
-    // 2.4x would hand it spikes a third of its own height long.
-    for (const g of splinteredEnd({
-      rand, width: F.post.width, thickness: F.post.thickness, direction: 1, reach: 0.45,
-    })) build.addTorn(place(g.translate(0, at, 0)));
-  }
+      direction: 1,
+      // Same reason as the rail, harder: a post is as thick as it is wide, and
+      // the honest 2.4x would give it spikes a third of its own height long.
+      reach: 0.40,
+    });
+    for (const g of spray) { g.translate(0, at, 0); g.userData.splinterBase = at; }
+    for (const g of paintSpray(spray, rand)) build.addTorn(place(g));
+  });
 
   // --- assemble ------------------------------------------------------------
   const out = { group: new THREE.Group(), geometries: [] };
   meshesFrom(build, materials, out);
-  for (const e of extras) out.group.add(e);
-  for (const m of out.group.children) { m.castShadow = true; m.receiveShadow = true; }
+  for (const e of extras) { e.castShadow = true; out.group.add(e); }
   out.group.scale.setScalar(scale);
 
   return {
     group: out.group,
     // Static prop. The interface is here so a damaged panel drops into the same
     // list as the pumpkin and the tombstones without a special case at the call
-    // site, which is the only reason props that do not move still carry it.
+    // site, which is the only reason props that do not move carry one.
     update() {},
     dispose() {
       for (const g of out.geometries) g.dispose();

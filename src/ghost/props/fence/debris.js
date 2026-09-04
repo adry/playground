@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import F from './metrics.js';
-import { board, rng, woodMaterial } from './wood.js';
+import { board, rng } from './wood.js';
+import { woodPanelMaterial } from './panel.js';
 
 // The ground debris: what is left lying on the floor where a panel has been
 // smashed through.
@@ -30,6 +31,19 @@ import { board, rng, woodMaterial } from './wood.js';
 // degrees puts a corner well under a box that still says it is sitting on the
 // floor. Every height decision here reads real vertices through the real
 // matrix.
+//
+// One thing about the SURFACE, because it decides the shape of the code below.
+// The fence's grain is a fragment effect in panel.js's woodPanelMaterial and it
+// reads the board's OBJECT space. A plank drawn with a plain woodMaterial()
+// comes out flat cream next to a grained one, so the debris has to use the
+// panel's material or it is visibly a different species of wood from the fence
+// it fell off. Object space is also why the pile is NOT merged into one
+// geometry, which is what the first version did: baking each plank's placement
+// into its vertices puts every board's grain on the same world axis, and the
+// streaks then run along the pile instead of along the boards. A dozen draw
+// calls buys the grain, and the panel standing next to it is already about that
+// many. The chips are a different case and are still instanced; see the
+// scatter.
 
 // --- stock -----------------------------------------------------------------
 // Debris is not a new kind of timber. Every piece on the ground came off the
@@ -45,6 +59,8 @@ const STOCK = [
     width: F.picket.width,
     thickness: F.picket.thickness,
     full: F.picket.height,
+    round: F.picket.round,
+    warp: F.picket.warp,
     cut: [0.34, 1.0],    // a snapped-off stub, through to the whole picket
   },
   {
@@ -53,9 +69,14 @@ const STOCK = [
     // chunkier section is most of what stops the pile reading as ten copies of
     // one board.
     weight: 0.3,
+    // A rail is fitted flat, F.rail.depth across and F.rail.thickness tall, and
+    // a piece of one lying on the floor keeps that: its wide face is still the
+    // one on the ground.
     width: F.rail.depth,
     thickness: F.rail.thickness,
     full: F.panel.length,
+    round: F.rail.round,
+    warp: F.rail.warp,
     // A rail tears out between pickets, so a fragment is a small whole number
     // of picket bays: about a seventh of the panel up to a little under half.
     cut: [0.16, 0.50],
@@ -226,23 +247,24 @@ function tornEnds(length, thickness, rand) {
   return { profile, zones: [ends[0].z, ends[1].z] };
 }
 
-function plankGeometry({ length, width, thickness, rand }) {
-  const { profile, zones } = tornEnds(length, thickness, rand);
+function plankGeometry({ length, stock, rand }) {
+  const { profile, zones } = tornEnds(length, stock.thickness, rand);
 
   const geo = board({
     length,
-    width,
-    thickness,
-    // A board is a FLAT thing with the corners knocked off, and the flat is
-    // most of what says board. 0.46 was tried first, on the theory that these
-    // have been kicked about and rained on since the panel went, and at a
-    // picket's 42mm thickness it rounded the section away entirely: the pile
-    // came out as a heap of pool noodles. This leaves a chamfer you can see and
-    // two faces you can read.
-    round: 0.24,
-    // Hand-sawn boards are never straight and broken ones are worse. Held under
-    // a tenth of the length; past that it reads as rubber rather than timber.
-    warp: length * (rand() - 0.5) * 0.055,
+    width: stock.width,
+    thickness: stock.thickness,
+    // The stock's own rounding. A fragment of a picket carries a picket's
+    // chamfer because it IS a picket, and debris whose section does not match
+    // the boards it broke off is the one mistake this file cannot recover from.
+    // (Tried before metrics carried these: 0.46, on the theory that debris has
+    // been kicked about and rained on. At a picket's 42mm thickness it rounded
+    // the section clean away and the pile came out as a heap of pool noodles.)
+    round: stock.round,
+    // A fragment of a bowed board is less bowed than the whole board was:
+    // board()'s warp is zero at both ends and peaks in the middle, so a piece
+    // carries its share by length. Signed, because a fallen board has no up.
+    warp: (rand() < 0.5 ? -1 : 1) * stock.warp * (0.4 + 0.8 * rand()) * (length / stock.full),
     warpAxis: rand() < 0.5 ? 'x' : 'z',
     profile,
     // Segments are set by length rather than fixed, because they do two jobs
@@ -251,23 +273,36 @@ function plankGeometry({ length, width, thickness, rand }) {
     // height field, which needs the vertex rings landing no further apart than
     // the splat is wide, or the next plank up drops into the gaps between them.
     segments: clamp(Math.round(length / (FIELD_CELL * 1.6)), 10, 44),
-    // Fourteen round as well: with the section this flat, ten put a visible
-    // kink across the middle of the wide face where two ring vertices had to
-    // stand in for a straight run.
+    // Fourteen round, which is what railGeometry uses for the same section.
+    // Ten put a visible kink across the middle of the wide face, where two ring
+    // vertices had to stand in for a straight run.
     ring: 14,
   });
 
-  // board() runs from its origin along +Y with the width on X. Lay it down
-  // here, once, at build time: centred on its own middle, length on X,
-  // thickness vertical. Baking it means the placement matrix below is nothing
-  // but three angles and a position, which is what makes the drop easy to
-  // reason about and easy to trust.
+  // Laid down EXACTLY the way railGeometry lays a rail down: centred, length
+  // along +X, and no further. That leaves the board on its edge rather than on
+  // its face, which is not how it will be seen; the quarter turn that lays it
+  // flat is folded into the placement rotation instead, as LIE_FLAT.
+  //
+  // It has to be this way round. woodPanelMaterial reads the grain off object
+  // space and it knows exactly two conventions: standing up +Y, or laid along
+  // +X the way a rail is. Turn the board flat here and its own axes match
+  // neither, and the streaks run across the boards instead of along them.
+  // Object space never sees the quarter turn, so as far as the shader is
+  // concerned every one of these is a rail.
   geo.translate(0, -length / 2, 0);
   geo.rotateZ(-Math.PI / 2);
-  geo.rotateX(Math.PI / 2);
 
   return { geo, zones };
 }
+
+// The quarter turn that stands a board on its face instead of its edge. It is
+// part of the placement rotation rather than part of the geometry; see above.
+const LIE_FLAT = Math.PI / 2;
+
+// The second component of woodPanelMaterial's aGrain attribute. 1 means "this
+// board already lies along X", which after the lay-down above it does.
+const GRAIN_ALONG_X = 1;
 
 // --- the pile --------------------------------------------------------------
 
@@ -319,35 +354,32 @@ export function createDebrisPile({ seed = 1, radius = 0.55, planks = 10, scale =
   const longest = specs.length ? specs[0].length : 0;
   const field = heightField(2 * (radius + longest * 0.5) * 1.08);
 
-  const positions = [];
-  const normals = [];
-  const colors = [];
-  const indices = [];
-
   // Plain THREE.Color, NOT .convertSRGBToLinear(). Colour management is on, so
   // the constructor has already taken the hex out of sRGB into the working
-  // space; converting a second time takes it out twice and the timber comes out
-  // near black. Same trap, same reason, as the instance colours in the scatter
-  // below -- it has cost this project a prop once already.
+  // space; converting a second time takes it out twice and lands somewhere
+  // between a saturated tan and near black. Same trap, same reason, as the
+  // instance colours in the scatter below -- it has cost this project a prop
+  // once already.
   const pale = new THREE.Color(F.wood.pale);
   const torn = new THREE.Color(F.wood.torn);
   const shade = new THREE.Color(F.wood.shade);
   const col = new THREE.Color();
 
   const m = new THREE.Matrix4();
-  const nrm = new THREE.Matrix3();
   const p = new THREE.Vector3();
-  const n = new THREE.Vector3();
   const euler = new THREE.Euler();
+
+  // One material for the whole pile. woodPanelMaterial already leaves the base
+  // colour white so the vertex attribute IS the colour; the torn tone is in
+  // that attribute per vertex rather than in the material, because a broken
+  // plank is pale down its length and warm only at its two ends.
+  const material = woodPanelMaterial();
+  const group = new THREE.Group();
+  const geometries = [];
 
   for (let i = 0; i < specs.length; i++) {
     const { stock, length } = specs[i];
-    const { geo, zones } = plankGeometry({
-      length,
-      width: stock.width,
-      thickness: stock.thickness,
-      rand,
-    });
+    const { geo, zones } = plankGeometry({ length, stock, rand });
     const pos = geo.attributes.position;
     const nor = geo.attributes.normal;
     const half = length / 2;
@@ -416,10 +448,14 @@ export function createDebrisPile({ seed = 1, radius = 0.55, planks = 10, scale =
       // no visible reason, which the eye reads as floating.
       const lean = clamp(restingLean(support, half), -MAX_LEAN, MAX_LEAN);
 
-      // YZX: roll about the plank's own length first, then the lean about the
-      // axis across it, then the heading. In any other order the lean is
-      // applied to an axis that has already been swung and stops being a lean.
-      euler.set(roll, yaw, lean, 'YZX');
+      // Rotation order is YZX: the roll about the plank's own length first,
+      // then the lean about the axis across it, then the heading. In any other
+      // order the lean is applied to an axis that has already been swung and
+      // stops being a lean.
+      // YZX, and the roll carries LIE_FLAT with it: X first, so the quarter
+      // turn that puts the board on its face happens in the board's own frame
+      // before anything else touches it.
+      euler.set(LIE_FLAT + roll, yaw, lean, 'YZX');
       m.makeRotationFromEuler(euler);
       m.setPosition(cx, 0, cz);
 
@@ -445,26 +481,27 @@ export function createDebrisPile({ seed = 1, radius = 0.55, planks = 10, scale =
       if (best === null || score < best.score) best = { cx, cz, yaw, lean, roll, drop, score };
     }
 
-    euler.set(best.roll, best.yaw, best.lean, 'YZX');
+    euler.set(LIE_FLAT + best.roll, best.yaw, best.lean, 'YZX');
     m.makeRotationFromEuler(euler);
     m.setPosition(best.cx, -best.drop, best.cz);
-    nrm.getNormalMatrix(m);
 
-    // Bake straight into the merged buffers. These are static props: ten
-    // separate meshes would be ten draw calls for a thing that never moves
-    // relative to itself.
-    const base = positions.length / 3;
+    // Paint it, and write its top into the field for whatever lands next. Both
+    // need the vertex in WORLD space, so they happen together; the attributes
+    // themselves go back onto the plank's own geometry, which stays in the
+    // object space the grain shader reads.
+    const shadeCol = new Float32Array(pos.count * 3);
+    const grain = new Float32Array(pos.count * 2);
+    // One grain phase per plank, the way paintBoard gives one per board.
+    const phase = rand() * Math.PI * 2;
+
     for (let vi = 0; vi < pos.count; vi++) {
       p.fromBufferAttribute(pos, vi);
       const localX = p.x;
       p.applyMatrix4(m);
-      positions.push(p.x, p.y, p.z);
 
-      n.fromBufferAttribute(nor, vi).applyMatrix3(nrm).normalize();
-      normals.push(n.x, n.y, n.z);
-
-      // Torn fibre catches the light warmer than a weathered face (F.wood.torn),
-      // so the run-out at each end carries it and the length between stays pale.
+      // Torn fibre catches the light warmer than a weathered face
+      // (F.wood.torn), so the run-out at each end carries it and the length
+      // between them stays pale.
       const zone = Math.max(1e-4, localX < 0 ? zones[0] : zones[1]);
       const tear = clamp(1 - (half - Math.abs(localX)) / zone, 0, 1);
       col.copy(pale).lerp(shade, weather).lerp(torn, tear * 0.85);
@@ -476,34 +513,30 @@ export function createDebrisPile({ seed = 1, radius = 0.55, planks = 10, scale =
       // pile looks wet.
       const low = clamp(1 - p.y / (stock.thickness * 3), 0, 1);
       col.lerp(shade, low * low * 0.22);
-      colors.push(col.r, col.g, col.b);
+      shadeCol[vi * 3] = col.r;
+      shadeCol[vi * 3 + 1] = col.g;
+      shadeCol[vi * 3 + 2] = col.b;
+
+      grain[vi * 2] = phase;
+      grain[vi * 2 + 1] = GRAIN_ALONG_X;
 
       // The plank's own surface is now support for whatever lands next.
       field.raise(p.x, p.z, p.y);
     }
 
-    const idx = geo.index.array;
-    for (let t = 0; t < idx.length; t++) indices.push(base + idx[t]);
-    geo.dispose();
+    geo.setAttribute('color', new THREE.BufferAttribute(shadeCol, 3));
+    geo.setAttribute('aGrain', new THREE.BufferAttribute(grain, 2));
+    geo.computeBoundingSphere();
+
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.position.setFromMatrixPosition(m);
+    mesh.quaternion.setFromRotationMatrix(m);
+    group.add(mesh);
+    geometries.push(geo);
   }
 
-  const merged = new THREE.BufferGeometry();
-  merged.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  merged.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-  merged.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  merged.setIndex(indices);
-  merged.computeBoundingSphere();
-
-  // White base colour: the pale and the torn are both in the vertex colours
-  // now, and three multiplies the attribute against material.color.
-  const material = woodMaterial({ color: 0xffffff, vertexColors: true });
-
-  const mesh = new THREE.Mesh(merged, material);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-
-  const group = new THREE.Group();
-  group.add(mesh);
   group.scale.setScalar(scale);
 
   return {
@@ -512,7 +545,7 @@ export function createDebrisPile({ seed = 1, radius = 0.55, planks = 10, scale =
     // list and the preview harness without either of them special-casing it.
     update() {},
     dispose() {
-      merged.dispose();
+      for (const g of geometries) g.dispose();
       material.dispose();
       group.clear();
     },
