@@ -170,9 +170,24 @@ const LZ = (t) => PORION_Z + t * L_SKULL;
 // between.
 function silhouette(pts) {
   const n = pts.length;
+  // Fritsch-Carlson tangents, not plain Catmull-Rom ones. A plain central
+  // difference at a LOCAL EXTREMUM is not zero, so the curve overshoots past
+  // it and comes back: at opisthocranion, which is exactly such an extremum,
+  // that drew a visible kink in the back of the head and put the true furthest
+  // point a little above where the reference says. Zeroing the tangent wherever
+  // the two secants disagree in sign, and limiting it elsewhere, makes every
+  // landmark a genuine turning point of the curve. It also rounds the brow: at
+  // the glabella the outline stops going forward and starts going back, and
+  // that is the same condition.
   const m = pts.map((p, i) => {
     const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
-    return (b[1] - a[1]) / (b[0] - a[0]);
+    if (i === 0 || i === n - 1) return (b[1] - a[1]) / (b[0] - a[0]);
+    const sL = (p[1] - a[1]) / (p[0] - a[0]);
+    const sR = (b[1] - p[1]) / (b[0] - p[0]);
+    if (sL * sR <= 0) return 0;
+    const t = (sL + sR) / 2;
+    const lim = 3 * Math.min(Math.abs(sL), Math.abs(sR));
+    return Math.sign(t) * Math.min(Math.abs(t), lim);
   });
   return (y) => {
     if (y <= pts[0][0]) return pts[0][1] + (y - pts[0][0]) * m[0];
@@ -282,19 +297,54 @@ const planTaper = (zn) => {
 // term, because the profile does not close there -- the braincase's floor is a
 // real edge on a real skull, and cb rounds it rather than leaving a rim.
 const cb = (y) => Math.sqrt(smoothstep(VAULT_BASE, VAULT_BASE + 0.16 * VAULT_SPAN, y));
+// ...and the crown needs its own, for a different reason. The reference puts
+// bregma only 0.01 of L below the vertex, so the two authored curves converge
+// over almost no height at all: their half-span goes to zero LINEARLY in the
+// last millimetre and the vault caps in a wedge, a visible spike on the top of
+// the head. Tapering that linear span by a further square root only made it
+// worse (the product closes as the 1.5 power, which is sharper still).
+//
+// So the top eighteen per cent of the vault does not use the authored
+// convergence at all. It is a circular cap -- half-span proportional to the
+// square root of the distance below the crown, which is what a dome is -- blended
+// into the authored profile with a smoothstep whose derivative vanishes at both
+// ends, so the join is C1 and leaves no shading crease. The same factor closes
+// the PLAN, otherwise the section stays wide side to side while going thin
+// front to back and the crown comes to a blade instead of a dome.
+const CAP_FRAC = 0.18;
+const Y_CAP = Y_CROWN - CAP_FRAC * VAULT_SPAN;
+const VERTEX_Z = LZ(0.12);
 function vaultSection(y) {
+  if (y > Y_CROWN || y < VAULT_BASE) return null;
+  const zf = FRONT_LINE(y), zb = BACK_LINE(y);
+  let half = (zf - zb) / 2;
+  let cz = (zf + zb) / 2;
+  const v = vaultV(y);
+  let sx = HW * vaultWidth(v) * Math.pow(clamp01(half / SZ_REF), 0.55);
+  if (y > Y_CAP) {
+    const u = clamp01((Y_CROWN - y) / (CAP_FRAC * VAULT_SPAN));
+    const w = u * u * (3 - 2 * u);
+    const rc = Math.sqrt(Math.max(0, 2 * u - u * u));
+    half = (1 - w) * CAP.half * rc + w * half;
+    cz = (1 - w) * (VERTEX_Z + (CAP.cz - VERTEX_Z) * rc) + w * cz;
+    sx = (1 - w) * CAP.sx * rc + w * sx;
+  }
+  const k = cb(y);
+  if (half <= 1e-5 || sx <= 1e-5) return null;
+  return { cz, sz: half * k, sx: sx * k, ph: vaultPlan(v) };
+}
+// The section the cap is hung on, sampled just below the join so the values it
+// blends toward are the authored ones.
+const CAP = (() => {
+  const y = Y_CAP;
   const zf = FRONT_LINE(y), zb = BACK_LINE(y);
   const half = (zf - zb) / 2;
-  if (half <= 1e-5 || y > Y_CROWN || y < VAULT_BASE) return null;
-  const k = cb(y);
-  const v = vaultV(y);
   return {
+    half,
     cz: (zf + zb) / 2,
-    sz: half * k,
-    sx: HW * vaultWidth(v) * Math.pow(clamp01(half / SZ_REF), 0.55) * k,
-    ph: vaultPlan(v),
+    sx: HW * vaultWidth(vaultV(y)) * Math.pow(clamp01(half / SZ_REF), 0.55),
   };
-}
+})();
 
 function vaultField(x, y, z) {
   const s = vaultSection(y);
@@ -1791,8 +1841,12 @@ export function buildSkull({ material }) {
   // apart, and a round bar puts them 0.12 apart. A rounded block filling the
   // front-lower corner is what a real chin is anyway, and it is the difference
   // between a jaw that ends in a curve and one that ends in a face.
-  const chinGeo = track(toothGeometry(0.185 * M.skull.width, 0.108 * HS, 0.115 * M.skull.depth));
-  chinGeo.translate(0, Y_CHIN + 0.048 * HS, LOWER_ARCH.front - 0.055 * M.skull.depth);
+  // Wide and low rather than small and proud: at 0.185 of the skull's width it
+  // was a lozenge stuck on the front of the jaw in the head-on view. It has to
+  // be most of the width of the mandible's front for the block to BE the chin
+  // rather than sit on it.
+  const chinGeo = track(toothGeometry(0.300 * M.skull.width, 0.125 * HS, 0.100 * M.skull.depth));
+  chinGeo.translate(0, Y_CHIN + 0.058 * HS, LOWER_ARCH.front - 0.045 * M.skull.depth);
   jawRoot.add(add(chinGeo, material, 'jaw-chin'));
 
   // ------------------------------------------------------------- lower teeth
