@@ -43,10 +43,50 @@
   }
   #view:active { cursor: grabbing; }
   #view:focus-visible { outline: 2px solid #5566b8; outline-offset: -4px; }
+
+  /* Controls, bottom left. Quiet enough to ignore and dark enough to read:
+     against the #b9bec7 floor this sits near 4.8:1, so it clears AA for body
+     text while still reading as a footnote rather than as UI.
+
+     A system stack rather than the studio's Lato. This page also ships as a
+     single inlined file for artifact hosts, where an outbound font request may
+     be blocked, and two lines of hint text are not worth a render-blocking
+     round trip on a toy you are meant to be touching within a second.
+
+     pointer-events: none matters more than it looks: the whole viewport is a
+     drag surface, and a text node in the corner would otherwise swallow a
+     press that started on it. */
+  .hint {
+    position: fixed;
+    left: max(18px, env(safe-area-inset-left));
+    bottom: max(16px, env(safe-area-inset-bottom));
+    margin: 0;
+    font: 400 13px/1.55 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    letter-spacing: 0.01em;
+    color: #454b55;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* One of the two is always hidden. Telling a phone about the space bar is
+     the kind of small lie that makes everything else on a page less trusted. */
+  .hint .touch { display: none; }
+  @media (hover: none) and (pointer: coarse) {
+    .hint .pointer { display: none; }
+    .hint .touch { display: block; }
+  }
 </style>
 </head>
 <body data-scene="minimal">
   <canvas id="view" tabindex="0" aria-label="Interactive scene: a cloth ghost on an isometric floor. Drag to lead it around, tap to make it hop. Arrow keys and space also work."></canvas>
+  <!-- aria-hidden because the canvas's own label already says all of this, and
+       a screen reader should hear the controls once, attached to the thing they
+       control, rather than twice. -->
+  <p class="hint" aria-hidden="true">
+    <span class="pointer">Drag or arrows to move around<br />Click or space bar to jump</span>
+    <span class="touch">Drag to move around<br />Tap to jump</span>
+  </p>
   <script type="module" src="/src/ghost/main.js"></script>
 </body>
 </html>

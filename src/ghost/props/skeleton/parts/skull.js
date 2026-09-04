@@ -19,8 +19,11 @@ import { shaft, jointBall, plate } from './bone.js';
 //    front of it. So the braincase, brow, cheekbones and maxilla are a single
 //    parametric surface -- a smooth union of a few blobs and swept tubes,
 //    sampled on a sphere grid -- exactly the call pumpkin.js makes for its
-//    lobed shell. The mandible and the teeth, which ARE long-bone-shaped, do
-//    come from the vocabulary.
+//    lobed shell. The teeth come from the vocabulary, and so do the ramus of
+//    the mandible, which is plate(), and its condyle, which is jointBall().
+//    The BODY of the mandible does not: it needs a section that changes along
+//    its own length, which shaft() cannot sweep, so it has sweepBar() of its
+//    own. See "the mandible".
 //
 // 2. The orbits and the nasal aperture are REAL HOLES, cut out of that grid,
 //    with a wall of bone in the cut and a dark rounded cavity behind. See "the
