@@ -492,6 +492,11 @@ function makeNoise(seed) {
 // in main.js, throws light you cannot see at all. This is what makes the
 // lantern read as a lantern in THIS scene's light. The 2.2 : 1 ratio between
 // the ends is the pumpkin's and is the part that is not stylistic.
+// Swept at 0.45, 0.7 and 1.0 of an earlier, brighter setting and looked at
+// beside a headstone (out/ground/lk-tile.png). The bright one clipped the red
+// channel over a disc a third of a unit across, and a clipped pool is a pool
+// the flicker cannot be seen in: the swing lands entirely above 255 and the
+// light goes visually dead in the one place it is brightest.
 const LAMP = { min: 0.66, max: 1.45 };
 const CORE = { min: 1.15, max: 2.45 };   // flame body, above 1 so ACES clips it
 const HALO = { min: 0.11, max: 0.28 };   // the soft shell around it
@@ -883,6 +888,23 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
         ? Math.max(0, raw)
         : 1 - (1 - KNEE) * Math.exp(-(raw - KNEE) / (1 - KNEE));
 
+      // What all of that measures, over fifteen simulated minutes of seed 5 at
+      // 60fps, beside the pumpkin's published figures for the same metric:
+      //
+      //                          this      pumpkin
+      //   mean level             0.880     0.876
+      //   spread (sd)            0.077     0.084     a shade calmer, on purpose
+      //   1st percentile         0.53      0.50
+      //   99th / max             0.97/0.99 0.97/0.99 not pinned at either end
+      //   mean step per frame    0.0151    0.0182
+      //   frames within 0.002    9.9%      8.7%      the anti-stall number
+      //
+      // and as events, counted with a 0.05 re-arm so the tremble is not
+      // miscounted: a duck below 0.80 every 8 seconds, below 0.70 every 16, a
+      // real gutter past 0.50 every 33, the deepest past 0.40 every 47, and a
+      // flare over 0.96 every 12. Every one of those is rarer than the
+      // pumpkin's, which is the whole difference between a flame in the open
+      // air and a flame inside a box with six panes round it.
       const at = (range) => range.min + (range.max - range.min) * level;
 
       // A guttering flame reddens as it drops and a flaring one goes whiter, so

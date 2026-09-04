@@ -149,8 +149,9 @@ registerStone('ledger', {
     // transform is affine, so the mid-line of the face is linear in x and one
     // sample of it is the whole answer.
     const faceMid = (x) => new THREE.Vector3(x, height / 2, THICK / 2).applyQuaternion(q).add(slab.position);
-    const water = (WATERLINE + (rng() - 0.5) * 0.14) * halfWidth * (flip ? -1 : 1);
-    slab.position.y -= faceMid(water).y;
+    // WATERLINE is in the slab's own frame, and the flip turns the geometry and
+    // the dip together, so it needs no sign of its own here.
+    slab.position.y -= faceMid((WATERLINE + (rng() - 0.5) * 0.14) * halfWidth).y;
     slab.updateMatrix();
 
     // Now check rather than trust. The deepest point of a rotated slab is not
