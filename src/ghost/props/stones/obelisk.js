@@ -34,11 +34,6 @@ const H = 1.40;
 const D = 0.50;
 const PLINTH = 0.18;
 
-// Mirrors the slab's own edge radius in tombstones.js. The extras have to know
-// it: the horizontal section of the shaft is a rounded rectangle with exactly
-// this corner radius, and the pyramidion has to sleeve over it without a step.
-const EDGE = 0.062;
-
 // The taper. The shaft's half width at height y is W * (1 - TAPER * y / H), so
 // the sides lean in by 2.7 degrees. Real obelisks are nearer 2; at 2.7 the lean
 // is still quiet in silhouette but it survives being 200px tall on screen,
@@ -46,23 +41,7 @@ const EDGE = 0.062;
 const TAPER = 0.22;
 const scaleAt = (y) => 1 - TAPER * (y / H);
 
-// The face texture's layout, mirrored from buildTextures so the extras can park
-// their UVs in the same plain strip the slab's sides use. If those constants
-// ever move, these move with them.
-const FACE_H = 1024;
-const STRIP = 160;
-const FACE_W = Math.round(FACE_H * ((2 * W) / H));
-const FRONT_FRAC = FACE_W / (FACE_W + STRIP);
-const STRIP_FRAC = STRIP / (FACE_W + STRIP);
-
-// u anywhere in the plain strip, v at the piece's true height on the stone, so
-// a piece near the foot picks up the same ground grime the plinth does and a
-// piece at the top picks up clean stone.
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
-const stripUV = (x, y, span) => [
-  FRONT_FRAC + STRIP_FRAC * (0.15 + 0.7 * clamp01((x + span) / (2 * span))),
-  clamp01(y / H),
-];
 
 // ---------------------------------------------------------------------------
 // geometry helpers
@@ -214,7 +193,7 @@ function roundedBlock({ halfX, halfZ, height, edge, corner, y0, uv }) {
 // Every ring is a uniform scale of the shaft's own section, so the pyramidion
 // is oblong exactly as much as the shaft is and its four faces meet in rounded
 // arrises rather than in corners.
-function pyramidionGeometry({ uv }) {
+function pyramidionGeometry({ uv, edge }) {
   const yBase = H - 0.10; // buried, below where the slab's top starts rounding
   const sBase = scaleAt(yBase) * 1.006; // a hair proud of the shaft, never inside it
   const halfX0 = W * sBase;
@@ -280,7 +259,10 @@ function pyramidionGeometry({ uv }) {
   arcSeg([0, yTip], TIP, th2, Math.PI / 2, 7);
 
   const geo = sweep({
-    plan: planOutline(halfX0, halfZ0, EDGE * sBase, 9),
+    // The shaft's horizontal section is a rounded rectangle whose corner radius
+    // is exactly the slab's edge radius, so the cap picks up the same one and
+    // the arrises run on through the shoulder without a break.
+    plan: planOutline(halfX0, halfZ0, edge * sBase, 9),
     rings,
     capBottom: true,
     capTop: false,
@@ -340,16 +322,21 @@ function inkStar(ctx, cx, cy, R, stretch) {
 
 registerStone('obelisk', {
   shape: { halfWidth: W, height: H, depth: D, plinth: PLINTH },
-  // Squared off: the registry clamps this up to the slab's edge radius, which
-  // is the flattest top the chassis will give. The pyramidion covers it.
-  topRadius: 0.02,
+  // Both ends squared off: the registry clamps these up to the slab's edge
+  // radius, which is the flattest the chassis will give. An obelisk is a
+  // straight column between two things that are not the column, so it wants no
+  // arch at the top (the pyramidion covers it anyway) and no soft corners at
+  // the foot, where the default 0.09 would round the shaft away just as it
+  // comes out of the step.
+  topRadius: 0,
+  bottomRadius: 0,
 
   draw(ctx, w, h) {
     ctx.strokeStyle = '#000000';
     inkStar(ctx, w / 2, h * STAR_V, h * STAR_R, 1 / scaleAt(H * (1 - STAR_V)));
   },
 
-  extras({ body, material, plinthH }) {
+  extras({ body, material, plinthH, edge, disposables, stripUV }) {
     // --- the taper -----------------------------------------------------------
     //
     // buildSlabGeometry sweeps a constant section, so the shaft comes back
@@ -387,14 +374,21 @@ registerStone('obelisk', {
       slab.geometry.computeBoundingSphere();
     }
 
-    const add = (geo, y) => {
+    const add = (geo) => {
       const mesh = new THREE.Mesh(geo, material);
-      mesh.position.y = y;
+      mesh.position.y = plinthH; // both extras live in the shaft's own frame
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       body.add(mesh);
+      disposables.push(geo);
       return mesh;
     };
+
+    // Everything here samples the plain strip on the right of the face texture,
+    // at its true height on the stone, so the step picks up the same ground
+    // grime the plinth does and the cap picks up clean stone -- and no piece
+    // ever drags a letter round a corner.
+    const parkUV = (span) => (x, y) => stripUV(x, y, span, H);
 
     // --- the second step -----------------------------------------------------
     //

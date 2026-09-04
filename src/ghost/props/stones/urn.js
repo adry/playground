@@ -79,12 +79,12 @@ const URN_SCALE = 1.18;
 // only turned the lid into a melted blob, and the lid and finial are the two
 // features that say "urn" rather than "pot", so they stay bare.
 const CLOAK = [
-  [0.215, 0.196],
-  [0.260, 0.202],
-  [0.300, 0.201],
-  [0.335, 0.191],
-  [0.362, 0.174],
-  [0.386, 0.147],
+  [0.215, 0.208],
+  [0.260, 0.214],
+  [0.300, 0.212],
+  [0.335, 0.199],
+  [0.362, 0.178],
+  [0.386, 0.148],
   [0.398, 0.128], // the rim's own widest point, so the cloth ends at zero here
 ];
 
@@ -98,17 +98,20 @@ const DRAPE = {
                   // the amplitude that looks right up close, three scallops
                   // across the front read from a distance as a painted zigzag.
   hemTilt: 0.026, // and the whole hem is lower on one side than the other
-  roll: 0.042,    // height of the rounded hem roll
+  // Height of the rounded hem roll. Short on purpose: at 0.042 the cloth's
+  // free edge was a 35-degree ramp, and a ramp reads as a smudge. A hem has to
+  // be a step with a shadow under it, rounded but short.
+  roll: 0.020,
   // The one corner of cloth that hangs free, down past the belly and over the
   // stem. This is the feature that makes the piece read as draped rather than
   // as a pot with a lumpy shoulder: it is the only place the cloth's edge
   // crosses the urn's own silhouette instead of running along it.
-  tailAt: -0.42,
-  tailWidth: 0.30,
-  tailDrop: 0.115,
+  tailAt: -0.62,
+  tailWidth: 0.26,
+  tailDrop: 0.125,
   // Cloth is never thinner than this where it exists at all, so the hanging
   // corner keeps its body once it is past the belly and the hull runs out.
-  floor: 0.032,
+  floor: 0.044,
 };
 
 const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
@@ -166,7 +169,7 @@ function drapeDisplacer(profile, centre) {
 
     // Soft ends: the cloth has to melt into the urn at its two edges, never
     // stop at a step.
-    const edge = 1 - smooth((Math.abs(q) - 0.7) / 0.3);
+    const edge = 1 - smooth((Math.abs(q) - 0.80) / 0.20);
     const ridge = Math.cos(q * Math.PI * DRAPE.folds);
 
     const drop = Math.exp(-Math.pow((q - DRAPE.tailAt) / DRAPE.tailWidth, 2));
@@ -204,7 +207,7 @@ registerStone('urn', {
     lines.forEach((line, i) => inkText(ctx, line, w / 2, h * (0.40 + (i - 1) * 0.152), size, size * 0.05));
   },
 
-  extras({ body, material, shape, rng, plinthH, halfWidth }) {
+  extras({ body, material, shape, rng, plinthH, halfWidth, edge, disposables, stripUV }) {
     const sink = createSink();
     const top = plinthH + shape.height;
 
@@ -216,7 +219,7 @@ registerStone('urn', {
     const capStart = sink.pos.length;
     roundedBoxInto(sink, {
       size: [2 * halfWidth + 0.09, capH, shape.depth + 0.09],
-      radius: 0.036,
+      radius: Math.min(0.042, edge * 0.7),
       segments: 6,
     });
     transformRange(sink, capStart, new THREE.Matrix4().makeTranslation(0, top, 0));
@@ -244,13 +247,13 @@ registerStone('urn', {
 
     // --- surface ------------------------------------------------------------
     //
-    // The set's material carries the face texture: the inscription lives in the
-    // left of the map and a plain strip of stone lives at the right, and the
-    // slab's own sides park their UVs in that strip. Nothing hands `extras` the
-    // strip's bounds, so this samples the far right of the map, which is inside
-    // the strip for any face aspect the slab can have. u varies a little around
-    // the piece and v with height, so the urn picks up the same slow mottle as
-    // the stone under it instead of one flat colour.
+    // A lathe's own UVs are a cylindrical wrap, which over the shared material
+    // would drag the pedestal's inscription round the outside of the urn. Every
+    // vertex is parked in the plain strip instead, with u swept round the piece
+    // and v climbing it, so the cornice and the urn pick up the same slow
+    // mottle as the slab and never a letter. v stays high in the strip: the
+    // bottom of that map is the ground grime band, and this is the part of the
+    // stone furthest from the ground.
     let lo = Infinity;
     let hi = -Infinity;
     for (let i = 1; i < sink.pos.length; i += 3) {
@@ -263,18 +266,16 @@ registerStone('urn', {
       const y = sink.pos[i + 1];
       const z = sink.pos[i + 2];
       const r = Math.hypot(x, z) || 1;
-      sink.uv[j] = 0.905 + 0.085 * (0.5 + 0.5 * (x / r));
-      sink.uv[j + 1] = 0.52 + 0.4 * ((y - lo) / span);
+      const [u, v] = stripUV(x / r, 0.55 + 0.36 * ((y - lo) / span), 1, 1);
+      sink.uv[j] = u;
+      sink.uv[j + 1] = v;
     }
 
     const geo = sinkToGeometry(sink);
     const mesh = new THREE.Mesh(geo, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    // createTombstone's dispose() only knows about the slab, the plinth and the
-    // textures, so the geometry an extra makes has nowhere to be freed. Parked
-    // here for whoever wires a hook up.
-    mesh.userData.dispose = () => geo.dispose();
+    disposables.push(geo);
     body.add(mesh);
   },
 });

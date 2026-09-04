@@ -52,7 +52,6 @@ const ARCH = { radius: 0.36, centre: 0.30, valley: 0.09 };
 // rounding; the rest is margin.
 const CROWN_SINK = 0.24;
 
-const BOTTOM_R = 0.09; // buried corners, still >= the sweep's edge radius
 
 // ---------------------------------------------------------------------------
 // the outline
@@ -60,7 +59,8 @@ const BOTTOM_R = 0.09; // buried corners, still >= the sweep's edge radius
 // Counter-clockwise from the buried bottom-right corner. sign is +1 for an arc
 // the stone bulges out of and -1 for one it is scooped in by; it flips both the
 // direction the inset moves the radius and the outward normal.
-function crownOutline(W, H) {
+function crownOutline(W, H, edge) {
+  const rb = Math.max(edge, 0.09); // buried corners, never tighter than the rim
   const { radius: R, centre: xc, valley: rv } = ARCH;
   const ya = H;                 // springing line, level with the slab's top
   const yb = H - CROWN_SINK;
@@ -72,11 +72,11 @@ function crownOutline(W, H) {
   // the two centres, and neither angle moves as the sweep insets.
   const a = Math.atan2(yf - ya, -xc);
   return [
-    { cx: W - BOTTOM_R, cy: yb + BOTTOM_R, r: BOTTOM_R, a0: -Math.PI / 2, a1: 0, sign: 1 },
+    { cx: W - rb, cy: yb + rb, r: rb, a0: -Math.PI / 2, a1: 0, sign: 1 },
     { cx: xc, cy: ya, r: R, a0: 0, a1: a, sign: 1 },
     { cx: 0, cy: yf, r: rv, a0: a - Math.PI, a1: -a, sign: -1 },
     { cx: -xc, cy: ya, r: R, a0: Math.PI - a, a1: Math.PI, sign: 1 },
-    { cx: -(W - BOTTOM_R), cy: yb + BOTTOM_R, r: BOTTOM_R, a0: Math.PI, a1: Math.PI * 1.5, sign: 1 },
+    { cx: -(W - rb), cy: yb + rb, r: rb, a0: Math.PI, a1: Math.PI * 1.5, sign: 1 },
   ];
 }
 
@@ -182,8 +182,9 @@ function inkHeart(ctx, cx, cy, width) {
 registerStone('twin', {
   shape: SHAPE,
   // Squared off: the crown supplies the top, and the slab's own corners are
-  // buried inside it. Anything at or under the sweep's edge radius clamps to it.
-  topRadius: 0.062,
+  // buried inside it. Zero clamps up to the sweep's own edge radius, whatever
+  // that is, which is exactly what the crown's rim is built to match.
+  topRadius: 0,
 
   // Two inscriptions, one under each dome, and the heart on the centre line
   // just under the valley. The face canvas stops at the springing line, so the
@@ -208,28 +209,20 @@ registerStone('twin', {
     inkHeart(ctx, w / 2, h * 0.135, w * 0.075);
   },
 
-  extras({ body, material, shape, plinthH, halfWidth: W, height: H }) {
-    // Recover the face/strip split of the texture atlas. buildTextures lays the
-    // face out at exact face aspect on the left and a plain strip on the right,
-    // so the split falls out of the map's own pixel dimensions. Without this the
-    // crown could not share the slab's UVs, and sharing them is what makes the
-    // joint disappear.
-    const img = material.map?.image;
-    const frontFrac = img ? Math.round(img.height * ((2 * W) / H)) / img.width : 1;
-    const stripFrac = img ? 1 - frontFrac : 0;
-
-    // Identical to the slab's mapping, including the clamp: above the springing
-    // line the face texture has run out and the top row repeats, which is plain
-    // mottled stone.
-    const uv = (x, y, front) =>
-      front
-        ? [((x + W) / (2 * W)) * frontFrac, Math.min(1, y / H)]
-        : [frontFrac + stripFrac * (0.15 + 0.7 * ((x + W) / (2 * W))), Math.min(1, Math.max(0, y / H))];
+  extras({ body, material, shape, plinthH, halfWidth: W, height: H, edge, slabUV, disposables }) {
+    // The slab's own mapping, so the crown's front face carries the same
+    // texture at the same place and the coincident faces shade identically.
+    // Clamped because the face canvas stops at the springing line: above it the
+    // top row repeats, which is plain mottled stone.
+    const uv = (x, y, front) => {
+      const [u, v] = slabUV(x, y, front);
+      return [u, Math.min(1, Math.max(0, v))];
+    };
 
     const geo = buildCrownGeometry({
-      outline: crownOutline(W, H),
+      outline: crownOutline(W, H, edge),
       depth: shape.depth,
-      edge: 0.062, // the slab's edge radius: the two rims have to agree
+      edge, // the slab's rim radius: the two have to agree or the joint shows
       uv,
       fanY: H - CROWN_SINK / 2,
     });
@@ -237,8 +230,7 @@ registerStone('twin', {
     crown.position.y = plinthH;
     crown.castShadow = true;
     crown.receiveShadow = true;
-    // createTombstone's dispose() only knows about the meshes it made itself.
-    crown.userData.dispose = () => geo.dispose();
+    disposables.push(geo);
     body.add(crown);
   },
 });

@@ -61,10 +61,15 @@ const SHAPE = {
 // scoop is concave and its lips are rounded by the same quarter-round sweep
 // that rounds every other edge on the piece, so nothing along the break is
 // sharper than the arch it came out of.
+// The first pass ran these from 98 to 174 degrees with a bite of 0.15, and the
+// render was decisive: the crown of the arch went with it, the stone came back
+// as a triangular shard and stopped reading as a headstone at all. A corner is
+// a corner. The crown has to survive, or the silhouette is spent, which is
+// exactly what the postmortem says killed the last set.
 const CHIP = [
-  { deg: 116, r: 0.16, bite: 0.100 },
-  { deg: 137, r: 0.19, bite: 0.150 },
-  { deg: 156, r: 0.13, bite: 0.090 },
+  { deg: 141, r: 0.115, bite: 0.070 },
+  { deg: 161, r: 0.135, bite: 0.100 },
+  { deg: 182, r: 0.105, bite: 0.072 },  // past the arch, onto the straight side
 ];
 // How far the three circles melt into each other. Zero leaves two visible
 // creases where they cross, which is the one hard edge this piece must not
