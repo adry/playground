@@ -60,7 +60,13 @@ const BASE_CUP = 0.02;
 
 // The face looks along +x+z so it meets the preview/game camera square-on at
 // spin 0; the lobe crest sits at the same angle so the face lands on a bulge.
-const FACE_YAW = Math.PI / 4;
+//
+// Exported because anything that wants to aim a pumpkin at something needs it:
+// a group rotated by `y` has its face pointing along yaw FACE_YAW + y, so
+// aiming at a direction d means `y = Math.atan2(d.x, d.z) - FACE_YAW`. Scenes
+// were doing that with a hardcoded Math.PI / 4 and no way to notice if this
+// ever moved.
+export const FACE_YAW = Math.PI / 4;
 
 
 // --- Body shapes -----------------------------------------------------------

@@ -107,17 +107,38 @@ const PROPS = {
 
     // Placed in world coordinates but chosen in screen ones, since "to the
     // left" is a thing about the frame and this camera maps world (1,0,-1) to
-    // screen right. Four bodies rather than one so the group reads as a set,
-    // and each turned differently so the four floor pools do not line up.
+    // screen right. Four bodies rather than one so the group reads as a set.
+    //
+    // They sit in a tight arc in FRONT of the stone, close enough that the big
+    // two touch, and each one is turned to look radially AWAY from the stone
+    // rather than at it. Turning them all to camera was the obvious thing and
+    // it was wrong: four faces pointing the same way read as a product shot,
+    // and a ring of jack-o'-lanterns facing inward reads as a seance. Looking
+    // outward is what a row of them on a porch step actually does, and it also
+    // fans the four floor pools apart instead of stacking them.
+    //
+    // The one thing radial-outward gets wrong on its own is the ends of the
+    // arc: taken literally the outermost body turns 62 degrees off camera and
+    // you see a sliver of cheek instead of a face. MAX_TURN caps it. It keeps
+    // the SIGN, so every pumpkin still looks away from the stone and never at
+    // it, and only bleeds off the last of the angle. 0.70 rad is where a face
+    // is still a face.
+    const MAX_TURN = 0.70;
+    const STONE = new THREE.Vector2(stone.group.position.x, stone.group.position.z);
     for (const p of [
-      { variant: 'classic', at: [0.46, 0.24], yaw: Math.PI / 4 - 0.15, seed: 3 },
-      { variant: 'tall', at: [-0.85, 0.99], yaw: Math.PI / 4 + 0.55, seed: 17 },
-      { variant: 'tiny', at: [0.14, 1.20], yaw: Math.PI / 4 - 0.62, seed: 8 },
-      { variant: 'squat', at: [-1.35, 0.10], yaw: Math.PI / 4 + 0.22, seed: 23 },
+      { variant: 'tall', at: [-0.974, 0.831], seed: 17 },
+      { variant: 'squat', at: [-0.210, 0.421], seed: 23 },
+      { variant: 'classic', at: [0.172, -0.243], seed: 3 },
+      { variant: 'tiny', at: [0.299, 0.690], seed: 8 },
     ]) {
       const o = pk.createPumpkin({ variant: p.variant, seed: p.seed });
       o.group.position.set(p.at[0], 0, p.at[1]);
-      o.group.rotation.y = p.yaw;
+      // Radially outward. FACE_YAW is where a pumpkin looks at zero rotation,
+      // so subtracting it turns "the direction I want" into "the rotation that
+      // gets me there".
+      const out = new THREE.Vector2(p.at[0], p.at[1]).sub(STONE);
+      const turn = Math.atan2(out.x, out.y) - pk.FACE_YAW;
+      o.group.rotation.y = Math.max(-MAX_TURN, Math.min(MAX_TURN, turn));
       group.add(o.group);
       parts.push(o);
     }
