@@ -38,7 +38,7 @@ export const VARIANTS = ['cross', 'bat', 'fred'];
 //     topRadius: 0.04,          // optional, defaults to a half-round arch
 //     draw(ctx, w, h) { ... },  // optional, the carved mark, black on clear
 //     bottomRadius: 0.09,       // optional, same clamp as topRadius
-//     extras({ body, material, disposables, stripUV, slabUV, ... }) { ... },
+//     extras({ body, slab, plinth, material, disposables, stripUV, slabUV, ... }),
 //   })
 //
 // `draw` is handed the FACE canvas in pixels, origin top left, with fillStyle
@@ -709,20 +709,31 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
   // Reference plinths overhang by about a sixth of the stone's half-width and
   // are properly deep -- they are the part that says the stone was set, not
   // pushed into the ground.
+  //
+  // A plinth of zero means NO plinth. Three stones asked for this the hard way,
+  // the ledger, the bench and the wheel cross, each requesting a height it did
+  // not want purely because a near-zero one folds the sweep (the outline's two
+  // corner circles overlap), then filtering body.children to find and remove
+  // the mesh again. Three is a pattern.
   const pW = W + 0.075;
   const pD = shape.depth + 0.13;
-  const plinthGeo = buildSlabGeometry({
-    halfWidth: pW,
-    height: plinthH,
-    depth: pD,
-    edge: 0.05,
-    bottomRadius: 0.056,
-    topRadius: 0.056,
-    uv: (x, y) => stripUV(x, y, pW, plinthH, GRIME),
-  });
-  const plinth = new THREE.Mesh(plinthGeo, material);
+  let plinthGeo = null;
+  let plinth = null;
+  if (plinthH > 0.001) {
+    plinthGeo = buildSlabGeometry({
+      halfWidth: pW,
+      height: plinthH,
+      depth: pD,
+      edge: 0.05,
+      bottomRadius: 0.056,
+      topRadius: 0.056,
+      uv: (x, y) => stripUV(x, y, pW, plinthH, GRIME),
+    });
+    plinth = new THREE.Mesh(plinthGeo, material);
+  }
 
   for (const m of [slab, plinth]) {
+    if (!m) continue;
     m.castShadow = true;
     m.receiveShadow = true;
     body.add(m);
@@ -748,6 +759,12 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
   const disposables = [];
   def?.extras?.({
     body,
+    // The two meshes by name. Three stones were finding the slab by filtering
+    // body.children for the one whose position.y equalled plinthH, which is a
+    // guess dressed as a lookup and breaks the moment anything else is parented
+    // at that height. `plinth` is null when the stone asked for none.
+    slab,
+    plinth,
     material,
     shape,
     rng,
@@ -788,7 +805,7 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
     update() {}, // static prop
     dispose() {
       slabGeo.dispose();
-      plinthGeo.dispose();
+      plinthGeo?.dispose();
       for (const d of disposables) d.dispose?.();
       material.dispose();
       if (tex) {
