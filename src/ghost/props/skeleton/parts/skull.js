@@ -27,6 +27,37 @@ import { shaft, straightShaft, jointBall } from './bone.js';
 //    openings" below for how, and for the two builds' worth of history that
 //    says why nothing less will do.
 //
+// 3. The zygomatic arches are NOT in that field. They are two separate swept
+//    bars whose ends are buried in abutments that are, so that there is real
+//    daylight between each arch and the temporal fossa behind it. A smooth
+//    union cannot have a gap in it; see "the zygomatic arch" below.
+//
+// THIS PASS. The head was rejected twice, the second time as "very bad", and
+// rebuilt against `.ref/SKULL-ANATOMY.md`, a measured reference. Almost
+// everything that was wrong came from two numbers: M.skull.width and .depth
+// used to be 0.141 and 0.150 of the figure's height, a cranial index of 0.94 --
+// a braincase wider than it was long, which no human skull is. They are 0.125
+// and 0.160 now, an index of 0.781, and the corrections that followed are
+// commented at the places they were made. The load-bearing ones:
+//
+//   * the eye line is at exactly half of vertex-to-chin, where a real one is,
+//     rather than at 0.462 aimed at the forehead instead;
+//   * the braincase's length is the whole of M.skull.depth, glabella to
+//     opisthocranion, so the cranial index is built rather than tuned;
+//   * the braincase stops above the level of the tooth crowns instead of
+//     running down to the atlas, so it is 0.79 as tall as it is long and not
+//     0.86, and the back of the head no longer hangs to the jaw;
+//   * the widest point of the head is a pair of parietal eminences, high and
+//     behind, and not a horizontal band with a ridge riding on it;
+//   * there is a temporal fossa that is actually hollowed, and an arch with a
+//     gap behind it;
+//   * face space is unwrapped at a radius taken from the depth, not the width,
+//     which is what stopped the orbits curling onto the temples.
+//
+// `group.userData.landmarks` publishes what the acceptance check reads. The
+// numbers in it, and the profile view, are the test for this part -- both
+// rejected builds passed three-quarter renders while being wrong in plan.
+//
 // The expression is DELIBERATELY NEUTRAL. An earlier pass followed the
 // reference photo's face, which scowls: the top edge of each orbit ran on a
 // hard diagonal diving toward the nose and the brow ridge rode that diagonal
@@ -163,12 +194,12 @@ const VZ_A = (Z_VAULT_FRONT - Z_BACK) / 2;
 const VAULT_PV = 2.30;
 const VAULT_UNIT = Math.min(HW, VY_A, VZ_A);
 // The vault's own maximum half-width, as a fraction of HW. It is deliberately
-// short of 1: the crest of the temporal line rides on top of the parietal
-// eminence at very nearly the same height and bearing, and the two together are
-// what M.skull.width measures. Give the vault the full width as well and the
-// measured breadth comes out over by twice the ridge's proudness, which is
-// enough to push the cranial index from 0.78 to 0.82.
-const WIDTH_PEAK = 0.992;
+// short of 1, because the vault is not the widest thing on the head: the
+// parietal eminences are, and they are a pair of blobs blended on top of it
+// down in buildSkull. Give the vault the full width as well and the measured
+// breadth comes out over by twice the eminence's proudness, which is enough on
+// its own to push the cranial index from 0.78 to 0.81.
+const WIDTH_PEAK = 0.965;
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smoothstep = (a, b, x) => {
@@ -217,7 +248,7 @@ const vaultFront = (v) => 1
 // get to overspend.
 const vaultBack = (v) => 1
   - 0.26 * smoothstep(0.75, 1.05, v)
-  - 0.58 * (1 - smoothstep(0.10, 0.56, v));
+  - 0.58 * (1 - smoothstep(0.00, 0.64, v));
 // The plan view's own taper: how wide the section is at a given point along its
 // OWN depth, front to back. This is the piece that only became possible when
 // the plan stopped being square. A skull seen from above is a blunt egg, widest
@@ -557,7 +588,15 @@ function socketTaper(kx) {
 }
 function socketShape(kx, ky) {
   const k = ky / socketTaper(kx);
-  const e = ky > 0 ? 2.55 : 2.40;
+  // The bottom edge is rounder than the top. That is the anatomy -- the
+  // supraorbital margin is a sharp edge and the inferior one is rounded -- and
+  // the top edge is the one that has to stay straight for the opening to read as
+  // a skull's rather than as an eye. It was ALSO tried as a fix for the game
+  // camera, which looks down at the figure and foreshortens each socket into a
+  // wedge that reads as a glare, and it does nothing for that: the wedge is the
+  // lit floor of the socket showing on its medial side, not the shape of the
+  // outline, and it was in the two builds before this one for the same reason.
+  const e = ky > 0 ? 2.55 : 2.20;
   return Math.pow(Math.abs(kx), SOCKET_PX) + Math.pow(Math.abs(k), e);
 }
 // The top edge of the socket, in the same frame, at a given kx.
@@ -798,6 +837,37 @@ export function buildSkull({ material }) {
     [0.125 * M.skull.width, 0.045 * HS, GLAB_D], 2.6, 2.2,
   );
 
+  // The parietal eminences: the pair of low, broad swellings that are the
+  // widest part of a real braincase. They were left to the width profile alone
+  // at first, which cannot do it: a profile varies with HEIGHT, so the widest
+  // point it produces is a whole horizontal band, and whichever ridge happens to
+  // ride on that band wins the measurement. The temporal line did, and the
+  // widest point of the head came out at the line's crest -- level with the ear
+  // canal in plan rather than behind it. Two thirds up the braincase and a third
+  // of the way forward from the occiput is a POINT, so it is a blob.
+  // Held a little under half the skull's width rather than at it: the smin that
+  // blends the eminence into the vault carries the surface out past the blob's
+  // own radius, and the pair of them ARE what M.skull.width measures. Trimmed
+  // against the measured breadth until the two agreed.
+  const PARIETAL_RX = 0.096 * M.skull.width;
+  const PARIETAL_X = 0.4540 * M.skull.width;
+  const parietal = (side) => blob(
+    [side * (PARIETAL_X - PARIETAL_RX), VAULT_BASE + 0.667 * VAULT_SPAN, Z_BACK + 0.360 * M.skull.depth],
+    [PARIETAL_RX, 0.155 * HS, 0.210 * M.skull.depth], 2);
+
+  // The nasal bones. Small, and only there for the PROFILE: with the glabella
+  // above it and the nasal aperture's apex below it, the strip of midline face
+  // between the orbits was a flat continuation of the forehead, so the whole
+  // front of the head from brow to teeth read as one convex sweep. A real one
+  // has a step in it -- glabella out, nasion in, nasal bones out again -- and
+  // the notch at nasion is what tells the eye where the braincase stops and the
+  // face starts. The dip is not modelled: it is the gap between this blob and
+  // the glabella above, which is why neither of them is blended wide.
+  const nasalBone = blob(
+    [0, ORBIT_V + 0.048 * HS, Z_FACE - 0.075 * M.skull.depth],
+    [0.072 * M.skull.width, 0.034 * HS, 0.075 * M.skull.depth], 2.4, 2.2,
+  );
+
   // The zygomatic bone, at the outer-lower corner of the orbit, and the root of
   // the arch on the temporal bone just above and in front of the ear canal.
   // These two are the arch's ABUTMENTS and they are the only part of it in the
@@ -883,8 +953,8 @@ export function buildSkull({ material }) {
   // and that hemisphere came out as a pimple on the back of the head. Sinking
   // the last point or two deeper than the ridge itself buries the cap instead.
   const TEMPORAL = [
-    [0.95, 0.372, 0.056], [1.25, 0.322, 0.022], [1.60, 0.300, 0.017],
-    [1.95, 0.310, 0.019], [2.25, 0.362, 0.036], [2.48, 0.436, 0.078],
+    [0.95, 0.372, 0.058], [1.24, 0.320, 0.028], [1.54, 0.300, 0.024],
+    [1.84, 0.312, 0.027], [2.08, 0.360, 0.050], [2.26, 0.424, 0.088],
   ];
   const temporals = [-1, 1].map((side) => tube(
     TEMPORAL.map(([a, h, inset]) => {
@@ -943,7 +1013,10 @@ export function buildSkull({ material }) {
     let d = base(x, y, z);
     d = smin(d, brows[0](x, y, z), 0.020);
     d = smin(d, brows[1](x, y, z), 0.020);
+    d = smin(d, parietal(-1)(x, y, z), 0.058);
+    d = smin(d, parietal(1)(x, y, z), 0.058);
     d = smin(d, glabella(x, y, z), 0.022);
+    d = smin(d, nasalBone(x, y, z), 0.019);
     d = smin(d, malarL(x, y, z), 0.028);
     d = smin(d, malarR(x, y, z), 0.028);
     d = smin(d, rimL(x, y, z), 0.026);
@@ -1626,7 +1699,7 @@ export function buildSkull({ material }) {
     // bone.js has no end cap of its own: uncapped, the bar's back end showed as
     // a scoop out of the jaw from any three-quarter view. It also thickens the
     // gonion, which is what a real one does anyway.
-    const cap = track(jointBall(JAW_R * 0.98, { squash: 1 }));
+    const cap = track(jointBall(JAW_R * 0.88, { squash: 1 }));
     cap.scale(1, JAW_SQUASH * 0.80, 1);
     cap.translate(side * gonionX, gonionY, gonion.z);
     jawRoot.add(add(cap, material, 'jaw-gonion'));
