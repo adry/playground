@@ -61,7 +61,12 @@ export const M = {
     // from the tooth line to the chin point is only this tall, and getting it
     // wrong is what made an earlier build's head oversized.
     jawHeight: f(0.037),
-    socket: { width: f(0.049), height: f(0.043), slant: 0.60 },
+    // The slant is how far the top edge of each orbit cuts down toward the
+    // nose. 0.60 was the original brief and it gave the skull a hard glare;
+    // the user asked for a friendlier face, so it is 0.12 now, which reads as
+    // a gentle curve rather than a scowl. It is the single strongest control
+    // over the character's expression, so change it knowingly.
+    socket: { width: f(0.049), height: f(0.043), slant: 0.12 },
     teeth: { upper: 11, lower: 9 },
   },
 

@@ -108,12 +108,11 @@ const HINGE_Z = -0.080 * M.skull.depth;
 const FORAMEN_Z = -0.150 * M.skull.depth;
 
 // --- the eye openings ------------------------------------------------------
-// metrics.js still carries M.skull.socket.slant = 0.60, which is the angry
-// diagonal. This overrides it down to a hint of a slant, enough that the
-// sockets are not perfectly level and dead-symmetrical but nowhere near enough
-// to read as a frown. metrics.js is not this file's to edit: the number there
-// wants changing to match, and until it is this is the one place they differ.
-const SLANT = 0.12;
+// How far the top edge of each orbit cuts down toward the nose. Small: enough
+// that the sockets are not dead level and mechanically symmetrical, nowhere
+// near enough to read as a frown. It was 0.60 for one pass, which is a hard
+// glare, and metrics.js has the history.
+const SLANT = M.skull.socket.slant;
 // metrics gives the socket as a width and a height, which is its bounding box.
 // Rotating an ellipse by s takes semi-axes (A, B) to a box of
 //   halfW^2 = A^2 cos^2 s + B^2 sin^2 s,  halfH^2 = A^2 sin^2 s + B^2 cos^2 s,
@@ -140,7 +139,22 @@ const ORBIT_U = BRIDGE / 2 + M.skull.socket.width / 2;
 // the size metrics gives it and rides a little higher than the photo's does,
 // which costs some forehead and buys back a face.
 const ORBIT_V = Y_CROWN - 0.495 * M.skull.height;
-const ORBIT_DEPTH = 0.52 * M.skull.socket.height;
+// Shallow. With the paint doing the hole, the dent is only here to give the
+// rim a shadow and the interior somewhere for the light to fall off into.
+// Deeper than about a third of the socket's height and the wall below has to
+// go steep to keep the opening its measured size, and then it folds.
+const ORBIT_DEPTH = 0.30 * M.skull.socket.height;
+// How wide the wall of the bowl is, measured across the face.
+//
+// This is the one number that has to stay well above the depth. The dent is
+// pressed along the surface normal, so once the wall is steeper than about 45
+// degrees the mesh folds over itself, and the fold drags unpainted skin from
+// outside the rim in front of the socket floor: a bright crescent inside the
+// lower half of the eye, which reads as an eyeball. At depth 0.056 over a wall
+// of 0.028 it did exactly that, and chasing it as a lighting problem cost an
+// afternoon. Depth is the paint's job here, not the geometry's; the dent only
+// has to catch a rim shadow. The same ratio governs the nasal aperture.
+const ORBIT_WALL = 0.058;
 
 // The nasal aperture is not in metrics.js. Written against the socket so the
 // two stay in proportion. Bigger than the photo's third-of-a-socket measures,
@@ -149,7 +163,7 @@ const ORBIT_DEPTH = 0.52 * M.skull.socket.height;
 const NASAL_W = 0.66 * M.skull.socket.width;
 const NASAL_H = 0.66 * M.skull.socket.height;
 const NASAL_V = Y_CROWN - 0.625 * M.skull.height;
-const NASAL_DEPTH = 0.62 * NASAL_H;
+const NASAL_DEPTH = 0.40 * NASAL_H;
 
 // The face is unwrapped about the vertical axis so a socket keeps its size as
 // it curls round onto the temple. FACE_R is the radius that arc length is
@@ -608,8 +622,14 @@ export function buildSkull({ material }) {
       // The bowl is soft and the dark edge is hard. The other way round -- a
       // sharp geometric rim with a soft gradient painted on it -- was tried
       // and reads as a bruise, not a hole.
-      dent = Math.max(dent, ORBIT_DEPTH * (1 - smoothstep(-ORBIT_DEPTH * 0.5, EDGE, d)));
-      lum *= 1 - 0.962 * (1 - smoothstep(-EDGE, EDGE, d));
+      dent = Math.max(dent, ORBIT_DEPTH * (1 - smoothstep(-ORBIT_WALL, EDGE * 0.8, d)));
+      // Very nearly zero, and it has to be. The floor of the socket faces up
+      // and forward, straight into the key lamp, and a 4% albedo under that
+      // lamp still renders as a 20% grey once the tone map and the gamma have
+      // had it. From the game camera, which looks down into the face, that
+      // grey filled the bottom half of every socket and the black band left at
+      // the top read as a half-closed eye. 0.962 was not enough; this is.
+      lum *= 1 - 0.991 * (1 - smoothstep(-EDGE, EDGE, d));
       lum *= 1 - 0.17 * (1 - smoothstep(EDGE, EDGE + AO_REACH, d));
     }
 
@@ -619,15 +639,15 @@ export function buildSkull({ material }) {
         (a, b) => nasalShape(a / (NASAL_W / 2), b / (NASAL_H / 2)),
         u, py - NASAL_V,
       );
-      dent = Math.max(dent, NASAL_DEPTH * (1 - smoothstep(-NASAL_DEPTH * 0.5, EDGE, d)));
-      lum *= 1 - 0.945 * (1 - smoothstep(-EDGE, EDGE, d));
-      lum *= 1 - 0.15 * (1 - smoothstep(EDGE, EDGE + AO_REACH * 0.6, d));
+      dent = Math.max(dent, NASAL_DEPTH * (1 - smoothstep(-ORBIT_WALL * 0.75, EDGE * 0.8, d)));
+      lum *= 1 - 0.986 * (1 - smoothstep(-EDGE, EDGE, d));
+      lum *= 1 - 0.11 * (1 - smoothstep(EDGE, EDGE + AO_REACH * 0.6, d));
     }
 
     // --- the temporal fossa, the shallow hollow above the cheekbone. Almost
     // nothing, but it is what separates the arch from the side of the vault.
     {
-      const a = (Math.abs(u) - 1.30 * FACE_R) / (0.50 * FACE_R);
+      const a = (Math.abs(u) - 1.45 * FACE_R) / (0.40 * FACE_R);
       const b = (py - 0.440 * M.skull.height) / (0.20 * M.skull.height);
       const s = a * a + b * b;
       dent = Math.max(dent, 0.010 * M.skull.height * (1 - smoothstep(0.2, 1.0, s)));

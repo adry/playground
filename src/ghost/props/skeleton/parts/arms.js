@@ -362,8 +362,8 @@ export function buildArm({ material, side }) {
   const radius = [
     V(sx * f(0.013), -FORE * 0.05, f(0.0055)),
     V(sx * split * 0.54, -FORE * 0.38, f(0.0050)),
-    V(sx * split * 0.34, -FORE * 0.74, f(0.0040)),
-    wristP.clone(),
+    V(sx * split * 0.34, -FORE * 0.74, f(0.0055)),
+    wristP.clone().add(V(0, 0, f(0.0030))),
   ];
   add(shaft(new THREE.CatmullRomCurve3(radius, false, 'catmullrom', 0.5), A.forearmR, {
     endBias: 0.45,
@@ -392,11 +392,31 @@ export function buildArm({ material, side }) {
   elbow.add(wrist);
 
   // Hand frame, inside the wrist node: -Y down the fingers, X across the
-  // knuckles, Z the palm's normal. The arm hangs pronated, so the palm faces
-  // back (-Z) and the thumb points medially (-sx), which is what the photo
-  // shows: four digits spread across the frame and the thumb tucked toward the
-  // thigh.
+  // knuckles, and PALM_Z the way the palm faces. Every part of the hand that
+  // has a side to it derives from `sx` and `PALM_Z` and from nothing else, so
+  // the hand cannot end up with a different handedness from the arm it is on.
+  // There is an assertion at the bottom of this function that says so out loud.
   const shed = new Map();
+  const PALM_Z = -1;                // the palm faces backward before the roll
+
+  // A relaxed arm does not hang fully pronated. The photo's hands hang with the
+  // palm turned toward the thigh and the thumb standing forward, clear of the
+  // fingers, and that forward thumb is the single cue that tells you at a
+  // glance which hand you are looking at. Built flat against the coronal plane
+  // the hand loses it: the thumb ends up straight medial and tucked behind the
+  // knuckles, the back of the hand faces the camera square on, and both hands
+  // read as the other side's. That is what the user saw.
+  //
+  // So the hand is rolled back off full pronation about the forearm's own axis.
+  // The roll goes on a holder INSIDE the wrist rather than on the wrist joint,
+  // for the same reason the A-pose flare is baked into the bones: joints stay
+  // identity at rest. Through `sx` it is automatically correct on both sides,
+  // and it swings the thumb forward on both.
+  const HAND_ROLL = 0.52;
+  const palm = new THREE.Object3D();
+  palm.name = `palm${side}`;
+  palm.rotation.y = sx * HAND_ROLL;
+  wrist.add(palm);
 
   // Carpal block. The eight carpals are allowed to be one rounded block, and
   // this is a squashed jointBall rather than a plate. plate() was the obvious
@@ -408,7 +428,7 @@ export function buildArm({ material, side }) {
   // block is what a squashed ball is.
   const carpals = jointBall(h(0.105), { squash: 1 });
   carpals.scale(1.0, 0.83, 0.76);       // wide across the hand, shallow front to back
-  add(carpals, wrist, 'carpals').position.set(0, -h(0.045), 0);
+  add(carpals, palm, 'carpals').position.set(0, -h(0.045), 0);
 
   // The digits are stubby on purpose. The photo's hands are small blunt mitts:
   // the longest finger is under half the hand and every segment is barely twice
@@ -435,7 +455,7 @@ export function buildArm({ material, side }) {
     for (let i = 0; i < lengths.length; i++) {
       ang += curls[i];
       const r = radius * (1 - 0.10 * i);
-      const q = p.clone().add(V(0, -Math.cos(ang), -Math.sin(ang)).multiplyScalar(lengths[i]));
+      const q = p.clone().add(V(0, -Math.cos(ang), PALM_Z * Math.sin(ang)).multiplyScalar(lengths[i]));
       add(straightShaft(p, q, r, { waist: PHALANX_WAIST }), g, 'phalanx');
       // Interphalangeal bulb, or the rounded tip on the last one. The tip
       // takes no squash: jointBall's default flattens along Y, which on a
@@ -460,40 +480,66 @@ export function buildArm({ material, side }) {
 
   for (const fg of FINGERS) {
     const kx = sx * fg.x * STEP;
-    const knuckle = V(kx, -fg.y, h(0.018));
+    const knuckle = V(kx, -fg.y, -PALM_Z * h(0.018));
     const base = V(kx * 0.30, -h(0.090), 0);   // well inside the carpal block
 
     // Metacarpal, bowing toward the back of the hand so the palm is hollow.
     add(straightShaft(base, knuckle, META_R, {
-      bow: 0.06, bowAxis: V(0, 0, 1), waist: 0.80,
-    }), wrist, `metacarpal${fg.name}`);
+      bow: 0.06, bowAxis: V(0, 0, -PALM_Z), waist: 0.80,
+    }), palm, `metacarpal${fg.name}`);
     // The knuckle bulb stays with the metacarpal. Shed the finger and this is
     // the rounded stub that is left, rather than an open pipe.
-    add(jointBall(META_R * 0.92), wrist, `metacarpalHead${fg.name}`).position.copy(knuckle);
+    add(jointBall(META_R * 0.92), palm, `metacarpalHead${fg.name}`).position.copy(knuckle);
 
     const g = digit(SPLIT.map((t) => fg.total * t), FINGER_R, [0.12, 0.20, 0.18]);
     g.name = `finger${side}${fg.name}`;
     g.position.copy(knuckle);
     g.rotation.z = sx * fg.splay;
-    wrist.add(g);
+    palm.add(g);
     shed.set(`finger${side}${fg.name}`, g);
   }
 
-  // Thumb. Two phalanges, on a metacarpal that swings medially and toward the
-  // palm rather than lying in the row with the others.
-  const thumbBase = V(-sx * h(0.055), -h(0.050), -h(0.020));
-  const thumbKnuckle = V(-sx * h(0.235), -h(0.265), -h(0.085));
-  add(straightShaft(thumbBase, thumbKnuckle, META_R * 1.06, { waist: 0.80 }), wrist, 'metacarpal0');
-  add(jointBall(META_R * 0.98), wrist, 'metacarpalHead0').position.copy(thumbKnuckle);
+  // Thumb. Two phalanges, on a metacarpal that swings medially and down toward
+  // the palm rather than lying in the row with the others.
+  //
+  // The angle it leaves the hand at is what makes it read as a thumb instead of
+  // a spur. The first pass had it 60 degrees off the fingers and its knuckle
+  // barely a quarter of the way down the hand, which from the front was a
+  // horizontal spike coming off the side of the wrist. The photo holds it at
+  // about 27 degrees with the knuckle a third of the way down, close enough to
+  // the index finger to read as part of the same hand and far enough to leave
+  // the gap that says it is opposable.
+  const thumbBase = V(-sx * h(0.055), -h(0.075), PALM_Z * h(0.010));
+  const thumbKnuckle = V(-sx * h(0.185), -h(0.330), PALM_Z * h(0.030));
+  add(straightShaft(thumbBase, thumbKnuckle, META_R * 1.06, { waist: 0.80 }), palm, 'metacarpal0');
+  add(jointBall(META_R * 0.98), palm, 'metacarpalHead0').position.copy(thumbKnuckle);
 
+  const thumbDir = thumbKnuckle.clone().sub(thumbBase).normalize();
   const thumb = digit([h(0.155), h(0.125)], FINGER_R * 1.08, [0.16, 0.20]);
   thumb.name = `thumb${side}`;
   thumb.position.copy(thumbKnuckle);
-  thumb.quaternion.setFromUnitVectors(
-    V(0, -1, 0),
-    thumbKnuckle.clone().sub(thumbBase).normalize(),
-  );
-  wrist.add(thumb);
+  thumb.quaternion.setFromUnitVectors(V(0, -1, 0), thumbDir);
+  palm.add(thumb);
+
+  // --- the handedness is asserted, not assumed --------------------------
+  // A hand is right or left according to the sign of thumb . (fingers x palm),
+  // and every term in that product is authored above from `sx` and `PALM_Z`.
+  // Checking it here costs nothing and turns the failure the user actually hit
+  // into a build error: the arm moved sides correctly once and the hand did not
+  // follow, and a mirrored hand is close to invisible until someone bends the
+  // elbow. model.js asserts LEFT_X between the parts; this asserts the same
+  // thing within this one.
+  const fingersDir = V(0, -1, 0);
+  const palmNormal = V(0, 0, PALM_Z);
+  const chirality = Math.sign(thumbDir.dot(new THREE.Vector3().crossVectors(fingersDir, palmNormal)));
+  const wantChirality = side === 'L' ? -1 : 1;
+  if (chirality !== wantChirality) {
+    throw new Error(
+      `arms: the ${side} hand is built ${chirality > 0 ? 'right' : 'left'}-handed on a `
+      + `${side === 'L' ? 'left' : 'right'} arm. The thumb, the finger order and the palm `
+      + 'normal all have to come from sx and PALM_Z. See LEFT_X in metrics.js.',
+    );
+  }
 
   return {
     group,
