@@ -347,6 +347,53 @@ const PLATE_FLAME = new THREE.Color('#ffb44a');
 // are respectively the top of a flare and the floor of a real gutter.
 const HUE_MID = 0.88, HUE_GAIN = 1.5;
 
+// The skin, which is the palette's pair taken down before it is used.
+//
+// Reported as too bright an orange, and too saturated with it. The palette's
+// #ffb268 measures as a FULLY saturated orange at 70% lightness -- S = 1.000 to
+// three figures -- which is why it reads as a traffic cone next to a cool grey
+// floor rather than as a vegetable. So both entries are taken down before
+// anything else touches them: same hue, less chroma, less value.
+//
+// Done here and not in style.js for two reasons. It is a change to this prop
+// and not to the house palette, and pumpkinSkin/pumpkinShade have no other
+// reader in the tree, so the palette entry stays what the family was authored
+// against and this file says what the pumpkin does with it. The other reason is
+// the trap below.
+//
+// TUNE THIS BY LOOKING, NOT BY PICKING A HEX. Both colours go through
+// convertSRGBToLinear a few lines down, which under three's ColorManagement is
+// the SECOND such conversion -- Color already decoded the hex on the way in.
+// That is a known defect and it is deliberately not being fixed here: the
+// pumpkin's colours were tuned by eye with the double decode in place, so
+// straightening it out would move an approved asset sideways for no reason the
+// user asked for. What it means in practice is that the number in the source is
+// not the colour on screen and never was. These two multipliers were settled
+// against renders, and the hex they imply is not what you will see.
+//
+// The values: 0.70 of the chroma and 0.88 of the value. The move is a mix
+// toward the colour's OWN luminance and then a scale, not an HSL edit, and that
+// is not a stylistic preference. Pulled down in HSL the pair came out brick red
+// at every setting tried: ACES turns a saturated orange toward red as it
+// darkens, and HSL's lightness axis takes the green channel down fastest, so
+// the two compound and 0.74/0.86, 0.62/0.90, 0.55/0.86 and 0.70/0.82 all
+// rendered as terracotta rather than as a calmer pumpkin. Mixing toward grey
+// keeps green and blue up, which is what holds the hue where it was while the
+// chroma comes off it. out/pumpkin-work/tint-grid.png is those four rejected
+// HSL settings, and grey-grid.png the four grey mixes this was chosen from:
+// 0.58 chroma went tan and stopped being a pumpkin, 0.82 value went brown, and
+// 0.72 / 0.90 is the same move one shade short of this one.
+const SKIN_CHROMA = 0.70, SKIN_VALUE = 0.88;
+const skinTone = (hex) => {
+  const c = new THREE.Color(hex);
+  // Worked in sRGB, the space the palette was authored in, so the conversion
+  // that follows is left exactly as it was.
+  const r = c.getRGB({ r: 0, g: 0, b: 0 }, THREE.SRGBColorSpace);
+  const lum = 0.2126 * r.r + 0.7152 * r.g + 0.0722 * r.b;
+  const mix = (v) => (lum + (v - lum) * SKIN_CHROMA) * SKIN_VALUE;
+  return c.setRGB(mix(r.r), mix(r.g), mix(r.b), THREE.SRGBColorSpace);
+};
+
 // Small deterministic PRNG: same seed, same pumpkin, and nothing at module scope.
 function makeRng(seed) {
   let s = (Math.imul(seed | 0, 1103515245) + 12345) >>> 0;
@@ -964,8 +1011,8 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   (() => {
     const p = new THREE.Vector3();
     const n = new THREE.Vector3();
-    const skin = new THREE.Color(PALETTE.pumpkinSkin).convertSRGBToLinear();
-    const shade = new THREE.Color(PALETTE.pumpkinShade).convertSRGBToLinear();
+    const skin = skinTone(PALETTE.pumpkinSkin).convertSRGBToLinear();
+    const shade = skinTone(PALETTE.pumpkinShade).convertSRGBToLinear();
     const c = new THREE.Color();
 
     const colorAt = (a, s) => {

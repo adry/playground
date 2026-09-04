@@ -142,7 +142,7 @@ const vaultWidth = (v) => 1
 // also most of the temporal flat: above the arch the side of the head is a
 // plane, and the arch standing off it is what makes the arch read.
 const vaultPlan = (v) => 2.20
-  + 0.50 * smoothstep(0.08, 0.34, v) * (1 - smoothstep(0.54, 0.96, v));
+  + 0.62 * smoothstep(0.06, 0.36, v) * (1 - smoothstep(0.50, 1.00, v));
 // How far the vault reaches forward, as a fraction of VZ_A. Full at the brow,
 // receding above it: this is the forehead's backward slope, and it is what puts
 // the crown behind the glabella instead of over it.
@@ -279,11 +279,11 @@ const NASAL_V = Y_CROWN - 0.570 * HS;
 // an orbital margin is thicker; 3% of the head's height is that, and it is also
 // about two and a half grid cells, which is the least a wall can be and still
 // have more than one quad's worth of shading in it.
-const WALL_T = 0.030 * HS;
+const WALL_T = 0.023 * HS;
 // The rest of the wall's numbers are held as fractions of it rather than
 // authored separately, exactly as pumpkin.js holds its own: change the
 // thickness and the lip, the taper and the lap follow.
-const WALL_LIP = 0.25 * WALL_T;               // how far the top ring laps back over the skin
+const WALL_LIP = 0.42 * WALL_T;               // how far the top ring laps back over the skin
 const WALL_PROUD = 0.02 * WALL_T;             // and how far it stands off it
 const WALL_TAPER = 0.18 * WALL_T;             // the cut narrows slightly toward its floor
 // How deep the cavity behind an opening goes, measured from the bottom of the
@@ -533,7 +533,7 @@ function snapTo(cut, X, Y) {
 // is no global illumination in this scene, so the soft dark ring a real
 // opening sits in has to be painted; it is small, and it is the only paint left
 // on this head now that the sockets are holes.
-const AO_REACH = 0.024 * HS;
+const AO_REACH = 0.030 * HS;
 
 // A tooth. bone.js has no vocabulary for one, and it should not: a tooth is a
 // rounded block, not a shaft or a plate. A superellipsoid at exponent ~3 is a
@@ -690,8 +690,8 @@ export function buildSkull({ material }) {
   // and that hemisphere came out as a pimple on the back of the head. Sinking
   // the last point or two deeper than the ridge itself buries the cap instead.
   const TEMPORAL = [
-    [0.88, 0.336, 0.040], [1.24, 0.302, 0.026], [1.62, 0.288, 0.024],
-    [1.98, 0.312, 0.030], [2.28, 0.386, 0.046],
+    [0.86, 0.340, 0.062], [1.12, 0.314, 0.034], [1.42, 0.296, 0.025],
+    [1.72, 0.294, 0.026], [2.00, 0.322, 0.040], [2.26, 0.386, 0.078],
   ];
   const temporals = [-1, 1].map((side) => tube(
     TEMPORAL.map(([a, h, inset]) => {
@@ -747,8 +747,8 @@ export function buildSkull({ material }) {
     d = smin(d, brows[1](x, y, z), 0.020);
     d = smin(d, zygos[0](x, y, z), 0.017);
     d = smin(d, zygos[1](x, y, z), 0.017);
-    d = smin(d, temporals[0](x, y, z), 0.030);
-    d = smin(d, temporals[1](x, y, z), 0.030);
+    d = smin(d, temporals[0](x, y, z), 0.022);
+    d = smin(d, temporals[1](x, y, z), 0.022);
     d = smin(d, alveolar(x, y, z), 0.024);
     d = smin(d, condyleL(x, y, z), 0.016);
     d = smin(d, condyleR(x, y, z), 0.016);
@@ -778,24 +778,42 @@ export function buildSkull({ material }) {
   // A ray out of P0 is walked until the field changes sign and the crossing is
   // then bisected.
   //
-  // The walk matters. Bisecting the whole bracket blind assumes the field
-  // crosses zero once along the ray, and a smooth union does not have to: the
-  // fillet where two parts meet is concave, a grazing ray can cut it three
-  // times, and blind bisection then lands on whichever crossing the halving
-  // happens to trap -- a different one for neighbouring rays, which tears.
+  // The walk matters, and so does which crossing it stops at. Bisecting the
+  // whole bracket blind assumes the field crosses zero once along the ray, and
+  // a smooth union does not have to: the fillet where two parts meet is
+  // concave, a grazing ray can cut it three times, and blind bisection then
+  // lands on whichever crossing the halving happens to trap -- a different one
+  // for neighbouring rays, which tears.
   //
   // Each ray starts from where the ray below it landed, so it tracks the same
   // sheet as its neighbour and usually finds the bracket in two or three steps.
+  // Then it LOOKS PAST the crossing it found, and if there is more solid within
+  // a few steps it walks on and takes the outer one. Without that, a single ray
+  // in the crease between the nasal bone and the medial wall of an orbit stops
+  // on the inner sheet while all its neighbours stop on the outer, and the
+  // funnel that leaves shows as one black pixel on the bridge of the nose. It
+  // was three pixels here and they survived every guess about the cut, the
+  // wall and the rim snap before the surface itself turned out to be the
+  // culprit.
   const STEP = 0.008;
+  const LOOKAHEAD = 9;
   const solve = (dx, dy, dz, guess) => {
     const at = (t) => field(P0.x + dx * t, P0.y + dy * t, P0.z + dz * t);
-    let lo, hi;
-    if (at(guess) < 0) {
-      lo = guess; hi = guess + STEP;
+    let lo = Math.max(STEP, guess);
+    if (at(lo) >= 0) {
+      while (lo > STEP && at(lo) >= 0) lo -= STEP;
+    }
+    let hi = lo + STEP;
+    for (;;) {
       while (hi < T_MAX && at(hi) < 0) { lo = hi; hi += STEP; }
-    } else {
-      hi = guess; lo = guess - STEP;
-      while (lo > STEP && at(lo) > 0) { hi = lo; lo -= STEP; }
+      let jump = 0;
+      for (let k = 1; k <= LOOKAHEAD; k++) {
+        const t = hi + k * STEP;
+        if (t >= T_MAX) break;
+        if (at(t) < 0) { jump = t; break; }
+      }
+      if (!jump) break;
+      lo = jump; hi = jump + STEP;
     }
     for (let i = 0; i < 15; i++) {
       const mid = (lo + hi) / 2;
@@ -944,14 +962,16 @@ export function buildSkull({ material }) {
       const u = uOfColumn(ix);
       const v = position[k * 3 + 1];
       const hit = snapTo(cut, u, v);
-      // Clamp the pull to under a cell in each direction. A rim vertex is
+      // Clamp the pull to half a cell in each direction. A rim vertex is
       // shared with the quads that survive, and one dragged clean across a
-      // neighbour turns it inside out: it back-face culls and leaves a cell of
-      // background showing through the head, which is exactly the speck that
-      // appeared at the outer corner of each of the pumpkin's eyes.
+      // neighbour turns it inside out: it back-face culls, and what shows
+      // through the gap is the dark cavity behind. At the 0.55 pumpkin.js uses
+      // two neighbours could between them move 1.1 cells toward each other,
+      // and a scatter of black specks appeared on the bridge of the nose doing
+      // exactly that. Half a cell each is the most that cannot cross.
       const cellV = Math.abs(Math.cos(vPhi[k]) * vT[k]) * (Math.PI / NPH);
-      const uN = u + Math.max(-0.55 * CELL_U, Math.min(0.55 * CELL_U, hit.X - u));
-      const vN = v + Math.max(-0.55 * cellV, Math.min(0.55 * cellV, hit.Y - v));
+      const uN = u + Math.max(-0.50 * CELL_U, Math.min(0.50 * CELL_U, hit.X - u));
+      const vN = v + Math.max(-0.50 * cellV, Math.min(0.50 * cellV, hit.Y - v));
       const s = faceSample(uN, vN, vPhi[k], vT[k]);
       place(k, s.th, s.phi, s.t);
       rimNU[k] = hit.nx;
@@ -982,7 +1002,7 @@ export function buildSkull({ material }) {
       for (const cut of CUTS) {
         if (u < cut.minX - AO_REACH || u > cut.maxX + AO_REACH) continue;
         if (v < cut.minY - AO_REACH || v > cut.maxY + AO_REACH) continue;
-        lum *= 1 - 0.20 * (1 - smoothstep(0, AO_REACH, snapTo(cut, u, v).d));
+        lum *= 1 - 0.14 * (1 - smoothstep(0, AO_REACH, snapTo(cut, u, v).d));
       }
       const fz = (position[j + 2] - FORAMEN_Z) / (0.20 * M.skull.depth);
       const fx = position[j] / (0.16 * M.skull.width);
@@ -1123,7 +1143,7 @@ export function buildSkull({ material }) {
     // before it turns and goes back. It is never meant to be seen: it is there
     // so that where the grid's hole overshoots the outline by a fraction of a
     // cell there is still cavity behind it and not daylight.
-    const CAV_SKIRT = 1.6 * CELL_U;
+    const CAV_SKIRT = 1.3 * CELL_U;
     const CAV_LUM = [0.022, 0.022, 0.018, 0.016, 0.019, 0.024, 0.030, 0.038];
     for (let ci = 0; ci < CUTS.length; ci++) {
       const cut = CUTS[ci];
@@ -1152,28 +1172,45 @@ export function buildSkull({ material }) {
       const base0 = holeVerts.length / 3;
       const nrm = new THREE.Vector3();
       const pt = new THREE.Vector3();
+      const out = new THREE.Vector3();
       for (let r = 0; r <= CAV_RINGS; r++) {
         // r = 0 is the hidden skirt, r = 1 the outline itself at the bottom of
         // the wall, and from there the quarter ellipse inward and back.
         const s = r <= 1 ? 0 : (r - 1) / CAV_RINGS;
         const shrink = Math.cos((Math.PI / 2) * s);
-        const sink = WALL_T + depth * Math.sin((Math.PI / 2) * s);
+        // The skirt is sunk deeper than the wall's own floor, because it is the
+        // one ring that must never surface: it lies under skin, and skin only a
+        // couple of grid cells wide between two openings has nothing to spare.
+        const sink = (r === 0 ? 1.9 * WALL_T : WALL_T) + depth * Math.sin((Math.PI / 2) * s);
         for (let i = 0; i < n; i++) {
           const f = cut.pts[i];
-          let u = uc + (f[0] - uc) * shrink;
-          let v = vc + (f[1] - vc) * shrink;
-          if (r === 0) {
-            const g = cut.pts[(i + 1) % n], h = cut.pts[(i + n - 1) % n];
-            const ex = g[0] - h[0], ey = g[1] - h[1];
-            const inv = 1 / (Math.hypot(ex, ey) || 1);
-            u += ey * inv * CAV_SKIRT;
-            v += -ex * inv * CAV_SKIRT;
-          }
+          const u = uc + (f[0] - uc) * shrink;
+          const v = vc + (f[1] - vc) * shrink;
           const sm = faceSample(u, v, sPhi, sT);
           sPhi = sm.phi; sT = sm.t;
           const cp = Math.cos(sm.phi), sp = Math.sin(sm.phi);
           pt.set(P0.x + cp * Math.sin(sm.th) * sm.t, P0.y + sp * sm.t, P0.z + cp * Math.cos(sm.th) * sm.t);
           gradNormal(pt.x, pt.y, pt.z, nrm);
+          if (r === 0) {
+            // The skirt runs out from the rim ALONG THE TANGENT PLANE, not along
+            // the skin. Following the skin was the first attempt and it is wrong
+            // wherever the skin is concave: the valley between the nasal
+            // aperture and the medial wall of the orbit turns tighter than the
+            // wall is thick, so normals a cell apart cross, the sunk ring folds
+            // through itself and a few of its vertices surface on the bridge of
+            // the nose as black specks. A flange in the tangent plane cannot do
+            // that from either sign of curvature -- the skin bends away from the
+            // tangent plane when convex and away from the flange when concave.
+            const g = cut.pts[(i + 1) % n], h = cut.pts[(i + n - 1) % n];
+            const ex = g[0] - h[0], ey = g[1] - h[1];
+            const inv = 1 / (Math.hypot(ex, ey) || 1);
+            // Outward is the reverse of the counter-clockwise inward normal.
+            const ou = ey * inv, ov = -ex * inv;
+            out.set(ou * Math.cos(sm.th), ov, ou * -Math.sin(sm.th));
+            out.addScaledVector(nrm, -out.dot(nrm));
+            const ol = out.length();
+            if (ol > 1e-9) pt.addScaledVector(out, CAV_SKIRT / ol);
+          }
           pt.addScaledVector(nrm, -sink);
           holeVerts.push(pt.x, pt.y, pt.z);
           nrm.copy(mouth).sub(pt);
@@ -1320,8 +1357,8 @@ export function buildSkull({ material }) {
     // bone.js has no end cap of its own: uncapped, the bar's back end showed as
     // a scoop out of the jaw from any three-quarter view. It also thickens the
     // gonion, which is what a real one does anyway.
-    const cap = track(jointBall(JAW_R * 1.06, { squash: 1 }));
-    cap.scale(1, JAW_SQUASH * 0.88, 1);
+    const cap = track(jointBall(JAW_R * 0.98, { squash: 1 }));
+    cap.scale(1, JAW_SQUASH * 0.80, 1);
     cap.translate(side * gonionX, gonionY, gonion.z);
     jawRoot.add(add(cap, material));
 
