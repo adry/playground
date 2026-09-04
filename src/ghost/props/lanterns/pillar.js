@@ -58,7 +58,7 @@ import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from '../style.js';
 // stone and 0.22 for the metal. That split is itself the point: stone is
 // weathered and metal is folded, and giving them the same radius made the
 // lantern look like it had been cast in one lump with the pillar.
-const P_STONE = 0.22;
+const P_STONE = 0.34;
 const P_METAL = 0.22;
 
 // -----------------------------------------------------------------------------

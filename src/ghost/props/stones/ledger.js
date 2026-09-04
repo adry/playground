@@ -89,7 +89,8 @@ registerStone('ledger', {
   // long stroke of the mark off the foreshortened axis. No lettering under it:
   // one closed figure on clean stone is the whole read, and a second element
   // would only fill the face up.
-  draw(ctx, w, h) {
+  draw: drawLedgerCross,
+  __unused(ctx, w, h) {
     const T = h * 0.115; // stroke, ~0.097 in world: fat enough to survive being
     const L = w * 0.62; // seen at half height and squashed by the tone map
     const B = h * 0.56;
@@ -165,3 +166,6 @@ registerStone('ledger', {
     // above is measured rather than eyeballed.
   },
 });
+
+// TEMP-MEASURE
+export { drawLedgerCross as __mark };

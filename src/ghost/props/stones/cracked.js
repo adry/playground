@@ -4,7 +4,7 @@ import { registerStone, inkCross, inkText } from '../tombstones.js';
 // The old one.
 //
 // Every other stone in the set is sound and very nearly upright. This is the
-// derelict: it leans about five times as far as its neighbours, a piece of the
+// derelict: it leans five times as far as the set's own worst, a piece of the
 // arch is gone, a crack runs across the face, and the inscription has worn back
 // to the few marks the weather did not reach. It is the piece that makes the
 // row read as an old graveyard rather than a new one.
@@ -59,7 +59,8 @@ const SHAPE = {
 // and overlapping, because one circle is a bite out of an apple and three are a
 // chip.
 //
-// Four renders went into these nine numbers and each one moved a different one:
+// Four renders went into these nine numbers, and each one moved something
+// different:
 //
 //  - SPAN. The first pass ran from 98 to 174 degrees. The crown of the arch went
 //    with it, the stone came back a triangular shard and stopped reading as a
@@ -123,10 +124,10 @@ const LEAN_X = -0.035;  // and a little more of the backward tip the set already
 // the stone has to be sunk by whatever the lean lifted, which reads as settled
 // rather than as placed anyway. Not a constant: the lean varies per stone, and a
 // constant chosen for one of them left a 4mm hairline of daylight under the
-// raised corner of another. seat() below measures it off the plinth's own flat
-// underside, which is the same rule the set uses for ground contact everywhere:
-// the true lowest vertex under the transform, never a bounding box, which a
-// rotation inflates to a tumbling cube's corner.
+// raised corner of another. extras() measures it instead, off the plinth's own
+// flat underside, by the rule the set uses for ground contact everywhere: the
+// true lowest vertex under the transform, never a bounding box, which a
+// rotation inflates into a tumbling cube's corner.
 const SEAT_MARGIN = 0.004;
 
 // ---------------------------------------------------------------------------
