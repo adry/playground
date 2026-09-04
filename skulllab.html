@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Skull Lab</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #b9bec7; }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<script type="module">
+// Skull-only turntable. Same lights, floor and tone map as preview.html, but it
+// builds the head alone so a look-adjust cycle is seconds rather than minutes.
+// Scratch tooling for the skull pass; preview.html stays the shared harness.
+import * as THREE from 'three';
+import { createGround } from '/src/ghost/ground.js';
+import { boneMaterial } from '/src/ghost/props/skeleton/parts/bone.js';
+import { buildSkull } from '/src/ghost/props/skeleton/parts/skull.js';
+
+const canvas = document.getElementById('view');
+const params = new URLSearchParams(location.search);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#b9bec7').convertSRGBToLinear();
+
+const ELEV = Number(params.get('elev') ?? 0.78);
+const CAM_DIR = new THREE.Vector3(1, ELEV, 1).normalize();
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+const target = new THREE.Vector3();
+let view = 1;
+let aspectNow = 1;
+
+function resize(w, h) {
+  aspectNow = w / h;
+  camera.left = -view * aspectNow;
+  camera.right = view * aspectNow;
+  camera.top = view;
+  camera.bottom = -view;
+  camera.updateProjectionMatrix();
+  camera.position.copy(target).addScaledVector(CAM_DIR, 20);
+  camera.lookAt(target);
+  renderer.setSize(w, h, false);
+}
+
+// Lights copied verbatim from src/preview/main.js.
+scene.add(new THREE.HemisphereLight(0xdfe6f5, 0x6f7480, 1.15));
+const key = new THREE.DirectionalLight(0xfff4e6, 2.1);
+key.position.set(3.2, 6.0, 2.4);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near = 0.5;
+key.shadow.camera.far = 30;
+key.shadow.camera.left = -4;
+key.shadow.camera.right = 4;
+key.shadow.camera.top = 4;
+key.shadow.camera.bottom = -4;
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.006;
+key.shadow.radius = 3;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xc4d4ff, 0.55);
+rim.position.set(-4, 2.5, -3);
+scene.add(rim);
+scene.add(createGround());
+
+const material = boneMaterial();
+const skull = buildSkull({ material });
+const pivot = new THREE.Group();
+// Stand the head where the figure's head is, so it catches the same key angle.
+pivot.position.y = 2.5 * 0.865;
+pivot.add(skull.group);
+scene.add(pivot);
+skull.group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+
+{
+  const box = new THREE.Box3().setFromObject(skull.group);
+  const c = box.getCenter(new THREE.Vector3());
+  target.copy(c).add(pivot.position);
+  const up = new THREE.Vector3(0, 1, 0).projectOnPlane(CAM_DIR).normalize();
+  const right = new THREE.Vector3().crossVectors(CAM_DIR, up).normalize();
+  let hu = 0, hr = 0;
+  const q = new THREE.Vector3();
+  for (let i = 0; i < 8; i++) {
+    q.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(c);
+    hu = Math.max(hu, Math.abs(q.dot(up)));
+    hr = Math.max(hr, Math.abs(q.dot(right)));
+  }
+  view = Math.max(hu, hr) * 1.14;
+}
+
+window.__preview = {
+  setSize(w, h) {
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    resize(w, h);
+  },
+  step(dt = 1 / 60, spin = 0, jaw = 0) {
+    pivot.rotation.y = spin;
+    skull.joints.jaw.rotation.x = jaw;
+    renderer.render(scene, camera);
+  },
+};
+
+resize(canvas.clientWidth || 900, canvas.clientHeight || 900);
+renderer.render(scene, camera);
+window.__previewReady = true;
+</script>
+</body>
+</html>

@@ -193,6 +193,7 @@ const props = [];
 // Scene-level updaters that are not props in their own right, such as the one
 // driving the gate from the ghost's motion.
 const gateProps = [];
+let gateAngle = () => 0;
 
 function addProp(prop, x, z, yaw = Math.PI / 4) {
   prop.group.position.set(x, 0, z);
@@ -319,6 +320,11 @@ if (SCENE === 'full') {
   const gatePlane = new THREE.Vector3(Math.sin(ACROSS + Math.PI / 2), 0, Math.cos(ACROSS + Math.PI / 2));
   const toGhost = new THREE.Vector3();
   let gateCooldown = 0;
+  // Reported through the test hook so the wiring can be checked without
+  // rendering: the lab scene is heavy enough that a software-rendered strip of
+  // frames takes minutes, and the question here is only whether the ghost's
+  // passage drives the leaf.
+  gateAngle = () => swing.angle;
   gateProps.push({
     update(dt) {
       gate.hinge.getWorldPosition(gateAt);
@@ -426,6 +432,7 @@ window.__ghost = {
   },
   state() {
     return {
+      gate: gateAngle(),
       pos: ghost.pos.toArray(),
       vel: ghost.vel.toArray(),
       yaw: ghost.yaw,
