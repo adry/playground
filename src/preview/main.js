@@ -89,6 +89,30 @@ const PROPS = {
     };
   },
 
+  // A pumpkin standing next to a headstone, framed the way the scene is rather
+  // than as a close-up, for recording. Nothing here spins: the subject is the
+  // candle, and a turntable would pull the eye onto the rotation instead.
+  pumpkinscene: async () => {
+    const [pk, tb] = await Promise.all([
+      import('../ghost/props/pumpkin.js'),
+      import('../ghost/props/tombstones.js'),
+    ]);
+    const group = new THREE.Group();
+    const stone = tb.createTombstone({ variant: 'fred', seed: 11 });
+    stone.group.position.set(-0.62, 0, -0.30);
+    stone.group.rotation.y = Math.PI / 4 + 0.18;
+    const gourd = pk.createPumpkin({ variant: params.get('variant') || 'classic', seed: 3 });
+    gourd.group.position.set(0.46, 0, 0.24);
+    gourd.group.rotation.y = Math.PI / 4 - 0.15;
+    group.add(stone.group, gourd.group);
+    const parts = [stone, gourd];
+    return {
+      group,
+      update: (time, dt) => parts.forEach((p) => p.update?.(time, dt)),
+      dispose: () => parts.forEach((p) => p.dispose?.()),
+    };
+  },
+
   tombstones: async () => {
     const m = await import('../ghost/props/tombstones.js');
     // Lay the variants out in a row so one render shows the whole set.

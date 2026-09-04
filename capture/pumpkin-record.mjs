@@ -5,11 +5,16 @@
 // software renderer is, so the clip is smooth however long it takes to make.
 //
 //   node capture/pumpkin-record.mjs --seconds 10 --variant classic --w 900 --h 900
+//   node capture/pumpkin-record.mjs --scene pumpkinscene --still 1 --view 2.4
 //   node capture/pumpkin-record.mjs --row 1 --w 1600 --h 600
 //
-// The spin is exactly one revolution over the clip, so the geometry loops
-// seamlessly. The flame does not, and deliberately: a candle that repeated on a
-// ten second cycle would be the one thing in the shot that looked authored.
+// Turning, the spin is exactly one revolution over the clip so the geometry
+// loops seamlessly. With --still the prop does not move at all and the only
+// thing changing is the candle, which is the right choice when the light IS
+// the subject: a turntable pulls the eye onto the rotation instead.
+//
+// The flame never loops, and deliberately. A candle repeating on a ten second
+// cycle would be the one thing in the shot that looked authored.
 
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
@@ -24,11 +29,13 @@ const fps = Number(args.fps || 60);
 const seconds = Number(args.seconds || 10);
 const variant = args.variant || 'classic';
 const row = args.row ? 1 : 0;
+const still = !!args.still;
+const scene = args.scene || 'pumpkin';
 const view = args.view || (row ? '' : '0.62');
-const outFile = args.out || `out/pumpkin-${row ? 'row' : variant}-${width}x${height}.mp4`;
+const outFile = args.out || `out/pumpkin-${row ? 'row' : scene === 'pumpkin' ? variant : scene}-${width}x${height}.mp4`;
 
 const query = [
-  'prop=pumpkin',
+  `prop=${scene}`,
   row ? 'row=1' : `variant=${variant}`,
   view ? `view=${view}` : '',
 ].filter(Boolean).join('&');
@@ -67,12 +74,14 @@ const done = new Promise((res, rej) => {
   ff.on('close', (c) => (c === 0 ? res() : rej(new Error(`ffmpeg exited ${c}\n${ffErr.slice(-1500)}`))));
 });
 
-// Start a little past dead-on, so the opening frame already shows a cut wall
-// rather than the flattest possible view of the face.
-const SPIN0 = 0.45;
+// Turning, start a little past dead-on so the opening frame already shows a cut
+// wall rather than the flattest view of the face. Still, hold at zero: the
+// scene composes its own props and turning the whole group would swing the
+// headstone round with the pumpkin.
+const SPIN0 = still ? 0 : 0.45;
 const started = Date.now();
 for (let f = 0; f < frames; f++) {
-  const spin = SPIN0 + (f / frames) * Math.PI * 2;
+  const spin = still ? SPIN0 : SPIN0 + (f / frames) * Math.PI * 2;
   await lab.page.evaluate((o) => window.__preview.step(o.dt, o.spin), { dt: 1 / fps, spin });
   const png = await grabPNG(lab.page);
   if (!ff.stdin.write(png)) await new Promise((r) => ff.stdin.once('drain', r));

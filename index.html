@@ -175,6 +175,35 @@
     outline-offset: 0;
   }
 
+  /* Sits under the index, quieter than a project row: this is a footnote, not
+     a fifth entry. Same gap as the index has above it, so the page reads as
+     three blocks rather than a list with something stuck on the end. */
+  .follow {
+    margin: clamp(2.25rem, 7vh, 3.5rem) 0 0;
+    font-size: clamp(0.9375rem, 3vw, 1.0625rem);
+  }
+  .follow a {
+    color: inherit;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+    text-decoration-color: var(--rule);
+    transition: text-decoration-color 140ms ease;
+  }
+  .follow a:hover,
+  .follow a:focus-visible { text-decoration-color: currentColor; }
+  .follow a:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+  /* The arrow marks the link as leaving the site. Nudged up a hair because a
+     north-east arrow sits low against lowercase text. */
+  .follow .arrow {
+    display: inline-block;
+    margin-left: 0.15em;
+    vertical-align: 0.06em;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     * { transition-duration: 0.01ms !important; }
   }
@@ -197,6 +226,11 @@
         </li>
       </ul>
     </nav>
+
+    <p class="follow">
+      Follow
+      <a href="https://x.com/Aaddrriieenn" rel="me noopener" target="_blank">Aaddrriieenn on X<span class="arrow" aria-hidden="true">&#8599;</span></a>
+    </p>
   </main>
 </body>
 </html>
