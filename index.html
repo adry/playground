@@ -123,7 +123,6 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 1.5rem;
     padding: clamp(0.95rem, 2.6vw, 1.3rem) 0;
     color: inherit;
     font-size: clamp(1.0625rem, 3.4vw, 1.375rem);
@@ -135,6 +134,7 @@
      links, and eight permanently underlined rows would be a lot of texture on
      a page that is meant to be quiet. */
   li a .name {
+    flex: 1 1 auto;
     text-decoration-line: underline;
     text-decoration-thickness: 1px;
     text-decoration-color: transparent;
@@ -144,11 +144,24 @@
   li a:hover .name,
   li a:focus-visible .name { text-decoration-color: currentColor; }
 
+  /* Decoration, so aria-hidden: the name still owns the start of what is read
+     out. Sized in em so it tracks the row's fluid type. Spacing is per child
+     rather than a flex gap on the row, because the two gaps want opposite
+     things: the mark sits tight against its label, the arrow stands well off
+     it. One gap value cannot do both. */
+  li a .emoji {
+    flex: none;
+    margin-right: 0.55em;
+    font-size: 1.1em;
+    line-height: 1;
+  }
+
   /* The nudge is hover only. The arrow sits flush with the row's right edge, so
      on focus it would slide out under the ring and get clipped; keyboard focus
      is already saying enough with the ring and the underline. */
   li a .arrow {
     flex: none;
+    margin-left: 1.5rem;
     transition: transform 140ms ease;
   }
   li a:hover .arrow { transform: translateX(0.3em); }
@@ -177,6 +190,7 @@
       <ul>
         <li>
           <a href="/ghostly/">
+            <span class="emoji" aria-hidden="true">&#128123;</span>
             <span class="name">Ghostly the friendly ghost</span>
             <span class="arrow" aria-hidden="true">&#8594;</span>
           </a>
