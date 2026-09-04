@@ -20,9 +20,20 @@ export const F = {
     height: 0.72,
     width: 0.115,
     thickness: 0.042,
+    round: 0.34,
+    warp: 0.008,
+    // How far a board is bedded into the dirt, so none of them float.
+    sink: 0.012,
+    // jitter.lean says how far a board leans, not how many of them do.
+    leanChance: 0.45,
+    leanFloor: 0.22,
     // The tops are a shallow roof point, two chamfers meeting at an apex, not a
     // sharp spike. Height of that point as a fraction of the picket's width.
     pointRise: 0.62,
+    // Width left at the very tip, as a fraction of the board's. Running the
+    // taper to nothing gives a knife edge, and the reference's points are
+    // visibly blunt: a sawn chamfer, not a whittled spike.
+    apex: 0.24,
     // Boards are hand-cut, so no two are quite the same. Fractions of the
     // nominal, applied per picket from the panel's seed.
     jitter: { width: 0.12, height: 0.06, lean: 0.035, twist: 0.05 },
@@ -35,6 +46,9 @@ export const F = {
     // Posts in the reference are squared off rather than pointed, with the
     // corners knocked well off.
     round: 0.34,
+    warp: 0.005,
+    // The squared top is not a sharp edge either; its rim is eased.
+    top: { ease: 0.055, take: 0.28 },
   },
 
   rail: {
@@ -43,6 +57,8 @@ export const F = {
     depth: 0.075,
     // Heights up the picket, as fractions of picket height.
     at: [0.30, 0.72],
+    round: 0.24,
+    warp: 0.011,
   },
 
   // --- breakage ------------------------------------------------------------
@@ -57,6 +73,11 @@ export const F = {
   },
 
   // --- the wood ------------------------------------------------------------
+  // Grain runs along the length of every board. It lives in the material rather
+  // than the geometry, so a board drawn with a plain woodMaterial() comes out
+  // flat cream next to a grained neighbour; use woodPanelMaterial().
+  grain: { frequency: 21, depth: 0.86, tint: 0.18 },
+
   wood: {
     pale: '#e2d5bd',
     shade: '#cbb99b',

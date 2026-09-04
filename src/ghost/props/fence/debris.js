@@ -70,13 +70,19 @@ const MAX_LEAN = 0.52;
 
 // Boards do not land dead flat on a face. A few degrees of roll about their own
 // length is what breaks up the parallel-planes look that an unrolled stack has.
-const MAX_ROLL = 0.22;
+// Small on purpose: across a picket's 0.115 width, twelve degrees lifts one
+// long edge by more than half the board's own thickness, and a board balanced
+// on one edge holds everything above it up in the air.
+const MAX_ROLL = 0.13;
 
-// Height field resolution. A picket is 0.042 thick, so this puts two or three
-// cells across the thinnest step in the pile: the ledge a plank comes to rest
-// on is then the real top of the plank under it and not a staircase version
-// of it. It is a build-time cost only, paid once.
-const FIELD_CELL = 0.018;
+// Height field resolution, and the number that governs how tightly the pile
+// packs. A plank's top is written into the field by splatting its vertices,
+// each over its own cell and the ring around it, so the field stands a cell
+// PROUD of the plank's real edge and the next plank up rests that much high.
+// At 0.018 (a picket is 0.042 thick) the gap was visible from a low angle as
+// daylight between the layers. Everything that samples the field is stepped
+// off this value, so tightening it tightens the pile.
+const FIELD_CELL = 0.012;
 
 const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
 
@@ -126,7 +132,12 @@ function heightField(span) {
 // rest on, because that is where its weight is. Sampling the field and fitting
 // a least-squares line instead gives a plank that sinks into every high spot,
 // which is the flat-mat look.
-function restingLean(support, half, samples = 11) {
+function restingLean(support, half) {
+  // One sample per field cell along the plank, so a ridge the drop below is
+  // going to find cannot fall between two samples up here. When it does, the
+  // fit lands the plank flat and the drop then stands it on the one vertex that
+  // found the ridge, which is a plank floating on a corner.
+  const samples = clamp(Math.round((2 * half) / FIELD_CELL) | 1, 9, 61);
   const pts = [];
   for (let i = 0; i < samples; i++) {
     const u = -half + (2 * half * i) / (samples - 1);
@@ -234,11 +245,12 @@ function plankGeometry({ length, width, thickness, rand }) {
     warp: length * (rand() - 0.5) * 0.055,
     warpAxis: rand() < 0.5 ? 'x' : 'z',
     profile,
-    // Fourteen along the length does two jobs: it is enough for the warp and
-    // the run-out to read, and it is what feeds the height field. At these
-    // lengths the vertex rings land closer together than FIELD_CELL, so the
-    // splat covers the plank's top with no holes in it.
-    segments: 14,
+    // Segments are set by length rather than fixed, because they do two jobs
+    // and the second one sets the rate. They carry the warp and the run-out,
+    // which a dozen would do; and they are what writes the plank's top into the
+    // height field, which needs the vertex rings landing no further apart than
+    // the splat is wide, or the next plank up drops into the gaps between them.
+    segments: clamp(Math.round(length / (FIELD_CELL * 1.6)), 10, 44),
     // Fourteen round as well: with the section this flat, ten put a visible
     // kink across the middle of the wide face where two ring vertices had to
     // stand in for a straight run.
@@ -291,6 +303,19 @@ export function createDebrisPile({ seed = 1, radius = 0.55, planks = 10, scale =
   }
   specs.sort((a, b) => b.length - a.length);
 
+  // Two of them are meant to end up propped. The nestling rule below is good
+  // at its job -- left to itself it lays every plank into the lowest hollow it
+  // can find and the pile comes out a flat mat, which is the other failure the
+  // reference rules out. So two pieces, chosen from the second half of the
+  // sequence (by then there is a heap for them to catch on) go the other way
+  // and keep the candidate that leans HARDEST. Those are the two that give the
+  // pile its skyline; everything else settles.
+  const propped = new Set(
+    specs.length >= 6
+      ? [Math.floor(specs.length * 0.45), Math.floor(specs.length * 0.65), Math.floor(specs.length * 0.85)]
+      : [],
+  );
+
   const longest = specs.length ? specs[0].length : 0;
   const field = heightField(2 * (radius + longest * 0.5) * 1.08);
 
@@ -326,74 +351,103 @@ export function createDebrisPile({ seed = 1, radius = 0.55, planks = 10, scale =
     const pos = geo.attributes.position;
     const nor = geo.attributes.normal;
     const half = length / 2;
+    // Each plank gets its own place between the palette's pale and its shade.
+    // Every board on exactly F.wood.pale is the single thing that most made an
+    // earlier pass read as one moulded object with grooves in it rather than as
+    // a dozen loose boards: with no tonal separation the eye has only the
+    // silhouette to go on, and inside a pile there is no silhouette.
+    const weather = Math.pow(rand(), 1.3) * 0.55;
 
     // Where it lands. The spread closes as the pile builds, so the later,
-    // shorter pieces come down over the middle of what is already there: that
-    // is what turns a scatter of boards into a mound. The sqrt keeps each
-    // individual draw even over its own disc rather than crowding the centre.
-    const k = specs.length > 1 ? i / (specs.length - 1) : 0;
+    // shorter pieces come down over what is already there.
+    //
     // Note that `radius` is the radius of the PILE, not the radius the plank
-    // centres are drawn from: a board half a metre long placed anywhere in a
-    // 0.55 disc reaches most of a metre out, and eleven of those laid at random
-    // over that disc do not touch each other. The centres go into the middle
-    // half of it and the lengths do the rest. This was the difference between a
-    // pile and eleven boards lying near each other.
-    const spread = radius * 0.62 * (1 - 0.3 * k);
-    const a = rand() * Math.PI * 2;
-    // Between even-over-the-disc (sqrt) and crowded-at-the-centre (linear).
-    // Crowded was tried and it builds a cairn: every plank lands on the middle
-    // of the last one and the pile goes up in a neat column five deep. The
-    // reference is two or three deep and wide, with a couple of pieces riding
-    // up over the rest.
-    const r = spread * Math.pow(rand(), 0.7);
-    const cx = Math.cos(a) * r;
-    const cz = Math.sin(a) * r;
-    // Full circle. Crossed at all angles is the whole character of the pile;
-    // any bias in the heading and it starts to read as a stack again.
-    const yaw = rand() * Math.PI * 2;
+    // centres are drawn from: a board half a metre long dropped anywhere in a
+    // 0.55 disc reaches most of a metre out, and a dozen of those laid at
+    // random over that disc do not touch each other. The centres go into the
+    // middle of it and the lengths do the rest.
+    const k = specs.length > 1 ? i / (specs.length - 1) : 0;
+    // 0.68 was tried and the pile came out as an asterisk: with every centre
+    // that close in, a dozen planks at a dozen headings all cross at the same
+    // point and radiate. Wider, they cross each other in several places, which
+    // is what the reference actually shows.
+    const spread = radius * 0.82 * (1 - 0.22 * k);
 
-    // Under Ry(yaw) the plank's own +x runs along (cos, -sin) in world xz and
-    // its width runs along (sin, cos).
-    const cy = Math.cos(yaw);
-    const sy = Math.sin(yaw);
-    const support = (u) => {
-      const px = cx + u * cy;
-      const pz = cz - u * sy;
-      // Highest of three lines across the width: a plank rides the ridge under
-      // any part of it, not the ridge under its centreline.
+    // Four candidate places, and the plank takes the one it sits LOWEST in.
+    //
+    // This is the difference between a pile and a cairn, and it is worth the
+    // four passes. Dropped at the first spot it is offered, a plank quite often
+    // comes down across the peak of the heap, balances on it like a see-saw and
+    // holds both of its own ends -- and everything that lands on it after --
+    // up in the air. Trying a few spots and keeping the lowest is what a board
+    // sliding off a heap does, and it nestles the pile into itself instead of
+    // building it upward.
+    const wantsProp = propped.has(i);
+    let best = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const a = rand() * Math.PI * 2;
+      // Between even-over-the-disc (sqrt) and crowded-at-the-centre (linear).
+      const r = spread * Math.pow(rand(), 0.7);
+      const cx = Math.cos(a) * r;
+      const cz = Math.sin(a) * r;
+      // Full circle. Crossed at all angles is the whole character of the pile;
+      // any bias in the heading and it starts to read as a stack again.
+      const yaw = rand() * Math.PI * 2;
+      const roll = (rand() - 0.5) * 2 * MAX_ROLL;
+
+      // Under Ry(yaw) the plank's own +x runs along (cos, -sin) in world xz and
+      // its width runs along (sin, cos).
+      const cy = Math.cos(yaw);
+      const sy = Math.sin(yaw);
       const ox = sy * stock.width * 0.5;
       const oz = cy * stock.width * 0.5;
-      return Math.max(field.at(px, pz), field.at(px + ox, pz + oz), field.at(px - ox, pz - oz));
-    };
+      const support = (u) => {
+        const px = cx + u * cy;
+        const pz = cz - u * sy;
+        // Highest of three lines across the width: a plank rides the ridge
+        // under any part of it, not the ridge under its centreline.
+        return Math.max(field.at(px, pz), field.at(px + ox, pz + oz), field.at(px - ox, pz - oz));
+      };
 
-    // The lean is READ OFF the pile, not chosen. A plank with one end up on the
-    // mound and the other out over bare floor comes out propped, and those are
-    // the one or two leaning pieces that give the pile a silhouette. Choosing
-    // random lean angles instead gives planks tilted for no visible reason,
-    // which the eye reads as floating.
-    const lean = clamp(restingLean(support, half), -MAX_LEAN, MAX_LEAN);
-    const roll = (rand() - 0.5) * 2 * MAX_ROLL;
+      // The lean is READ OFF the pile, not chosen. A plank with one end up on
+      // the mound and the other out over bare floor comes out propped, and
+      // those are the one or two leaning pieces that give the pile a
+      // silhouette. Choosing random lean angles instead gives planks tilted for
+      // no visible reason, which the eye reads as floating.
+      const lean = clamp(restingLean(support, half), -MAX_LEAN, MAX_LEAN);
 
-    // YZX: roll about the plank's own length first, then the lean about the
-    // axis across it, then the heading. In any other order the lean is applied
-    // to an axis that has already been swung and stops being a lean.
-    euler.set(roll, yaw, lean, 'YZX');
-    m.makeRotationFromEuler(euler);
-    m.setPosition(cx, 0, cz);
+      // YZX: roll about the plank's own length first, then the lean about the
+      // axis across it, then the heading. In any other order the lean is
+      // applied to an axis that has already been swung and stops being a lean.
+      euler.set(roll, yaw, lean, 'YZX');
+      m.makeRotationFromEuler(euler);
+      m.setPosition(cx, 0, cz);
 
-    // The drop. Every vertex, under the real rotation, has to clear the column
-    // beneath it; the plank falls by the smallest clearance in the whole set,
-    // so it comes to rest touching at exactly one place and above the field
-    // everywhere else. This is the line that makes the no-sink guarantee true:
-    // field.at() is zero over bare ground, so the worst case of this loop is a
-    // plank whose lowest vertex is exactly on the floor.
-    let drop = Infinity;
-    for (let vi = 0; vi < pos.count; vi++) {
-      p.fromBufferAttribute(pos, vi).applyMatrix4(m);
-      const clearance = p.y - field.at(p.x, p.z);
-      if (clearance < drop) drop = clearance;
+      // The drop. Every vertex, under the real rotation, has to clear the
+      // column beneath it; the plank falls by the smallest clearance in the
+      // whole set, so it comes to rest touching in one place and above the
+      // field everywhere else. This is the line that makes the no-sink
+      // guarantee true: field.at() is zero over bare ground, so the worst this
+      // loop can do is put a plank's lowest vertex exactly on the floor.
+      let drop = Infinity;
+      let top = -Infinity;
+      for (let vi = 0; vi < pos.count; vi++) {
+        p.fromBufferAttribute(pos, vi).applyMatrix4(m);
+        const clearance = p.y - field.at(p.x, p.z);
+        if (clearance < drop) drop = clearance;
+        if (p.y > top) top = p.y;
+      }
+      // Score on where the plank's own crown ends up, not on where its middle
+      // ends up: a long piece leaning off the heap has a low centre and a high
+      // end, and it is the high end that reads as perched. The two propped
+      // pieces are scored the other way up, on the lean itself.
+      const score = wantsProp ? -Math.abs(lean) : top - drop;
+      if (best === null || score < best.score) best = { cx, cz, yaw, lean, roll, drop, score };
     }
-    m.setPosition(cx, -drop, cz);
+
+    euler.set(best.roll, best.yaw, best.lean, 'YZX');
+    m.makeRotationFromEuler(euler);
+    m.setPosition(best.cx, -best.drop, best.cz);
     nrm.getNormalMatrix(m);
 
     // Bake straight into the merged buffers. These are static props: ten
@@ -413,7 +467,7 @@ export function createDebrisPile({ seed = 1, radius = 0.55, planks = 10, scale =
       // so the run-out at each end carries it and the length between stays pale.
       const zone = Math.max(1e-4, localX < 0 ? zones[0] : zones[1]);
       const tear = clamp(1 - (half - Math.abs(localX)) / zone, 0, 1);
-      col.copy(pale).lerp(torn, tear);
+      col.copy(pale).lerp(shade, weather).lerp(torn, tear * 0.85);
 
       // A whisper of the shade colour on whatever is nearly touching the
       // ground. The scene's one shadow-casting light comes in at an angle and
@@ -602,10 +656,12 @@ export function createChipScatter({ seed = 1, radius = 1.4, count = 40, scale = 
   };
 
   const chips = build(chipCount, CHIP, radius, 0.13, (c, t) =>
-    // Freshly broken, so chips run warm. The ones that landed furthest are
-    // pulled toward the weathered shade: they read as older dirt out there and
-    // it helps the scatter fade rather than end.
-    c.copy(pale).lerp(torn, 0.35 + rand() * 0.5).lerp(shade, clamp(t, 0, 1) * 0.35));
+    // Freshly broken, so chips run warm. Then two things pull them back down.
+    // A wide random draw toward the weathered shade, because a scatter of
+    // identically pale flecks reads as spilled rice; and distance, because the
+    // ones that landed furthest are the ones that have been out there longest,
+    // and dimming them is most of what makes the litter fade rather than end.
+    c.copy(pale).lerp(torn, 0.25 + rand() * 0.55).lerp(shade, 0.15 + rand() * 0.45 + clamp(t, 0, 1) * 0.3));
   chips.castShadow = true;
   chips.receiveShadow = true;
 

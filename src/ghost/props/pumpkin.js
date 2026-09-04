@@ -70,8 +70,14 @@ const RINGS = SEGMENTS.height * 4;
 // of the flicker's swing. All three are driven off the one value, which is what
 // makes the light and the face read as the same flame.
 // A candle does not swing three to one. The old 1.05..3.10 pumped the pool on
-// the floor hard enough to read as a light being turned up and down; this is
-// still plainly alive at the far end of the swing without doing that.
+// the floor hard enough to read as a light being turned up and down; this holds
+// the same 2.15:1 the rest of the flicker was tuned to and is still plainly
+// alive at the far end of the swing.
+//
+// The absolute numbers are large because the lamp no longer throws a solid
+// cone: the gobo below is black over most of the cone and only the carved
+// shapes reach 1, so this is the intensity at the middle of an opening rather
+// than everywhere. Averaged over the pool it is close to what it always was.
 const LAMP = { min: 4.00, max: 8.60 };     // SpotLight intensity
 // Brought down hard, and this is the fix the report was actually asking for.
 // At 1.18..1.82 the plate tone-mapped to a flat #f3e0aa -- 95% luminance,
@@ -1061,10 +1067,14 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // are the outlines', the overall scale is chosen.
   const GOBO_SIZE = 256;
   // How much of the texture's width the face fills, and how hard it is squashed
-  // along the cone's axis. The squash is not a taste call: the cone meets the
-  // floor at a glancing 24 degrees, which stretches everything along its axis
-  // by roughly two and a half to one, and unsquashed the face lands as a long
-  // smear with nothing readable in it.
+  // along the cone's axis. The squash is not a taste call. The cone meets the
+  // floor at a glancing 24 degrees, so a ray one degree higher lands a long way
+  // further out than a ray one degree lower does nearer, and the whole face
+  // comes out as a smear whose far half is three or four times the scale of its
+  // near half. Squashing the mask keeps the face inside the band of the cone
+  // where that stretch is roughly even: at 0.32 it lands about 0.75 across and
+  // 0.44 deep, a little wider than the pumpkin itself, and the grin's teeth are
+  // still countable in it. 0.45 was tried and the far eye ran away.
   const GOBO_SPAN = 0.82, GOBO_SQUASH = 0.32;
   // The openings are not pinholes and the shell is SHELL_T thick, so the edges
   // are already soft by the time the light is outside the pumpkin. A crisp
@@ -1093,7 +1103,13 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     const k = (GOBO_SPAN * GOBO_SIZE) / Math.max(1e-6, maxX - minX);
     const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
     // Canvas y runs down and the texture is uploaded flipped, so subtracting
-    // puts face-up at the top of the cone -- the rays that travel furthest.
+    // puts face-up at the top of the cone. That is the right way up and not the
+    // obvious one: the flame is BEHIND the openings, so there is no pinhole
+    // inversion, and a cut high on the shell throws its light high -- which,
+    // on a floor, means furthest away. So the eyes land at the far end of the
+    // pool and the grin nearest the pumpkin, and from a camera on the far side
+    // of the pool the face therefore reads bottom-up. Checked in the renders;
+    // it is what a real one does and there is no honest way round it.
     // Face +X runs the opposite way round the body from the cone's own +x, so
     // that one is subtracted too and the grin is not thrown mirrored.
     const toPx = (X, Y) => [
@@ -1144,7 +1160,6 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     // with no colour-space decode, so the canvas is a linear multiplier and not
     // a picture. Run through sRGB it would come out far too dark in the wash.
     tex.colorSpace = THREE.NoColorSpace;
-    if (typeof window !== 'undefined') window.__gobo = canvas.toDataURL();
     return tex;
   })();
 
@@ -1153,7 +1168,12 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     (LAMP.min + LAMP.max) / 2,
     LIGHT_DISTANCE * scale,
     CONE_ANGLE,
-    0.25,  // penumbra: the gobo's own halo is the soft edge now, so the cone can hold a flat core
+    // Penumbra. This used to be 0.92 -- nearly all edge -- because the cone's
+    // rim was the only thing keeping the pool from reading as a stain. The gobo
+    // does that job now, and it does it better, since its halo fades to nothing
+    // well inside the rim. Left at 0.92 the falloff starts almost at the axis
+    // and had the grin's own ends down at 40% before they had gone anywhere.
+    0.25,
     // Gentler than inverse-square. Three openings scattering light is a soft
     // source, and a steep decay is exactly what made the near field explode.
     0.9,

@@ -62,8 +62,13 @@ const MIN_NEIGHBOUR_STEP = 0.16;   // of the length range
 // under it, which is backwards: a fresh break is the pale warm thing and the
 // outside of the board is the dull one. What is wanted is a hint of occlusion
 // in the socket, not a two-tone paint job.
-const TORN_TIP = new THREE.Color(F.wood.torn).convertSRGBToLinear();
-const TORN_ROOT = new THREE.Color(F.wood.shade).convertSRGBToLinear().lerp(TORN_TIP, 0.45);
+// Not convertSRGBToLinear'd, and that is not an oversight. Colour management
+// is on, so THREE.Color's constructor has ALREADY taken the hex out of sRGB and
+// into the working space; converting again darkens it a second time and the
+// whole spray came out browner than the weathered stump it sits on, which is
+// the exact opposite of what a fresh break looks like.
+const TORN_TIP = new THREE.Color(F.wood.torn);
+const TORN_ROOT = new THREE.Color(F.wood.shade).lerp(TORN_TIP, 0.45);
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
@@ -152,22 +157,48 @@ function widthCuts(rand, n) {
   return cuts;
 }
 
-function splinterProfile(hold, taper, wobble, phase) {
+// The cross-section of one spike along its length, as board() wants it.
+//
+// Three stages, and the middle one is the one that matters:
+//
+//  1. FULL WIDTH through everything that is buried in the stump and a little
+//     above it. Measuring the taper from the buried root instead let it start
+//     underground, so every spike arrived at the break plane already half its
+//     width and left a hole in the partition for the flat cap to show through.
+//  2. A short SHOULDER where it necks down to a shaft. This is what a splinter
+//     actually looks like: broad where it is still attached to the board, and
+//     then suddenly a thin fibre. Without it the long spikes come out as broad
+//     triangular fins, which read as shark or as slate, never as timber. How
+//     thin the shaft gets is tied to how far the spike runs -- the long ones
+//     are the thin ones.
+//  3. A near-parallel SHAFT that only points at the very end. Tried 0.8 first,
+//     which runs the spike out in a smooth curve and made every spike a horn;
+//     then 1.15, near linear, which turned the whole spike back into one long
+//     triangle and undid stage 2. The run has to be back-loaded.
+//
+// Width runs out a little later than thickness, so the tip is a flattened blade
+// rather than a peg: wood splits along the grain, it does not sharpen like a
+// pencil.
+const SHOULDER = 0.16;      // of the length above the break plane
+
+function splinterProfile({ hold, shaft, taper, wobble, phase }) {
+  const shaftT = 0.45 + 0.55 * shaft;      // thickness necks less hard than width
+  const tipW = taper * shaft;
+  const tipT = taper * 0.55 * shaftT;
   return (t) => {
-    const k = t <= hold ? 0 : (t - hold) / (1 - hold);
-    // Exponents under 1, which is the whole difference between a splinter and
-    // a spike. A linear taper draws a triangle, and a long triangle reads as a
-    // shard of something brittle. Necking down fast and then running thin all
-    // the way out is what a fibre does, and it is what makes the long ones look
-    // like fibre rather than like sails.
-    //
-    // Width runs out slightly later than thickness, so the tip is a flattened
-    // blade rather than a peg: wood splits along the grain, it does not sharpen
-    // like a pencil.
-    const w = 1 - (1 - taper) * Math.pow(k, 0.80);
-    const th = 1 - (1 - taper * 0.55) * Math.pow(k, 0.65);
-    const rip = 1 + wobble * Math.sin(t * 8.2 + phase) * Math.min(1, t * 5);
-    return [Math.max(0.05, w * rip), Math.max(0.04, th)];
+    const k = t <= hold ? 0 : (t - hold) / Math.max(1e-4, 1 - hold);
+    const nk = Math.min(1, k / SHOULDER);
+    const neck = nk * nk * (3 - 2 * nk);
+    // High exponents on the run-out, so the shaft really is a shaft: near
+    // parallel for most of its length and then a point. At 1.15 the run-out is
+    // near linear and it eats the shoulder, which leaves the spike one long
+    // triangle from base to tip -- which was the fin all over again.
+    const w = (1 + (shaft - 1) * neck) * (1 - (1 - tipW / shaft) * Math.pow(k, 2.20));
+    const th = (1 + (shaftT - 1) * neck) * (1 - (1 - tipT / shaftT) * Math.pow(k, 1.90));
+    // A notch or two along the edge, because a fibre lets go of its neighbour
+    // in steps rather than along one clean line.
+    const rip = 1 + wobble * Math.sin(t * 11.3 + phase) * Math.min(1, t * 5);
+    return [Math.max(0.03, w * rip), Math.max(0.03, th)];
   };
 }
 
@@ -190,21 +221,68 @@ export function splinteredEnd({
   reach = 1,
 } = {}) {
   const [nMin, nMax] = F.splinter.count;
-  const n = nMin + Math.floor(rand() * (nMax - nMin + 1));
+  // Biased to the top of the range. Four fibre bundles across a picket makes
+  // each of them a third of the board wide, and a wide bundle reads as a fin no
+  // matter how it is tapered. The low end of F.splinter.count is there for
+  // narrow members like a rail's edge, not for the broad face of a picket.
+  const n = nMin + Math.floor(Math.pow(rand(), 0.60) * (nMax - nMin + 1));
   const [lMin, lMax] = F.splinter.length;
   const cuts = widthCuts(rand, n);
-  const mix = tearLengths(rand, n);
   const out = [];
 
   // The socket floor is not level either: the tear dives deeper on the side the
   // trend runs to, which is what stops the bases lining up.
   const floorTilt = (rand() * 2 - 1) * 0.5;
 
+  // Slices first, then lengths, then the two are paired -- rather than drawing a
+  // length for each slice as it is built.
+  //
+  // The pairing is the point. Length has to go to the NARROW slices: a wide
+  // slice that draws a long length comes out as a broad triangular sail, which
+  // reads as a shard of slate rather than as fibre, and it was the loudest
+  // wrong note in the first render. A narrow bundle of fibre peels a long way;
+  // a wide one snaps off near the break. So the lengths are sorted and handed
+  // out by slenderness, with enough noise in the ranking that it is a tendency
+  // and not a rule you can read off the model.
+  const slices = [];
+  for (let i = 0; i < n; i++) {
+    const x0 = (cuts[i] - 0.5) * width;
+    const x1 = (cuts[i + 1] - 0.5) * width;
+    const sw = x1 - x0;
+    const nrm = sw / (width / n);                     // 1 = an average slice
+    slices.push({
+      cx: (x0 + x1) / 2,
+      sw,
+      wide: clamp01((nrm - 0.7) / 0.9),
+      rank: clamp01((1.55 - nrm) / 1.15) + (rand() - 0.5) * 0.45,
+    });
+  }
+  const order = slices.map((_, i) => i).sort((a, b) => slices[b].rank - slices[a].rank);
+  const lengths = tearLengths(rand, n).slice().sort((a, b) => b - a);
+  order.forEach((sliceIndex, k) => { slices[sliceIndex].mix = lengths[k]; });
+
   const spike = (cx, sw, cz, st, m, longways) => {
     const len = (lMin + (lMax - lMin) * m) * thickness * reach;
     if (len < 1e-4 || sw < 1e-4 || st < 1e-4) return;
 
-    const hold = TAPER_HOLD[0] + rand() * (TAPER_HOLD[1] - TAPER_HOLD[0]);
+    // Root depth, chosen before the shape, because the shape depends on it.
+    const across = (cx / Math.max(1e-5, width)) * 2;      // -1 .. 1
+    const depth = thickness * ROOT_DEPTH * (0.45 + 0.55 * rand() - 0.4 * floorTilt * across);
+    // Clamped against the spike's own length. Without the clamp the shortest
+    // nubs -- shorter than the root is deep -- sink entirely below the break
+    // plane, and each one leaves a hole in the partition through which the
+    // stump's flat sawn cap shows. That flat cap is the one thing this file
+    // exists to avoid, and it was plainly visible in the first render.
+    const buried = Math.min(Math.max(0, depth), len * 0.62);
+
+    // The taper is held flat over everything that is buried, plus a little
+    // more, so the spike is at FULL width where it crosses the break plane.
+    // Measuring the hold from the root instead let the taper start underground
+    // and every spike arrived at the surface already half-width, which reopened
+    // the same holes the clamp above had just closed.
+    const b = buried / len;
+    const hold = b + (1 - b) * (TAPER_HOLD[0] + rand() * (TAPER_HOLD[1] - TAPER_HOLD[0]));
+
     const geo = board({
       length: len,
       width: sw * (1 + SLICE_BLEED),
@@ -212,83 +290,74 @@ export function splinteredEnd({
       round: 0.55,
       // The curl. A torn fibre is never straight, and the bend is what sells it
       // as fibre rather than as a shard of something brittle.
-      warp: (rand() * 2 - 1) * len * 0.16,
+      warp: (rand() * 2 - 1) * len * 0.07,
       warpAxis: rand() < 0.5 ? 'x' : 'z',
-      profile: splinterProfile(hold, F.splinter.taper, 0.05 + rand() * 0.05, rand() * 6.283),
-      segments: 8,
+      // The long ones are the thin ones. This is the same rule as the pairing
+      // above, applied a second time within the spike itself.
+      profile: splinterProfile({
+        hold,
+        shaft: 0.86 - 0.56 * m,
+        taper: F.splinter.taper,
+        wobble: 0.06 + rand() * 0.07,
+        phase: rand() * 6.283,
+      }),
+      // 16, not 8. The shoulder is only 16% of the run, so at 8 segments it
+      // falls between two rings and the loft interpolates straight across it --
+      // which quietly turns every spike back into a plain triangle no matter
+      // what the profile says. The profile is only as sharp as it is sampled.
+      segments: 16,
       ring: 8,
     });
 
     tintTorn(geo, len, 0.94 + rand() * 0.12);
 
-    // Lean. Longer spikes lean further, because they have more of themselves to
-    // be bent by whatever broke the board. F.splinter.lean is the ceiling and
-    // nothing here exceeds it: the reference's spikes lean SLIGHTLY, and the
-    // long thin ones that are still attached along one edge lie nearly parallel
-    // to the board, so a big lean would be the wrong note in both cases.
+    // Drop the spike onto its root FIRST, so the lean that follows pivots about
+    // the break plane rather than about the buried end. Pivoting about the root
+    // swings the buried part sideways out through the face of the board, and
+    // the offcuts show up as little chips stuck to the outside of the stump.
+    geo.translate(0, -buried, 0);
+
+    // Lean. Longer spikes lean further, having more of themselves to be bent by
+    // whatever broke the board. F.splinter.lean is the ceiling and nothing here
+    // exceeds it: the reference's spikes lean SLIGHTLY, and the long thin ones
+    // still attached along one edge lie nearly parallel to the board, so a big
+    // lean would be the wrong note in both cases.
     const bend = F.splinter.lean * (0.25 + 0.75 * m);
     // A sliver peeled off one face leans outward, away from the board's middle:
-    // that is the direction it was actually prised. Everything else leans
-    // wherever it likes.
-    const tiltX = (rand() * 2 - 1) * bend;
+    // that is the direction it was actually prised.
     const tiltZ = longways
       ? Math.sign(cz || rand() - 0.5) * bend * (0.5 + 0.5 * rand())
       : (rand() * 2 - 1) * bend;
-    geo.rotateY((rand() * 2 - 1) * 0.35);
-    geo.rotateZ(tiltX);
+    geo.rotateY((rand() * 2 - 1) * 0.15);
+    geo.rotateZ((rand() * 2 - 1) * bend);
     geo.rotateX(tiltZ);
 
-    // Roots vary in depth so that neither the sockets nor the bases of the
-    // spikes agree with each other, and the whole floor tips one way.
-    //
-    // Then clamped against the spike's own length. Without the clamp the
-    // shortest nubs -- which are shorter than the root is deep -- sink entirely
-    // below the break plane, and every one of them leaves a hole in the
-    // partition through which the stump's flat sawn cap shows. That flat cap is
-    // the exact thing this file exists to avoid, and it was visible in the
-    // first render as a pale tilted plane between the spikes.
-    const across = (cx / Math.max(1e-5, width)) * 2;      // -1 .. 1
-    const depth = thickness * ROOT_DEPTH * (0.45 + 0.55 * rand() - 0.4 * floorTilt * across);
-    const root = -Math.min(Math.max(0, depth), len * 0.62);
-    geo.translate(cx, root, cz);
+    geo.translate(cx, 0, cz);
     if (direction < 0) geo.rotateX(Math.PI);
     out.push(geo);
   };
 
-  for (let i = 0; i < n; i++) {
-    const x0 = (cuts[i] - 0.5) * width;
-    const x1 = (cuts[i + 1] - 0.5) * width;
-    const sw = x1 - x0;
-    const cx = (x0 + x1) / 2;
-
-    // Length is tied to slenderness, and this matters more than it sounds. A
-    // wide slice that also draws a long length comes out as a broad triangular
-    // sail, which reads as a shard of slate. Real long splinters are the THIN
-    // ones: a narrow bundle of fibre peels a long way, a wide one snaps off
-    // near the break. So the draw above is scaled back for fat slices.
-    const nrm = sw / (width / n);                        // 1 = average slice
-    const wide = clamp01((nrm - 0.7) / 0.9);
-    const slender = clamp01((1.55 - nrm) / 1.15);
-    const reachOf = (m) => m * (0.40 + 0.60 * slender);
-
+  for (const sl of slices) {
     // Wide slices split through the thickness more often than narrow ones: a
     // narrow bundle is already a single fibre, a wide one is a laminate.
-    if (rand() < SPLIT_CHANCE * (0.45 + 0.85 * wide)) {
+    if (rand() < SPLIT_CHANCE * (0.45 + 0.85 * sl.wide)) {
       const f = 0.30 + rand() * 0.40;
       const front = thickness * f;
       const back = thickness * (1 - f);
-      // The two layers get very different lengths: one of them keeps the
-      // slice's own mix, the other is drawn short. That asymmetry is what makes
-      // a long sliver hanging off one face, which is the reference's signature.
+      // The two layers get very different lengths: one keeps the slice's own
+      // draw, the other is drawn short. That asymmetry is what leaves a long
+      // sliver hanging off one face, which is the reference's signature.
       const keepFront = rand() < 0.5;
       const other = Math.pow(rand(), 1.8) * 0.55;
-      // A split slice is two thin bundles, so each half gets to run longer than
-      // the slice as a whole would have.
-      const bonus = 0.30;
-      spike(cx, sw, -thickness / 2 + front / 2, front, clamp01(reachOf(keepFront ? mix[i] : other) + bonus * slender), f < 0.45);
-      spike(cx, sw, thickness / 2 - back / 2, back, clamp01(reachOf(keepFront ? other : mix[i]) + bonus * slender), 1 - f < 0.45);
+      // Splitting makes two thin bundles out of one fat one, so each half is
+      // allowed to run further than the slice as a whole would have.
+      const bonus = 0.22 * (1 - sl.wide);
+      spike(sl.cx, sl.sw, -thickness / 2 + front / 2, front,
+        clamp01((keepFront ? sl.mix : other) + bonus), f < 0.45);
+      spike(sl.cx, sl.sw, thickness / 2 - back / 2, back,
+        clamp01((keepFront ? other : sl.mix) + bonus), 1 - f < 0.45);
     } else {
-      spike(cx, sw, 0, thickness, reachOf(mix[i]), false);
+      spike(sl.cx, sl.sw, 0, thickness, sl.mix, false);
     }
   }
 

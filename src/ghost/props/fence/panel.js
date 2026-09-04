@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import F from './metrics.js';
 import { board, pointedTop, rng, woodMaterial } from './wood.js';
 
-// One intact fence panel: seven pickets, two rails behind them, a post at each
-// end. Origin at the centre of the panel's footprint, on the ground; the run
-// goes along local X and the fence faces local +Z.
+// One intact fence panel: a row of pickets, two rails behind them, a post at
+// each end. Origin at the centre of the panel's footprint, on the ground; the
+// run goes along local X and the fence faces local +Z.
 //
 // The piece exists to be repeated. The user wants to lay a gated path out of
 // these, so "does one panel look good" is the easy half of the job and "do two
@@ -34,55 +34,6 @@ import { board, pointedTop, rng, woodMaterial } from './wood.js';
 // The breakage agent builds damaged variants from picketGeometry, postGeometry,
 // railGeometry, PANEL_LAYOUT and panelParts rather than reinventing them, so a
 // gap-toothed panel still lines up with an intact one.
-
-// ---------------------------------------------------------------------------
-// numbers that are not in metrics.js yet
-//
-// Flagged in one block rather than folded in silently, because metrics.js is
-// the single place dimensions live and this file does not own it. If any of
-// these survive review they belong there.
-const LOCAL = {
-  // How far a board bows over its own length, in world units. board() wants it
-  // in world units rather than as a fraction, and it has to stay small: at
-  // 0.02 on a picket the fence stopped reading as weathered and started
-  // reading as melted.
-  warp: { picket: 0.005, post: 0.004, rail: 0.011 },
-
-  // Corner rounding as a fraction of half-thickness. metrics.js has post.round
-  // (0.34, "corners knocked well off") but nothing for the thinner stock. The
-  // same fraction on a 42mm picket is a much smaller radius in absolute terms,
-  // which is exactly what the reference shows: the posts read chamfered, the
-  // pickets only read soft.
-  round: { picket: 0.34, rail: 0.24 },
-
-  // How blunt the picket's apex is, as a fraction of the board's half-width.
-  // wood.js's pointedTop() runs the width down to 0.04, which is a knife edge;
-  // the reference has two chamfers meeting at a BLUNT apex, a couple of
-  // millimetres of flat you can see from across the garden. Floored here
-  // rather than fixed in wood.js, which this file does not own.
-  apex: 0.24,
-
-  // The last bit of the post's height eases in, so the squared-off top has its
-  // rim knocked off too and catches a highlight. Fraction of the height, and
-  // how much of the half-section it takes away.
-  postTop: { ease: 0.055, take: 0.28 },
-
-  // Boards are set a hair into the dirt. Without it the bottom end cap is
-  // coplanar with the floor and a bright seam flickers under every picket.
-  sink: 0.012,
-
-  // Grain. Streaks per world unit across the face, how far a streak pulls the
-  // pale toward the shade, and how much whole-board tint drift is allowed.
-  // The frequency is not a free choice: see the ring counts below.
-  grain: { frequency: 21, depth: 0.95, tint: 0.18 },
-
-  // Not every picket leans. "Several lean a degree or two" in the reference,
-  // not all of them; a row where every board is off true reads as a cartoon
-  // fence rather than a real one. The rest still get a fraction of the jitter
-  // so nothing is dead straight.
-  leanChance: 0.45,
-  leanFloor: 0.22,
-};
 
 // The shape seed both end posts are built from, unless the caller overrides it.
 //
@@ -117,34 +68,6 @@ const L = F.panel.length;
 const PICKET_Z = 0;
 const RAIL_Z = -(F.picket.thickness / 2 + F.rail.depth / 2);
 const POST_Z = -F.rail.depth / 2;
-
-// ---------------------------------------------------------------------------
-// working around the cap winding in wood.js
-//
-// board() caps both ends, but both fans are wound the wrong way round: the
-// bottom cap's face normal comes out +Y and the top cap's -Y, so both are back
-// faces and get culled. On a picket the top cap is a two millimetre sliver and
-// nobody noticed; on a 155mm post you look straight down into the hollow tube
-// and the top reads as a black trough. Confirmed by taking the cross product of
-// the last 2 * ring triangles straight out of board().
-//
-// The fix belongs in wood.js's capAt(), whose two `flip` arguments are simply
-// the wrong way round, and this file does not own that file. So: flip the cap
-// fans here, on the way past. board() appends capAt(0) then capAt(segments)
-// after every side quad, so the caps are always the last 2 * ring triangles.
-// Delete this the day wood.js is fixed, and delete the ring argument plumbing
-// with it.
-function flipCaps(geo, ring) {
-  const idx = geo.getIndex().array;
-  for (let t = idx.length / 3 - 2 * ring; t < idx.length / 3; t++) {
-    const a = idx[t * 3];
-    idx[t * 3] = idx[t * 3 + 2];
-    idx[t * 3 + 2] = a;
-  }
-  geo.getIndex().needsUpdate = true;
-  geo.computeVertexNormals();
-  return geo;
-}
 
 // ---------------------------------------------------------------------------
 // grain
@@ -215,7 +138,7 @@ function paintBoard(geo, rand, { groundEnd = true, axis = 0 } = {}) {
   // A whole-board tint. Weathered stock is not one colour across a fence, and a
   // couple of boards sitting a shade greyer than their neighbours is most of
   // what stops a row of pickets reading as one extrusion.
-  const tint = rand() * LOCAL.grain.tint;
+  const tint = rand() * F.grain.tint;
   const mottlePhase = rand() * Math.PI * 2;
 
   for (let i = 0; i < n; i++) {
@@ -255,8 +178,8 @@ function paintBoard(geo, rand, { groundEnd = true, axis = 0 } = {}) {
 export function woodPanelMaterial(options = {}) {
   const uniforms = {
     uGrain: { value: GRAIN.clone() },
-    uGrainDepth: { value: LOCAL.grain.depth },
-    uGrainFreq: { value: LOCAL.grain.frequency * Math.PI * 2 },
+    uGrainDepth: { value: F.grain.depth },
+    uGrainFreq: { value: F.grain.frequency * Math.PI * 2 },
   };
   // White, so the vertex colour is the colour. Left at F.wood.pale it would
   // multiply the grain a second time and the fence comes out muddy.
@@ -307,7 +230,7 @@ export function woodPanelMaterial(options = {}) {
         // dark lands as narrow lines. Grain spread evenly over half the board
         // is camouflage, not timber. The second term lets a line fade out and
         // pick up again along its length.
-        float streak = pow(max(0.0, s), 2.4) * (0.55 + 0.45 * sin(along * 3.1 + ph));
+        float streak = pow(max(0.0, s), 2.0) * (0.55 + 0.45 * sin(along * 3.1 + ph));
         diffuseColor.rgb = mix(diffuseColor.rgb, uGrain, clamp(streak, 0.0, 1.0) * uGrainDepth);
       }`,
     );
@@ -336,47 +259,38 @@ export function picketGeometry({
   height = F.picket.height,
   width = F.picket.width,
 } = {}) {
-  // pointedTop() gives the roof point; the floor on its width term is what
-  // keeps the apex blunt. Wrapped rather than replaced so the chamfer angle
-  // still comes from metrics.pointRise and stays the same shape as whatever
-  // the breakage agent builds off the same helper.
-  const point = pointedTop(height, width);
-  const profile = (t) => {
-    const [w, th] = point(t);
-    return [Math.max(LOCAL.apex, w), th];
-  };
-  // 40, not 12, and the grain is the reason. board() spaces its ring vertices
-  // by ANGLE round a superellipse, so on a board four times wider than it is
-  // thick almost all of them land on or near the two narrow edges: at ring 12
-  // the whole 115mm front face got three vertices, the streaks fell between
-  // them and the picket came back plain cream. 40 puts about eleven across the
-  // face, which carries two soft bands. Raise the grain frequency without
-  // raising this and the streaks alias into a moire that crawls.
-  const ring = 40;
+  // Ring counts here and on the other two pieces buy silhouette only -- the
+  // rounded arris and the taper into the point -- because the grain is in the
+  // fragment shader and does not care how the surface is tessellated. That is
+  // worth knowing before anyone raises them: an earlier pass ran the picket at
+  // ring 40 trying to make vertex-colour grain read, which cost five thousand
+  // vertices a panel and did not work. See the note above paintBoard.
+  const ring = 16;
   const geo = board({
     length: height,
     width,
     thickness: F.picket.thickness,
-    round: LOCAL.round.picket,
+    round: F.picket.round,
     // Bowing out of the fence plane rather than along it. A picket is nailed to
     // two rails so it cannot bow sideways much, and a sideways bow would also
     // eat unevenly into the gaps, which is the one irregularity that reads as a
     // mistake instead of as age.
-    warp: (rand() - 0.5) * 2 * LOCAL.warp.picket,
+    warp: (rand() - 0.5) * 2 * F.picket.warp,
     warpAxis: 'z',
-    profile,
+    // The roof point, blunt apex and all, straight from wood.js. Both numbers
+    // it needs are in metrics: pointRise for the chamfer angle, apex for how
+    // much board is left at the tip.
+    profile: pointedTop(height, width),
     // Enough rings along the length that the warp is a curve and the grain has
     // somewhere to live. The point itself is the top two or three.
     segments: 18,
     ring,
   });
-  flipCaps(geo, ring);
   return paintBoard(geo, rand);
 }
 
 export function postGeometry({ rand = rng(POST_SEED) } = {}) {
-  const ease = LOCAL.postTop.ease;
-  const take = LOCAL.postTop.take;
+  const { ease, take } = F.post.top;
   // Squared off, not pointed, with the rim eased. A flat cap straight onto the
   // sides gives a 90 degree edge that goes black under the key light and makes
   // the post read as a cardboard tube; a quarter round over the last few per
@@ -388,13 +302,15 @@ export function postGeometry({ rand = rng(POST_SEED) } = {}) {
     const s = 1 - take * (1 - Math.sqrt(Math.max(0, 1 - k * k)));
     return [s, s];
   };
-  const ring = 36;  // as on the picket: enough samples across the face to hold grain
+  // A little denser than the picket: the post is the chunkiest thing in the
+  // set, so its rounded corners are the ones that show faceting first.
+  const ring = 20;
   const geo = board({
     length: F.post.height,
     width: F.post.width,
     thickness: F.post.thickness,
     round: F.post.round,
-    warp: (rand() - 0.5) * 2 * LOCAL.warp.post,
+    warp: (rand() - 0.5) * 2 * F.post.warp,
     warpAxis: 'z',
     profile,
     // High, and deliberately so: the eased top lives in the last 5.5% of the
@@ -403,12 +319,11 @@ export function postGeometry({ rand = rng(POST_SEED) } = {}) {
     segments: 44,
     ring,
   });
-  flipCaps(geo, ring);
   return paintBoard(geo, rand);
 }
 
 export function railGeometry({ rand = rng(3), length = F.panel.length } = {}) {
-  const ring = 22;
+  const ring = 14;
   // metrics gives the rail a thickness and a depth. Depth is the Z one, how far
   // it stands back off the pickets; thickness is the vertical one. That way
   // round it is a board laid flat, which is how a rail is fitted and which is
@@ -417,18 +332,17 @@ export function railGeometry({ rand = rng(3), length = F.panel.length } = {}) {
     length,
     width: F.rail.thickness,
     thickness: F.rail.depth,
-    round: LOCAL.round.rail,
+    round: F.rail.round,
     // Sag, not bow. board()'s warp is zero at both ends by construction, which
     // is what lets a rail end sit exactly on the panel boundary and butt its
     // neighbour; the middle is free to droop. Signed positive on purpose: after
     // the rotation below, +X maps to -Y, so a positive warp sags downward. A
     // rail that bellies upward looks sprung, not old.
-    warp: (0.35 + 0.65 * rand()) * LOCAL.warp.rail,
+    warp: (0.35 + 0.65 * rand()) * F.rail.warp,
     warpAxis: 'x',
     segments: 24,
     ring,
   });
-  flipCaps(geo, ring);
   // Turned down flat and centred, which is the only way a rail is ever used.
   // Doing it here rather than at every call site is how the two of them end up
   // disagreeing about which way a rail points.
@@ -489,13 +403,13 @@ export function panelParts({ seed = 1, postSeeds = [POST_SEED, POST_SEED] } = {}
   const pickets = PANEL_LAYOUT.pickets.map((p) => {
     const width = p.width * (1 + sym() * j.width);
     const height = p.height * (1 + sym() * j.height);
-    const leans = rand() < LOCAL.leanChance;
-    const lean = sym() * j.lean * (leans ? 1 : LOCAL.leanFloor);
+    const leans = rand() < F.picket.leanChance;
+    const lean = sym() * j.lean * (leans ? 1 : F.picket.leanFloor);
     const twist = sym() * j.twist;
     // Each board is knocked into the dirt by its own amount. The tops are
     // already uneven from the height jitter; the bottoms being uneven too is
     // what stops the row reading as a set that was cut from one sheet.
-    const sink = LOCAL.sink * (0.35 + rand());
+    const sink = F.picket.sink * (0.35 + rand());
     return { ...p, width, height, lean, twist, y: -sink, seed: geoSeed() };
   });
 
@@ -504,7 +418,9 @@ export function panelParts({ seed = 1, postSeeds = [POST_SEED, POST_SEED] } = {}
   // Posts do NOT draw from the panel's stream. See POST_SEED.
   const posts = PANEL_LAYOUT.posts.map((p, i) => ({
     ...p,
-    y: -LOCAL.sink * 0.8,
+    // No F.post.sink, so the picket's bedding depth stands in, eased off
+    // because a post is a heavier thing that sits prouder of the dirt.
+    y: -F.picket.sink * 0.8,
     seed: postSeeds[i] ?? POST_SEED,
   }));
 

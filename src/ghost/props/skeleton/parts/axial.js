@@ -333,67 +333,142 @@ export function buildAxial({ material }) {
     mesh(bulb(radius, 1), joint, tag);
   }
 
-  // --- Sacrum ---------------------------------------------------------------
-  // A tapered wedge, broad at the alae where the hip plates bury into it and
-  // narrowing to the tail. Authored flat in its own plane and then laid onto
-  // the chord of the sacral curve, which is close enough to straight over its
-  // own length that a plate reads correctly and a swept solid would not be
-  // worth the vertices.
-  const SACRUM_TOP = Y_L5;
-  const SACRUM_BOT = f(0.5200);
-  const sacrumMidY = (SACRUM_TOP + SACRUM_BOT) / 2;
-  const sacrumMidZ = (zAt(SACRUM_TOP) + zAt(SACRUM_BOT)) / 2;
-  const sacrumTilt = Math.atan2(zAt(SACRUM_TOP) - zAt(SACRUM_BOT), SACRUM_TOP - SACRUM_BOT);
+  // --- Sacrum, sacral crest and coccyx ---------------------------------------
+  //
+  // Rebuilt after the first pass came out as a big smooth heart-shaped shield
+  // that filled the whole gap between the iliac blades and was the first thing
+  // the eye landed on down there. Against the reference it was wrong in four
+  // separate ways at once, and all four are fixed here: it is narrower and
+  // shorter so the blades frame it, it is set back so its face sits behind the
+  // pelvic brim, it is a flat triangle with a straight top edge rather than a
+  // domed heart, and it carries the two converging rows of sacral foramina.
+  //
+  // The foramina are the point. They are tiny -- f(0.0030) across the opening,
+  // about four pixels in a full-figure render -- and they are still most of
+  // what says "sacrum" rather than "plate", in exactly the way the spinous
+  // processes turned out to be most of what draws the backbone.
+  //
+  // Built as a thin plate inside a rim rod rather than as one thick bevelled
+  // plate, because plate()'s bevel shrinks a hole's contour by bevelSize at
+  // each face: at the bevel this bone wants for its rim, every foramen would be
+  // sealed shut. A near-flat plate keeps the holes honest and a tube run round
+  // its edge gives the rounded margin back. bone.js says as much, and the
+  // pelvis went the same way.
+  const SAC_TOP = f(0.5792);            // just above the spineLower pivot, so L5 buries into it
+  const SAC_BOT = f(0.5288);
+  const SAC_LEAN = f(0.0048);           // extra rearward drop of the apex, on top of the spine curve
+  const SAC_THICK = f(0.0104);
+  const SAC_RIM = f(0.0064);            // the rim rod's radius, and half the finished margin
 
-  // The two outline tables in this file (this one and the sternum's) are the
-  // only numbers here in world units rather than fractions of HEIGHT: an
-  // outline is a drawing, and rewriting every vertex as f(...) makes it
-  // unreadable for a robustness nobody is going to exercise. Everything that
-  // decides where a bone SITS is a fraction.
-  const SACRUM_OUTLINE = [
-    [-0.058, 0.070], [-0.056, 0.030], [-0.046, -0.010], [-0.034, -0.046],
-    [-0.020, -0.072], [0, -0.081], [0.020, -0.072], [0.034, -0.046],
-    [0.046, -0.010], [0.056, 0.030], [0.058, 0.070], [0.040, 0.084],
-    [0, 0.087], [-0.040, 0.084],
+  const sacTopZ = zAt(SAC_TOP);
+  const sacBotZ = zAt(SAC_BOT) - SAC_LEAN;
+  const sacTilt = Math.atan2(sacTopZ - sacBotZ, SAC_TOP - SAC_BOT);
+
+  const sacrum = new THREE.Group();
+  sacrum.name = 'sacrum';
+  sacrum.position.copy(F_ROOT.at(0, (SAC_TOP + SAC_BOT) / 2, (sacTopZ + sacBotZ) / 2));
+  sacrum.rotation.x = sacTilt;
+  group.add(sacrum);
+
+  // The rim rod's CENTRELINE, clockwise from the middle of the top edge, in the
+  // sacrum's own plane. The finished silhouette is this grown by SAC_RIM all
+  // round, which puts the top edge at f(0.0376) wide and brings the sides down
+  // to a rounded apex. The outline tables in this file (this one and the
+  // sternum's) are the only numbers here in world units rather than fractions
+  // of HEIGHT: an outline is a drawing, and rewriting every vertex as f(...)
+  // makes it unreadable for a robustness nobody is going to exercise.
+  // Everything that decides where a bone SITS is a fraction.
+  const SACRUM_RIM = [
+    [0, 0.051], [0.031, 0.051], [0.029, 0.028], [0.025, 0.004],
+    [0.019, -0.020], [0.011, -0.040], [0, -0.051],
+    [-0.011, -0.040], [-0.019, -0.020], [-0.025, 0.004],
+    [-0.029, 0.028], [-0.031, 0.051],
   ];
-  const sacrum = mesh(
-    plate(smoothOutline(SACRUM_OUTLINE), f(0.0232), { bevel: 0.40 }),
-    group,
-    'sacrum',
+
+  // Four pairs, converging downward the way a real sacrum's do: x, height, and
+  // the radius of the opening.
+  const FORAMINA = [
+    [0.017, 0.034, f(0.0030)],
+    [0.015, 0.016, f(0.0029)],
+    [0.012, -0.002, f(0.0026)],
+    [0.009, -0.020, f(0.0023)],
+  ];
+  const ring = (cx, cy, r) => {
+    const pts = [];
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      pts.push(new THREE.Vector2(cx + r * Math.cos(a), cy + r * Math.sin(a)));
+    }
+    return pts;
+  };
+  const holes = [];
+  for (const [x, y, r] of FORAMINA) {
+    holes.push(ring(x, y, r));
+    holes.push(ring(-x, y, r));
+  }
+
+  // bevel 0.10 rather than the vocabulary's 0.4: it is only there to take the
+  // wire edge off the holes, and every 0.01 of it comes straight off their
+  // radius at the face.
+  mesh(
+    plate(smoothOutline(SACRUM_RIM, 64), SAC_THICK, { bevel: 0.10, holes, bevelSegments: 3 }),
+    sacrum,
+    'sacrum-blade',
   );
-  sacrum.position.copy(F_ROOT.at(0, sacrumMidY, sacrumMidZ));
-  sacrum.rotation.x = sacrumTilt;
+
+  // The rim rod. Sampled off a CLOSED spline and then swept as an open tube
+  // that ends where it started, because bone.js's shaft() builds an uncapped
+  // TubeGeometry: the two mouths land on the same circle and seal each other,
+  // and a bulb sits on the join in case the frames arrive out of phase.
+  const rimLoop = new THREE.CatmullRomCurve3(
+    SACRUM_RIM.map(([x, u]) => new THREE.Vector3(x, u, 0)),
+    true,
+    'catmullrom',
+    0.5,
+  ).getSpacedPoints(96);
+  mesh(
+    shaft(new THREE.CatmullRomCurve3(rimLoop, false, 'centripetal', 0.5), SAC_RIM, {
+      waist: 1,          // a margin, not a shaft: no waisting
+      segments: 96,
+    }),
+    sacrum,
+    'sacrum-rim',
+  );
+  mesh(bulb(SAC_RIM * 1.05), sacrum).position.copy(rimLoop[0]);
 
   // The median sacral crest and the coccyx, carrying the ridge of knuckles down
-  // past the tail. Placed on the profile curve in the root frame rather than on
-  // the plate, so the top one lands where L5's spinous process ends and the
-  // chain of bumps runs unbroken from the skull to the coccyx.
-  // Height, how far behind the profile curve, and the knuckle's radius. The
-  // first one is level with L5's spinous tip and reaches as far back, so the
-  // chain of bumps carries straight on into the tail.
+  // past the tail. Children of the sacrum now rather than points on the spine
+  // curve: the blade moved back and got thin in this rework, and a crest placed
+  // off the curve would have been left standing behind it. Anchored to the
+  // blade, it cannot come off whatever the blade does next.
+  //
+  // Height along the blade, how far the bulb stands off its back face, radius.
+  // The top one is the S1 tubercle and it is the biggest, because it is the one
+  // that has to reach back far enough to meet L5's spinous knuckle. Below the
+  // apex the chain becomes the coccyx and curls forward again.
   const CREST = [
-    [f(0.5696), f(0.0176), f(0.0080)],
-    [f(0.5536), f(0.0160), f(0.0068)],
-    [f(0.5376), f(0.0136), f(0.0056)],
-    [f(0.5224), f(0.0104), f(0.0044)],
-    [f(0.5144), f(0.0084), f(0.0052)],   // coccyx, first segment
-    [f(0.5064), f(0.0068), f(0.0044)],
-    [f(0.4992), f(0.0056), f(0.0044)],
+    [0.048, f(0.0080), f(0.0092)],
+    [0.014, f(0.0056), f(0.0080)],
+    [-0.018, f(0.0036), f(0.0068)],
+    [-0.044, f(0.0020), f(0.0060)],
+    [-0.078, f(-0.0012), f(0.0052)],   // coccyx, first segment
+    [-0.100, f(-0.0044), f(0.0044)],
+    [-0.120, f(-0.0076), f(0.0036)],
   ];
-  const crestPts = CREST.map(([y, back, r]) => ({
-    p: F_ROOT.at(0, y, zAt(y) - back),
+  const crestPts = CREST.map(([u, stand, r]) => ({
+    p: new THREE.Vector3(0, u, -(SAC_THICK / 2 + stand)),
     r,
   }));
   mesh(
     shaft(
       new THREE.CatmullRomCurve3(crestPts.map((c) => c.p), false, 'centripetal', 0.5),
       f(0.0028),
-      { waist: 0.9, endBias: 0.3, segments: 20 },
+      { waist: 0.9, segments: 24 },
     ),
-    group,
+    sacrum,
     'sacral-crest',
   );
-  for (const c of crestPts) mesh(bulb(c.r, 0.9), group).position.copy(c.p);
+  for (const c of crestPts) mesh(bulb(c.r, 0.9), sacrum).position.copy(c.p);
 
   // --- Lumbar ---------------------------------------------------------------
   // Five, L5 up to L1. L5 sits ON the spineLower pivot, so the bone that

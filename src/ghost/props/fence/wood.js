@@ -111,8 +111,13 @@ export function board({
       if (flip) index.push(centre, b, a); else index.push(centre, a, b);
     }
   };
-  capAt(0, true);
-  capAt(segments, false);
+  // The ring runs x = cos(a), z = sin(a) with a increasing, which is clockwise
+  // seen from +Y. So the TOP cap is the one that needs reversing to face up,
+  // and the bottom one does not. The first version had these the other way
+  // round and both caps faced inward: invisible on a picket's tapered tip, but
+  // a post rendered as a hollow tube with a black trough on top.
+  capAt(0, false);
+  capAt(segments, true);
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
@@ -124,11 +129,14 @@ export function board({
 // The picket's roof point: two chamfers meeting at an apex. Returned as a
 // profile function for board(), so the point is part of the same surface rather
 // than a second mesh sitting on top of the first.
-export function pointedTop(length, width, rise = F.picket.pointRise) {
+export function pointedTop(length, width, rise = F.picket.pointRise, apex = F.picket.apex) {
   const startsAt = 1 - (rise * width) / length;
   return (t) => {
     if (t <= startsAt) return [1, 1];
     const k = (t - startsAt) / Math.max(1e-4, 1 - startsAt);
-    return [Math.max(0.04, 1 - k), Math.max(0.35, 1 - k * 0.5)];
+    // The floor is the apex width, not a token epsilon. Tapering to nothing
+    // gives a whittled knife edge; the reference's points are sawn chamfers
+    // that stop while there is still board left.
+    return [Math.max(apex, 1 - k), Math.max(0.35, 1 - k * 0.5)];
   };
 }
