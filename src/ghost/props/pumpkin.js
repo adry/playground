@@ -1949,6 +1949,7 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // out of three holes. This one carries only what genuinely does come out in
   // every direction, it is a fraction of the spot's strength, and it dies
   // inside a couple of body-lengths.
+  //
   // Same 2.15:1 swing the rest of the flicker is tuned to. The absolute level
   // is a stylistic call and worth naming as one: a real candle behind two
   // centimetres of flesh is far dimmer than this against a floor lit like

@@ -18,7 +18,10 @@ import { marbleTextures, marbleMaterial, mulberry32, VEIN_TINT } from './marble.
 // this thin came out at under four angular segments each and read as a faint
 // stripe rather than a groove.
 const FLUTES = 10;
-const FLUTE_DEPTH = 0.020;
+// A tenth of a flute's own width, which is about what real fluting is. At
+// twice that the drum stopped reading as a fluted column lying down and started
+// reading as a rolled-up mattress: seen from above, deep flutes are ribs.
+const FLUTE_DEPTH = 0.011;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smoothstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 
@@ -98,7 +101,7 @@ export function createBrokenColumn({ seed = 1, scale = 1 } = {}) {
   const sink = createSink();
   latheInto(sink, {
     profile,
-    segments: 60,
+    segments: 56,
     uRepeat: 1,
     vScale: 1.0,
     minRadius: 0.055,
@@ -158,7 +161,7 @@ export function createFallenDrum({ seed = 1, scale = 1 } = {}) {
   const sink = createSink();
   latheInto(sink, {
     profile,
-    segments: 56,
+    segments: 52,
     uRepeat: 1,
     vScale: 1.0,
     minRadius: 0.055,

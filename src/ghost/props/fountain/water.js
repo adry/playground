@@ -339,10 +339,10 @@ export function createWater({ strands, pools }) {
   const uniforms = {
     uTime: { value: 0 },
     uG: { value: 3.4 },
-    uBeadAmp: { value: 0.30 },
+    uBeadAmp: { value: 0.42 },
     uBreakAmp: { value: 0.62 },
     uBeadFreq: { value: 10.5 },
-    uWaver: { value: 0.016 },
+    uWaver: { value: 0.022 },
     // Rings die back quickly on purpose. Nine ring trains crossing a pool is
     // what really happens and it looked like crumpled foil: the eye reads
     // interference as noise, not as water. Damped, each strand keeps its own
