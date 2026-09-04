@@ -1001,7 +1001,14 @@ const CELTIC = {
   Ri: 0.167,           // 0.105 of band against an 0.034 round; clears 0.084 * 1.41
   depth: 0.158,
   edge: 0.034,
-  groove: 0.058,       // inset of the groove from the silhouette
+  // Inset of the border moulding from the silhouette. The constraint above
+  // still binds -- half-thickness 0.084 must exceed inset plus half the chisel,
+  // and 0.040 + 0.008 clears it with room -- but it now binds the other way
+  // round as well: at 0.058 the two sides of an arm left 0.035 of stone
+  // standing between them, and an arm whose middle is thinner than its borders
+  // reads as slotted. 0.040 leaves 0.071, which is plain face.
+  groove: 0.040,
+  ringGroove: 0.026,   // the band is only 0.105 wide, so its pair sits closer in
 };
 
 const ARCH = {
@@ -1021,6 +1028,11 @@ const ARCH = {
   // shape as the stone, which is what the reference shows.
   panelScale: 0.82,
   panelAbout: 1.11,    // gives 0.088 of border at the top, 0.079 at the sides
+  // Inset of the panel's border moulding from the panel wall. The wall is a
+  // 24px blur on a 640px-per-unit face, so anything under about 0.045 puts the
+  // groove inside the ramp, where it comes back as a soft dent rather than a
+  // cut line.
+  panelBorder: 0.052,
 };
 
 const OBELISK = {
@@ -1160,14 +1172,17 @@ export function createTallStone({ variant = 'celtic', seed = 1, scale = 1 } = {}
         // A trefoil in the head of the arch. Three touching circles is the one
         // piece of gothic tracery small enough to survive here, and it fills
         // the space the shorter tree left without competing with it.
+        // Solid lobes, not outlined ones: an outlined circle needs a radius of
+        // about two and a half chisels before it has a hole left in the middle,
+        // and three of those would be a motif the size of the tree's crown
+        // sitting above the tree.
         const [tx, ty] = P(0, pb.minY + ph * 0.855);
-        const lobe = cut * 1.15;
-        ctx.lineWidth = cut;
+        const lobe = cut * 0.95;
         for (let i = 0; i < 3; i++) {
           const a = -Math.PI / 2 + (i / 3) * TAU;
           ctx.beginPath();
-          ctx.arc(tx + Math.cos(a) * lobe * 1.02, ty + Math.sin(a) * lobe * 1.02, lobe, 0, TAU);
-          ctx.stroke();
+          ctx.arc(tx + Math.cos(a) * lobe, ty + Math.sin(a) * lobe, lobe, 0, TAU);
+          ctx.fill();
         }
       },
     });
@@ -1224,14 +1239,52 @@ export function createTallStone({ variant = 'celtic', seed = 1, scale = 1 } = {}
       marks: (ctx, w, h) => {
         const k = w / (2 * C.W);
         const P = (x, y) => [(x + C.W) * k, (1 - y / C.H) * h];
+        const cut = h * CUT;
         ctx.lineCap = 'round';
-        inkLoopGroove(ctx, plus, C.groove, 0.022 * k, P);
-        // The ring gets the same treatment: one groove down the middle of the
-        // band. Two, one inside each edge, merged into a smear at scene scale.
+        // Border moulding round the cross, and one round each edge of the ring
+        // band. The old single groove sat 0.058 in with a wider chisel, which
+        // left an eight-hundredth of stone standing between the two sides of an
+        // arm: not a bordered arm, an arm with a slot down it. Pulled in to
+        // 0.040 and cut finer, the two lines are what they should be -- a line
+        // near the edge with the arm's own face plain between them.
+        inkLoopGroove(ctx, plus, C.groove, cut, P);
+        ctx.lineWidth = cut;
+        for (const r of [C.R - C.ringGroove, C.Ri + C.ringGroove]) {
+          ctx.beginPath();
+          ctx.arc(...P(0, yc), r * k, 0, TAU);
+          ctx.stroke();
+        }
+
+        // Interlace down the shaft. This is the detail the piece was missing:
+        // a celtic cross is not a plain cross with a ring, it is a plain cross
+        // with a ring and a panel of knotwork, and the shaft below the ring is
+        // the one run long enough to carry any. Three cells, because at four
+        // the crossings come closer together than the chisel is wide.
+        const top = yc - C.R - 0.030;
+        const foot = 0.070;
+        const [px0, py0] = P(0, foot);
+        const [px1, py1] = P(0, top);
+        inkPlait(ctx, px0, py0, px1, py1, 0.032 * k, 3, cut);
+
+        // A boss at the crossing, and a stop moulding across each of the four
+        // ends. Both are small, both are the sort of thing that only shows on
+        // a close look, and together they are most of what "carved" means.
+        ctx.lineWidth = cut;
         ctx.beginPath();
-        ctx.arc(...P(0, yc), ((C.R + C.Ri) / 2) * k, 0, TAU);
-        ctx.lineWidth = 0.019 * k;
+        ctx.arc(...P(0, yc), 0.030 * k, 0, TAU);
         ctx.stroke();
+        // Half-lengths run to the border groove and stop there, which is what
+        // makes the bar read as a moulding meeting a moulding rather than as a
+        // line laid across one.
+        const stop = (x, y, dx, dy, half) => {
+          ctx.beginPath();
+          ctx.moveTo(...P(x - dx * half, y - dy * half));
+          ctx.lineTo(...P(x + dx * half, y + dy * half));
+          ctx.stroke();
+        };
+        stop(C.W - 0.062, yc, 0, 1, C.arm - C.groove);
+        stop(-(C.W - 0.062), yc, 0, 1, C.arm - C.groove);
+        stop(0, C.H - 0.058, 1, 0, C.arm * 0.9 - C.groove);
       },
     });
     tex = hasDOM ? buildTextures(regions, rng) : null;

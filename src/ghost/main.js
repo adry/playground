@@ -8,9 +8,6 @@ import { createFencePanel } from './props/fence/panel.js';
 import { createBrokenPanel } from './props/fence/broken.js';
 import { createDebrisPile, createChipScatter } from './props/fence/debris.js';
 import { createSkeletonRig } from './props/skeleton/model.js';
-import { createTallStone } from './props/stones/tall.js';
-import { createLowStone } from './props/stones/low.js';
-import { createGroundDressing } from './props/stones/dressing.js';
 
 const canvas = document.getElementById('view');
 const params = new URLSearchParams(location.search);
@@ -225,44 +222,13 @@ const GRAVES = [
   { variant: 'bat', right: 4.4, up: 3.0, yaw: Math.PI / 4 - 0.60 },
 ];
 
-// The second set, mixed in among the first so the two generations stand
-// together rather than in a row of samples. `kind` picks which factory: the
-// three original slabs, the three tall carved pieces, or the three low ones.
-const GRAVES_2 = [
-  { kind: 'tall', variant: 'arch', right: -6.0, up: 2.9, yaw: Math.PI / 4 - 0.20 },
-  { kind: 'tall', variant: 'celtic', right: -2.6, up: 3.4, yaw: Math.PI / 4 + 0.28 },
-  { kind: 'tall', variant: 'obelisk', right: 2.4, up: 3.5, yaw: Math.PI / 4 - 0.12 },
-  { kind: 'low', variant: 'urn', right: 5.6, up: 2.6, yaw: Math.PI / 4 + 0.40 },
-  { kind: 'low', variant: 'boulder', right: -5.2, up: 1.0, yaw: Math.PI / 4 + 0.62 },
-  { kind: 'low', variant: 'brokenRing', right: 0.2, up: 1.5, yaw: Math.PI / 4 - 0.50 },
-];
-
 if (SCENE === 'full') {
   for (const [i, g] of GRAVES.entries()) {
     const [x, z] = atScreen(g.right, g.up);
     addProp(createTombstone({ variant: g.variant, seed: 11 + i * 13 }), x, z, g.yaw);
   }
-  for (const [i, g] of GRAVES_2.entries()) {
-    const [x, z] = atScreen(g.right, g.up);
-    const make = g.kind === 'tall' ? createTallStone : createLowStone;
-    addProp(make({ variant: g.variant, seed: 5 + i * 9 }), x, z, g.yaw);
-  }
-
-  // Dressing at the foot of a few stones rather than every one: it is there to
-  // break the line where a plinth meets the floor, and on all of them at once
-  // it reads as a lawn instead of as neglect.
-  for (const [i, d] of [
-    { right: -6.0, up: 2.6 }, { right: -2.6, up: 3.1 },
-    { right: 2.4, up: 3.2 }, { right: -1.9, up: 1.6 },
-    { right: 3.1, up: 1.4 }, { right: 5.6, up: 2.3 },
-  ].entries()) {
-    const [x, z] = atScreen(d.right, d.up);
-    addProp(createGroundDressing({ seed: 3 + i * 11, radius: 0.9 }), x, z, 0);
-  }
 }
 
-// Different bodies, so a row of them does not read as one asset repeated. The
-// tiny one is tucked against a stone the way a real one would be left.
 const PUMPKINS = [
   { variant: 'classic', right: -2.6, up: -1.9, yaw: Math.PI / 4 + 0.30 },
   { variant: 'squat', right: 2.7, up: -2.3, yaw: Math.PI / 4 - 0.42 },

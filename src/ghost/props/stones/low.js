@@ -752,9 +752,15 @@ function edgeRun(outline, inset, aFrom, aTo) {
   for (const p of outline.ring(inset)) {
     let a = (Math.atan2(p.ny, p.nx) * 180) / Math.PI;
     if (a < aFrom) a += 360;
-    if (a >= aFrom && a <= aTo) pts.push([p.x, p.y]);
+    if (a >= aFrom && a <= aTo) pts.push({ a, p: [p.x, p.y] });
   }
-  return pts;
+  // Sorted, not taken in ring order. The ring starts wherever the first arc
+  // happens to start, so a window that straddles that seam -- the run round
+  // the left end of the boulder does -- comes out of the loop with one point
+  // at the wrong end and strokes a chord across the whole rock. Convexity is
+  // what makes the sort correct: the normal angle is monotonic round the ring,
+  // so ordering by it IS ring order.
+  return pts.sort((u, v) => u.a - v.a).map((q) => q.p);
 }
 
 // A chain of lozenges along a line. Neighbours share a vertex, so the chain
@@ -825,41 +831,50 @@ function drawBoulderFace(ctx, W, H, face, outline) {
   const main = GROOVE * sx;
   const fine = HAIRLINE * sx;
 
-  // Four spirals, largest to smallest, walking down the rock from the high
-  // left toward the break. Turn counts are set by the pitch and not chosen:
-  // each spiral gains about 0.030 of radius per turn, which is twice the
-  // groove, so a turn of stone always survives between two turns of cut.
-  const A = { x: -0.398, y: 0.302, r: 0.070, aEnd: -0.49 };
-  const B = { x: -0.243, y: 0.232, r: 0.052, aEnd: 2.93 };
-  const C = { x: -0.150, y: 0.330, r: 0.038, aEnd: -1.22 };
-  const D = { x: -0.520, y: 0.225, r: 0.032, aEnd: 1.85 };
+  // Four spirals, largest to smallest, and two bands of filler under them.
+  // The rock is read as a kerbstone is: an upper register carrying the long
+  // grooves that follow the top edge, a middle one carrying the spirals, and a
+  // lower one carrying the chevron and lozenge bands that fill the ground
+  // between motifs. The first pass put everything in one clump on the left and
+  // left the other half of the rock bare.
+  //
+  // Turn counts are set by the pitch and not chosen: each spiral gains about
+  // twice its groove in radius per turn, so a ridge of stone always survives
+  // between two turns of cut. Push the turns up and the spiral fills in.
+  const A = { x: -0.400, y: 0.312, r: 0.070, aEnd: -0.52 };
+  const B = { x: -0.238, y: 0.228, r: 0.052, aEnd: 2.95 };
+  const C = { x: -0.135, y: 0.352, r: 0.040, aEnd: -1.25 };
+  const E = { x: 0.062, y: 0.262, r: 0.046, aEnd: 3.05 };
   strokeSmooth(ctx, spiralPoints(A.x, A.y, A.r, 0.011, 1.8, A.aEnd, 1).map(P), main);
   strokeSmooth(ctx, spiralPoints(B.x, B.y, B.r, 0.011, 1.5, B.aEnd, -1).map(P), main);
+  strokeSmooth(ctx, spiralPoints(E.x, E.y, E.r, 0.011, 1.3, E.aEnd, -1).map(P), main);
+  // The smallest one takes the hairline. At the main width its own turns would
+  // be 0.008 apart, which is inside the wall blur, and it would fill in.
   strokeSmooth(ctx, spiralPoints(C.x, C.y, C.r, 0.008, 1.3, C.aEnd, 1).map(P), fine);
-  // The smallest is barely three quarters of a turn. A curl at this size is
-  // all the room there is: at a full turn its own two turns are 0.020 apart
-  // and they close up.
-  strokeSmooth(ctx, spiralPoints(D.x, D.y, D.r, 0.010, 0.75, D.aEnd, -1).map(P), fine);
 
   // The links. Their ends sit exactly on the spirals' outer ends, so the run
   // reads as one continuous groove rather than as marks that nearly touch.
   const tail = (s) => [s.x + s.r * Math.cos(s.aEnd), s.y + s.r * Math.sin(s.aEnd)];
-  strokeSmooth(ctx, [tail(A), [-0.314, 0.250], tail(B)].map(P), main);
-  strokeSmooth(ctx, [tail(C), [-0.116, 0.286], [-0.086, 0.262]].map(P), fine);
+  strokeSmooth(ctx, [tail(A), [-0.312, 0.250], tail(B)].map(P), main);
+  strokeSmooth(ctx, [tail(C), [-0.060, 0.290], tail(E)].map(P), fine);
 
-  // The lozenge chain the smallest spiral runs into, and the chevron band
-  // along the bottom. These are the ground filler: at close range they are
-  // what makes the face look worked rather than decorated in two places, and
-  // at eighty pixels they go to a texture, which is what filler is for.
-  lozengeChain(ctx, [-0.086, 0.262], [0.086, 0.176], 3, 0.026, P, fine);
-  chevronBand(ctx, [-0.455, 0.128], [-0.190, 0.128], 4, 0.064, P, fine);
+  // The lower register. At close range this is what makes the face look worked
+  // rather than decorated in two places; at eighty pixels it goes to a texture,
+  // which is what filler is for.
+  chevronBand(ctx, [-0.460, 0.130], [-0.250, 0.130], 3, 0.062, P, fine);
+  lozengeChain(ctx, [-0.140, 0.152], [0.100, 0.130], 4, 0.024, P, fine);
 
-  // Two long grooves following the top edge. The window is cut off at 112
-  // degrees on purpose: carried further round it swings down the tangent run
-  // on the upper left and passes within a groove's width of the big spiral.
-  strokePoly(ctx, edgeRun(outline, 0.078, 58, 112).map(P), fine);
-  strokePoly(ctx, edgeRun(outline, 0.112, 58, 112).map(P), fine);
+  // The grooves that follow the edge: two over the top and one round the left
+  // end. The top window stops at 112 degrees on purpose -- carried further it
+  // swings down the tangent run on the upper left and passes within a groove's
+  // width of the big spiral -- and starts at 50 rather than 40 because the
+  // little arc at the top right has a radius of 0.075 and collapses to a point
+  // at these insets, which would spike the groove to its centre.
+  strokePoly(ctx, edgeRun(outline, 0.078, 50, 112).map(P), fine);
+  strokePoly(ctx, edgeRun(outline, 0.112, 50, 112).map(P), fine);
+  strokePoly(ctx, edgeRun(outline, 0.078, 138, 208).map(P), fine);
 }
+
 
 // The broken stone's face: a border groove that follows the stone's own
 // silhouette, a finer line inside it over the crown, and what the weather has

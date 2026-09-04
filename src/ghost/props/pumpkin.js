@@ -387,6 +387,22 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // nominal radius rather than the seeded one, so it is exactly 1 for classic.
   // The lamp's reach and the stem's build are hung off it.
   const sizeK = V.bodyR / BODY_R;
+  // A second stream, with the shape's name mixed into it.
+  //
+  // Everything about the BODY is drawn from `rand` above, and for a given seed
+  // it is deliberately the same point in every variant's own spread: that is
+  // what makes the six comparable when they are laid out together. Two things
+  // here are not about the body, and were coming out repeated for exactly that
+  // reason. Rendered as a row -- which is how this set is actually looked at --
+  // six bodies built from one seed wore six copies of one stalk and flickered
+  // in lockstep. So the stem's direction and the flame's phase come off a
+  // stream the name is folded into instead. Hashed off the name rather than the
+  // position in PUMPKIN_VARIANTS, so inserting a seventh shape does not respin
+  // the six that already exist.
+  const nameHash = [...(VARIANTS[variant] ? variant : 'classic')]
+    .reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0, 2166136261);
+  const vrand = makeRng((Math.imul(seed | 0, 374761393) + nameHash) | 0);
+
   // Stem direction. Four seeded numbers, where there used to be one and a coin
   // flip, and the change is a deliberate reversal of what was here.
   //
@@ -408,7 +424,7 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // which at k = 0.45 is about two and a half times likelier to lean away from
   // the face than toward it. A gentle thumb on the scale, not a fence.
   const STEM_AWAY = 0.45;
-  const aRaw = (rand() * 2 - 1) * Math.PI;                  // from the face direction
+  const aRaw = (vrand() * 2 - 1) * Math.PI;                  // from the face direction
   const aStem = aRaw + STEM_AWAY * Math.sin(aRaw);
   // How far off vertical the stem finishes, and how much of that it starts
   // with. The spine turns linearly in arc length from `stemRoot` at the crown
@@ -417,19 +433,19 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // root of the opposite sign is a stem that leaves the crown leaning one way
   // and curls back the other, which is the hook a real stalk often has. Tip is
   // capped short of horizontal so no stem can curl back down into the shell.
-  const stemTip = (0.20 + rand() * 0.68) * (Math.PI / 2);   // 18..79 degrees
-  const stemRoot = stemTip * (-0.40 + rand() * 0.78);
+  const stemTip = (0.20 + vrand() * 0.68) * (Math.PI / 2);   // 18..79 degrees
+  const stemRoot = stemTip * (-0.40 + vrand() * 0.78);
   // How high the crown of the stem reaches, as the fraction of stemL the fixed
   // spine used to reach. Seeded only a little: this is the one thing about the
   // stem that reads as the pumpkin being bigger rather than as its stalk being
   // different, and the variant's own `length` is what is supposed to say it.
-  const stemRise = 0.207 * (0.90 + rand() * 0.26);
+  const stemRise = 0.207 * (0.90 + vrand() * 0.26);
   // Where it sits on the crown, in fractions of the body radius and along the
   // lean. Real stalks are not centred, and one that starts off-centre on the
   // near side and reaches over reads differently from one that starts on the
   // far side, so the small negative end of the range is wanted.
-  const stemOff = -0.02 + rand() * 0.11;
-  const flickerPhase = rand() * 100;
+  const stemOff = -0.02 + vrand() * 0.11;
+  const flickerPhase = vrand() * 100;
 
   // --- The body surface ----------------------------------------------------
   // s runs -1 (bottom pole) .. +1 (top pole); a is the angle around, measured

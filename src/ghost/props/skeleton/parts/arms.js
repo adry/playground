@@ -371,14 +371,19 @@ export function buildArm({ material, side }) {
   // pinch where the tubes fuse.
   const foreGap = (t) => A.foreSplit * (0.60 - 0.18 * t + 0.50 * Math.sin(Math.PI * t));
 
-  // How that gap is shared out either side of the axis. The ulna owns the elbow
-  // and the radius owns the wrist, so the ulna sits ON the axis at the top and
-  // the radius sits on it at the bottom, and the gap slides from one to the
-  // other in between. The point of doing it this way rather than splitting the
-  // gap evenly is that both bones then drift medially by the SAME amount over
-  // the length: same slant, constant separation, no sweep across the axis by
-  // either one. That is what makes them parallel rather than merely
-  // non-crossing.
+  // How that gap is shared out either side of the centreline. The ulna owns the
+  // elbow and the radius owns the wrist, so the ulna sits ON the centreline at
+  // the top and the radius sits on it at the bottom, and the gap slides from
+  // one to the other in between. The point of doing it this way rather than
+  // splitting the gap evenly is that both bones then drift medially by the SAME
+  // amount over the length: same slant, separation unchanged, and neither one
+  // ever swings back across the line the pair runs along. That is what makes
+  // them parallel rather than merely non-crossing, and it is the property the
+  // old build lacked -- measured against the straight elbow-to-wrist line, its
+  // radius ran from 0.012 lateral to 0.007 medial and back, a swing of half a
+  // bone's width in each direction. Here the same measurement gives a swing of
+  // 0.008 to zero, with a hair of medial overshoot near the wrist that is the
+  // shared bow below and moves both bones together.
   const foreBias = (t) => t * t * (3 - 2 * t);
 
   // Front to back the pair splits by this much of the sideways gap. The photo
@@ -421,9 +426,10 @@ export function buildArm({ material, side }) {
       .addScaledVector(foreLat, gap * share)
       .addScaledVector(foreFwd, lateral * 0.5 * FORE_DEPTH * gap);
   };
-  // Six stations rather than four: with only the ends and two mid points a
-  // centripetal Catmull-Rom rounds the shoulders of the lens off and the widest
-  // point lands short of where foreGap puts it.
+  // Six stations rather than four. Measured, four gets within about a percent
+  // of the same lens, but with four the spline is inventing most of the profile
+  // between the stations rather than following foreGap, and the whole point of
+  // having the profile in one function is that it can be retuned and believed.
   const foreCurve = (lateral, end) => new THREE.CatmullRomCurve3(
     [0, 0.2, 0.4, 0.6, 0.8, 1].map((k) => forePoint(k * end, lateral)),
     false, 'catmullrom', 0.5,
