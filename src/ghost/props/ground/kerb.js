@@ -433,7 +433,6 @@ export function createKerbRun({ seed = 1, points, scale = 1 } = {}) {
     const cx = ((a.x + b.x) / 2 + mid.x) / 2;
     const cz = ((a.z + b.z) / 2 + mid.z) / 2;
 
-    // Perpendicular in XZ, for the sideways wander off the line.
     const lat = (rng() * 2 - 1) * VARY.lateral * scale;
 
     // World height of the stone's own y = 0, i.e. how deep it is bedded.
@@ -453,7 +452,7 @@ export function createKerbRun({ seed = 1, points, scale = 1 } = {}) {
     const yaw = Math.atan2(-dz, dx) + (rng() * 2 - 1) * VARY.yaw;
     e.set((rng() * 2 - 1) * VARY.roll, yaw, (rng() * 2 - 1) * VARY.tip, 'YXZ');
     q.setFromEuler(e);
-    // The perpendicular of the chord in XZ, for the wander off the line.
+    // (-dz, dx) is the perpendicular of the chord in XZ: the wander off the line.
     p.set(cx + lat * -dz, baseY, cz + lat * dx);
     geo.applyMatrix4(m.compose(p, q, one));
 

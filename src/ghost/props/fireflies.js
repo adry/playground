@@ -42,8 +42,8 @@ import * as THREE from 'three';
 // as different kinds of thing at a glance. The bead core is nearly white with
 // a green cast, because a small light source of any colour blows out to white
 // in its middle, and the halo carries the actual hue.
-const CORE_COLOR = '#f4ffd2';
-const HALO_COLOR = '#b4f04a';
+const CORE_COLOR = '#fff6d2';
+const HALO_COLOR = '#d2ee55';
 // Not black. A dead-black rim reads as a hole punched in the floor; a very
 // dark green reads as the unlit body of the insect.
 const RIM_COLOR = '#141c0d';
@@ -53,7 +53,7 @@ const RIM_COLOR = '#141c0d';
 // is the edge of the halo and everything below is a fraction of that.
 const BEAD_R = 0.30;    // the opaque bead ends here
 const BEAD_SOFT = 0.10; // and fades over this much, so its edge is not a stair
-const CORE_IN = 0.09;   // solid bright out to here
+const CORE_IN = 0.07;   // solid bright out to here
 const CORE_OUT = 0.26;  // and dark by here, which is the rim
 const HALO_K = 5.2;     // gaussian falloff of the additive glow
 
@@ -64,8 +64,12 @@ const SIZE = 0.17;
 // How bright the bead and halo are before the pulse rides on them. These are
 // linear values fed through the scene's ACES curve, so the core sits above 1
 // on purpose: it is the one thing in the graveyard allowed to clip.
-const CORE_GAIN = 2.35;
-const HALO_GAIN = 0.62;
+const CORE_GAIN = 2.60;
+const WARM_GAIN = 1.15;  // the halo hue at bead strength, the ring inside the rim
+const HALO_GAIN = 0.66;
+// How hard the pulse rides the halo compared with the bead. See the fragment
+// shader for why it is not 1.
+const HALO_PULSE_EXP = 2.2;
 
 // Hover band. The ghost's eyes are at about 0.8, so a pellet at this height is
 // something it swallows rather than steps on.
@@ -100,8 +104,8 @@ const PULSE = {
 
 // A pellet must stay visible, so the pulse never takes a firefly out. Level 0
 // is a lull and not an extinction: it still carries better than half its light.
-const PULSE_MIN = 0.55;
-const PULSE_MAX = 1.18;
+const PULSE_MIN = 0.62;
+const PULSE_MAX = 1.22;
 
 // --- collect ---------------------------------------------------------------
 // Duration of the take, in seconds. Long enough to see, short enough that a
@@ -258,6 +262,7 @@ const FRAGMENT = /* glsl */`
   #include <fog_pars_fragment>
 
   uniform vec3 uCore;
+  uniform vec3 uWarm;
   uniform vec3 uHalo;
   uniform vec3 uRim;
 
@@ -273,16 +278,27 @@ const FRAGMENT = /* glsl */`
     // firefly a shape on a pale floor, and it is why the material blends
     // premultiplied rather than additive.
     float bead = 1.0 - smoothstep(${(BEAD_R - BEAD_SOFT).toFixed(3)}, ${BEAD_R.toFixed(3)}, d);
-    // Bright in the middle, dark at the rim.
+    // Three bands across it, which is what makes a small disc read as a light
+    // rather than as a sticker: a blown-out white middle, the warm green of
+    // the glow around it, and the dark rim that draws the outline.
     float core = 1.0 - smoothstep(${CORE_IN.toFixed(3)}, ${CORE_OUT.toFixed(3)}, d);
-    vec3 beadColor = mix(uRim, uCore * vBright, core);
+    float rim = smoothstep(${(CORE_OUT * 0.8).toFixed(3)}, ${BEAD_R.toFixed(3)}, d);
+    vec3 body = mix(uWarm, uCore, core) * vBright;
+    vec3 beadColor = mix(body, uRim, rim);
 
     // The halo: additive, and held out of the bead so the dark rim cannot be
     // filled back in by its own glow.
     float halo = exp(-d * d * ${HALO_K.toFixed(2)}) * (1.0 - bead);
 
+    // The pulse is carried mostly by the HALO. The bead's middle is blown out
+    // by design and cannot get any whiter, so putting the swing there would
+    // make a light that breathes on paper and sits still on screen. The glow
+    // around it has all the headroom in the world, which is why the exponent
+    // below is greater than one: it exaggerates what is actually visible.
+    float glow = pow(vBright, ${HALO_PULSE_EXP.toFixed(2)});
+
     float alpha = bead * vFade;
-    vec3 rgb = beadColor * alpha + uHalo * halo * vBright * vFade;
+    vec3 rgb = beadColor * alpha + uHalo * halo * glow * vFade;
 
     gl_FragColor = vec4(rgb, alpha);
 
@@ -356,6 +372,7 @@ export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
     uSize: { value: SIZE },
     uScale: { value: scale },
     uCore: { value: new THREE.Color(CORE_COLOR).convertSRGBToLinear().multiplyScalar(CORE_GAIN) },
+    uWarm: { value: new THREE.Color(HALO_COLOR).convertSRGBToLinear().multiplyScalar(WARM_GAIN) },
     uHalo: { value: new THREE.Color(HALO_COLOR).convertSRGBToLinear().multiplyScalar(HALO_GAIN) },
     uRim: { value: new THREE.Color(RIM_COLOR).convertSRGBToLinear() },
   };

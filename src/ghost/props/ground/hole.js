@@ -41,14 +41,14 @@ const DEPTH = 1.45;
 
 // How far outside the mouth the floor is cut. The skirt reaches 0.40 out, so
 // 0.18 of it always rests on solid floor and covers the discard edge.
-const CUT_MARGIN = 0.15;
+const CUT_MARGIN = 0.11;
 
 const TURF = new THREE.Color('#8f949e'); // the floor's own colour
 // Warm, but only just: under ACES with a 2.1 key, a saturated brown tilted up
 // toward the light comes back as orange and the hole reads as rust.
-const SPOIL = new THREE.Color('#8d7867'); // broken earth around the lip
-const EARTH = new THREE.Color('#7b6250'); // upper wall, still catching light
-const SUB = new THREE.Color('#513e2f'); // wall below the light
+const SPOIL = new THREE.Color('#877162'); // broken earth around the lip
+const EARTH = new THREE.Color('#8a7059'); // upper wall, still catching light
+const SUB = new THREE.Color('#584434'); // wall below the light
 const DEEP = new THREE.Color('#20180f'); // bottom
 
 // --- small deterministic noise ----------------------------------------------
@@ -130,13 +130,13 @@ function profile(depth) {
   // is linear, so 4mm of clearance is thousands of depth units: no z-fight.
   // It stays low and narrow: raised any higher it stops reading as broken turf
   // and starts reading as a rubber gasket laid round the hole.
-  push(0.28, 0.004, { rim: 1 });
-  push(0.215, 0.007);
-  push(0.150, 0.013);
-  push(0.100, 0.023);
-  push(0.058, 0.032);
+  push(0.22, 0.004, { rim: 1 });
+  push(0.170, 0.007);
+  push(0.122, 0.013);
+  push(0.082, 0.023);
+  push(0.048, 0.032);
   // The lip: a rolled clay edge, not a knife cut.
-  push(0.030, 0.038, { cut: 0.4 });
+  push(0.026, 0.038, { cut: 0.4 });
   push(0.008, 0.036, { cut: 0.9 });
   push(-0.010, 0.028, { cut: 1 });
   push(-0.026, 0.015, { cut: 1, spade: 0.35 });
@@ -174,7 +174,7 @@ function buildPit({ seed, depth }) {
   // Everything below is measured against absolute depth in units, not against
   // the pit's total depth: the top metre is all anyone ever sees, and it must
   // not restyle itself if the pit is dug deeper.
-  const scoops = Math.max(5, Math.round(perimeter / 0.40));
+  const scoops = Math.max(5, Math.round(perimeter / 0.26));
 
   const position = new Float32Array(cols * rows * 3 + 3);
   const color = new Float32Array(cols * rows * 3 + 3);
@@ -190,6 +190,7 @@ function buildPit({ seed, depth }) {
       // Displacement along the outward direction. Positive is away from the
       // pit centre, so a scoop bites into the wall.
       let d = 0;
+      let cavity = 0;
       if (ring.spade > 0) {
         // Each scoop is a shallow bite out of the wall, with its own width and
         // its own reach down the wall, so no two are the same and none of them
@@ -203,16 +204,26 @@ function buildPit({ seed, depth }) {
         const start = 0.02 + 0.05 * hash2(idx, 31, seed);
         const along = THREE.MathUtils.smoothstep(depthF, start, start + 0.10)
           * (1 - THREE.MathUtils.smoothstep(depthF, reach - 0.20, reach + 0.12));
-        d += ring.spade * 0.075 * bite * lobe * along;
-        // Terraces: the digger works in layers, so the wall steps a little.
-        d += ring.spade * 0.012 * Math.cos(depthF * Math.PI * 2 * 2.2 + t * 1.7);
+        d += ring.spade * 0.048 * bite * lobe * along;
+        // The hollow of a cut is occluded by the ridges either side of it. The
+        // geometry alone gives that away far too gently at this scale, so the
+        // cavity is baked in as well: it is what makes the wall read as cut
+        // rather than moulded, and it survives being seen from across the
+        // scene where the shading difference does not.
+        cavity = lobe * along * bite;
+        // Terraces. A grave is dug in layers and the wall keeps the shelf
+        // between them: a staircase, not a wave, because a soft horizontal
+        // step is the one cue that survives being seen from across the scene.
+        const layer = depthF * 3.1 + 0.10 * ringNoise(t, 5.0, 1.6, seed + 21);
+        const stepF = layer - Math.floor(layer);
+        d += ring.spade * 0.030 * (1 - THREE.MathUtils.smoothstep(stepF, 0.0, 0.30));
         // General lumpiness, low frequency so it reads as clay and not grit.
         d += ring.spade * 0.022 * ringNoise(t, depthF * 2.2 + 11.0, 2.6, seed + 3);
       }
       if (ring.rim) {
         // Break the outer edge of the skirt so the floor's grid does not stop
         // at a stamped oval.
-        d += 0.045 * ringNoise(t, 0.5, 4.5, seed + 7);
+        d += 0.032 * ringNoise(t, 0.5, 4.5, seed + 7);
       }
       if (ring.cut > 0 && ring.cut < 1) {
         // Wobble the lip itself, gently: too much and the rolled edge goes
@@ -236,22 +247,23 @@ function buildPit({ seed, depth }) {
       // wall. The darkening is doing the work a single key light cannot: it is
       // what turns a lit box into a hole.
       c.copy(EARTH)
-        .lerp(SUB, THREE.MathUtils.smoothstep(depthF, 0.22, 0.85))
-        .lerp(DEEP, THREE.MathUtils.smoothstep(depthF, 0.80, 1.25));
+        .lerp(SUB, THREE.MathUtils.smoothstep(depthF, 0.16, 0.66))
+        .lerp(DEEP, THREE.MathUtils.smoothstep(depthF, 0.58, 1.15));
       c.lerp(SPOIL, THREE.MathUtils.smoothstep(ring.inset, -0.02, 0.05));
       // The turf blend is pushed well out, so the part of the skirt that tilts
       // up into the key is earth. A raised ring of floor-coloured turf catches
       // the light and reads as a rubber gasket laid round the hole.
-      c.lerp(TURF, THREE.MathUtils.smoothstep(ring.inset, 0.13, 0.235));
+      c.lerp(TURF, THREE.MathUtils.smoothstep(ring.inset, 0.085, 0.185));
       // Ambient occlusion, and not much of it: the wall has to stay lit enough
       // to show what it is made of. The dark comes from the ramp above and
       // from the near lip's own cast shadow, not from painting the pit black.
-      let shade = 1 - 0.24 * THREE.MathUtils.smoothstep(depthF, 0.08, 1.0);
+      let shade = 1 - 0.20 * THREE.MathUtils.smoothstep(depthF, 0.08, 1.0);
       // The lip rolls over and hangs a little into the pit, so there is a real
       // occlusion line under it. Drawing it is what makes the edge read as a
       // rolled clay lip rather than a printed outline.
       shade *= 1 - 0.26 * THREE.MathUtils.smoothstep(depthF, 0.004, 0.055)
         * (1 - THREE.MathUtils.smoothstep(depthF, 0.06, 0.24));
+      shade *= 1 - 0.24 * cavity;
       c.multiplyScalar(shade * (0.95 + 0.10 * ringNoise(t, depthF * 6.0, 9.0, seed + 13)));
       color[k] = c.r;
       color[k + 1] = c.g;

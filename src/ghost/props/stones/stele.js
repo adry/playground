@@ -97,8 +97,8 @@ const SINK = 0.16;
 const CORNICE = {
   coveR: 0.05,
   coveSweep: (55 * Math.PI) / 180,
-  rollR: 0.072,
-  halfWidth: 0.4,
+  rollR: 0.07,
+  overhang: 0.085,
 };
 
 // --- the palmette ----------------------------------------------------------
@@ -136,17 +136,17 @@ const CORNICE = {
 // middle leaf is longer and fatter than the others so the fan does not read as a
 // scallop shell.
 const PALMETTE = {
-  depth: 0.17,
-  edge: 0.04,
-  baseHalf: 0.13,
-  pillar: 0.035,
-  coveR: 0.05,
-  baseR: 0.03,
-  valleyR: 0.02,
+  depth: 0.19,
+  edge: 0.036,
+  baseHalf: 0.17,
+  pillar: 0.012,
+  coveR: 0.035,
+  baseR: 0,
+  valleyR: 0.018,
   leaves: [
-    { ang: 0, len: 0.265, rad: 0.069 },
-    { ang: 44, len: 0.265, rad: 0.065 },
-    { ang: 88, len: 0.272, rad: 0.065 },
+    { ang: 0, len: 0.258, rad: 0.082 },
+    { ang: 46, len: 0.248, rad: 0.078 },
+    { ang: 92, len: 0.250, rad: 0.078 },
   ],
 };
 
@@ -207,33 +207,115 @@ function cornerFillet(a, b, rv) {
   return { x: (ca * b.m.y - cb * a.m.y) / det, y: (a.m.x * cb - b.m.x * ca) / det };
 }
 
-// Where the cornice's flat top sits, and how wide it is. Both pieces need it:
-// the cornice ends there and the palmette stands on it.
-function corniceTop() {
-  const { coveR: rc, coveSweep: phi, rollR: rq, halfWidth } = CORNICE;
-  const cx = halfWidth - rq;
-  // The cove leaves the shaft at y = H and the fascia is whatever straight run
-  // is left between the top of the cove and the start of the roll. Its length
-  // falls out of the two x positions, and its rise out of its own slope.
-  const coveEnd = { x: W + rc * (1 - Math.cos(phi)), y: H + rc * Math.sin(phi) };
-  const n = { x: Math.cos(phi), y: -Math.sin(phi) }; // outward normal where the cove stops
-  const fascia = (cx + rq * n.x - coveEnd.x) / Math.sin(phi);
-  const cy = coveEnd.y + fascia * Math.cos(phi) - rq * n.y;
-  return { cx, cy, coveEnd, n, fascia, y: cy + rq };
+// --- the cornice's meridian ------------------------------------------------
+//
+// The cornice is the one piece here that is NOT an extruded outline, and the
+// reason is the whole point of it. buildArcSweepGeometry pushes a 2D outline
+// through a constant section, so a cornice built that way overhangs at the two
+// ENDS of the stone and nowhere else: seen from the front, which is how a
+// headstone is seen, there is no projection, no soffit and no shadow line, and
+// the cap reads as a pillow on top of the shaft. The first pass was built that
+// way and that is exactly what it looked like.
+//
+// So this one is swept the other way, the obelisk's way: a fixed plan -- the
+// cornice's own rounded rectangle -- carried up a stack of rings, each ring that
+// plan offset INWARD by some amount. A constant inset shrinks a rounded
+// rectangle exactly (every side moves in by the offset and every corner radius
+// loses it), so one meridian gives the same moulding on all four sides and the
+// overhang is equal front, back and end. The bottom ring is the shaft's own
+// section, so below y = H the cornice is the shaft and there is nothing to
+// z-fight; above it the cove, the fascia and the roll open out.
+function planOutline(halfX, halfZ, corner, seg) {
+  const c = Math.min(corner, Math.min(halfX, halfZ) * 0.999);
+  const out = [];
+  for (const [ax, az, a0] of [
+    [halfX - c, halfZ - c, 0],
+    [-(halfX - c), halfZ - c, Math.PI / 2],
+    [-(halfX - c), -(halfZ - c), Math.PI],
+    [halfX - c, -(halfZ - c), Math.PI * 1.5],
+  ]) {
+    for (let j = 0; j <= seg; j++) {
+      const a = a0 + (Math.PI / 2) * (j / seg);
+      const hx = Math.cos(a);
+      const hz = Math.sin(a);
+      out.push({ px: ax + c * hx, pz: az + c * hz, hx, hz });
+    }
+  }
+  return out;
 }
 
-// The cornice, counter-clockwise from its buried bottom-right corner, closing
-// across a flat top that the palmette stands on.
-function corniceOutline() {
-  const t = corniceTop();
-  const rb = 0.09; // buried inside the slab, so any radius that fits will do
-  const right = [
-    arc(W - rb, H - SINK + rb, rb, -Math.PI / 2, 0, 1),
-    arc(W + CORNICE.coveR, H, CORNICE.coveR, Math.PI, Math.PI - CORNICE.coveSweep, -1),
-    arc(t.cx, t.cy, CORNICE.rollR, -CORNICE.coveSweep, Math.PI / 2, 1),
-  ];
-  return [...right, ...mirrored(right)];
+// A ring is { y, inset, dy, dInset }: the plan pulled in by `inset` and sat at
+// height y, plus the meridian's own tangent there. For a plan that never scales,
+// the surface normal at a plan point with outward horizontal normal h is
+// (h.x*dy, dInset, h.z*dy), which is the one line that makes a cove, a straight
+// fascia and a roll all the same function and keeps every normal analytic.
+function sweepRings(plan, rings, uv) {
+  const N = plan.length;
+  const pos = [];
+  const nor = [];
+  const uvs = [];
+  const idx = [];
+  const push = (x, y, z, nx, ny, nz) => {
+    pos.push(x, y, z);
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nor.push(nx / l, ny / l, nz / l);
+    const [u, v] = uv(x, y, z);
+    uvs.push(u, v);
+  };
+  for (const r of rings) {
+    for (const p of plan) push(p.px - r.inset * p.hx, r.y, p.pz - r.inset * p.hz, p.hx * r.dy, r.dInset, p.hz * r.dy);
+  }
+  for (let i = 0; i < rings.length - 1; i++) {
+    for (let j = 0; j < N; j++) {
+      const j2 = (j + 1) % N;
+      idx.push(i * N + j, (i + 1) * N + j2, i * N + j2, i * N + j, (i + 1) * N + j, (i + 1) * N + j2);
+    }
+  }
+  for (const [r, end, up] of [[rings[0], 0, -1], [rings[rings.length - 1], (rings.length - 1) * N, 1]]) {
+    const c = pos.length / 3;
+    push(0, r.y, 0, 0, up, 0);
+    for (let j = 0; j < N; j++) idx.push(c, end + (up > 0 ? (j + 1) % N : j), end + (up > 0 ? j : (j + 1) % N));
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(idx);
+  geo.computeBoundingSphere();
+  return geo;
 }
+
+// The meridian, bottom to top, and the numbers everything above the shaft is
+// measured from. `over` is the overhang: the plan is the shaft's section grown
+// by it on every side, so the roll's widest ring is the plan itself, at inset 0.
+function corniceProfile(edge) {
+  const { coveR: rc, coveSweep: phi, overhang: over, rollR: rq } = CORNICE;
+  const rings = [];
+  // The buried tenon, drawn a little narrower than the shaft so the two are
+  // never a hair apart, and brought back out to the shaft's own width exactly
+  // where the slab's squared top starts rounding away from it.
+  rings.push({ y: H - SINK, inset: over + 0.03, dy: 1, dInset: 0 });
+  rings.push({ y: H - edge, inset: over, dy: 1, dInset: 0 });
+  const seg = 7;
+  for (let k = 0; k <= seg; k++) {
+    const a = (phi * k) / seg; // the cove: from the shaft's face round to the soffit
+    rings.push({ y: H + rc * Math.sin(a), inset: over - rc * (1 - Math.cos(a)), dy: Math.cos(a), dInset: -Math.sin(a) });
+  }
+  const y1 = H + rc * Math.sin(phi);
+  const i1 = over - rc * (1 - Math.cos(phi));
+  // The fascia is whatever straight run is left between the cove and the roll,
+  // which is what makes `overhang` the number that drives the cornice.
+  const fascia = (i1 - rq * (1 - Math.cos(phi))) / Math.sin(phi);
+  const y2 = y1 + fascia * Math.cos(phi);
+  rings.push({ y: y2, inset: rq * (1 - Math.cos(phi)), dy: Math.cos(phi), dInset: -Math.sin(phi) });
+  for (let k = 0; k <= seg; k++) {
+    const b = -phi + (phi + Math.PI / 2) * (k / seg); // the roll, over to the flat top
+    rings.push({ y: y2 + rq * (Math.sin(b) + Math.sin(phi)), inset: rq * (1 - Math.cos(b)), dy: Math.cos(b), dInset: Math.sin(b) });
+  }
+  return { rings, over, fascia, top: y2 + rq * (1 + Math.sin(phi)), flat: W + over - rq };
+}
+
+const corniceTop = () => ({ y: corniceProfile(0.062).top });
 
 // The palmette. Its own sweep, its own rim, and its base runs down inside the
 // cornice so the two never meet in a crease.
@@ -309,7 +391,7 @@ registerStone('stele', {
     inkText(ctx, 'XAIPE', w / 2, h * 0.44, size, size * 0.1);
   },
 
-  extras({ body, material, shape, plinthH, edge, slabUV, disposables }) {
+  extras({ body, material, shape, plinthH, edge, stripUV, disposables }) {
     const add = (geo, z = 0) => {
       const mesh = new THREE.Mesh(geo, material);
       mesh.position.set(0, plinthH, z);
@@ -319,17 +401,18 @@ registerStone('stele', {
       disposables.push(geo);
     };
 
-    // The cornice takes the slab's own rim radius -- the two have to agree or
-    // the joint shows -- and the slab's own UV mapping, so the coincident front
-    // faces carry the same texture in the same place and shade identically.
-    // slabUV clamps v, which is what anything standing above the face needs.
+    // Everything above the shaft samples the plain strip on the right of the
+    // face texture, at its true height on the stone, so a moulding picks up
+    // clean stone and no piece ever drags a letter round a corner.
+    const parkUV = (span) => (x, y) => stripUV(x, y, span, H);
+
+    const c = corniceProfile(edge);
     add(
-      buildArcSweepGeometry({
-        outline: corniceOutline(),
-        depth: shape.depth,
-        edge,
-        uv: slabUV,
-      }),
+      sweepRings(
+        planOutline(W + c.over, shape.depth / 2 + c.over, edge + c.over, 8),
+        c.rings,
+        parkUV(W + c.over),
+      ),
     );
 
     add(
@@ -337,7 +420,7 @@ registerStone('stele', {
         outline: palmetteOutline(),
         depth: PALMETTE.depth,
         edge: PALMETTE.edge,
-        uv: slabUV,
+        uv: parkUV(W),
       }),
     );
   },

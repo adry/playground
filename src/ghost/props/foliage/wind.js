@@ -5,14 +5,25 @@ import { toyMaterial } from '../style.js';
 // coloured from, the lumpy-blob primitive they are all built out of, and the
 // wind that moves them.
 //
-// Everything here is written so that a second, third and fourth bush can be
+// Everything here is written so that a second, third and fourth plant can be
 // composed from it without touching this file. A plant is:
 //
-//   1. one or more blob geometries (blobGeometry / mergeLumps),
-//   2. bakeWind() on each, which writes the per-vertex aWind attribute,
-//   3. attachWind() on each mesh, which patches the beauty material AND the
-//      shadow materials with the same displacement,
-//   4. updateWind(time) once a frame from the prop's update().
+//   1. one or more geometries built from blobGeometry() (a closed lumpy dome,
+//      fitted to a real size) and mergeLumps() (many small placed lumps, one
+//      draw call, one wind phase per lump);
+//   2. bakeFoliageTint() on each, which paints the crevice and sky-exposure
+//      darkening this scene's lighting cannot find on its own;
+//   3. bakeWind() on each, which writes the per-vertex aWind attribute: the
+//      height stiffness that makes the plant hinge at the ground, its exact
+//      derivative for the normal, the flutter weight and the clump phase;
+//   4. a foliageMaterial() per mesh, then attachWind() on each mesh, which
+//      patches the beauty material AND the depth and distance materials with
+//      the same displacement;
+//   5. updateWind(time) once a frame from the prop's update().
+//
+// One material per mesh: attachWind writes onBeforeCompile and a cache key onto
+// the material it is given, so two meshes sharing one material would share one
+// set of sway parameters and the second call would quietly win.
 //
 // The wind is global on purpose. Bushes standing next to each other in the same
 // gust have to lean at the same moment or the yard reads as a room full of
@@ -566,7 +577,13 @@ export function attachWind(mesh, {
   scatter = 0.18,     // seconds of spread between neighbouring clumps
   castShadow = true,
   receiveShadow = true,
-  distanceShadow = false,
+  // On by default. A MeshDistanceMaterial costs a JS object and nothing else
+  // until a point light in the scene actually casts, and if one ever does, a
+  // plant whose distance pass was left un-patched throws a frozen shadow from
+  // the lanterns while waving under the key, which is the same bug as the depth
+  // one and harder to notice. Pass false to opt a plant out of point-light
+  // shadows entirely.
+  distanceShadow = true,
 } = {}) {
   const own = {
     uSway: { value: sway },

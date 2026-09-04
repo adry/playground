@@ -140,11 +140,38 @@ const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); retu
 // be tellable apart at a glance, and hue is what does that at this size, not
 // detail. Everything here is a desaturated blue-grey; nothing in it is warm.
 const GRAVEL = {
-  base: '#d7dce5',
-  pale: '#e9ebf0',   // the top of a chip catching the key
-  dark: '#bcc2cf',   // a chip that has sat wet
-  crevice: '#9fa6b6', // the gap between chips, which is where the depth is
+  base: '#d4d9e3',
+  pale: '#e6e8ee',   // the top of a chip catching the key
+  dark: '#b8bfcc',   // a chip that has sat wet
+  crevice: '#9ca3b4', // the gap between chips, which is where the depth is
 };
+
+// A wrapping box blur, run separably with a running sum so a wide radius costs
+// the same as a narrow one. Used to high-pass the height field.
+function boxBlurWrap(src, radius) {
+  const r = Math.max(1, radius | 0);
+  const w = 1 / (2 * r + 1);
+  const tmp = new Float32Array(src.length);
+  const out = new Float32Array(src.length);
+  for (let y = 0; y < TEX; y++) {
+    const row = y * TEX;
+    let acc = 0;
+    for (let k = -r; k <= r; k++) acc += src[row + ((k % TEX) + TEX) % TEX];
+    for (let x = 0; x < TEX; x++) {
+      tmp[row + x] = acc * w;
+      acc += src[row + ((x + r + 1) % TEX)] - src[row + ((x - r + TEX) % TEX)];
+    }
+  }
+  for (let x = 0; x < TEX; x++) {
+    let acc = 0;
+    for (let k = -r; k <= r; k++) acc += tmp[((((k % TEX) + TEX) % TEX) * TEX) + x];
+    for (let y = 0; y < TEX; y++) {
+      out[y * TEX + x] = acc * w;
+      acc += tmp[(((y + r + 1) % TEX) * TEX) + x] - tmp[((((y - r + TEX) % TEX)) * TEX) + x];
+    }
+  }
+  return out;
+}
 
 // One tile of packed chippings, as an albedo map and a normal map.
 //
@@ -186,7 +213,7 @@ function gravelTextures(seed) {
     // A little settle jitter, so chips do not all peak at the same height and
     // the field gets a coarse unevenness on top of the chip-scale one.
     const peak = r * CHIP_FLAT * (0.72 + rand() * 0.5);
-    const bed = (rand() - 0.5) * r * 0.22;
+    const bed = (rand() - 0.5) * r * 0.16;
     tint.push(rand());
 
     const reach = Math.ceil(Math.max(ra, rb)) + 1;
@@ -236,12 +263,21 @@ function gravelTextures(seed) {
   };
   const blurred = blur(blur(height));
 
-  // Normalise the field to 0..1 so the crevice term below has a fixed meaning
-  // whatever the chip sizes come out at.
-  let hmin = Infinity;
-  let hmax = -Infinity;
-  for (let i = 0; i < n; i++) { if (blurred[i] < hmin) hmin = blurred[i]; if (blurred[i] > hmax) hmax = blurred[i]; }
-  const span = Math.max(1e-6, hmax - hmin);
+  // The crevice term below darkens the gaps between chips, and it has to be
+  // driven by the LOCAL height, not the absolute one. Driven by the absolute
+  // height it picks up every place the field happens to run low over a patch
+  // several chips wide, and those patches render as blotches a hand's width
+  // across: at the distance this prop is seen from that is the only thing you
+  // see, and a path covered in blotches is a stain, which is the exact failure
+  // the brief warns about. So the field is high-passed against a wide blur of
+  // itself first, and what is left is chip-scale and nothing else.
+  const wide = boxBlurWrap(blurred, Math.round((CHIP_R[1] * 1.6) * (TEX / TILE)));
+  const detail = new Float32Array(n);
+  let sum = 0;
+  for (let i = 0; i < n; i++) { const d = blurred[i] - wide[i]; detail[i] = d; sum += d * d; }
+  // Two standard deviations either side covers the field without one deep gap
+  // setting the scale for the whole tile.
+  const sigma = Math.max(1e-6, Math.sqrt(sum / n)) * 2;
 
   const base = new THREE.Color(GRAVEL.base);
   const pale = new THREE.Color(GRAVEL.pale);
@@ -283,18 +319,23 @@ function gravelTextures(seed) {
       normal[o + 3] = 255;
 
       // --- albedo ---
-      const h = (blurred[k] - hmin) / span;
+      const h = clamp(0.5 + (detail[k] / sigma) * 0.5, 0, 1);
       const who = owner[k];
       const t = who < 0 ? 0.5 : tint[who];
       // Each chip gets one colour off the ramp, so a chip reads as one stone.
+      // The spread here is deliberately narrow. A wide one looked right in a
+      // close-up and came apart at the distance the prop is actually seen
+      // from: neighbouring chips that happen to share a tint clump into
+      // blotches a hand's width across, and the path reads as a stained
+      // surface rather than an even bed of chippings. Even is the brief.
       c.copy(base);
-      if (t < 0.45) c.lerp(dark, ((0.45 - t) / 0.45) * 0.65);
-      else c.lerp(pale, ((t - 0.45) / 0.55) * 0.55);
+      if (t < 0.45) c.lerp(dark, ((0.45 - t) / 0.45) * 0.55);
+      else c.lerp(pale, ((t - 0.45) / 0.55) * 0.32);
       // Then the crevices go down. This is contact occlusion baked in, and it
       // is doing most of the work: at a glancing angle the key light barely
       // separates one chip from the next, and without a dark line between them
       // the surface flattens back into a stain.
-      c.lerp(crev, (1 - smoothstep(0.10, 0.52, h)) * 0.45);
+      c.lerp(crev, (1 - smoothstep(0.16, 0.62, h)) * 0.50);
       albedo[o] = c.r * 255;
       albedo[o + 1] = c.g * 255;
       albedo[o + 2] = c.b * 255;
@@ -603,7 +644,7 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
     normalMap: tex?.normalMap || null,
     // Strong enough that the chips read at a glancing angle, short of the point
     // where the crevices go black and the surface stops being a matte toy.
-    normalScale: tex ? new THREE.Vector2(0.50, 0.50) : undefined,
+    normalScale: tex ? new THREE.Vector2(0.62, 0.62) : undefined,
     roughness: 0.93,
     metalness: 0,
     polygonOffset: true,

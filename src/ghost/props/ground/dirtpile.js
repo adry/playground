@@ -80,7 +80,7 @@ const BASE = '#ffffff';
 
 const SPADE = {
   handle: new THREE.Color('#a3835e'),
-  metal: new THREE.Color('#aab0b6'),
+  metal: new THREE.Color('#8e949b'),
 };
 
 function mulberry32(a) {
@@ -146,9 +146,9 @@ function coreProfile(x, z, { a, c, h }) {
 }
 
 function coreGeometry({ a, c, h, rng }) {
-  const geo = new THREE.SphereGeometry(0.5, 30, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+  const geo = new THREE.SphereGeometry(0.5, 44, 18, 0, Math.PI * 2, 0, Math.PI / 2);
   const p = geo.attributes.position;
-  const ph = [rng() * 6.283, rng() * 6.283, rng() * 6.283];
+  const ph = [rng() * 6.283, rng() * 6.283, rng() * 6.283, rng() * 6.283];
   const v = new THREE.Vector3();
   for (let i = 0; i < p.count; i++) {
     v.fromBufferAttribute(p, i);
@@ -161,7 +161,15 @@ function coreGeometry({ a, c, h, rng }) {
     const cw = 1 + rho * (1 - rho) * (0.55 * Math.sin(2 * th + ph[2]) + 0.35 * Math.sin(4 * th - ph[0]));
     const px = a * rho * Math.cos(th) * w;
     const pz = c * rho * Math.sin(th) * w;
-    p.setXYZ(i, px, coreProfile(a * rho * Math.cos(th), c * rho * Math.sin(th), { a, c, h }) * cw, pz);
+    // The core also undulates. Two seeds put a clod-sized gap in the skin and
+    // the render showed a smooth ramp of core through it, which is the dome
+    // failure looking out through a hole in the answer to it. A core that is
+    // itself lumpy has no smooth ramp anywhere to show.
+    const bump = 0.055 * rho * (1 - rho * rho) * 4 * (
+      Math.sin(7.3 * px + ph[3]) * Math.sin(9.1 * pz - ph[0])
+      + 0.7 * Math.sin(12.7 * pz + ph[1]) * Math.sin(5.9 * px + ph[2])
+    );
+    p.setXYZ(i, px, coreProfile(a * rho * Math.cos(th), c * rho * Math.sin(th), { a, c, h }) * cw + bump, pz);
   }
   geo.computeVertexNormals();
   return geo;
@@ -252,43 +260,64 @@ function paint(geo, { rng, height, clods, skip = -1, crevice = 0, tone = 1 }) {
   return geo;
 }
 
-// A short-handled digging spade stood in the heap. Optional, off by default:
-// it is 1.05 tall, which is a real object in a scene that may already have
-// something standing where it wants to be.
-function spadeGeometries(rng, { a, h }) {
+// A short-handled digging spade stood in the heap. Optional and off by
+// default: it stands a metre tall, which is a real object in a scene that may
+// already have something where it wants to be.
+//
+// Built fat. A spade drawn to a spade's real proportions comes out as a wire
+// next to props whose thinnest member is a fence picket, so the shaft is a
+// centimetre and a half across and the blade is a rounded slab. The blade is
+// stuck in only to its shoulder rather than buried, because a shaft coming out
+// of a heap with no blade showing is a stick.
+function spadeGeometries(rng, core) {
+  const { a, c } = core;
   const out = [];
-  const lean = 0.30 + rng() * 0.10;
-  const yaw = -0.55 + rng() * 0.5;
-  const foot = new THREE.Vector3(a * (0.30 + rng() * 0.16), h * 0.42, -0.10 + rng() * 0.2);
+  const lean = 0.30 + rng() * 0.12;
+  const yaw = -0.9 + rng() * 0.7;
+  // The entry point is READ off the heap, not chosen: it is the core surface at
+  // that spot plus the height a clod stands proud, so the blade's shoulder is
+  // clear of the earth and the thing reads as a spade rather than as a stick.
+  // Stood near the end of the ridge rather than on the crest, where the earth
+  // is low: on the crest the blade is swallowed by the clods around it and all
+  // that shows is a stick.
+  const fx = a * (0.58 + rng() * 0.18);
+  const fz = c * (-0.10 + rng() * 0.34);
+  const foot = new THREE.Vector3(fx, coreProfile(fx, fz, core) + 0.05, fz);
   const dir = new THREE.Vector3(Math.sin(lean) * Math.cos(yaw), Math.cos(lean), Math.sin(lean) * Math.sin(yaw));
-  const euler = new THREE.Euler(0, 0, 0);
   const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
   const along = (t) => foot.clone().addScaledVector(dir, t);
-
   const put = (geo, t, extraQ) => {
-    const m = new THREE.Matrix4().compose(along(t), extraQ ? q.clone().multiply(extraQ) : q, new THREE.Vector3(1, 1, 1));
-    geo.applyMatrix4(m);
+    geo.applyMatrix4(new THREE.Matrix4().compose(
+      along(t),
+      extraQ ? q.clone().multiply(extraQ) : q,
+      new THREE.Vector3(1, 1, 1),
+    ));
     out.push(geo);
+    return geo;
   };
 
-  // Blade, buried to its shoulder. Rounded, because everything here is.
-  const blade = new THREE.SphereGeometry(0.5, 14, 10);
-  blade.scale(0.15, 0.22, 0.045);
-  blade.translate(0, 0, 0);
-  put(blade, -0.16);
+  // Blade: a rounded slab, in to about its shoulder.
+  const blade = new THREE.SphereGeometry(0.5, 16, 12);
+  blade.scale(0.24, 0.31, 0.048);
+  const steel = put(blade, 0.10);
+  // Socket, where the blade takes the shaft.
+  const socket = new THREE.CylinderGeometry(0.030, 0.044, 0.10, 10, 1);
+  put(socket, 0.235);
   // Shaft.
-  const shaft = new THREE.CylinderGeometry(0.017, 0.019, 0.76, 10, 1);
-  put(shaft, 0.40);
-  // A D-handle: two short cheeks and a grip across the top.
-  const grip = new THREE.CylinderGeometry(0.019, 0.019, 0.115, 8, 1);
-  put(grip, 0.815, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2)));
-  for (const s of [-1, 1]) {
-    const cheek = new THREE.CylinderGeometry(0.012, 0.012, 0.10, 6, 1);
-    cheek.translate(s * 0.052, 0, 0);
-    put(cheek, 0.765);
-  }
-  void euler;
-  return out;
+  put(new THREE.CylinderGeometry(0.026, 0.030, 0.58, 10, 1), 0.565);
+  // T-grip across the top, with a collar under it.
+  put(new THREE.CylinderGeometry(0.030, 0.030, 0.05, 8, 1), 0.875);
+  const grip = new THREE.CylinderGeometry(0.030, 0.030, 0.21, 10, 1);
+  const cap = new THREE.SphereGeometry(0.030, 8, 6);
+  cap.translate(0, 0.105, 0);
+  const cap2 = new THREE.SphereGeometry(0.030, 8, 6);
+  cap2.translate(0, -0.105, 0);
+  const across = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2));
+  put(grip, 0.915, across);
+  put(cap, 0.915, across);
+  put(cap2, 0.915, across);
+
+  return { steel, wood: out.filter((g) => g !== steel) };
 }
 
 function tint(geo, colour, jitter, rng) {
@@ -332,7 +361,7 @@ export function createDirtPile({
   // target footprint, because the clods stuck into it are what reach both.
   const a = (length / 2) * 0.90;
   const c = (spread / 2) * 0.86;
-  const h = height * 0.88;
+  const h = height * 0.80;
   const core = { a, c, h };
 
   // Every clod is PLACED before any of them is BUILT, because the occlusion
@@ -343,7 +372,7 @@ export function createDirtPile({
   // Sampled over the footprint rather than over a ring, with the count set so
   // the core is covered: nowhere on the heap may there be a patch of smooth
   // falloff big enough for the eye to read as a dome.
-  const BODY = 46;
+  const BODY = 52;
   for (let i = 0; i < BODY; i++) {
     // Square-root radius so the samples spread evenly over the area instead of
     // bunching at the crest, and a golden-angle spin so no two land on top of
@@ -354,7 +383,10 @@ export function createDirtPile({
     const z = c * rho * Math.sin(th);
     // A wide spread of sizes, because a heap of one size is gravel. Bigger
     // lumps low down, where the barrow tipped and the coarse stuff rolled.
-    const r = (0.058 + 0.062 * rho) * (0.62 + rng() * rng() * 1.5);
+    // A wide spread of sizes, because a heap of one size is gravel, but the
+    // floor of the spread is what actually matters: at 0.62 two seeds in three
+    // drew enough small clods in a row to leave a patch of bare core showing.
+    const r = (0.055 + 0.058 * rho) * (0.86 + rng() * rng() * 1.25);
     // How deep the clod is sunk is the whole difference between a heap and a
     // potato, and it has a narrow window. A clod stands 0.72r above its own
     // centre, so sinking it much past half of that leaves nothing proud and
@@ -369,6 +401,28 @@ export function createDirtPile({
       // Flattened: a clod that has been dropped sits wider than it is tall, and
       // a flattened lump turns more of itself at the sky.
       scale: new THREE.Vector3(r * 2.25, r * 1.45, r * 2.0),
+      euler: new THREE.Euler(rng() * 0.7 - 0.35, rng() * 6.283, rng() * 0.7 - 0.35),
+      tone: TONE.lo + (TONE.hi - TONE.lo) * rng(),
+    });
+  }
+
+  // --- the crest ------------------------------------------------------------
+  // A run of clods walked along the ridge line, on top of the spiral above.
+  // The spiral spreads clods evenly over the FOOTPRINT, which is not the same
+  // as evenly over the SURFACE, and the place it reliably came up short was the
+  // crest: two seeds in five drew a bare knuckle of core at the top of the
+  // heap, smooth and pale, and a smooth pale knuckle is the whole failure this
+  // piece exists to avoid. The crest is also the part of the heap the camera
+  // sees most of, so it is the one place worth guaranteeing.
+  const CREST = 13;
+  for (let i = 0; i < CREST; i++) {
+    const x = a * (-0.62 + 1.24 * ((i + 0.5) / CREST) + (rng() - 0.5) * 0.16);
+    const z = c * (rng() - 0.5) * 0.72;
+    const r = 0.062 * (0.9 + rng() * 0.7);
+    clods.push({
+      x, y: coreHeight(x, z, core) - r * (0.10 + 0.35 * rng()), z, r,
+      seg: [12, 8],
+      scale: new THREE.Vector3(r * 2.25, r * 1.5, r * 2.0),
       euler: new THREE.Euler(rng() * 0.7 - 0.35, rng() * 6.283, rng() * 0.7 - 0.35),
       tone: TONE.lo + (TONE.hi - TONE.lo) * rng(),
     });
@@ -432,10 +486,9 @@ export function createDirtPile({
 
   const extra = [];
   if (spade) {
-    const geos = spadeGeometries(rng, core);
-    const wood = mergeGeometries([geos[0]].slice(0, 0).concat(geos.slice(1)), false);
-    const steel = geos[0];
-    const gw = tint(wood, SPADE.handle, 0.1, rng);
+    const { steel, wood } = spadeGeometries(rng, core);
+    const gw = tint(mergeGeometries(wood, false), SPADE.handle, 0.1, rng);
+    for (const g of wood) g.dispose();
     const gs = tint(steel, SPADE.metal, 0.06, rng);
     const merged = mergeGeometries([gw, gs], false);
     gw.dispose(); gs.dispose();

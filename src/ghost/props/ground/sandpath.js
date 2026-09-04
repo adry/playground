@@ -166,7 +166,6 @@ function resample(pts, step) {
 export function createSandPath({ seed = 1, width = 1.2, points, scale = 1 } = {}) {
   const rng = mulberry32(seed * 1013904223 + 61);
   const group = new THREE.Group();
-  const disposables = [];
 
   const hw = Math.max(0.15, width) / 2;
   const route = normalizePoints(points);
@@ -284,8 +283,20 @@ export function createSandPath({ seed = 1, width = 1.2, points, scale = 1 } = {}
     const d = (u - c) / RUT_W;
     return Math.exp(-d * d);
   };
+  // The two ends sink back to the floor over the last handful of centimetres.
+  // Without this the ribbon stops on a raised cross-section and shows a small
+  // step at its own end. The width is NOT tapered with it: the end stays square
+  // and full width so two paths can be butted together, and once both are flat
+  // at the join there is nothing to crease.
+  const END = Math.min(0.35, length * 0.12);
+  const endFade = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = Math.min(1, Math.min(S[i], length - S[i]) / END);
+    endFade[i] = t * t * (3 - 2 * t);
+  }
+
   function heightAt(i, u) {
-    const p = crown(u);
+    const p = crown(u) * endFade[i];
     let y = (camber + swA[i] * (1 - u) + swB[i] * u) * p;
     y -= rutDepth * hollow(u, rutA[i]) * p;
     y -= rutDepth * hollow(u, rutB[i]) * p;
@@ -405,7 +416,10 @@ export function createSandPath({ seed = 1, width = 1.2, points, scale = 1 } = {}
       heightAt(i, u) + r * (0.55 - sink) + r * 0.5,
       centre[i].y + N[i].y * off,
     );
-    e.set(rng() * 3.14, rng() * 3.14, rng() * 3.14);
+    // Yaw freely, tilt only a little: a flat pebble lies flat. Tumbling them in
+    // all three axes stood some of them on end, which both broke the read and
+    // buried a third of each one under an opaque floor where it did nothing.
+    e.set((rng() - 0.5) * 0.5, rng() * 6.28, (rng() - 0.5) * 0.5);
     q.setFromEuler(e);
     sv.set(r * (0.9 + rng() * 0.5), r * (0.34 + rng() * 0.2), r * (0.9 + rng() * 0.5));
     m4.compose(pv, q, sv);
@@ -432,7 +446,6 @@ export function createSandPath({ seed = 1, width = 1.2, points, scale = 1 } = {}
       pebbles.dispose();
       tex?.map.dispose();
       tex?.normalMap.dispose();
-      for (const d of disposables) d.dispose?.();
     },
   };
 }

@@ -19,12 +19,12 @@ import {
 //     primitives without creases, and creases are exactly what the house style
 //     rules out. Sunk into the floor so it meets the ground along a circle.
 //
-//   - The CLUMPS. Forty-odd small lumps sitting proud of that dome, each one a
-//     tiny blob of its own, half buried in the mass, merged into a single
-//     geometry. They are what makes the outline scallop instead of curve, and
-//     they are what carries the flutter: each clump has its own phase, so the
-//     surface breaks up into things that move separately instead of one object
-//     being shaken.
+//   - The TUFTS. A hundred and fifty small lumps sitting proud of that dome in
+//     two sizes, each a lozenge of its own, mostly buried in the mass, merged
+//     into a single geometry and a single draw call. They are what makes the
+//     outline scallop instead of curve, and they are what carries the flutter:
+//     each tuft has its own phase, so the surface breaks into pieces that move
+//     separately instead of one object being shaken.
 //
 // Alpha-cut leaf cards were the obvious alternative and are wrong for this
 // scene three times over. There is no environment map, so a card has nothing to
@@ -157,19 +157,23 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
     scatter: 0.20,
   };
   attachWind(mass, { ...bend, flutter: 0 });
-  attachWind(tufts, { ...bend, flutter: 0.020 * H, flutRate: 1.45 });
+  attachWind(tufts, { ...bend, flutter: 0.020 * TALL, flutRate: 1.45 });
 
-  // --- ground contact -------------------------------------------------------
-  // The one directional key throws its shadow off to the side, so nothing
-  // darkens the floor where the bush actually meets it. Same patch the rest of
-  // the set uses, sized to the footprint rather than to the widest point: the
-  // dome overhangs its own foot and a patch at full width read as a puddle.
+  // --- lean -----------------------------------------------------------------
   // Nothing grows plumb. Small enough that the silhouette still reads upright,
   // and well inside the depth the dome is buried at, so no daylight opens under
   // the lean.
   body.rotation.z = (rand() - 0.5) * 0.10;
   body.rotation.x = (rand() - 0.5) * 0.08;
 
+  // --- ground contact -------------------------------------------------------
+  // The key light and the camera are on the same side of the yard, so the bush's
+  // own cast shadow goes behind it and nothing darkens the floor on the side you
+  // can see. Measured against a render with it turned off, this patch changes
+  // exactly one thing: a thin crescent of floor along the front of the footprint.
+  // That is all it should change, and it is why the halo problem that got a
+  // painted patch thrown off the tombstones does not arise here: the dome is
+  // buried, so its own skirt covers the patch everywhere except at that join.
   const patch = contactShadow({ radius: (width + depth) * 0.21, opacity: 0.22, softness: 0.74 });
   group.add(patch);
   disposables.push({ dispose: () => patch.userData.dispose?.() });
@@ -194,11 +198,6 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   };
 }
 
-// Pick clump sites off the mass: a shuffled sweep of its vertices, accepting one
-// only if it is far enough from every clump already placed. Rejection sampling
-// rather than a fixed count of random picks, because random picks clump and
-// leave a bald patch on one flank about a third of the time, and a bald flank on
-// a bush is very visible at a fixed camera azimuth.
 // What the finished prop actually measures, over every geometry in it.
 function measureExtent(...geos) {
   let top = 0, minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
@@ -272,6 +271,11 @@ function buildTufts(sites, { rand, W, H, stretch = [0.55, 0.55] }) {
   return parts;
 }
 
+// Pick tuft sites off a surface: a shuffled sweep of its vertices, accepting one
+// only if it is far enough from every tuft already placed. Rejection sampling
+// rather than a fixed count of random picks, because random picks bunch up and
+// leave a bald patch on one flank about a third of the time, and a bald flank is
+// very visible at a fixed camera azimuth.
 function clumpPlacements(geo, {
   rand, W, H,
   limit = 140,

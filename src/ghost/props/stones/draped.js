@@ -67,10 +67,11 @@ import { registerStone, inkText } from '../tombstones.js';
 const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
-// The slab. Squared off, and a shade narrower and shorter than the cross so the
-// cloth's overhang can add its width back without the piece becoming the widest
-// thing in the yard. Plinth included it stands 1.48, between fred at 1.10 and
-// cross at 1.56.
+// The slab. Narrower than the cross by 0.06 so that the cloth's own thickness,
+// which stands proud of the stone all the way round, can add that back without
+// the piece becoming the widest thing in the yard; and deep, because a pall
+// thrown over a thin stone has nowhere to be a pall. Plinth included it stands
+// 1.56, level with the cross and half a head over fred.
 const SHAPE = { halfWidth: 0.40, height: 1.38, depth: 0.33, plinth: 0.18 };
 
 // ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ const SHAPE = { halfWidth: 0.40, height: 1.38, depth: 0.33, plinth: 0.18 };
 // SHOULDER, not from the top of the stone, because that is the number the eye
 // reads and the one that decides how much face is left for the lettering.
 const CLOTH = {
-  thick: 0.028, // a chunky vinyl cloth; below about 0.030 it reads as paper
+  thick: 0.028, // the cloth between its folds; the ridges are 2.5 times this
   gapMin: 0.0060, // clearance at the hem: the shadow line under the roll
   gapMax: 0.0130, // and further in, where nothing can see it, enough to keep
   // the cloth's shadow off the stone it is lying on
@@ -92,8 +93,8 @@ const CLOTH = {
   swag: 0.115, // the middle of the front hem dips this much further again,
   // which is the swag: the hem sweeps UP from there to the two shoulders
   // and the cloth reads as hung between them rather than laid on top
-  tailFrom: 0.38, // and past the shoulder it plunges: the corner of the pall,
-  tailDrop: 0.300, // which falls this much further than the middle of the hem
+  tailFrom: 0.38, // outboard of that the hem plunges into the corner of the
+  tailDrop: 0.300, // pall, which falls this much further than the middle does
   tilt: 0.085, // one tail longer than the other, because a cloth is thrown
 
   // Fewer, deeper. Three ridges across the face, and between them a narrow
@@ -121,11 +122,6 @@ const CLOTH = {
   foldBase: 0.70,
   foldFrom: 0.090,
   foldTo: 0.430,
-
-  // The swag. Over the top the cloth is carried a little higher at the ends
-  // than in the middle, so the ridge running across the top of the stone dips
-  // between the two shoulders instead of lying dead flat.
-  topSwell: 0.0,
 };
 
 // The rolled hem's cross-section, as a multiplier on thickness against distance
@@ -264,12 +260,11 @@ function buildDrape({ halfWidth: W, height: H, depth: D, edge: e, rng }) {
       // the mismatch fell on the middle of the top as a crease from end to end.
       const mix = smooth(0.5 + (0.5 * b) / az);
       const fold = (foldShape(a, false) * (1 - mix) + foldShape(a, true) * mix) * grow;
-      const swell = CLOTH.topSwell * (a / A) * (a / A) * (1 - smooth((s - 0.02) / 0.15));
       // Cloth is pulled thin over what it is lying on and gathers where it
       // hangs free. Without this the shoulder carried the full thickness and
       // the drape turned the top of the stone into a loaf.
       const cling = 0.40 + 0.60 * smooth((s - 0.01) / 0.28);
-      const t = CLOTH.thick * cling * hemRoll(fu) * hemRoll(fv) * (1 + CLOTH.foldDepth * fold + swell);
+      const t = CLOTH.thick * cling * hemRoll(fu) * hemRoll(fv) * (1 + CLOTH.foldDepth * fold);
       const gap = CLOTH.gapMin + (CLOTH.gapMax - CLOTH.gapMin) * smooth(Math.min(fu, fv));
 
       const k = (i * cols + j) * 3;
@@ -381,13 +376,18 @@ registerStone('draped', {
   shape: SHAPE,
   // Square topped. Not a taste decision: the arch is what the pall replaces,
   // and at the slab's own edge radius the top of the stone is exactly a rounded
-  // box, which is the surface the cloth is an offset of.
+  // box, which is the surface the cloth is an offset of. This number is that
+  // edge radius. The registry clamps it up if the slab's edge ever grows, and
+  // buildDrape is handed the real one either way; a top corner rounder than the
+  // cloth expects only lets the stone shrink away underneath it, never through
+  // it.
   topRadius: 0.062,
   bottomRadius: 0.10,
 
   // Three short lines low on the bare face. The drape takes the top third, so
-  // there is about two thirds of a face to work in and the block sits below the
-  // deepest the hem ever falls, corners included.
+  // the block sits in the middle of what is left: ink 5.1% of the face, bounding
+  // box 66% by 39%, and no line wider than the flat middle of the stone, which
+  // on a face this narrow is what rules out a six-letter word.
   draw(ctx, w, h) {
     const lines = ['GONE', 'TO', 'REST'];
     const size = h * 0.128;
