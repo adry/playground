@@ -415,8 +415,12 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     return pts;
   };
 
-  const CUTS = FACE_SHAPES.map(({ sampler }) => {
-    const pts = outlineOf(sampler, 160);
+  const CUTS = FACE_SHAPES.map(({ sampler, nx }) => {
+    // The mouth needs the fine walk: its teeth have flanks a few thousandths
+    // wide. The triangles are three straight edges and 40 a side is plenty, and
+    // the difference matters because the backing skirt spends fifteen vertices
+    // on every outline segment.
+    const pts = outlineOf(sampler, nx >= 100 ? 160 : 40);
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const q of pts) {
       if (q[0] < minX) minX = q[0];
