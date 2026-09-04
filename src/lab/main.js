@@ -59,7 +59,13 @@ async function buildLineup() {
   const rim = new THREE.DirectionalLight(0xc4d4ff, 0.55);
   rim.position.set(-4, 2.5, -3);
   scene.add(rim);
-  scene.add(createGround());
+  // The grid fades out 16 to 40 units from uFocus, which defaults to the world
+  // origin. This layout runs twenty units across, so with the default the far
+  // half of the floor lost its lines and read as a big pale patch with a soft
+  // curved edge. Focus follows the camera and the range is opened to cover
+  // whatever is framed.
+  const ground = createGround({ fadeStart: 120, fadeEnd: 400 });
+  scene.add(ground);
 
   // --- layout ---------------------------------------------------------------
   // Cells are chosen in SCREEN units and written in world ones, because a grid
@@ -187,7 +193,15 @@ async function buildLineup() {
 
   // --- camera ---------------------------------------------------------------
   const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
-  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
+  // A very deep frustum, and the reason is the floor. The ground is a 400 unit
+  // plane, and an orthographic camera clips it against near and far like
+  // anything else: at far 200 the far half of the floor was cut away and the
+  // scene's background showed through, which is a flat colour that is not tone
+  // mapped the same way the lit floor is, so it read as a hard-edged WHITE
+  // WEDGE lying across the corner of the picture. It looked like a broken
+  // asset and it was the sky. An ortho frustum costs nothing to make deep,
+  // so it is deep enough to hold the whole floor from any angle.
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 2000);
   const target = new THREE.Vector3();
   let view = 10;
   // Read before the fit below rather than after, since the fit divides by it.
@@ -227,34 +241,29 @@ async function buildLineup() {
     camera.top = view;
     camera.bottom = -view;
     camera.updateProjectionMatrix();
-    camera.position.copy(target).addScaledVector(CAM_DIR, 60);
+    camera.position.copy(target).addScaledVector(CAM_DIR, 700);
     camera.lookAt(target);
-    // The shadow camera has to cover the whole VISIBLE GROUND, which is a much
-    // bigger ask than covering the lineup, and getting it wrong does not look
-    // like a missing shadow. Beyond the shadow camera's frustum three leaves
-    // surfaces unshadowed, so the floor there renders a shade brighter, and
-    // because the frustum is a box in LIGHT space its edge lands on the ground
-    // as a hard straight diagonal. The first version of this page had one, and
-    // it read as a twenty unit white wedge lying across the corner of the
-    // scene. It was the floor.
+    // The shadow camera covers what is framed, and the light stands well back.
+    // Standing it close (it was at four times the light vector, about thirty
+    // units) put geometry behind its own near plane and painted large hard
+    // black regions across the floor. There is no cost to moving a directional
+    // light further away, so it goes far enough that nothing can be behind it.
     //
-    // The factor is generous rather than derived: the ground the camera sees is
-    // the view box divided by the sine of the light's elevation, and a margin
-    // on top of that is cheaper than another round of this. 4096 keeps the
-    // texel small enough at that size in a browser. Tried and reverted: the
-    // software rasteriser the capture harness uses dies outright on a 4096 map
-    // here, so it stays at 2048 and the shadows are a little softer than they
-    // would be in the scene, which for an inspection page is a fair trade.
-    const s = view * 2.6;
+    // The ground beyond this frustum simply does not receive shadows, which is
+    // invisible: there is nothing out there to cast one.
+    const s = view * 1.3;
     key.shadow.camera.left = -s * aspect;
     key.shadow.camera.right = s * aspect;
     key.shadow.camera.top = s;
     key.shadow.camera.bottom = -s;
-    key.shadow.camera.far = 140;
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = 600;
     key.shadow.camera.updateProjectionMatrix();
     key.target.position.copy(target).setY(0);
-    key.position.copy(key.target.position).add(new THREE.Vector3(3.7, 6.0, 2.4).multiplyScalar(4));
+    key.position.copy(key.target.position)
+      .add(new THREE.Vector3(3.7, 6.0, 2.4).normalize().multiplyScalar(300));
     key.target.updateMatrixWorld();
+    ground.userData.uniforms.uFocus.value.copy(target);
   }
 
   function resize() {
@@ -346,15 +355,34 @@ async function buildLineup() {
 
   resize();
 
-  function tick(now) {
-    const dt = Math.min(0.05, (now - last) / 1000);
-    last = now;
-    time += dt;
-    if (spinning) spin += TURN * dt;
-    for (const it of items) {
-      if (it.spin !== false) it.group.rotation.y = spin;
-      it.update?.(time, dt);
+  // Fixed 1/60 substeps rather than one step of whatever the frame took.
+  //
+  // This is not tidiness. The ghost is a Verlet cloth tuned for 1/60, and the
+  // page's first version fed it the frame time clamped to 1/20. On a machine
+  // fast enough that never bites, but on the software rasteriser the capture
+  // harness uses every frame takes about two seconds, so every step arrived at
+  // the clamp, the solver diverged, and the cloth blew out into a six hundred
+  // unit triangle lying across the whole picture. It looked like a broken
+  // asset and it was the timestep. Capped at four substeps so a slow frame
+  // falls behind rather than spiralling.
+  let carry = 0;
+  const FIXED = 1 / 60;
+  function advance(dt) {
+    carry = Math.min(carry + dt, FIXED * 4);
+    while (carry >= FIXED) {
+      carry -= FIXED;
+      time += FIXED;
+      if (spinning) spin += TURN * FIXED;
+      for (const it of items) it.update?.(FIXED, FIXED);
     }
+    for (const it of items) if (it.spin !== false) it.group.rotation.y = spin;
+  }
+
+  let live = true;
+  function tick(now) {
+    if (!live) return;
+    advance(Math.min(0.25, (now - last) / 1000));
+    last = now;
     positionLabels();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
@@ -381,6 +409,45 @@ async function buildLineup() {
       });
       return out;
     },
+    // Forces a fresh bounding box on every geometry. setFromObject trusts a
+    // cached one, and a cloth whose vertices are rewritten every frame keeps a
+    // box from build time, so the earlier probe cheerfully reported everything
+    // as small while something in the scene was drawing a twenty unit triangle.
+    scan(min = 5) {
+      const out = [];
+      scene.traverse((o) => {
+        if (!o.isMesh || !o.geometry) return;
+        const pos = o.geometry.attributes?.position;
+        if (!pos) return;
+        let mx = 0;
+        let bad = 0;
+        for (let i = 0; i < pos.count * pos.itemSize; i++) {
+          const v = pos.array[i];
+          if (!Number.isFinite(v)) bad += 1;
+          else mx = Math.max(mx, Math.abs(v));
+        }
+        const sc = o.getWorldScale(new THREE.Vector3());
+        if (mx * Math.max(sc.x, sc.y, sc.z) >= min || bad) {
+          // Which of the laid-out items owns it, by walking up the graph.
+          let owner = 'scene';
+          for (const it of items) {
+            let n = o;
+            while (n) { if (n === it.group) { owner = it.label; break; } n = n.parent; }
+            if (owner !== 'scene') break;
+          }
+          out.push({
+            owner,
+            name: o.name || o.type,
+            mat: o.material?.type,
+            maxAbs: +mx.toFixed(1),
+            scale: +Math.max(sc.x, sc.y, sc.z).toFixed(2),
+            bad,
+            verts: pos.count,
+          });
+        }
+      });
+      return out;
+    },
     bounds() {
       const box = new THREE.Box3();
       return items.map((it) => {
@@ -399,12 +466,15 @@ async function buildLineup() {
       resize();
     },
     step(dt = 1 / 60, at = null) {
-      if (at !== null) spin = at;
-      else spin += TURN * dt;
-      time += dt;
-      for (const it of items) {
-        if (it.spin !== false) it.group.rotation.y = spin;
-        it.update?.(time, dt);
+      // The animation loop stops the first time a harness drives this page, or
+      // both loops advance the same props and a capture stops being
+      // repeatable. Same reason the game's own page does not run rAF in test
+      // mode.
+      live = false;
+      advance(dt);
+      if (at !== null) {
+        spin = at;
+        for (const it of items) if (it.spin !== false) it.group.rotation.y = spin;
       }
       positionLabels();
       renderer.render(scene, camera);

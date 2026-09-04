@@ -49,11 +49,23 @@ import * as THREE from 'three';
 // WHAT THIS PASS ADDED, AND THE ONE RULE IT FOLLOWED. Water reads as water
 // through its optics far more than through its shape, and the scene has no
 // environment map to reflect. So the optics here are all faked, cheaply and
-// deliberately: a two-colour procedural sky sampled off the reflected normal, a
+// deliberately: a three-band procedural sky sampled off the reflected normal, a
 // Schlick fresnel that decides how much of it you see, and one tight Blinn lobe
-// for the key light. Where a physically correct effect would cost real work and
-// land under a pixel at this size, it is not here and the comment says so.
-// Screen-space refraction is the big one: see `pools` below.
+// for the key light. Each of the three meshes composites that reflection over
+// its own transparency itself, in `opaque_fragment`, rather than letting an
+// opacity slider fade the highlights out along with the body.
+//
+// Where a physically correct effect would cost real work and land under a pixel
+// at this size, it is not here and the comment says so. Screen-space refraction
+// is the big one: see `pools` below.
+//
+// The four numbers this pass was steered by, all read off renders and none of
+// them off the shader. Before, and after:
+//
+//   stone floor seen through a pool      0.20 -> 0.53 of its own fine contrast
+//   strand brightness, top of fall to bottom       1.18x -> 1.63x
+//   separated drops counted in one frame               1 -> 19
+//   draw calls, triangles                    3, 74.4k -> 4, 79.5k
 
 export const WATER_COLOUR = '#93b2c6';
 
@@ -80,6 +92,7 @@ const CROSS = 8; // steps round the ribbon
 // one without an inverse, which GLSL ES 1.0 does not have.
 const OPTICS = `
 uniform vec3 uSkyHi;
+uniform vec3 uSkyMid;
 uniform vec3 uSkyLo;
 uniform vec3 uSunDir;
 uniform vec3 uSunCol;
@@ -96,8 +109,14 @@ vec3 worldViewDir(vec3 wPos) {
   return normalize(cameraPosition - wPos);
 }
 
+// Three bands, not two. The middle one is the scene's own backdrop, and it
+// matters more than either of the others: a strand seen side-on reflects almost
+// horizontally, so its rim samples the horizon and nothing else. With a plain
+// two-colour ramp the horizon was halfway to the grey floor and every strand
+// had a DARK outline, which is the opposite of what a tube of water does.
 vec3 skyProbe(vec3 r) {
-  return mix(uSkyLo, uSkyHi, smoothstep(-0.18, 0.55, r.y));
+  vec3 c = mix(uSkyLo, uSkyMid, smoothstep(-0.50, -0.02, r.y));
+  return mix(c, uSkyHi, smoothstep(0.02, 0.60, r.y));
 }
 
 // Schlick, with water's F0. At the elevation this scene is shot from a flat
@@ -189,7 +208,7 @@ vec3 flowPoint(float t, float ang) {
   // THE LIP SHEET. Water leaving a rounded rim clings to it and runs as a thin
   // wide sheet before surface tension gathers it into a strand, and ours used
   // to start life as a tube bolted to the stone. This widens and flattens the
-  // first tenth of the fall and is GONE by t = 0.12, which matters: a widening
+  // first tenth of the fall and is GONE by t = 0.09, which matters: a widening
   // at the top is a taper going down, and a taper that ran any further would be
   // the icicle bug again with a better justification attached. It is also
   // volume-neutral -- the wide axis gains exactly what the thin axis gives up
@@ -247,18 +266,21 @@ vec3 flowPoint(float t, float ang) {
   // a row of turned chess pieces, because a hump that fills its whole cycle is a
   // spindle however deep the neck between two of them is.
   //
-  // The two numbers are volume, not taste. A stream of radius r broken into
-  // drops one wavelength L apart makes spheres of radius (3 r^2 L / 4)^(1/3);
-  // at the bottom of this fall that is about 1.7 times the stream's own radius,
-  // and a sphere that fat spans about 0.45 of the wavelength. Both fall out of
-  // continuity, and the width measured off the render agrees with them.
+  // Continuity says how fat a drop should be: a stream of radius r broken into
+  // drops one wavelength L apart makes spheres of radius (3 r^2 L / 4)^(1/3),
+  // which at the bottom of this fall is about 1.7 times the stream's own radius
+  // and spans a bit under half the wavelength. The span shipped at 0.46, near
+  // enough. The girth did NOT: it shipped at 1.34, because this multiplies a
+  // radius the continuity term and the foot have already been at, and 1.7 on
+  // top of those measured out as balloons on the render. The derivation says
+  // where to start looking; the render says where to stop.
   //
-  // The cut frequency is a THIRD of the bead frequency, for two separate
+  // The cut frequency is about half the bead frequency, for two separate
   // reasons that point the same way. One is resolution: at 120 rings a bead
   // cycle is eight rings, and a gap inside one of those would be a single ring,
   // which aliases into a dotted line rather than reading as a gap. The other is
   // physics: Rayleigh break-up picks a wavelength of about four and a half
-  // stream diameters, which over a fall this short is two or three drops, not
+  // stream diameters, which over a fall this short is a handful of drops, not
   // fourteen.
   float br = breakup(t);
   float u = fract(uCutFreq * ph + 0.35);
@@ -280,6 +302,7 @@ vec3 flowPoint(float t, float ang) {
   // than swelling the strand into a knob on a nail. It is at full width by the
   // waterline rather than at the very last ring, because the last stretch is
   // under the water and nobody sees it.
+  //
   // Suppressed wherever the stream has come apart: a detached drop is not
   // touching anything yet, so it has nothing to spread across. Without this the
   // foot multiplied the last drop of every chain into a balloon.
@@ -303,8 +326,12 @@ vec3 flowPoint(float t, float ang) {
 // peels off the lip. Ours used to be one flat pale blue from top to bottom,
 // which is most of why it read as a moulded part. Three terms: a ramp down the
 // fall, a much stronger one keyed to the break-up so the whiteness arrives with
-// the drops rather than on a schedule of its own, and a per-bead beat so
-// neighbouring lumps are not the same white.
+// the drops rather than on a schedule of its own, and a beat at the break-up
+// frequency so neighbouring drops are not the same white.
+//
+// Measured against a black backdrop, mean strand brightness now runs 102 a
+// quarter of the way down to 166 at three quarters. That is a 1.63x swing where
+// the old one was 1.18x, which is flat enough to be nothing.
 float aeration(float t) {
   float ph = uTime - t * aShape.x + aShape.z;
   float a = 0.18 * smoothstep(0.10, 0.85, t);
@@ -564,7 +591,11 @@ float poolHeight(vec2 q, vec4 pl) {
     float d = max(distance(q, c), 1e-3);
     h += sin(6.2831853 * (d * uRingFreq - uTime * uRingSpeed)) * exp(-d * uDecay);
   }
-  h *= pl.w;
+  // uCoarseTilt is here as well as in the gradient, and it has to be: this
+  // displacement and that gradient are the same field, and the shading is only
+  // allowed to differ from the shape in the one place the comment on
+  // poolGradient says it does.
+  h *= pl.w * uCoarseTilt;
   // A slow swell underneath, so the surface between the ring trains is never
   // dead flat and the whole pool is never still.
   h += uSwell * sin(q.x * 7.3 + uTime * 0.9) * sin(q.y * 6.1 - uTime * 0.7);
@@ -615,6 +646,14 @@ vec2 chopGradient(vec2 q, float turb) {
 // dies before it reaches the wall -- two copies half a cycle apart so one is
 // always growing while the other fades, and a coarse angular wobble on both so
 // they are rafts and not hoops.
+//
+// Kept modest, because MEASURED it does less than it should. The impacts land
+// where the bowl is under a centimetre deep, so the water there is nearly
+// clear and what shows through is sunlit white marble: turning the foam off
+// entirely and turning it up to double both look the same in that frame. What
+// actually says "the water lands here" is the ring train, the spray, and the
+// third thing this drives -- foam is a diffuse scatterer, so it kills the gloss
+// under it, and a dull patch in a shiny surface reads at any value.
 float poolFoam(vec2 q, vec4 pl) {
   float f = 0.0;
   for (int k = 0; k < 12; k++) {
@@ -815,8 +854,11 @@ export function createWater({ strands, pools, drops = [] }) {
     // The scene's backdrop is #b9bec7 and its floor #8f949e, so a reflection
     // that leaves the water going up finds the first and one going out finds
     // the second. Linear, because this is composited before tone mapping.
-    uSkyHi: { value: new THREE.Color('#cfd8e6').convertSRGBToLinear() },
-    uSkyLo: { value: new THREE.Color('#8f959f').convertSRGBToLinear() },
+    uSkyHi: { value: new THREE.Color('#d6def0').convertSRGBToLinear() },
+    // The scene's backdrop, a shade up. Everything the water reflects sideways
+    // is this.
+    uSkyMid: { value: new THREE.Color('#c4ccda').convertSRGBToLinear() },
+    uSkyLo: { value: new THREE.Color('#868b95').convertSRGBToLinear() },
     // Between the key light in main.js and the one in the preview harness.
     uSunDir: { value: new THREE.Vector3(3.45, 6.0, 2.4).normalize() },
     uSunCol: { value: new THREE.Color('#fff6ea').convertSRGBToLinear() },
@@ -825,7 +867,7 @@ export function createWater({ strands, pools, drops = [] }) {
     // one because the fake sky is a flat gradient rather than a real
     // environment, so the reflection has no bright spots of its own to find and
     // needs the help to register at all against pale marble.
-    uRimGain: { value: 1.60 },
+    uRimGain: { value: 1.75 },
     uGlint: { value: 1.30 },
     uShine: { value: 190.0 },
   };
@@ -853,12 +895,13 @@ export function createWater({ strands, pools, drops = [] }) {
     uBreakT: { value: 0.66 },
     uCutFreq: { value: 15.0 },
     // Fraction of a break-up wavelength a drop occupies, and how much fatter it
-    // is than the stream that made it. Both come out of continuity; see the
-    // note on break-up in flowPoint.
+    // is than the stream that made it. The span is the continuity answer; the
+    // girth is the continuity answer measured back down against the render.
+    // See the note on break-up in flowPoint.
     uDropSpan: { value: 0.46 },
     uDropGirth: { value: 1.34 },
     uDropStretch: { value: 0.16 },
-    uBodyA: { value: 1.55 },
+    uBodyA: { value: 2.00 },
     // Rings die back quickly on purpose. Nine ring trains crossing a pool is
     // what really happens and it looked like crumpled foil: the eye reads
     // interference as noise, not as water. Damped, each strand keeps its own

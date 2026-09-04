@@ -199,6 +199,27 @@ const SLEEP_W = 0.5;
 const CREEP_V = 0.02;
 const CREEP_W = 0.12;
 const CREEP_TIME = 0.4;
+// The third way out, and the one that catches a bone the other two cannot.
+//
+// The settle exists to lower a centre of mass. A bone whose centre of mass has
+// stopped going down has finished settling, whatever the probe thinks of the
+// pose it finished in, so after this long with no progress the topple torque is
+// switched off and the bone is left to the contact drag, which stops it inside
+// a fifth of a second and hands it to the creep test above.
+//
+// This is not a safety net for a rare case, it is a limit cycle the torque can
+// genuinely fall into. A small knobbly bone has a huge inverse inertia: a shed
+// finger is three beads on a short chain, and 12/(sum of its squared extents)
+// comes out at 635 against a rib's 112. The torque therefore spins it up faster
+// than one substep can carry it to the minimum, it rotates past, and the pose
+// it lands in is unstable in a new direction. The probe is right about every
+// one of those poses and the bone still never stops: measured on the shed
+// finger it sat at 0.93 rad/s with v = 0 for the whole of a nine second clip.
+// Weakening the torque only makes the cycle slower.
+const STALL_TIME = 1.0;
+// What counts as having got lower. The same floor the probe uses for a drop, so
+// progress means a real drop rather than the probe measuring its own noise.
+const STALL_DROP = (energy) => Math.max(MIN_DROP, DROP_FRACTION * energy);
 const MAX_VERTS = 900;         // vertices kept per bone for the exact passes
 const STABLE_STICK = 3;        // once judged settled, this much harder to unsettle again
 const SLEEP_TIME = 0.18;       // seconds of stillness before a bone is retired
@@ -424,6 +445,9 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
     }
 
     item.unstable = unstable;
+    // The pose's own energy, kept so the caller can tell whether the settle is
+    // getting anywhere. See STALL_TIME.
+    item.energy = e0;
     // The drop drives the torque, not the slope. The energy of a rocking body
     // has a corner at its resting pose, not a smooth basin: the contact jumps
     // from one end of the bone to the other, so the slope is as steep a hair
@@ -470,13 +494,26 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
           item.probeAge = 0;
           probeStability(item);
         }
+        // Is the settle actually getting anywhere? Only asked while the bone is
+        // slow enough for the energy to have been measured, and only while it
+        // has stopped travelling, so a bone still sliding or bouncing is never
+        // called stalled.
+        if (item.energy < item.best - STALL_DROP(item.energy)) {
+          item.best = item.energy;
+          item.stall = 0;
+        } else if (item.vel.lengthSq() < SLEEP_V * SLEEP_V) {
+          item.stall += h;
+        } else {
+          item.stall = 0;
+        }
       } else {
         // Tumbling too fast for the probe to mean anything. Assume the worst,
         // so nothing can sleep on the strength of a stale answer.
         item.unstable = true;
         item.drop = 0;
+        item.stall = 0;
       }
-      if (item.unstable && item.drop > 0) {
+      if (item.unstable && item.drop > 0 && item.stall < STALL_TIME) {
         const alpha = Math.min(
           (Math.abs(gravity) * item.drop * item.invInertia) / PROBE_TILT,
           TOPPLE_CAP,
@@ -494,6 +531,7 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
       // In the air, nothing known about the last contact is worth keeping.
       item.unstable = true;
       item.probeAge = PROBE_EVERY;
+      item.stall = 0;
     }
 
     const w = item.spin.length();
@@ -628,6 +666,11 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
         spin: toVector(spin, new THREE.Vector3()),
         still: 0,
         creep: 0,
+        // Settle progress: the lowest centre of mass this bone has reached, and
+        // how long it has been failing to beat it. See STALL_TIME.
+        best: Infinity,
+        energy: Infinity,
+        stall: 0,
         unstable: true,
         drop: 0,
         probeAge: PROBE_EVERY,
@@ -687,8 +730,26 @@ export function createDebris({ scene, gravity = -9.8, bounce = 0.35, floorY = 0 
 
     // For tests and for the harness. Not part of the contract, but a settle
     // that is asserted numerically is a settle that stays fixed.
+    //
+    // `items` names what is still moving and how fast, because a count alone
+    // cannot tell a bone that is taking a while to topple from one that is
+    // creeping across the floor and will never stop.
     stats() {
-      return { live: live.length, asleep: asleep.length };
+      return {
+        live: live.length,
+        asleep: asleep.length,
+        items: live.map((i) => ({
+          name: i.object.name || '?',
+          y: +i.object.position.y.toFixed(4),
+          v: +i.vel.length().toFixed(4),
+          w: +i.spin.length().toFixed(4),
+          unstable: i.unstable,
+          drop: +i.drop.toFixed(6),
+          stall: +i.stall.toFixed(3),
+          still: +i.still.toFixed(3),
+          creep: +i.creep.toFixed(3),
+        })),
+      };
     },
   };
 }

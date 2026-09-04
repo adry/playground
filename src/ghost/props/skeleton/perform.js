@@ -125,11 +125,12 @@ const JAW_BOUNCE = 0.28;
 //
 // Every bone here is in rig.shed, the model's own list of what is safe to
 // detach, and each is chosen so its absence does not open a hole in the
-// silhouette. The four ribs in that map are middle ribs whose neighbours close
-// the gap; taking three of them, two on the right and one on the left, reads as
-// a cage losing ribs rather than as a cage with a window in it. The fingers go
-// from the hands that are clawing, which is where a viewer is already looking,
-// and a claw missing a finger still reads as a claw.
+// silhouette. The four ribs in that map are middle ribs, spread over both
+// sides and up and down the cage (L3, R4, L6, R7), so each gap has whole ribs
+// above and below it closing it: what reads is a cage that has lost ribs, not
+// a cage with a window in it. The fingers go from the hands that are clawing,
+// which is where the viewer is already looking, and a claw missing a finger
+// still reads as a claw.
 //
 // Timed against the choreography rather than spaced evenly:
 //   1.20  the right hand takes hold of the lip and drags        (strain 0.70)
@@ -158,10 +159,14 @@ const SHED_BUDGET = 6;
 const SHED_PLAN = [
   { at: 1.20, bone: 'fingerR3', velocity: [0.55, 1.35, 0.45], spin: [5, 2, 7] },
   { at: 2.05, bone: 'fingerL4', velocity: [0.85, 1.20, 0.40], spin: [4, 3, 6] },
-  { at: 3.10, bone: 'ribR7', velocity: [-0.95, 1.15, 0.25], spin: [3.5, 1.5, 5.5] },
-  { at: 3.70, bone: 'ribL6', velocity: [0.90, 1.05, 0.45], spin: [4.5, 2, 4] },
-  { at: 4.25, bone: 'ribR4', velocity: [-0.80, 1.25, 0.35], spin: [3, 2.5, 6] },
-  { at: 4.80, bone: 'ribL3', velocity: [0.75, 1.30, 0.20], spin: [5, 1.5, 3] },
+  // The four ribs are thrown into four different quadrants of the body's own
+  // frame, right-back, left-forward, right-forward, left-back. Sending them
+  // out by side alone put two on each side and they landed in a pair of
+  // tangles, which reads as two piles rather than four bones.
+  { at: 3.10, bone: 'ribR7', velocity: [-1.05, 1.15, -0.20], spin: [3.5, 1.5, 5.5] },
+  { at: 3.70, bone: 'ribL6', velocity: [0.80, 1.05, 0.80], spin: [4.5, 2, 4] },
+  { at: 4.25, bone: 'ribR4', velocity: [-0.70, 1.30, 0.75], spin: [3, 2.5, 6] },
+  { at: 4.80, bone: 'ribL3', velocity: [1.00, 1.25, -0.25], spin: [5, 1.5, 3] },
 ];
 
 // --- small helpers -----------------------------------------------------------
@@ -1574,14 +1579,22 @@ export function createSkeletonPerformance({
         debris: debris?.stats?.() || null,
         feet: {},
       };
+      // The joints a pop shows up in, as LOCAL angles, plus the two numbers
+      // that say whether the leg was asked for something it could not do.
+      // Nothing here reports the ankle's own rotation.x: applyLegs writes the
+      // foot as a quaternion, so the euler that comes back out of it is a
+      // decomposition that jumps near its own singularity even when the foot is
+      // turning smoothly. The honest measure of the foot's orientation is the
+      // toe minus the ankle, and both are published below.
       out.root = S.root.value;
       out.roll = S.roll.value;
-      out.pitchDeg = (S.root.value * 180) / Math.PI;
       out.knee = { L: J.kneeL.rotation.x, R: J.kneeR.rotation.x };
       out.hip = { L: J.hipL.rotation.x, R: J.hipR.rotation.x };
-      out.ankleRot = { L: J.ankleL.rotation.x, R: J.ankleR.rotation.x };
       out.swing = { L: feet.L.swing, R: feet.R.swing };
+      // Metres the IK target was out of the leg's reach. Anything above zero
+      // means the solver is sitting on its full-extension clamp.
       out.short = { L: ikShort.L, R: ikShort.R };
+      // The ceiling the planted feet put on the hip height.
       out.liftCap = liftCap;
       for (const side of ['L', 'R']) {
         J[`ankle${side}`].getWorldPosition(v1);

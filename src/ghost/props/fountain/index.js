@@ -12,11 +12,15 @@ export { createBrokenColumn, createFallenDrum, createMarbleChips } from './rubbl
 // graveyard set. Same contract as every other prop here: a group, an update,
 // and a dispose.
 //
-// The stone is one lathe, see body.js, and the water is two meshes, see
-// water.js: three draw calls in total. The broken marble the reference shows
-// around the foot of the fountain is deliberately NOT part of this. It lives in
-// rubble.js as three separate pieces so a scene can scatter them where it
-// wants, rather than inherit a fixed arrangement welded to the fountain.
+// The stone is one lathe, see body.js, and the water is three meshes, see
+// water.js -- the pools, the falling strands, and one instanced mesh carrying
+// every loose drop and every bit of spray in the whole prop. Four draw calls in
+// total, and about eighty thousand triangles.
+//
+// The broken marble the reference shows around the foot of the fountain is
+// deliberately NOT part of this. It lives in rubble.js as three separate pieces
+// so a scene can scatter them where it wants, rather than inherit a fixed
+// arrangement welded to the fountain.
 
 // Where the water leaves each lip, and how fast. Exit speed is small: the
 // strands should be pulled out of the bowl by gravity rather than fired, and it
