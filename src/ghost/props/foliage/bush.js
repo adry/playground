@@ -92,60 +92,46 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   // clump always sits on the surface that is actually there: an analytic
   // placement drifted off the deeper hollows of the lobe field and left clumps
   // floating a centimetre out in front of the bush.
-  const clumps = clumpPlacements(massGeo, { rand, W, H });
+  // Three tiers, and the third one is what finally stopped this reading as a
+  // heap of olives. Two tiers give a lumpy surface; the eye resolves each lump,
+  // sees a smooth ovoid with its own highlight on it, and calls the whole thing
+  // fruit. A third tier of much smaller lumps riding on the tips of the second
+  // breaks every one of those highlights up, and detail that keeps going as you
+  // look closer is most of what "fluffy" means.
+  //
+  // The fuzz is placed on the tufts rather than on the mass, and inherits its
+  // parent tuft's wind phase from the vertex it was placed at, so a tuft and
+  // its fuzz quiver as one piece instead of shimmering against each other.
+  const tuftSites = clumpPlacements(massGeo, {
+    rand, W, H,
+    limit: 140,
+    yMin: 0.11,
+    size: (r) => r,
+    big: [0.050, 0.026],
+    small: [0.028, 0.019],
+    bigOdds: 0.34,
+    gap: 0.44,
+  });
+  const tuftParts = buildTufts(tuftSites, { rand, W, H, stretch: [0.55, 0.55] });
 
-  const clumpParts = [];
-  const up = new THREE.Vector3(0, 1, 0);
-  const q = new THREE.Quaternion();
-  const m = new THREE.Matrix4();
-  const spin = new THREE.Matrix4();
-  for (let i = 0; i < clumps.length; i++) {
-    const c = clumps[i];
-    // A clump big enough to show its own outline gets the finer sphere; the
-    // small ones nestled between them are a dozen pixels across at the scale
-    // this prop is seen and would be paying four times the triangles for an
-    // outline nobody can resolve.
-    const detail = c.r > W * 0.055 ? 2 : 1;
-    const lobes = makeLobes(rand, { count: 5, amp: [0.16, 0.44], tight: [1.4, 3.0], yBias: 0.10 });
-    // ELONGATED, and this is the single change that moved the prop from "heap of
-    // soap bubbles" to "foliage". Round clumps of two sizes read as foam
-    // whatever you do to their shading, because nothing in a heap of spheres has
-    // a direction. A tuft two and a half times as long as it is wide, aimed out
-    // of the mass, has one, and a hundred of them aimed slightly differently is
-    // a shaggy surface. The two tangential axes are also scaled unequally so no
-    // clump is a body of revolution.
-    const kx = 0.72 + rand() * 0.30;
-    const kz = 0.72 + rand() * 0.30;
-    const pos = lumpPositions({
-      detail, lobes,
-      scaleY: 1.15 + rand() * 0.30,
-      stretch: c.long * (0.55 + rand() * 0.55),
-    });
-    for (let j = 0; j < pos.length; j += 3) {
-      pos[j] *= c.r * kx;
-      pos[j + 1] *= c.r;
-      pos[j + 2] *= c.r * kz;
-    }
-    q.setFromUnitVectors(up, c.n);
-    spin.makeRotationY(rand() * Math.PI * 2);
-    m.makeRotationFromQuaternion(q).multiply(spin).setPosition(c.p);
+  // Built once to place the fuzz on, then thrown away and rebuilt with the fuzz
+  // in it. Cheap, and much simpler than an analytic guess at where the tips of
+  // a hundred and forty lozenges ended up.
+  const tuftOnly = mergeLumps(tuftParts);
+  const fuzzSites = clumpPlacements(tuftOnly, {
+    rand, W, H,
+    limit: 150,
+    yMin: 0.13,
+    big: [0.019, 0.008],
+    small: [0.013, 0.007],
+    bigOdds: 0.4,
+    gap: 0.62,
+    parentPhase: tuftOnly.userData.windPhase,
+  });
+  const fuzzParts = buildTufts(fuzzSites, { rand, W, H, stretch: [0.30, 0.35], detail: 1 });
+  tuftOnly.dispose();
 
-    // Stiffness at the CLUMP CENTRE, not per vertex. See bakeWind: the flutter
-    // has to be constant across a clump for the stale-normal argument to hold.
-    const u = Math.max(0, Math.min(1, c.p.y / (H * 0.90)));
-    const stiffAtCentre = Math.pow(u, 1.8);
-
-    clumpParts.push({
-      positions: pos,
-      index: icosphere(detail).index,
-      matrix: m.clone(),
-      phase: rand(),
-      tint: rand(),
-      flutter: stiffAtCentre,
-    });
-  }
-
-  const clumpGeo = mergeLumps(clumpParts);
+  const clumpGeo = mergeLumps(tuftParts.concat(fuzzParts));
   bakeFoliageTint(clumpGeo, { top: H, floor: 0.40, ceil: 1.34, down: 0.52, root: 0.34, spread: 0.26, rand });
   bakeWind(clumpGeo, { top: H * 0.90, base: 0, power: 1.8 });
   disposables.push(clumpGeo);
@@ -208,7 +194,70 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
 // rather than a fixed count of random picks, because random picks clump and
 // leave a bald patch on one flank about a third of the time, and a bald flank on
 // a bush is very visible at a fixed camera azimuth.
-function clumpPlacements(geo, { rand, W, H }) {
+// One tier of tufts, from a list of sites.
+function buildTufts(sites, { rand, W, H, stretch = [0.55, 0.55], detail = null }) {
+  const parts = [];
+  const up = new THREE.Vector3(0, 1, 0);
+  const q = new THREE.Quaternion();
+  const m = new THREE.Matrix4();
+  const spin = new THREE.Matrix4();
+
+  for (const c of sites) {
+    // A clump big enough to show its own outline gets the finer sphere; the
+    // small ones nestled between them are a dozen pixels across at the scale
+    // this prop is seen and would pay four times the triangles for an outline
+    // nobody can resolve.
+    const d = detail === null ? (c.r > W * 0.042 ? 2 : 1) : detail;
+    const lobes = makeLobes(rand, { count: 5, amp: [0.16, 0.44], tight: [1.4, 3.0], yBias: 0.10 });
+    // Elongated, and this is the change that moved the prop from "heap of soap
+    // bubbles" to foliage: round lumps of two sizes read as foam whatever you do
+    // to their shading, because nothing in a heap of spheres has a direction.
+    // The two tangential axes are also scaled unequally so no clump is a body of
+    // revolution.
+    const kx = 0.72 + rand() * 0.30;
+    const kz = 0.72 + rand() * 0.30;
+    const pos = lumpPositions({
+      detail: d,
+      lobes,
+      scaleY: 1.15 + rand() * 0.30,
+      stretch: c.long * (stretch[0] + rand() * stretch[1]),
+    });
+    for (let j = 0; j < pos.length; j += 3) {
+      pos[j] *= c.r * kx;
+      pos[j + 1] *= c.r;
+      pos[j + 2] *= c.r * kz;
+    }
+    q.setFromUnitVectors(up, c.n);
+    spin.makeRotationY(rand() * Math.PI * 2);
+    m.makeRotationFromQuaternion(q).multiply(spin).setPosition(c.p);
+
+    // Stiffness at the CLUMP CENTRE, not per vertex. See bakeWind: the flutter
+    // has to be constant across a clump for the stale-normal argument to hold.
+    const u = Math.max(0, Math.min(1, c.p.y / (H * 0.90)));
+
+    parts.push({
+      positions: pos,
+      index: icosphere(d).index,
+      matrix: m.clone(),
+      // Fuzz takes its parent tuft's phase, so the two move as one piece.
+      phase: c.phase === undefined ? rand() : c.phase,
+      tint: rand(),
+      flutter: Math.pow(u, 1.8),
+    });
+  }
+  return parts;
+}
+
+function clumpPlacements(geo, {
+  rand, W, H,
+  limit = 140,
+  yMin = 0.11,
+  big = [0.050, 0.026],     // [base, spread] as a fraction of W
+  small = [0.028, 0.019],
+  bigOdds = 0.34,
+  gap = 0.44,
+  parentPhase = null,
+}) {
   const pos = geo.getAttribute('position');
   const nor = geo.getAttribute('normal');
   const n = pos.count;
@@ -223,36 +272,35 @@ function clumpPlacements(geo, { rand, W, H }) {
   // Two sizes of clump, mixed, and the spacing test is written in terms of the
   // two radii rather than as one fixed gap. That is what lets a small clump
   // settle into the notch between two big ones instead of being pushed out to
-  // arm's length, and detail at two scales is most of what separates "fluffy"
-  // from "bumpy". GAP below 1 means neighbours overlap and their crevice is a
-  // slot rather than a valley.
-  const GAP = 0.44;
+  // arm's length, and detail at more than one scale is most of what separates
+  // "fluffy" from "bumpy". A gap below 1 means neighbours overlap and the
+  // crevice between them is a slot rather than a valley.
   const out = [];
   const p = new THREE.Vector3();
   const nv = new THREE.Vector3();
 
-  for (let k = 0; k < n && out.length < 210; k++) {
+  for (let k = 0; k < n && out.length < limit; k++) {
     const i = order[k];
     p.fromBufferAttribute(pos, i);
     // Nothing below ankle height: clumps down there are buried in the floor and
     // only cost triangles. Thinned over the lower third so the bush is
     // shaggiest at the crown, which is where the light is.
-    if (p.y < H * 0.11) continue;
+    if (p.y < H * yMin) continue;
     if (p.y < H * 0.40 && rand() < 0.40) continue;
     nv.fromBufferAttribute(nor, i);
     // Skip anything facing more than slightly downward: a clump on the underside
     // is invisible from an elevated camera and still costs a shadow pass.
     if (nv.y < -0.40) continue;
 
-    // A third of them large, the rest small, and the large ones kept off the
-    // skirt: a big clump low down sticks out past the footprint and the bush
-    // grows a bustle.
-    const big = rand() < 0.34 && p.y > H * 0.34;
-    const r = big ? W * (0.058 + rand() * 0.026) : W * (0.031 + rand() * 0.021);
+    // The large ones are kept off the skirt: a big clump low down sticks out
+    // past the footprint and the bush grows a bustle.
+    const isBig = rand() < bigOdds && p.y > H * 0.34;
+    const spec = isBig ? big : small;
+    const r = W * (spec[0] + rand() * spec[1]);
 
     let ok = true;
     for (let j = 0; j < out.length; j++) {
-      if (out[j].p.distanceTo(p) < (out[j].r + r) * GAP) { ok = false; break; }
+      if (out[j].p.distanceTo(p) < (out[j].r + r) * gap) { ok = false; break; }
     }
     if (!ok) continue;
 
@@ -265,11 +313,17 @@ function clumpPlacements(geo, { rand, W, H }) {
     nv.x += (rand() - 0.5) * 0.50;
     nv.z += (rand() - 0.5) * 0.50;
     nv.normalize();
-    // One in eight runs long. A few sprigs standing out past the rest is the
-    // whole difference between a trimmed shrub and an overgrown one, and
-    // overgrown is what a churchyard corner looks like.
+    // One in seven runs long. A few sprigs standing out past the rest is the
+    // difference between a trimmed shrub and an overgrown one, and overgrown is
+    // what a churchyard corner looks like.
     const long = rand() < 0.14 ? 1.6 + rand() * 0.7 : 1;
-    out.push({ p: p.clone().addScaledVector(nv, r * 0.20), n: nv.clone(), r, long });
+    out.push({
+      p: p.clone().addScaledVector(nv, r * 0.20),
+      n: nv.clone(),
+      r,
+      long,
+      phase: parentPhase ? parentPhase[i] : undefined,
+    });
   }
   return out;
 }

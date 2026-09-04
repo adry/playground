@@ -71,27 +71,27 @@ import { registerStone, buildArcSweepGeometry, inkText } from '../tombstones.js'
 // shaft to be wider than, and the postmortem's first rule is that a grave
 // marker reads by its vertical. The face works out 627 by 1024 texels, which is
 // dead centre of the 528 to 638 the engraving treatment was calibrated on.
-const SHAPE = { halfWidth: 0.30, height: 0.94, depth: 0.28, plinth: 0.18 };
+const SHAPE = { halfWidth: 0.30, height: 0.92, depth: 0.28, plinth: 0.18 };
 
 // How far the crown sinks into the slab. Only has to bury the slab's top edge
 // rounding and the joint; the rest is margin.
-const CROWN_SINK = 0.22;
+const CROWN_SINK = 0.26;
 
 // The central boss: the roundel where the skull would be. Its circle reaches
 // well below the top of the slab, so it is a dome standing out of the stone
 // rather than a ball balanced on it.
-const BOSS = { r: 0.16, y: 1.18 };
+const BOSS = { r: 0.18, y: 1.18 };
 
 const WING = {
   cove: 0.09, // the shoulder cove the wing flares out of
   // Where on the shaft the wings spring from. Below the slab's own shoulder, so
   // the crown swallows the slab's top corners and the shaft runs up into the
   // wings rather than stopping under them.
-  spring: 0.84,
+  spring: 0.78,
   // How far round the cove the wing is carried, in degrees. It is also the
   // angle the underside leaves the shaft at, measured off vertical, so a small
   // value grows the wing straight up the side and 90 sends it out flat.
-  flare: 58,
+  flare: 62,
   // The lobes of the underside, inner to outer, the last of them the wingtip.
   // The first is placed by its tangency with the cove; each of the others sits
   // `step` from the one before, `rake` degrees above horizontal. The rake
@@ -99,15 +99,15 @@ const WING = {
   // what puts the lift at the tip where the eye reads it.
   lobes: [
     { r: 0.110 },
-    { r: 0.105, step: 0.175, rake: 16 },
-    { r: 0.095, step: 0.165, rake: 36 },
+    { r: 0.100, step: 0.175, rake: 20 },
+    { r: 0.085, step: 0.165, rake: 34 },
   ],
   notch: 0.022, // the cleft fillet between two lobes
   // The top edge: one long shallow convex arc, tangent to the wingtip lobe from
   // the INSIDE, so the tip's tight roll runs into it without a join. `touch` is
   // where on the tip lobe it starts, in degrees, and the radius is what makes
   // the edge a long sweep rather than a dome.
-  sweep: { r: 0.62, touch: 108 },
+  sweep: { r: 0.62, touch: 105 },
   valley: 0.10, // the cove between that sweep and the boss
 };
 

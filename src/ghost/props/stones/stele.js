@@ -105,29 +105,46 @@ const CORNICE = {
 //
 // `depth`/`edge` are the plate's own, and the reason for them is above.
 //
-// `baseHalf` is the little pillar the fan springs from, and `pillar` how far it
-// stands above the cornice before the shoulder cove starts flaring. `coveR` is
-// the cove itself: it sets how far the outer leaves stand clear of the cornice
-// and it lifts the whole fan by about its own radius plus a leaf's, so it is the
-// most expensive number on the stone and stays small.
+// THE LEAVES ARE TAPERED, AND THAT IS THE WHOLE READ.
 //
-// The leaves are (angle off vertical, length from the fan's origin, radius).
-// 48 degrees apart puts the outer pair a few degrees past horizontal, where an
-// anthemion's outer leaves go, and it is also the spacing that leaves real air
-// between leaves this fat: neighbouring centres are 2*len*sin(24 degrees)
-// apart, which at len 0.27 is 0.22 with 0.13 of leaf between them. The middle
-// leaf is longer and fatter than its neighbours so the fan does not read as a
-// scallop shell, and the notches come out a leaf and a half deep.
+// The first version made each leaf a circle, the way heart.js makes its lobes,
+// and it failed for a reason worth writing down. A row of equal circles filleted
+// together has a solid core: the notch between two of them can only reach down
+// to where their own rims come closest, so with five leaves 48 degrees apart the
+// deepest possible notch still left 60% of the fan's radius as unbroken stone.
+// What stood above it was five shallow scallops on a disc -- the bobble.
+//
+// So each leaf here is a TAPER: a fat round tip carried on two straight flanks
+// that converge on the fan's own origin, with a small fillet dropped into the
+// V between neighbours. A flank is free in an arc chain (two arcs that end with
+// the same normal are joined by a straight run that offsets exactly), the fillet
+// sits at rv/sin(half the free wedge) from the origin, and the notch therefore
+// reaches almost all the way down to the base: 42% of the fan's radius instead
+// of 60%, so each leaf stands clear for nearly two thirds of its length. That is
+// also what a palmette leaf actually is -- wide at the tip, nothing at the root
+// -- and the taper is what makes five of them read as five.
+//
+// `baseHalf` is the little pillar the fan springs from and `pillar` how far it
+// stands proud of the cornice before the shoulder cove flares. `coveR` is that
+// cove: it lifts the whole fan by about its own radius again, so it is the most
+// expensive number here and stays small.
+//
+// The leaves are (angle off vertical, length from the origin, tip radius). 48
+// degrees apart puts the outer pair a few degrees past horizontal, where an
+// anthemion's outer leaves go; each leaf eats 2*asin(rad/len) = 28 degrees of
+// that at the root, leaving a 20-degree wedge of air between neighbours. The
+// middle leaf is longer and fatter than the others so the fan does not read as a
+// scallop shell.
 const PALMETTE = {
   depth: 0.16,
   edge: 0.045,
-  baseHalf: 0.20,
-  pillar: 0.04,
-  coveR: 0.045,
-  valleyR: 0.05,
+  baseHalf: 0.13,
+  pillar: 0.035,
+  coveR: 0.05,
+  valleyR: 0.03,
   leaves: [
     { ang: 0, len: 0.285, rad: 0.068 },
-    { ang: 48, len: 0.268, rad: 0.065 },
+    { ang: 48, len: 0.270, rad: 0.065 },
     { ang: 96, len: 0.270, rad: 0.065 },
   ],
 };
@@ -155,29 +172,28 @@ function arc(cx, cy, r, a0, a1, sign) {
 // backwards, which is the only way five leaves are guaranteed to match.
 const mirrored = (arcs) => arcs.map((c) => arc(-c.cx, c.cy, c.r, Math.PI - c.a1, Math.PI - c.a0, c.sign)).reverse();
 
-// Centre of the fillet of radius rv externally tangent to both lobes, on the far
-// side from `away`. Two circles of radius R+rv about the lobe centres cross
-// twice; one crossing is the notch between the leaves and the other is buried
-// inside the fan.
-function filletCentre(c1, R1, c2, R2, rv, away) {
-  const dx = c2.x - c1.x;
-  const dy = c2.y - c1.y;
-  const d = Math.hypot(dx, dy);
-  const r1 = R1 + rv;
-  const r2 = R2 + rv;
-  const a = (r1 * r1 - r2 * r2 + d * d) / (2 * d);
-  const h = Math.sqrt(Math.max(0, r1 * r1 - a * a));
-  const mx = c1.x + (a * dx) / d;
-  const my = c1.y + (a * dy) / d;
-  const p = [
-    { x: mx - (h * dy) / d, y: my + (h * dx) / d },
-    { x: mx + (h * dy) / d, y: my - (h * dx) / d },
-  ];
-  const far = (q) => Math.hypot(q.x - away.x, q.y - away.y);
-  return far(p[0]) > far(p[1]) ? p[0] : p[1];
+// One leaf, resolved. `mu` is its axis as a bearing off the +x axis rather than
+// off vertical, because every angle downstream is; `alpha` is the half angle the
+// leaf subtends at the origin, which is what the flanks are tangent to; `lo` and
+// `hi` are those two flanks as bearings. `tip` is the centre of the round end.
+//
+// The two arc angles fall out of one fact: the flank touches the tip circle a
+// quarter turn round from the flank's own bearing, on whichever side the leaf
+// is. So the tip cap runs from lo - 90 degrees to hi + 90 degrees, which is
+// 180 + 2*alpha of arc, and both ends carry the flank's normal, which is what
+// lets the straight run between two arcs offset exactly.
+function leafAt(O, L) {
+  const mu = Math.PI / 2 - (L.ang * Math.PI) / 180;
+  const alpha = Math.asin(Math.min(0.999, L.rad / L.len));
+  return {
+    ...L,
+    mu,
+    alpha,
+    lo: mu - alpha,
+    hi: mu + alpha,
+    tip: { x: O.x + L.len * Math.cos(mu), y: O.y + L.len * Math.sin(mu) },
+  };
 }
-
-const angleTo = (from, to) => Math.atan2(to.y - from.y, to.x - from.x);
 
 // Where the cornice's flat top sits, and how wide it is. Both pieces need it:
 // the cornice ends there and the palmette stands on it.
@@ -209,46 +225,56 @@ function corniceOutline() {
 
 // The palmette. Its own sweep, its own rim, and its base runs down inside the
 // cornice so the two never meet in a crease.
+//
+// Solved from the top down, because the fan's origin is not a free number: the
+// outermost leaf's lower flank has to land on the shoulder cove, the cove has to
+// sit on the little pillar, and the pillar has to stand on the cornice. So the
+// origin is placed relative to the cove and everything else hangs off it.
 function palmetteOutline() {
-  const ledgeY = corniceTop().y;
   const P = PALMETTE;
-  const leaves = P.leaves.map((L) => ({ ...L, a: (L.ang * Math.PI) / 180 }));
-  const outer = leaves[leaves.length - 1];
+  const ledgeY = corniceTop().y;
+  const rs = P.coveR;
+  const O = { x: 0, y: 0 };
+  const outer = leafAt(O, P.leaves[P.leaves.length - 1]);
 
-  // The fan's origin is wherever it has to be for the outer leaf to hang off the
-  // shoulder cove. Solve the cove's flare from the leaf's x, then read the
-  // origin back off the leaf.
-  const ys = ledgeY + P.pillar;
-  const cove = { x: P.baseHalf + P.coveR, y: ys };
-  const reach = outer.rad + P.coveR;
-  const lx = outer.len * Math.sin(outer.a);
-  const b = Math.acos(Math.max(-1, Math.min(1, (cove.x - lx) / reach)));
-  const O = { x: 0, y: ys + reach * Math.sin(b) - outer.len * Math.cos(outer.a) };
-  const centres = leaves.map((L) => ({ x: L.len * Math.sin(L.a), y: O.y + L.len * Math.cos(L.a) }));
+  // The cove is tangent to the pillar's straight side from the outside, so its
+  // centre is one radius clear of it, and tangent to the outer leaf's lower
+  // flank on the far side of that line. Both conditions in the origin's own
+  // frame give the drop from the origin to the pillar's top, which is the only
+  // unknown left.
+  // Written out: centre = O + along*(cos lo, sin lo) + rs*(sin lo, -cos lo), and
+  // its x is baseHalf + rs. Solve that for `along`, read the y off it, then
+  // slide the whole fan up until the cove's tangency lands on the pillar's top.
+  const along = (P.baseHalf + rs * (1 - Math.sin(outer.lo))) / Math.cos(outer.lo);
+  const cove = { x: P.baseHalf + rs, y: along * Math.sin(outer.lo) - rs * Math.cos(outer.lo) };
+  O.y = ledgeY + P.pillar - cove.y;
+  cove.y += O.y;
 
-  const rb = 0.04;
-  const yBot = ledgeY - 0.12; // buried in the cornice
+  const leaves = P.leaves.map((L) => leafAt(O, L));
+  const rb = 0.06; // buried corner, and it has to clear this plate's own rim
+  const yBot = ledgeY - 0.12;
   const right = [
     arc(P.baseHalf - rb, yBot + rb, rb, -Math.PI / 2, 0, 1),
-    arc(cove.x, cove.y, P.coveR, Math.PI, Math.PI - b, -1),
+    arc(cove.x, cove.y, rs, Math.PI, outer.lo + Math.PI / 2, -1),
   ];
 
-  // Outermost leaf inward: each leaf runs from where it met the last thing round
-  // to the notch above it, and each notch is walked the other way.
-  let entry = -b;
+  // Outermost leaf inward. Each leaf is a tip cap between two straight flanks,
+  // and each notch is a fillet inscribed in the wedge of air between one leaf's
+  // upper flank and the next one's lower flank: on the bisector, rv/sin(half the
+  // wedge) out from the origin, which is what carries it down near the base.
   for (let i = leaves.length - 1; i > 0; i--) {
-    const c1 = centres[i];
-    const c2 = centres[i - 1];
-    const f = filletCentre(c1, leaves[i].rad, c2, leaves[i - 1].rad, P.valleyR, O);
-    const a1 = angleTo(c1, f);
-    const a2 = angleTo(c2, f);
-    right.push(arc(c1.x, c1.y, leaves[i].rad, entry, a1, 1));
-    right.push(arc(f.x, f.y, P.valleyR, a1 + Math.PI, a2 + Math.PI, -1));
-    entry = a2;
+    const a = leaves[i];
+    const b = leaves[i - 1];
+    right.push(arc(a.tip.x, a.tip.y, a.rad, a.lo - Math.PI / 2, a.hi + Math.PI / 2, 1));
+    const half = (b.lo - a.hi) / 2;
+    const bis = (a.hi + b.lo) / 2;
+    const d = P.valleyR / Math.sin(half);
+    right.push(arc(O.x + d * Math.cos(bis), O.y + d * Math.sin(bis), P.valleyR, a.hi - Math.PI / 2, b.lo + Math.PI / 2, -1));
   }
-  // The middle leaf straddles the axis, so it is one arc from its right notch
+  // The middle leaf straddles the axis, so it is one cap from its right notch
   // round to the mirror of it.
-  const crown = arc(centres[0].x, centres[0].y, leaves[0].rad, entry, Math.PI - entry, 1);
+  const mid = leaves[0];
+  const crown = arc(mid.tip.x, mid.tip.y, mid.rad, mid.lo - Math.PI / 2, mid.hi + Math.PI / 2, 1);
   return [...right, crown, ...mirrored(right)];
 }
 

@@ -97,6 +97,20 @@ import { PALETTE, SEGMENTS, toyMaterial } from '../style.js';
 //
 // The swept-bar builder is crook.js's idea with a different frame; see
 // sweepPlanar for why the Frenet frames are not used.
+//
+// -----------------------------------------------------------------------------
+// WHAT IT COSTS
+//
+// Four meshes, five draw calls, 24,400 triangles, measured off renderer.info
+// rather than counted by hand. The four meshes are the bracket (plate, bolts,
+// arm, eye and scroll merged), the lantern that hangs off it (bail, cage,
+// reflector, cap and foot merged), the glazing and the flame. The fifth call is
+// the glazing again: a double-sided transparent material is drawn back faces
+// then front faces, which is what lets the far pane appear through the near one
+// in the right order, and it is worth the call.
+//
+// ONE PointLight, and it does not cast shadows. There is no contact decal and
+// no second light. See the note by the light itself.
 
 // -----------------------------------------------------------------------------
 // dimensions
@@ -506,7 +520,11 @@ function plateGeometry() {
   };
   // Lofted up +Y from 0 to T, then rotated so +Y becomes +Z and the section's
   // own y stands up. rotateX(+90) sends (x, t, s) to (x, -s, t).
-  const g = loftY({ y0: 0, y1: T, at, rows: 26, ring: 40 });
+  // SEGMENTS.radial less eight. The plate is the widest smooth silhouette on
+  // the prop and the one thing here that is nearly a turned shape, so it takes
+  // most of the set's standard ring; the ironwork below runs far coarser
+  // because a 42mm bar seen at the diorama's camera is thirty pixels across.
+  const g = loftY({ y0: 0, y1: T, at, rows: 26, ring: SEGMENTS.radial - 8 });
   g.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
   g.translate(0, 0, -PLATE_BED);
 
@@ -772,7 +790,7 @@ function capGeometry() {
   // Stopped 2mm short of the apex: the last ring would be a degenerate fan and
   // computeVertexNormals cannot normalise a zero-area triangle. The collar is
   // wider than the ring left behind and swallows it.
-  const parts = [loftY({ y0: BOX_TOP, y1: BOX_TOP + CAP_H - 0.002, at, rows: 30, ring: 32 })];
+  const parts = [loftY({ y0: BOX_TOP, y1: BOX_TOP + CAP_H - 0.002, at, rows: 30, ring: SEGMENTS.radial - 16 })];
 
   // The collar. Round in section, not square: it is the one turned part up
   // here, and turning it is what makes the pressed cap below read as pressed.

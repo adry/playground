@@ -101,22 +101,22 @@ const CLOTH = {
   // so the creases are a third the width of the ridges and cut most of the way
   // through the cloth's thickness.
   ridges: [
-    { p: -0.245, w: 0.088, a: 1.00 },
-    { p: 0.000, w: 0.095, a: 0.88 },
-    { p: 0.245, w: 0.084, a: 0.98 },
+    { p: -0.270, w: 0.105, a: 0.80 },
+    { p: 0.000, w: 0.150, a: 1.00 },
+    { p: 0.270, w: 0.100, a: 0.85 },
   ],
   creases: [
-    { p: -0.365, w: 0.042, a: 0.80 },
-    { p: -0.123, w: 0.038, a: 1.00 },
-    { p: 0.123, w: 0.040, a: 0.92 },
-    { p: 0.365, w: 0.042, a: 0.75 },
+    { p: -0.375, w: 0.050, a: 0.75 },
+    { p: -0.155, w: 0.055, a: 1.00 },
+    { p: 0.155, w: 0.055, a: 0.95 },
+    { p: 0.375, w: 0.050, a: 0.70 },
   ],
   foldDepth: 0.90, // ridge height as a fraction of the cloth's thickness
   creaseDepth: 0.85, // and how much of that thickness a groove takes back
   hemWave: 0.050, // how much lower the hem hangs under a ridge
   // Folds gather at the bottom of a hanging cloth and are pulled out of it over
   // the shoulder, so they open downwards rather than running as parallel pipes.
-  foldBase: 0.40,
+  foldBase: 0.50,
   foldFrom: 0.090,
   foldTo: 0.430,
 
@@ -386,7 +386,7 @@ registerStone('draped', {
   draw(ctx, w, h) {
     const lines = ['IN', 'LOVING', 'MEMORY'];
     const size = h * 0.104;
-    lines.forEach((line, i) => inkText(ctx, line, w / 2, h * (0.605 + (i - 1) * 0.142), size, size * 0.05));
+    lines.forEach((line, i) => inkText(ctx, line, w / 2, h * (0.645 + (i - 1) * 0.145), size, size * 0.05));
   },
 
   extras({ body, material, shape, rng, plinthH, halfWidth, height, edge, disposables, stripUV }) {

@@ -85,7 +85,7 @@ const COAL_FLAME = new THREE.Color('#ff7a24');
 const LAMP = { min: 2.10, max: 5.30 };
 const CORE = { min: 1.90, max: 3.90 };   // the flame body, above 1 so it clips
 const TONGUE = { min: 0.62, max: 1.45 }; // the licks around it, additive
-const HALO = { min: 0.30, max: 0.72 };   // the shell around the core, additive
+const HALO = { min: 0.46, max: 1.05 };   // the shell around the core, additive
 const COALS = { min: 0.42, max: 1.25 };  // emissive on the coal bed
 const POOL = { min: 0.16, max: 0.42 };   // the painted warm on the ground
 const IRONGLOW = { min: 0.030, max: 0.115 };  // the bars catching their own fire
@@ -615,7 +615,7 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
     color: CORE_FLAME.clone(),
     vertexColors: true,
     toneMapped: true,
-  }), 'brazier-core', 0.00, 4.00);
+  }), 'brazier-core', 0.12, 1.15);
   const core = new THREE.Mesh(coreGeo, coreMat);
   core.position.y = FIRE_Y;
   core.castShadow = false;

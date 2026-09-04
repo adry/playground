@@ -14,6 +14,7 @@ import './heart.js';      // 1.08, the smallest
 import './scroll.js';     // 0.93 tall, 1.46 wide, the only one wider than tall
 import './ledger.js';     // lying down
 import './bench.js';      // 0.81, furniture
+import './chest.js';     // 0.85 tall and 1.63 long, a closed box tomb
 import './urn.js';        // 1.55, pedestal and draped vessel
 import './column.js';     // 1.23 to 1.38, broken
 import './pyramid.js';   // 1.21, the squattest upright

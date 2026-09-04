@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { registerStone, buildSlabGeometry, inkCross } from '../tombstones.js';
+import { registerStone, buildSlabGeometry, inkCross, GRIME } from '../tombstones.js';
 import { PALETTE, toyMaterial } from '../style.js';
 
 // A kerbed grave surround: a low kerb of stone laid round a whole plot, a small
@@ -112,9 +112,9 @@ const BED_H = 0.075;
 registerStone('kerb', {
   // The smallest tablet in the set on purpose: 0.91 to the crown once it is up
   // on the head kerb, against 1.56 for the cross. That is the proportion a kerb
-  // set really has, and the identity of this piece is on the ground anyway. The face is 0.60 by 0.70, so the
-  // inscription canvas comes out 878 px wide, well clear of the 500 px floor
-  // the engraving treatment needs.
+  // set really has, and the identity of this piece is on the ground anyway. The
+  // face is 0.60 by 0.70, so the inscription canvas comes out 878 px wide, well
+  // clear of the 500 px floor the engraving treatment needs.
   shape: { halfWidth: 0.30, height: 0.70, depth: 0.18, plinth: 0.13 },
   // A true half-round arch, the set's own default. The silhouette is not where
   // this piece spends its difference: the tablet stays family, and what is new
@@ -174,8 +174,11 @@ registerStone('kerb', {
         // up-facing slab of clean stone reads as a whiter MATERIAL than the
         // stone above it. A kerb lying in the grass is the dirtiest thing on
         // the piece, so it gets the same band, and the first pass, which took
-        // the full height of the strip, came out whiter than the tablet.
-        uv: (x, y) => stripUV(x, y, halfLength, height, 0.2),
+        // the full height of the strip, came out whiter than the tablet. GRIME
+        // is the registry's own constant for how far up that band goes, taken
+        // from it rather than copied, so the kerb and the plinths cannot drift
+        // apart if it is ever retuned.
+        uv: (x, y) => stripUV(x, y, halfLength, height, GRIME),
       });
 
     const railLen = FOOT_Z - RAIL_Z0;
@@ -206,17 +209,18 @@ registerStone('kerb', {
 
     // --- the bed of chippings ------------------------------------------------
     //
-    // Flat, for the reason set out at the top of the file. Nothing stands up
+    // Flat, for the reason set out at the top of the file, and nothing stands up
     // out of the plot either: low corner posts at the foot were tried, which is
-    // a thing real kerb sets have, and from this camera they are seen from
-    // behind and above and come out as two nubs on the foot kerb. They cluttered
-    // the one end of the piece that is nearest the viewer and bought no
-    // silhouette at all, so the frame stays four bars and a bed. It gets its own
-    // material because grey headstone chippings inside a grey headstone kerb
-    // leave the plot reading as one solid slab, and its colour is taken FROM
-    // the shared stone rather than invented, so it cannot drift away from the
-    // set: the same stone, a shade darker and dustier, which is what a bed of
-    // broken-up stone is.
+    // a thing real kerb sets do have, and from this camera they are seen from
+    // above and behind and come out as two nubs sitting on the foot kerb. They
+    // cluttered the end of the piece nearest the viewer and bought no silhouette
+    // at all, so the plot stays four bars and a bed.
+    //
+    // The bed gets its own material, because grey headstone chippings inside a
+    // grey headstone kerb leave the whole plot reading as one solid slab. Its
+    // colour is taken FROM the shared stone rather than invented, so it cannot
+    // drift away from the set: the same stone, a shade darker and dustier, which
+    // is exactly what a bed of broken-up stone is.
     const bedColour = material.color.clone().multiplyScalar(0.94).lerp(new THREE.Color(PALETTE.stoneEngrave), 0.06);
     const grain = chippingTexture();
     const bedMaterial = toyMaterial(bedColour, { map: grain, roughness: 0.95 });
@@ -250,8 +254,10 @@ registerStone('kerb', {
     // BED_H/2]: hence the half-thickness offset and the length shift.
     bed.rotation.x = -Math.PI / 2;
     bed.position.set(0, BED_TOP - BED_H / 2, bedZ0 + bedLen);
-    bed.receiveShadow = true; // the kerb's shadow across it is the only relief
-    kerb.add(bed); // the bed is allowed to have
+    // The kerb's own shadow falling across it is the only relief the bed gets,
+    // and the only relief it is allowed.
+    bed.receiveShadow = true;
+    kerb.add(bed);
   },
 });
 

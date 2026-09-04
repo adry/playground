@@ -9,8 +9,8 @@ import { PALETTE, SEGMENTS } from '../style.js';
 // It is the only lantern in the set that is a GROUP rather than an object, and
 // that is its whole reason to exist. Every other lantern lays ONE pool. This one
 // scatters several small warm points at slightly different heights, out of step
-// with each other, over a footprint about 0.42 by 0.36 units. Standing beside a
-// `fred` headstone (1.10 tall) it comes up to about a tenth of it: it is the
+// with each other, over a footprint of 0.28 by 0.37 units. Standing beside a
+// `fred` headstone (1.10 tall) it comes up to an eighth of it: it is the
 // smallest thing in the set by a wide margin and it is meant to be, because a
 // bunch of votives is small and low and reads by its scatter rather than by its
 // silhouette.
@@ -27,7 +27,9 @@ import { PALETTE, SEGMENTS } from '../style.js';
 // smallest prop in the set. Everything here is merged across the jars instead
 // and the per-jar variation is carried in vertex attributes and small uniform
 // arrays: all four glasses are one mesh, all four candles and their wicks are
-// one mesh, and the three flames are two InstancedMeshes. See `aJar`.
+// one mesh, and the three flames are two InstancedMeshes. See `aJar`. Measured
+// off the renderer with the ground dropped: 5 draw calls and 26,320 triangles
+// for the whole cluster, plus one more call in the shadow pass for the wax.
 //
 // FOUR PHASES. Four candles driven off one flicker are not four candles, they
 // are one object with four windows. Each jar gets its own noise instance, its
@@ -99,7 +101,8 @@ const JARS = [
 
 // Segments round a jar. SEGMENTS.radial is 48 and sized for props a good deal
 // bigger than this; a jar 0.13 across never covers enough pixels for the extra
-// eight to show, and there are four of them plus four candles in one prop.
+// eight to show (the widest jar here is 0.14 across), and there are four of
+// them plus four candles in one prop.
 const AROUND = Math.round(SEGMENTS.radial * 0.84);
 
 // ---------------------------------------------------------------------------
@@ -302,13 +305,18 @@ const CARRIERS = [
 // dimmer being turned down in another room.
 //
 // LAMP is per jar and it is what the single PointLight sums, so the three of
-// them together mean a mean total near 1.6 against the ground lantern's 1.05 for
-// one candle behind six panes. Not three times, on purpose: three jars are
-// three visible points of light, and if the pool they share is three times as
-// bright the prop stops being a scatter and becomes one bright puddle with
-// decoration in it. Swept at per-jar peaks of 0.45, 0.62 and 0.90 and looked at
-// beside a headstone; the top one clipped the floor to a flat disc and took the
-// flicker with it, which is the same failure the ground lantern found.
+// them together average about 0.86 against the ground lantern's 1.05 for one
+// candle behind six panes. LESS than one lantern, for three flames, and that is
+// the number that took the most looking at. Two things push it down. These
+// flames sit five to nine centimetres off the ground where the lantern's sits
+// nineteen, and irradiance below a source goes as the inverse square of its
+// height, so the same intensity lays four times the light on the floor directly
+// underneath. And three jars are three visible points: if the pool they share
+// is three times as bright the prop stops being a scatter and becomes one
+// puddle with decoration in it. The first pass ran at 0.74 per jar at the top
+// of the swing (out/jars/c1) and blew both the floor and the headstone beside
+// it to flat orange, which is the failure the ground lantern found at its own
+// brightest setting: a clipped pool is a pool the flicker cannot be seen in.
 const LAMP = { min: 0.13, max: 0.31 };
 const CORE = { min: 1.15, max: 2.45 };   // flame body, above 1 so ACES clips it
 const HALO = { min: 0.14, max: 0.34 };   // the soft shell around it
@@ -514,8 +522,11 @@ export function createCandleJars({ seed = 1, scale = 1 } = {}) {
     // IS at a glancing angle to the camera, where a lantern's flat pane is
     // either glancing or not. There is more real fresnel here to begin with,
     // and pushing it as hard as the pane needed turned the jars into pale
-    // plastic. Swept at 3, 4.5, 6, 9 and 13: under 4 the glass stops existing
-    // and the wax floats, over about 9 it goes milky and swallows the candle.
+    // plastic. Swept at 3.2, 5.5, 6 and 9 (out/jars/c4s): at 3.2 the glass has
+    // stopped existing and the wax appears to float in mid air, and at 9 it has
+    // gone pale and cold and swallowed the candle behind it. 5.5 keeps the
+    // sheen on the rolled rims and the cool-to-warm gradient down each wall
+    // while the flame still comes through warm.
     uRimGain: { value: 5.5 },
     // The key's own lobe, broad rather than tight. A jar's wall is curved in
     // one direction, so a tight lobe fires as a hard vertical line down one
@@ -524,9 +535,13 @@ export function createCandleJars({ seed = 1, scale = 1 } = {}) {
     // the one place on this prop with curvature in both directions.
     uGlint: { value: 1.55 },
     uShine: { value: 34.0 },
-    // How much of what is behind the glass the glass hides, face on. Lower than
-    // the ground lantern's pane: you look INTO these, so the candle and the far
-    // inside wall have to survive two crossings rather than one.
+    // How much of what is behind the glass the glass hides, face on. Higher
+    // than the ground lantern's pane rather than lower, which was the surprise
+    // in the sweep: a jar's wall is a bottle's worth of glass where a lantern's
+    // is a window's, and at the pane's 0.17 these read as thin acrylic
+    // tumblers. It is also what carries the candle, since the wash is added
+    // into the body and then multiplied by this: glass with no substance has
+    // nothing for the flame inside it to light.
     uBodyA: { value: 0.20 },
     uWash: { value: placed.map(() => 0) },
     uSoot: { value: placed.map((J) => (J.lit ? 0.34 + 0.12 * ((J.burn * 7) % 1) : 0.58)) },
@@ -783,8 +798,9 @@ varying float vGlow;`)
   // is one of the two things in the set that LIGHTS the ground it stands on: a
   // dark disc under the jars sits in the single brightest part of the floor and
   // reads as a hole punched in the light rather than as contact. Each jar
-  // instead meets the ground on a real rolled base, and the pool it casts falls
-  // off toward its own foot, which is the contact term.
+  // instead meets the ground on a real rolled base, the key's own shadow comes
+  // off the wax inside it (see wax.castShadow), and the pool falls off toward
+  // each foot, which between them is the contact term.
   const group = new THREE.Group();
   group.add(glass, wax, cores, halos, lamp);
   group.scale.setScalar(scale);
@@ -853,6 +869,27 @@ varying float vGlow;`)
         // many ordinary peaks land flat on the ceiling and sit there. This
         // bends the top over instead, matching both value and slope at the knee
         // and asymptoting above it, so a flare is a peak with a shape on it.
+        //
+        // What all of that measures, per jar, over fifteen simulated minutes at
+        // 60fps, beside the ground lantern's published figures for the same
+        // metric:
+        //
+        //                       jar 0   jar 1   jar 2   ground lantern
+        //   mean level          0.876   0.878   0.873   0.880
+        //   spread (sd)         0.083   0.079   0.092   0.077
+        //   1st percentile      0.49    0.52    0.49    0.53
+        //   99th / max          0.97    0.97    0.97    0.97 / 0.99
+        //   mean step per frame 0.0170  0.0196  0.0162  0.0151
+        //   frames within 0.002 8.9%    7.5%    9.5%    9.9%
+        //
+        // and, which is the number this prop exists to hit, the correlation
+        // between any two of the three jars over two minutes: 0.11, 0.07, 0.08
+        // at seed 1, and inside plus or minus 0.2 at every seed tried. Three
+        // candles that are statistically the same fire and share nothing else.
+        // Raising jar 2's carriers from 6.1 and 10.9 Hz to 6.6 and 11.8 took it
+        // from 10.1% stalled to 9.5%: a slower carrier spends more frames near
+        // its own turning points, which is the one way a phase-modulated sine
+        // can still stall.
         const KNEE = 0.90;
         const raw = 0.900 + tremble + wander + flare - dip;
         const level = raw <= KNEE

@@ -811,8 +811,13 @@ export function createHurricaneLamp({ seed = 1, scale = 1 } = {}) {
     }
     return pts;
   };
-  const coreGeo = new THREE.LatheGeometry(flameProfile(0.0165, 0.055), 16);
-  const haloGeo = new THREE.LatheGeometry(flameProfile(0.030, 0.070), 16);
+  // Both shells are taller than they are wide, and the halo more so than the
+  // core. Recorded as a strip and read back (out/hurricane/mo), the first pass
+  // had a halo 60 wide by 60 tall, which on the frames where it flared came out
+  // as a horizontal orange ellipse: a flame that goes ROUND when it brightens
+  // is a glow, and this one has to go UP.
+  const coreGeo = new THREE.LatheGeometry(flameProfile(0.0150, 0.058), 16);
+  const haloGeo = new THREE.LatheGeometry(flameProfile(0.0255, 0.088), 16);
   const coreMat = new THREE.MeshBasicMaterial({ color: CORE_FLAME.clone(), toneMapped: true });
   const haloMat = new THREE.MeshBasicMaterial({
     color: CORE_EMBER.clone(),
@@ -825,7 +830,7 @@ export function createHurricaneLamp({ seed = 1, scale = 1 } = {}) {
   const core = new THREE.Mesh(coreGeo, coreMat);
   const halo = new THREE.Mesh(haloGeo, haloMat);
   core.position.y = M.flameY;
-  halo.position.y = M.flameY - 0.008;
+  halo.position.y = M.flameY - 0.011;
   core.renderOrder = 1;
   halo.renderOrder = 1;
   for (const m of [core, halo]) { m.castShadow = false; m.receiveShadow = false; }
@@ -1009,7 +1014,33 @@ varying float vGT;`)
       // modulated carrier never stalls and never repeats, where the bare sine
       // under it would read as a hum. Nothing over 15 Hz either: at 60fps a
       // 20 Hz carrier is three frames to a period and reads as sparkle.
-      const tremble = 0.027 * wobble(7.4, 0.52, 12.4) + 0.016 * wobble(12.6, 0.80, 55.1);
+      // Measured over fifteen simulated minutes at 60fps, beside the ground
+      // lantern's published figures for the same metric:
+      //
+      //                         this     ground lantern
+      //   mean level            0.901    0.880
+      //   spread (sd)           0.049    0.077   calmer, which is the point
+      //   1st percentile        0.67     0.53
+      //   99th / max            0.96/0.98  0.97/0.99   pinned at neither end
+      //   mean step per frame   0.0156   0.0151
+      //   frames within 0.002   9.6%     9.9%    the anti-stall number
+      //
+      // and as events, counted with a 0.05 re-arm so the tremble is not
+      // miscounted: a duck below 0.80 every 20 seconds, below 0.70 every 30, a
+      // real gutter past 0.50 every three minutes, and a flare over 0.96 every
+      // 10. The gutters are three to five times rarer than the ground candle's,
+      // which is the whole difference between a flame in a box and a flame in a
+      // lamp designed to stay lit outdoors.
+      //
+      // The two rows to read together are the third and the last. This flame
+      // swings a THIRD as far as the open candle's and still MOVES slightly
+      // more per frame, which is what a storm lantern is: a fire that keeps its
+      // level in weather and is never for one frame still. The first pass at
+      // 0.022 and 0.013 hit 14.7% of frames stalled, and the fix was not more
+      // amplitude but more RATE: a carrier's per-frame step goes as amplitude
+      // times frequency, so moving 6.2 and 11.4 Hz up to 7.8 and 13.0 bought
+      // most of it without widening the swing.
+      const tremble = 0.030 * wobble(7.8, 0.52, 12.4) + 0.017 * wobble(13.0, 0.80, 55.1);
 
       // Wander: the breathing underneath, over a second or two. Summed noise is
       // right here and its stalls are a feature, since a lull is exactly what
