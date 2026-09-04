@@ -149,7 +149,7 @@ const VZ_A = (Z_VAULT_FRONT - Z_BACK) / 2;
 // Squarer in section than the old 2.02, which is what flattens the crown. The
 // profiles below narrow the top at the same time, so it comes out a broad dome
 // rather than the helmet a high exponent alone gives.
-const VAULT_PV = 2.35;
+const VAULT_PV = 2.30;
 const VAULT_UNIT = Math.min(HW, VY_A, VZ_A);
 // The vault's own maximum half-width, as a fraction of HW. It is deliberately
 // short of 1: the crest of the temporal line rides on top of the parietal
@@ -176,7 +176,7 @@ const smoothstep = (a, b, x) => {
 // plateau here is deliberately short so that "the widest point" is a place on
 // the head and not a band.
 const vaultWidth = (v) => WIDTH_PEAK * (1
-  - 0.30 * smoothstep(0.70, 1.02, v)
+  - 0.24 * smoothstep(0.70, 1.06, v)
   - 0.36 * (1 - smoothstep(0.02, 0.62, v)));
 // How square the cross-section is. Flat sides and a flat frontal plane across
 // the temples, rounding off toward the crown and the base -- one exponent for
@@ -194,7 +194,7 @@ const vaultPlan = (v) => 2.30
 // instead of over it. It falls away below the orbit too, where the maxilla
 // takes the front over.
 const vaultFront = (v) => 1
-  - 0.30 * smoothstep(0.60, 1.00, v)
+  - 0.34 * smoothstep(0.46, 1.08, v)
   - 0.30 * (1 - smoothstep(0.10, 0.40, v));
 // How far it reaches back. Full between v = 0.50 and 0.68, which is above ear
 // level and level with the parietal eminence, and tucking in hard above and
@@ -540,19 +540,19 @@ function surfaceRho(field, ang, y) {
 // that the taper is 0.88 and the slant is 0.12; a square opening is only a glare
 // when something else is already pulling its top edge down toward the nose.
 const SOCKET_TAPER_LO = 0.88;
-const SOCKET_PX = 2.75;
+const SOCKET_PX = 2.55;
 function socketTaper(kx) {
   return SOCKET_TAPER_LO + (1 - SOCKET_TAPER_LO) * smoothstep(-1, 0.35, kx);
 }
 function socketShape(kx, ky) {
   const k = ky / socketTaper(kx);
-  const e = ky > 0 ? 2.70 : 2.50;
+  const e = ky > 0 ? 2.55 : 2.40;
   return Math.pow(Math.abs(kx), SOCKET_PX) + Math.pow(Math.abs(k), e);
 }
 // The top edge of the socket, in the same frame, at a given kx.
 function socketTop(kx) {
   const rem = 1 - Math.pow(Math.abs(kx), SOCKET_PX);
-  return rem <= 0 ? 0 : socketTaper(kx) * Math.pow(rem, 1 / 2.70);
+  return rem <= 0 ? 0 : socketTaper(kx) * Math.pow(rem, 1 / 2.55);
 }
 // Face-space (u across, v up) coordinates of a point in the socket's own frame.
 function socketToFace(side, q, w) {
@@ -783,8 +783,8 @@ export function buildSkull({ material }) {
   // exactly BROW_PROUD and past the face plane below it by a little more.
   const GLAB_D = 0.100 * M.skull.depth;
   const glabella = blob(
-    [0, ORBIT_V + SOCKET.b + 0.055 * HS, Z_FACE - GLAB_D],
-    [0.115 * M.skull.width, 0.062 * HS, GLAB_D], 2.6, 2.2,
+    [0, ORBIT_V + SOCKET.b + 0.030 * HS, Z_FACE - GLAB_D],
+    [0.125 * M.skull.width, 0.045 * HS, GLAB_D], 2.6, 2.2,
   );
 
   // The zygomatic bone, at the outer-lower corner of the orbit, and the root of
@@ -801,11 +801,11 @@ export function buildSkull({ material }) {
   // The gap is the single strongest skull cue in a three-quarter view, so the
   // arch stops being part of the head and becomes a bridge over it.
   const malar = (side) => blob(
-    [side * 0.300 * M.skull.width, ORBIT_V - 0.115 * HS, 0.270 * M.skull.depth],
-    [0.115 * M.skull.width, 0.085 * HS, 0.105 * M.skull.depth], 2.4);
+    [side * 0.300 * M.skull.width, ORBIT_V - 0.158 * HS, 0.265 * M.skull.depth],
+    [0.120 * M.skull.width, 0.072 * HS, 0.105 * M.skull.depth], 2.4);
   const zygRoot = (side) => blob(
-    [side * 0.340 * M.skull.width, HINGE_Y + 0.030 * HS, -0.150 * M.skull.depth],
-    [0.085 * M.skull.width, 0.058 * HS, 0.105 * M.skull.depth], 2.4);
+    [side * 0.345 * M.skull.width, HINGE_Y + 0.048 * HS, -0.155 * M.skull.depth],
+    [0.090 * M.skull.width, 0.070 * HS, 0.125 * M.skull.depth], 2.4);
   const malarL = malar(-1), malarR = malar(1);
   const rootL = zygRoot(-1), rootR = zygRoot(1);
 
@@ -860,8 +860,8 @@ export function buildSkull({ material }) {
   // and that hemisphere came out as a pimple on the back of the head. Sinking
   // the last point or two deeper than the ridge itself buries the cap instead.
   const TEMPORAL = [
-    [0.95, 0.372, 0.058], [1.25, 0.322, 0.030], [1.60, 0.300, 0.024],
-    [1.95, 0.310, 0.026], [2.25, 0.362, 0.042], [2.48, 0.436, 0.080],
+    [0.95, 0.372, 0.056], [1.25, 0.322, 0.022], [1.60, 0.300, 0.017],
+    [1.95, 0.310, 0.019], [2.25, 0.362, 0.036], [2.48, 0.436, 0.078],
   ];
   const temporals = [-1, 1].map((side) => tube(
     TEMPORAL.map(([a, h, inset]) => {
@@ -1225,14 +1225,14 @@ export function buildSkull({ material }) {
   // with surfaceRho, which is how the old arch was placed. That was the bug in
   // miniature: a path that follows the surface cannot stand off it. The standoff
   // is the whole point, so it is a number here, checked below and reported.
-  const ARCH_R = 0.029 * HS;
+  const ARCH_R = 0.026 * HS;
   const ARCH_FLAT = 1.55;               // taller than it is thick, as a real arch is
   const archPath = (side) => new THREE.CatmullRomCurve3([
-    new THREE.Vector3(side * 0.285 * M.skull.width, ORBIT_V - 0.105 * HS, 0.300 * M.skull.depth),
-    new THREE.Vector3(side * 0.395 * M.skull.width, ORBIT_V - 0.128 * HS, 0.185 * M.skull.depth),
-    new THREE.Vector3(side * 0.428 * M.skull.width, ORBIT_V - 0.130 * HS, 0.045 * M.skull.depth),
-    new THREE.Vector3(side * 0.412 * M.skull.width, ORBIT_V - 0.118 * HS, -0.080 * M.skull.depth),
-    new THREE.Vector3(side * 0.352 * M.skull.width, ORBIT_V - 0.100 * HS, -0.175 * M.skull.depth),
+    new THREE.Vector3(side * 0.300 * M.skull.width, ORBIT_V - 0.090 * HS, 0.290 * M.skull.depth),
+    new THREE.Vector3(side * 0.408 * M.skull.width, ORBIT_V - 0.120 * HS, 0.180 * M.skull.depth),
+    new THREE.Vector3(side * 0.445 * M.skull.width, ORBIT_V - 0.128 * HS, 0.040 * M.skull.depth),
+    new THREE.Vector3(side * 0.425 * M.skull.width, ORBIT_V - 0.116 * HS, -0.085 * M.skull.depth),
+    new THREE.Vector3(side * 0.352 * M.skull.width, ORBIT_V - 0.098 * HS, -0.180 * M.skull.depth),
   ], false, 'centripetal', 0.5);
   // How much daylight there is behind the middle of the arch: the bar's inner
   // face against the dished vault at the same height and bearing. Measured, not
@@ -1616,7 +1616,7 @@ export function buildSkull({ material }) {
     const preX = (x) => side * (mx + (x - mx) / SQ);
     const a = new THREE.Vector3(preX(gonionX), gonionY - JAW_R * 0.35, gonion.z);
     const b = new THREE.Vector3(preX(HINGE_X), HINGE_Y, HINGE_Z);
-    const ramus = track(straightShaft(a, b, RAMUS_R, { waist: 0.80, segments: 20 }));
+    const ramus = track(straightShaft(a, b, RAMUS_R, { waist: 0.86, endRadius: RAMUS_R * 0.60, segments: 20 }));
     ramus.translate(-side * mx, 0, 0);
     ramus.scale(SQ, 1, 1);
     ramus.translate(side * mx, 0, 0);
