@@ -130,8 +130,15 @@ registerStone('ledger', {
     // Two of these in one graveyard should not be the same casting.
     const tilt = TILT * (1 + rng() * 0.22);
     const dip = DIP * (0.9 + rng() * 0.35);
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + tilt, 0, 0));
-    q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), dip));
+    // Half the castings go in the other way round, so a graveyard with two of
+    // them does not have both ends sinking toward the same corner of the frame.
+    // The spin is about the face's own normal and is applied first, in the
+    // slab's frame, so it turns the mark end for end without ever tipping the
+    // face off the camera; the dip then follows the mark. A cross reads the same
+    // either way up, which is the one reason this is free.
+    const flip = rng() < 0.5;
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + tilt, 0, flip ? Math.PI : 0));
+    q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), flip ? -dip : dip));
     slab.quaternion.copy(q);
 
     // Centre the slab on the plot: its own middle is half way up the face.
@@ -142,7 +149,8 @@ registerStone('ledger', {
     // transform is affine, so the mid-line of the face is linear in x and one
     // sample of it is the whole answer.
     const faceMid = (x) => new THREE.Vector3(x, height / 2, THICK / 2).applyQuaternion(q).add(slab.position);
-    slab.position.y -= faceMid((WATERLINE + (rng() - 0.5) * 0.14) * halfWidth).y;
+    const water = (WATERLINE + (rng() - 0.5) * 0.14) * halfWidth * (flip ? -1 : 1);
+    slab.position.y -= faceMid(water).y;
     slab.updateMatrix();
 
     // Now check rather than trust. The deepest point of a rotated slab is not
