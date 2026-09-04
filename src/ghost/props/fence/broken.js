@@ -64,12 +64,17 @@ const SLICE_BLEED = 0.16;
 // row of bottles, depending which way it was set.
 const TAPER_HOLD = [0.15, 0.95];    // of the board's thickness
 
-// The chance a slice is also split through the thickness into a front and a
-// back sliver of different lengths. Without this the spray is a comb -- correct
-// from the front, a single flat slab from the side, which is exactly the angle
-// the isometric camera looks from. This is the parameter that makes the break
-// read in three-quarter view.
-const SPLIT_CHANCE = 0.65;
+// How many layers the tear runs at through the board's thickness, weighted.
+//
+// One layer is a comb: correct from the front, a single flat slab from the
+// side, which is exactly the angle the isometric camera looks from. Two or
+// three layers, EACH WITH ITS OWN INDEPENDENT PARTITION ACROSS THE WIDTH, is
+// what a tear really is -- the fracture runs at one depth for a while and then
+// steps to another. The independence is the whole point: layers cut at the same
+// x lines leave the floor of the socket a tidy row of rectangular blocks, which
+// at high zoom reads as a set of teeth, and no amount of tapering fixes it.
+const LAYER_WEIGHTS = [0.18, 0.52, 0.30];      // 1, 2 or 3 layers
+const LAYER_MIN = 0.22;                        // thinnest layer, of the thickness
 
 // Adjacent spikes closer than this in length read as a repeated tooth. Pushing
 // them apart is cheap and is most of what keeps a spray from looking stamped.
@@ -92,43 +97,29 @@ function nailMaterial() {
   return new THREE.MeshStandardMaterial({ color: '#4a4640', roughness: 0.62, metalness: 0.35 });
 }
 
-// The lengths of one tear, as mix values in 0..1 across the width.
+// The pool of lengths for one tear, as mix values in 0..1, sorted longest
+// first. Which slice gets which is decided later, by slenderness.
 //
-// Three things layered, and all three are needed:
-//  1. a trend, because a break runs across a board rather than starting
-//     everywhere at once, so one side of the end is generally longer;
-//  2. a heavy-tailed per-fibre draw, so MOST spikes are stubs and a couple run
-//     long. A uniform draw gives a row of middling spikes, which is the single
-//     most cartoon-looking failure this file can have;
-//  3. forced extremes, so even an unlucky seed has one spike near the top of
+// Two things, and both are needed:
+//  1. a heavy-tailed draw, so MOST spikes are stubs and a couple run long. A
+//     uniform draw gives a row of middling spikes, which is the single most
+//     cartoon-looking failure this file can have;
+//  2. forced extremes, so even an unlucky seed has one spike near the top of
 //     the range and one barely there. The contrast is the read.
+//
+// This used to carry a trend across the board and a neighbour-separation pass
+// as well. Both were quietly doing nothing: the pool is sorted before it is
+// handed out, so anything that depended on the order in which it was generated
+// was thrown away. They live at the point of assignment now, where they work.
 function tearLengths(rand, n) {
-  const slope = (rand() * 2 - 1) * 0.85;
-  const bow = (rand() * 2 - 1) * 0.55;
   const mix = [];
-  for (let i = 0; i < n; i++) {
-    const u = n === 1 ? 0.5 : i / (n - 1);
-    const trend = slope * (u - 0.5) + bow * (0.25 - (u - 0.5) * (u - 0.5));
-    const spike = Math.pow(rand(), 2.6);     // median near 0.23, tail to 1
-    mix.push(clamp01(0.16 + 0.55 * trend + 0.78 * spike));
-  }
-
+  for (let i = 0; i < n; i++) mix.push(Math.pow(rand(), 2.6));   // median near 0.23
   const iLong = Math.floor(rand() * n);
   mix[iLong] = 0.84 + rand() * 0.16;
   let iShort = Math.floor(rand() * n);
-  if (iShort === iLong) iShort = (iShort + 1 + Math.floor(rand() * (n - 1))) % n;
+  if (iShort === iLong) iShort = (iShort + 1 + Math.floor(rand() * Math.max(1, n - 1))) % n;
   mix[iShort] = rand() * 0.10;
-
-  // Push neighbours apart, away from whichever of the pair is already the
-  // taller, so the forced long spike stays long.
-  for (let i = 1; i < n; i++) {
-    const d = mix[i] - mix[i - 1];
-    if (Math.abs(d) < MIN_NEIGHBOUR_STEP) {
-      const push = (MIN_NEIGHBOUR_STEP - Math.abs(d)) * (d >= 0 ? 1 : -1);
-      mix[i] = clamp01(mix[i] + push);
-    }
-  }
-  return mix;
+  return mix.sort((a, b) => b - a);
 }
 
 // Cut the width into n contiguous slices of unequal width. Torn fibre bundles
@@ -163,9 +154,6 @@ function widthCuts(rand, n) {
 //     then 1.15, near linear, which turned the whole spike back into one long
 //     triangle and undid stage 2. The run has to be back-loaded.
 //
-// Width runs out a little later than thickness, so the tip is a flattened blade
-// rather than a peg: wood splits along the grain, it does not sharpen like a
-// pencil.
 // How much of a spike is broad before it necks down to its shaft, measured as a
 // multiple of the BOARD's thickness rather than as a fraction of the spike's
 // own length. That distinction is the difference between a splinter and a
@@ -177,9 +165,15 @@ function widthCuts(rand, n) {
 // visible collar right round the break.
 const SHOULDER = [0.12, 0.38];    // of the board's thickness
 
-function splinterProfile({ hold, shaft, shoulder, taper, wobble, phase }) {
-  const shaftT = 0.45 + 0.55 * shaft;      // thickness necks less hard than width
-  const tipW = taper * shaft;
+function splinterProfile({ hold, shaft, shoulder, taper, wobble, phase, flat = 0 }) {
+  // One axis necks harder than the other, so the shaft is a blade rather than a
+  // rod, and `flat` says which. Split evenly between them: all blades the same
+  // way round is a row of quills seen from the front and a row of paddles seen
+  // from the side, and the isometric camera sees both at once.
+  const eased = 0.45 + 0.55 * shaft;
+  const shaftW = flat ? eased : shaft;
+  const shaftT = flat ? shaft : eased;
+  const tipW = taper * shaftW;
   const tipT = taper * 0.55 * shaftT;
   return (t) => {
     const k = t <= hold ? 0 : (t - hold) / Math.max(1e-4, 1 - hold);
@@ -189,7 +183,7 @@ function splinterProfile({ hold, shaft, shoulder, taper, wobble, phase }) {
     // parallel for most of its length and then a point. At 1.15 the run-out is
     // near linear and it eats the shoulder, which leaves the spike one long
     // triangle from base to tip -- which was the fin all over again.
-    const w = (1 + (shaft - 1) * neck) * (1 - (1 - tipW / shaft) * Math.pow(k, 2.20));
+    const w = (1 + (shaftW - 1) * neck) * (1 - (1 - tipW / shaftW) * Math.pow(k, 2.20));
     const th = (1 + (shaftT - 1) * neck) * (1 - (1 - tipT / shaftT) * Math.pow(k, 1.90));
     // A notch or two along the edge, because a fibre lets go of its neighbour
     // in steps rather than along one clean line.
@@ -223,39 +217,62 @@ export function splinteredEnd({
   // narrow members like a rail's edge, not for the broad face of a picket.
   const n = nMin + Math.floor(Math.pow(rand(), 0.60) * (nMax - nMin + 1));
   const [lMin, lMax] = F.splinter.length;
-  const cuts = widthCuts(rand, n);
   const out = [];
 
   // The socket floor is not level either: the tear dives deeper on the side the
   // trend runs to, which is what stops the bases lining up.
   const floorTilt = (rand() * 2 - 1) * 0.5;
 
-  // Slices first, then lengths, then the two are paired -- rather than drawing a
-  // length for each slice as it is built.
+  // A tear runs ACROSS a board rather than starting everywhere at once, so the
+  // long fibres cluster toward one side of it. One slope for the whole end.
+  const trend = (rand() * 2 - 1) * 0.55;
+
+  // Slices first, then the length pool, then the two are paired -- rather than
+  // drawing a length for each slice as it is built.
   //
   // The pairing is the point. Length has to go to the NARROW slices: a wide
   // slice that draws a long length comes out as a broad triangular sail, which
   // reads as a shard of slate rather than as fibre, and it was the loudest
   // wrong note in the first render. A narrow bundle of fibre peels a long way;
-  // a wide one snaps off near the break. So the lengths are sorted and handed
-  // out by slenderness, with enough noise in the ranking that it is a tendency
-  // and not a rule you can read off the model.
-  const slices = [];
-  for (let i = 0; i < n; i++) {
-    const x0 = (cuts[i] - 0.5) * width;
-    const x1 = (cuts[i + 1] - 0.5) * width;
-    const sw = x1 - x0;
-    const nrm = sw / (width / n);                     // 1 = an average slice
-    slices.push({
-      cx: (x0 + x1) / 2,
-      sw,
-      wide: clamp01((nrm - 0.7) / 0.9),
-      rank: clamp01((1.55 - nrm) / 1.15) + (rand() - 0.5) * 0.45,
-    });
-  }
-  const order = slices.map((_, i) => i).sort((a, b) => slices[b].rank - slices[a].rank);
-  const lengths = tearLengths(rand, n).slice().sort((a, b) => b - a);
-  order.forEach((sliceIndex, k) => { slices[sliceIndex].mix = lengths[k]; });
+  // a wide one snaps off near the break. So the pool is handed out by
+  // slenderness, plus the trend, plus enough noise that it is a tendency and
+  // not a rule you can read off the model.
+  const cutLayer = (nL) => {
+    const cuts = widthCuts(rand, nL);
+    const slices = [];
+    for (let i = 0; i < nL; i++) {
+      const x0 = (cuts[i] - 0.5) * width;
+      const x1 = (cuts[i + 1] - 0.5) * width;
+      const sw = x1 - x0;
+      const cx = (x0 + x1) / 2;
+      const nrm = sw / (width / nL);                  // 1 = an average slice
+      slices.push({
+        cx,
+        sw,
+        first: i === 0,
+        last: i === nL - 1,
+        wide: clamp01((nrm - 0.7) / 0.9),
+        rank: clamp01((1.55 - nrm) / 1.15)
+          + trend * (cx / Math.max(1e-5, width)) * 2
+          + (rand() - 0.5) * 0.45,
+      });
+    }
+    const order = slices.map((_, i) => i).sort((a, b) => slices[b].rank - slices[a].rank);
+    const pool = tearLengths(rand, nL);
+    order.forEach((si, k) => { slices[si].mix = pool[k]; });
+
+    // Now that every slice has its length, push neighbours apart. Two spikes
+    // side by side within a hair of each other in length read as a repeated
+    // tooth, and this is most of what keeps a spray from looking stamped.
+    for (let i = 1; i < nL; i++) {
+      const d = slices[i].mix - slices[i - 1].mix;
+      if (Math.abs(d) < MIN_NEIGHBOUR_STEP) {
+        const push = (MIN_NEIGHBOUR_STEP - Math.abs(d)) * (d >= 0 ? 1 : -1);
+        slices[i].mix = clamp01(slices[i].mix + push);
+      }
+    }
+    return slices;
+  };
 
   const spike = (cx, sw, cz, st, m, longways) => {
     const len = (lMin + (lMax - lMin) * m) * thickness * reach;
@@ -307,7 +324,7 @@ export function splinteredEnd({
       // it reaches the break plane. Sideways that tears holes in the partition
       // and you see the stump's flat top through them; through the thickness
       // the slice's own bleed covers it.
-      warp: (rand() * 2 - 1) * len * 0.05,
+      warp: (rand() * 2 - 1) * len * 0.08,
       warpAxis: 'z',
       profile: splinterProfile({
         hold,
@@ -318,11 +335,13 @@ export function splinteredEnd({
         // The long ones are the thin ones. Same rule as the pairing above,
         // applied a second time inside the spike itself. Started at 0.86 for a
         // nub, which left the short spikes as wide as they were tall: rounded
-        // blocks that read as molars rather than as broken fibre.
-        shaft: 0.70 - 0.42 * m,
+        // blocks that read as molars, and a wide one of those ends in a flat
+        // top big enough to read as a shelf laid across the break.
+        shaft: 0.58 - 0.30 * m,
         taper: F.splinter.taper,
         wobble: 0.06 + rand() * 0.07,
         phase: rand() * 6.283,
+        flat: rand() < 0.5 ? 1 : 0,
       }),
       // 16, not 8. The shoulder is only 16% of the run, so at 8 segments it
       // falls between two rings and the loft interpolates straight across it --
@@ -364,42 +383,48 @@ export function splinteredEnd({
     out.push(geo);
   };
 
-  const bleedT = thickness * SLICE_BLEED * 0.5;
-  slices.forEach((sl, i) => {
-    // Bled toward whichever neighbour exists, and not at all on the outside of
-    // the board. See SLICE_BLEED.
-    const x0 = sl.cx - sl.sw / 2 - (i > 0 ? sl.sw * SLICE_BLEED * 0.5 : 0);
-    const x1 = sl.cx + sl.sw / 2 + (i < slices.length - 1 ? sl.sw * SLICE_BLEED * 0.5 : 0);
-    const sw = x1 - x0;
-    const cx = (x0 + x1) / 2;
+  // Pick the layers and how deep each runs.
+  const roll = rand();
+  const layers = roll < LAYER_WEIGHTS[0] ? 1 : roll < LAYER_WEIGHTS[0] + LAYER_WEIGHTS[1] ? 2 : 3;
+  const share = [];
+  let left = 1;
+  for (let i = 0; i < layers; i++) {
+    const remaining = layers - i - 1;
+    const most = left - remaining * LAYER_MIN;
+    const take = i === layers - 1 ? left : LAYER_MIN + rand() * Math.max(0, most - LAYER_MIN);
+    share.push(take);
+    left -= take;
+  }
 
-    // Wide slices split through the thickness more often than narrow ones: a
-    // narrow bundle is already a single fibre, a wide one is a laminate.
-    if (rand() < SPLIT_CHANCE * (0.45 + 0.85 * sl.wide)) {
-      // Front and back grow toward each other by the bleed and away from each
-      // other not at all, so neither stands proud of the board's face.
-      const f = 0.30 + rand() * 0.40;
-      const front = thickness * f + bleedT;
-      const back = thickness * (1 - f) + bleedT;
-      // The two layers get very different lengths: one keeps the slice's own
-      // draw, the other is drawn short. That asymmetry is what leaves a long
-      // sliver hanging off one face, which is the reference's signature.
-      const keepFront = rand() < 0.5;
-      const other = Math.pow(rand(), 1.8) * 0.55;
-      // Splitting makes two thin bundles out of one fat one, so each half is
-      // allowed to run further than the slice as a whole would have.
-      const bonus = 0.22 * (1 - sl.wide);
-      spike(cx, sw, -thickness / 2 + front / 2, front,
-        clamp01((keepFront ? sl.mix : other) + bonus), f < 0.45);
-      spike(cx, sw, thickness / 2 - back / 2, back,
-        clamp01((keepFront ? other : sl.mix) + bonus), 1 - f < 0.45);
-    } else {
-      spike(cx, sw, 0, thickness, sl.mix, false);
+  const bleedT = thickness * SLICE_BLEED * 0.5;
+  let z = -thickness / 2;
+  share.forEach((f, li) => {
+    const front = li === 0;
+    const back = li === layers - 1;
+    // Layers grow into each other by the bleed and never out through the face
+    // of the board. A spike standing a hundredth of a unit proud of the board
+    // catches the key light and lays a hard shadow line right round the break,
+    // and that line reads as a cut. See SLICE_BLEED.
+    const z0 = z - (front ? 0 : bleedT);
+    const z1 = z + f * thickness + (back ? 0 : bleedT);
+    z += f * thickness;
+    const st = z1 - z0;
+    const cz = (z0 + z1) / 2;
+    // Fewer bundles across each layer than across the whole board, or a
+    // three-layer tear comes back with thirty spikes on it.
+    const nL = Math.max(3, Math.round(n / Math.sqrt(layers)));
+    for (const sl of cutLayer(nL)) {
+      const x0 = sl.cx - sl.sw / 2 - (sl.first ? 0 : sl.sw * SLICE_BLEED * 0.5);
+      const x1 = sl.cx + sl.sw / 2 + (sl.last ? 0 : sl.sw * SLICE_BLEED * 0.5);
+      // A thin layer on the outside of the board is a sliver peeled off a face,
+      // and it leans outward: that is the direction it was actually prised.
+      spike((x0 + x1) / 2, x1 - x0, cz, st, sl.mix, (front || back) && f < 0.38);
     }
   });
 
   return out;
 }
+
 // --- plumbing ---------------------------------------------------------------
 
 // Merge a list of geometries and dispose the parts, or return null for none.
@@ -648,17 +673,33 @@ export function createBrokenPanel({ seed = 1, damage = 0.5, scale = 1 } = {}) {
     // with exactly one picket at every possible height, which is a gradient,
     // not a hole.
     const soft = near * near * (3 - 2 * near);
-    const sev = dmg * (0.26 + 0.86 * soft) + (rand() - 0.5) * 0.12;
-    if (sev < 0.30) { state.push('whole'); cutAt.push(1); }
-    else if (sev < 0.66) {
+    const sev = dmg * (0.26 + 0.90 * soft) + (rand() - 0.5) * 0.12;
+    if (sev < 0.26) { state.push('whole'); cutAt.push(1); }
+    else if (sev < 0.68) {
       state.push('snapped');
       // Just under the point at the shallow end of the band, down to a stump at
       // the deep end.
       // The jitter is wide on purpose. Mapped straight off severity the whole
       // middle of a breach snaps at nearly one height, and a row of stumps all
       // the same height is a hedge, not a fence somebody went through.
-      cutAt.push(clamp01(0.78 - ((sev - 0.30) / 0.36) * 0.48 + (rand() - 0.5) * 0.26));
+      cutAt.push(clamp01(0.78 - ((sev - 0.26) / 0.42) * 0.48 + (rand() - 0.5) * 0.26));
     } else { state.push('gone'); cutAt.push(0); }
+  }
+
+  // The longest run of missing pickets, worked out before anything is built,
+  // because two things need it: the rails, which are torn through it, and the
+  // nails, which must not be left hanging in a gap where the rail they were
+  // driven into went with everything else.
+  const goneIdx = state.map((v, i) => (v === 'gone' ? i : -1)).filter((i) => i >= 0);
+  let gap = null;
+  if (goneIdx.length >= 2) {
+    let bestA = goneIdx[0], bestB = goneIdx[0], a = goneIdx[0], b = goneIdx[0];
+    for (let k = 1; k < goneIdx.length; k++) {
+      if (goneIdx[k] === b + 1) b = goneIdx[k];
+      else { a = b = goneIdx[k]; }
+      if (b - a > bestB - bestA) { bestA = a; bestB = b; }
+    }
+    if (bestB > bestA) gap = [parts.pickets[bestA].x, parts.pickets[bestB].x];
   }
 
   // --- pickets -------------------------------------------------------------
@@ -687,9 +728,25 @@ export function createBrokenPanel({ seed = 1, damage = 0.5, scale = 1 } = {}) {
 
     // Gone. What a missing picket left behind is the difference between a fence
     // that was broken and a fence that was built with a gap in it, so it is
-    // varied on purpose and one in four leaves nothing at all.
+    // varied on purpose and roughly one in four leaves nothing at all.
+    //
+    // Which kinds are available depends on whether the rails survived here. In
+    // the middle of a breach they have not, so a fragment nailed across the
+    // rail line and a pair of nails driven into it would both be hanging in
+    // mid air, which is what the first pass did and it read as a bug rather
+    // than as damage. What is left there instead is the bottom of the picket,
+    // still bedded in the dirt and torn off above the ground.
+    const inGap = gap && p.x > gap[0] - 0.05 && p.x < gap[1] + 0.05;
     const evidence = rand();
-    if (evidence < 0.38) {
+    if (inGap) {
+      if (evidence < 0.45) {
+        const at = 0.045 + rand() * 0.075;
+        build.addBody(place(stumpGeometry({ rand: own, height: at, width: p.width })));
+        const spray = splinteredEnd({ rand, width: p.width, thickness: F.picket.thickness, direction: 1 });
+        for (const g of spray) { g.translate(0, at, 0); g.userData.splinterBase = at; }
+        for (const g of paintSpray(spray, rand)) build.addTorn(place(g));
+      }
+    } else if (evidence < 0.38) {
       // A fragment still nailed across the lower rail, torn at both ends. The
       // strongest of the three: it says the picket was pulled, not unscrewed.
       const railLo = parts.rails[0].y;
@@ -725,18 +782,6 @@ export function createBrokenPanel({ seed = 1, damage = 0.5, scale = 1 } = {}) {
   // run of pickets is missing there is nothing holding the rail up at all. The
   // two rails never tear at the same x: a matched pair of breaks reads as a
   // rectangle cut out of the fence.
-  const goneIdx = state.map((s, i) => (s === 'gone' ? i : -1)).filter((i) => i >= 0);
-  let gap = null;
-  if (goneIdx.length >= 2) {
-    let bestA = goneIdx[0], bestB = goneIdx[0], a = goneIdx[0], b = goneIdx[0];
-    for (let k = 1; k < goneIdx.length; k++) {
-      if (goneIdx[k] === b + 1) b = goneIdx[k];
-      else { a = b = goneIdx[k]; }
-      if (b - a > bestB - bestA) { bestA = a; bestB = b; }
-    }
-    if (bestB > bestA) gap = [parts.pickets[bestA].x, parts.pickets[bestB].x];
-  }
-
   for (const r of parts.rails) {
     const own = rng(r.seed);
     // A rail can also let go on its own once the fence is well gone, even where
@@ -754,8 +799,18 @@ export function createBrokenPanel({ seed = 1, damage = 0.5, scale = 1 } = {}) {
     // went with the other side.
     let tearL, tearR;
     if (gap) {
-      tearL = gap[0] + (rand() - 0.4) * (gap[1] - gap[0]) * 0.45;
-      tearR = gap[1] - (rand() - 0.4) * (gap[1] - gap[0]) * 0.45;
+      // Spread wide and drawn independently for each rail. A narrow jitter
+      // about the ends of the gap puts the two rails' breaks within a couple of
+      // centimetres of each other, and a matched pair of breaks reads as a
+      // rectangle cut out of the fence rather than as two boards that gave way
+      // at different moments. The half pitch on top lets a tear run out past
+      // the last missing picket, under one that is still standing.
+      const mid = (gap[0] + gap[1]) / 2;
+      const reachOut = (gap[1] - gap[0]) / 2 + PANEL_LAYOUT.pitch * 0.5;
+      tearL = mid - reachOut * (0.35 + rand() * 0.90);
+      tearR = mid + reachOut * (0.35 + rand() * 0.90);
+      tearL = Math.max(spanA + 0.07, tearL);
+      tearR = Math.min(spanB - 0.07, tearR);
     } else {
       const t = spanA + L * (0.28 + rand() * 0.44);
       const kerf = 0.005 + rand() * 0.012;

@@ -50,7 +50,11 @@ const R = {
   // The head has to be wider than the plate is thick or it vanishes into the
   // socket and the hip stops reading as a joint at all, which is what happened
   // at 0.038 against a 0.070 plate.
-  femurHead: frac(0.0184),      // 0.046
+  // Sized against the socket, not against the shaft. What makes the hip read as
+  // a joint is the crease where the ball enters the cup, so the head has to be
+  // big enough to stand a couple of centimetres proud of the acetabular block
+  // and leave a crease circle worth seeing.
+  femurHead: frac(0.0192),      // 0.048
   femurNeck: frac(0.0092),      // 0.023. Thin enough that the angle shows.
   trochanter: frac(0.0160),     // 0.040. Also the cap over the shaft's top ring.
                                 // Only a little wider than the tapered shaft it
@@ -128,10 +132,13 @@ const seat = (r, scaleY = 1) => -RISE + r * FOOT_SQUASH * scaleY;
 const PELVIS_TOP = M.y.pelvisTop - M.y.hip;              // +0.200
 const PELVIS_BOTTOM = PELVIS_TOP - M.pelvis.height;      // -0.090
 const PELVIS_HALF = M.pelvis.width / 2;                  // 0.210
-// Half the seam at the pubic symphysis. The two pubic bodies MEET here: in the
-// photo it is a joint line across a solid block, not the finger-wide slot the
-// first version left, which had each side dangling on its own.
-const SYMPHYSIS_X = frac(0.0028);                        // 0.007, so a 0.014 seam
+// How far each pubic body reaches ACROSS the midline. Not a gap: in the photo
+// the two of them make one continuous bar along the bottom of the pelvis with
+// nothing but a narrowing where they meet, and the first version's finger-wide
+// slot left each side dangling on its own. Two rounded blocks set exactly
+// touching still show daylight above and below the one height where they are
+// widest, so they are given a little overlap and the crease does the joint.
+const SYMPHYSIS_OVERLAP = frac(0.0016);                  // 0.004 each side
 
 // The blade's outline, walked once from the back of the iliac crest, in a flat
 // authoring frame that poseAndFit maps onto its own box. x is lateral, y is up
@@ -203,9 +210,9 @@ const HIP_BEVEL_SEGMENTS = 12;
 // one more rounded thing is what tips it from anatomy into tangle. The block
 // alone gives the cup, because the crease where the head enters it IS the rim.
 const ACET = {
-  x: 0.116, y: -0.008, z: 0.000,
-  bossR: frac(0.0184),                // 0.046 before scaling
-  scale: [0.80, 0.85, 1.05],
+  x: 0.112, y: -0.006, z: 0.000,
+  bossR: frac(0.0224),                // 0.056 before scaling
+  scale: [0.62, 0.92, 1.10],          // thin sideways, tall and deep: a cup, not a ball
 };
 
 // The ischiopubic mass, as centreline points in the group frame. Authored with
@@ -239,17 +246,27 @@ const ACET = {
 // 0.03 too high, which put the pubic bodies out in front of the hip joints
 // like a pair of handles.
 const RING = {
-  A:  [0.104, 0.004, 0.004],          // superior ramus, rooted in the socket
-  Bu: [0.034, -0.026, 0.084],         // top of the pubic body
-  Bd: [0.038, -0.062, 0.080],         // bottom of the pubic body
+  A:  [0.104, 0.016, 0.004],          // superior ramus, rooted in the socket
+  Bu: [0.034, -0.026, 0.072],         // top of the pubic body
+  Bd: [0.038, -0.066, 0.068],         // bottom of the pubic body
   T:  [0.084, -0.0644, 0.030],        // ischial tuberosity: the lowest bone here
   Q:  [0.110, -0.022, -0.002],        // ischium, rooted back in the socket
-  superior: [frac(0.0096), frac(0.0084)],   // 0.024 at the socket, 0.021 at the pubis
-  superiorBow: 0.10,
-  lower: [frac(0.0056), frac(0.0096)],      // 0.014 at the pubis, 0.024 at the ischium
+  // Measured off the photo, and the first pass had these the wrong way round.
+  // The superior ramus is the SLENDER one: it arches over the foramen and every
+  // millimetre of it comes straight off the hole. The mass below and behind --
+  // pubic body, inferior ramus, ischium -- is the thick part.
+  superior: [frac(0.0068), frac(0.0080)],   // 0.017 at the socket, 0.020 at the pubis
+  // Every millimetre the superior ramus is raised or bowed is a millimetre of
+  // foramen. Run flat and thick it closes the hole entirely, which is where
+  // this started; at 0.14 of bow off a root 0.016 above the socket's middle the
+  // opening is 0.032 by 0.035, near enough round.
+  superiorBow: 0.14,
+  lower: [frac(0.0072), frac(0.0096)],      // 0.018 at the pubis, 0.024 at the ischium
   lowerWaistAt: 0.30,
+  // Narrow enough that it does not eat the foramen next to it, and reaching
+  // just across the midline so the two of them are one bar.
   body: frac(0.0116),                 // 0.029 before scaling
-  bodyScale: [0.82, 1.36, 0.95],
+  bodyScale: [0.90, 1.30, 1.00],
   tuber: frac(0.0104),                // 0.026, the ischial tuberosity
   tuberScale: [1.0, 1.12, 1.0],
   // jointBall squashes by this before tuberScale gets a look in, and the
@@ -321,8 +338,8 @@ function smoothOutline(points, samples = 132) {
 // back and its lower end forward. Held down to where the wing still faces
 // mostly forward: at half again these angles it is so nearly edge-on that the
 // front view loses the blade altogether.
-const PLATE_PITCH = -0.30;
-const PLATE_YAW = 0.40;
+const PLATE_PITCH = -0.34;
+const PLATE_YAW = 0.44;
 
 // ExtrudeGeometry's bevel grows the outline outward by bevelSize, and further
 // at a sharp corner, so the slab is measured and mapped back onto exactly the
@@ -486,7 +503,7 @@ export function buildLower({ material }) {
     // pubic body sets the seam at the symphysis, and the ischial tuberosity is
     // the lowest bone in the pelvis, so it alone decides whether the pelvis
     // comes out M.pelvis.height tall.
-    const shift = s * (SYMPHYSIS_X + RING.body * RING.bodyScale[0]) - rBu.x;
+    const shift = s * (RING.body * RING.bodyScale[0] - SYMPHYSIS_OVERLAP) - rBu.x;
     rBu.x += shift;
     rBd.x += shift;
     rT.y = PELVIS_BOTTOM + RING.tuber * RING.tuberSquash * RING.tuberScale[1];
