@@ -140,10 +140,10 @@ const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); retu
 // be tellable apart at a glance, and hue is what does that at this size, not
 // detail. Everything here is a desaturated blue-grey; nothing in it is warm.
 const GRAVEL = {
-  base: '#b2b7c0',
-  pale: '#c6cad2',   // the top of a chip catching the key
-  dark: '#989ea9',   // a chip that has sat wet
-  crevice: '#7d8390', // the gap between chips, which is where the depth is
+  base: '#c3c8d1',
+  pale: '#d9dce2',   // the top of a chip catching the key
+  dark: '#a8aeb9',   // a chip that has sat wet
+  crevice: '#8d93a0', // the gap between chips, which is where the depth is
 };
 
 // One tile of packed chippings, as an albedo map and a normal map.
@@ -288,7 +288,7 @@ function gravelTextures(seed) {
       // is doing most of the work: at a glancing angle the key light barely
       // separates one chip from the next, and without a dark line between them
       // the surface flattens back into a stain.
-      c.lerp(crev, (1 - smoothstep(0.10, 0.52, h)) * 0.55);
+      c.lerp(crev, (1 - smoothstep(0.10, 0.52, h)) * 0.45);
       albedo[o] = c.r * 255;
       albedo[o + 1] = c.g * 255;
       albedo[o + 2] = c.b * 255;
@@ -597,7 +597,7 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
     normalMap: tex?.normalMap || null,
     // Strong enough that the chips read at a glancing angle, short of the point
     // where the crevices go black and the surface stops being a matte toy.
-    normalScale: tex ? new THREE.Vector2(0.60, 0.60) : undefined,
+    normalScale: tex ? new THREE.Vector2(0.50, 0.50) : undefined,
     roughness: 0.93,
     metalness: 0,
     polygonOffset: true,
@@ -618,7 +618,7 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
   // though they were kicked off, and a scattering sits on the crown so the top
   // surface is not perfectly smooth against the sky at the far end of the path.
   const length = (N - 1) * STEP;
-  const chipCount = Math.max(24, Math.round(length * 46));
+  const chipCount = Math.max(20, Math.round(length * 34));
 
   const unit = new THREE.SphereGeometry(1, 10, 7);
   {
@@ -679,10 +679,10 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
       // changes the silhouette. The rest are on the crown, keeping the top from
       // reading as a moulded surface where it catches the key.
       let u;
-      if (rand() < 0.76) u = side * (0.88 + Math.pow(rand(), 1.4) * 0.28);
+      if (rand() < 0.74) u = side * (0.90 + Math.pow(rand(), 1.5) * 0.15);
       else u = side * Math.pow(rand(), 0.8) * 0.82;
 
-      const r = 0.018 + Math.pow(rand(), 1.7) * 0.020;
+      const r = 0.014 + Math.pow(rand(), 1.7) * 0.017;
       sc.set(r * (0.85 + rand() * 0.5), r * CHIP_FLAT * (0.8 + rand() * 0.6), r * (0.85 + rand() * 0.5));
 
       const off = u * halfWidth;
@@ -698,10 +698,14 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
       q.setFromEuler(e);
       chips.setMatrixAt(i, m.compose(p, q, sc));
 
+      // Kept close to the mass. The first pass let these run to the pale end
+      // of the ramp and the rim came out looking like spilled popcorn: a chip
+      // sitting proud already catches more key than the surface it lies on, so
+      // giving it a pale colour as well doubles the effect.
       const t = rand();
       col.copy(base);
-      if (t < 0.45) col.lerp(dark, ((0.45 - t) / 0.45) * 0.8);
-      else col.lerp(pale, ((t - 0.45) / 0.55) * 0.55);
+      if (t < 0.5) col.lerp(dark, ((0.5 - t) / 0.5) * 0.55);
+      else col.lerp(pale, ((t - 0.5) / 0.5) * 0.30);
       chips.setColorAt(i, col);
     }
     chips.instanceMatrix.needsUpdate = true;

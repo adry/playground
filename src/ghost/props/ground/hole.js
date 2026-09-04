@@ -159,10 +159,10 @@ function buildPit({ seed, depth }) {
   const cols = pts.length;
   const rows = rings.length;
 
-  // Spade cuts: shallow vertical scoops the width of a blade, walked round the
-  // perimeter. The count is whole so they wrap, and the phase drifts with depth
-  // so they lean rather than reading as a corrugated pipe.
-  const scoops = Math.max(6, Math.round(perimeter / 0.27));
+  // Spade cuts: broad scoops the width of a blade, walked round the perimeter.
+  // The count is whole so they wrap. It wants to be low: at one cut every
+  // 270mm the wall came out as corduroy, which is a texture, not a dug hole.
+  const scoops = Math.max(5, Math.round(perimeter / 0.46));
 
   const position = new Float32Array(cols * rows * 3 + 3);
   const color = new Float32Array(cols * rows * 3 + 3);
@@ -179,23 +179,33 @@ function buildPit({ seed, depth }) {
       // pit centre, so a scoop bites into the wall.
       let d = 0;
       if (ring.spade > 0) {
-        const phase = t * scoops + depthF * 0.55 + ringNoise(t, 3.1, 2.2, seed) * 0.35;
-        const scoop = Math.cos(phase * Math.PI * 2);
-        d += ring.spade * 0.042 * scoop;
+        // Each scoop is a shallow bite out of the wall, with its own width and
+        // its own reach down the wall, so no two are the same and none of them
+        // runs the full depth. Lobe is 0 on the ridge between cuts, 1 in the
+        // middle of one.
+        const s = t * scoops;
+        const idx = Math.floor(s) % scoops;
+        const lobe = 0.5 - 0.5 * Math.cos((s - Math.floor(s)) * Math.PI * 2);
+        const bite = 0.35 + 0.9 * hash2(idx, 7, seed);
+        const reach = 0.45 + 0.55 * hash2(idx, 19, seed);
+        const start = 0.06 * hash2(idx, 31, seed);
+        const along = THREE.MathUtils.smoothstep(depthF, start, start + 0.12)
+          * (1 - THREE.MathUtils.smoothstep(depthF, reach - 0.22, reach + 0.10));
+        d += ring.spade * 0.075 * bite * lobe * along;
         // Terraces: the digger works in layers, so the wall steps a little.
-        d += ring.spade * 0.016 * Math.cos(depthF * Math.PI * 2 * 2.6 + t * 1.7);
-        // General lumpiness.
-        d += ring.spade * 0.030 * ringNoise(t, depthF * 3.4 + 11.0, 3.6, seed + 3);
+        d += ring.spade * 0.012 * Math.cos(depthF * Math.PI * 2 * 2.2 + t * 1.7);
+        // General lumpiness, low frequency so it reads as clay and not grit.
+        d += ring.spade * 0.022 * ringNoise(t, depthF * 2.2 + 11.0, 2.6, seed + 3);
       }
       if (ring.rim) {
         // Break the outer edge of the skirt so the floor's grid does not stop
         // at a stamped oval.
-        d += 0.055 * ringNoise(t, 0.5, 4.5, seed + 7);
+        d += 0.045 * ringNoise(t, 0.5, 4.5, seed + 7);
       }
       if (ring.cut > 0 && ring.cut < 1) {
         // Wobble the lip itself, gently: too much and the rolled edge goes
         // crinkly, and it must never wander out past the skirt.
-        d += 0.030 * ring.cut * ringNoise(t, 1.7, 2.4, seed + 5);
+        d += 0.022 * ring.cut * ringNoise(t, 1.7, 1.8, seed + 5);
       }
 
       const R = CORNER + ring.inset + d;
@@ -213,12 +223,16 @@ function buildPit({ seed, depth }) {
       // Colour: turf outside, broken earth over the lip, darkening down the
       // wall. The darkening is doing the work a single key light cannot: it is
       // what turns a lit box into a hole.
-      const toEarth = THREE.MathUtils.smoothstep(ring.inset, 0.06, 0.26);
-      c.copy(EARTH).lerp(SPOIL, THREE.MathUtils.smoothstep(ring.inset, -0.03, 0.09));
-      c.lerp(TURF, toEarth);
-      const shade = 1 - 0.72 * THREE.MathUtils.smoothstep(depthF, 0.02, 0.95);
-      c.lerp(DEEP, THREE.MathUtils.smoothstep(depthF, 0.35, 1.0) * 0.75);
-      c.multiplyScalar(shade * (0.94 + 0.12 * vnoise(t * 40, depthF * 9, seed + 13)));
+      c.copy(EARTH)
+        .lerp(SUB, THREE.MathUtils.smoothstep(depthF, 0.04, 0.60))
+        .lerp(DEEP, THREE.MathUtils.smoothstep(depthF, 0.58, 1.02));
+      c.lerp(SPOIL, THREE.MathUtils.smoothstep(ring.inset, -0.02, 0.05));
+      c.lerp(TURF, THREE.MathUtils.smoothstep(ring.inset, 0.05, 0.16));
+      // Ambient occlusion, and not much of it: the wall has to stay lit enough
+      // to show what it is made of. The dark comes from the ramp above and
+      // from the near lip's own cast shadow, not from painting the pit black.
+      const shade = 1 - 0.30 * THREE.MathUtils.smoothstep(depthF, 0.08, 1.0);
+      c.multiplyScalar(shade * (0.95 + 0.10 * ringNoise(t, depthF * 6.0, 9.0, seed + 13)));
       color[k] = c.r;
       color[k + 1] = c.g;
       color[k + 2] = c.b;
@@ -230,7 +244,7 @@ function buildPit({ seed, depth }) {
   position[centre * 3] = 0;
   position[centre * 3 + 1] = -depth - 0.02;
   position[centre * 3 + 2] = 0;
-  c.copy(DEEP).multiplyScalar(0.7);
+  c.copy(DEEP).multiplyScalar(0.8);
   color[centre * 3] = c.r;
   color[centre * 3 + 1] = c.g;
   color[centre * 3 + 2] = c.b;

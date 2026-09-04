@@ -71,29 +71,29 @@ import { registerStone, buildArcSweepGeometry, inkText } from '../tombstones.js'
 // shaft to be wider than, and the postmortem's first rule is that a grave
 // marker reads by its vertical. The face works out 627 by 1024 texels, which is
 // dead centre of the 528 to 638 the engraving treatment was calibrated on.
-const SHAPE = { halfWidth: 0.30, height: 0.92, depth: 0.28, plinth: 0.18 };
+const SHAPE = { halfWidth: 0.30, height: 0.88, depth: 0.28, plinth: 0.18 };
 
 // How far the crown sinks into the slab. Only has to bury the slab's top edge
 // rounding and the joint; the rest is margin.
-const CROWN_SINK = 0.26;
+const CROWN_SINK = 0.28;
 
 // The central boss: the roundel where the skull would be. Its circle reaches
 // well below the top of the slab, so it is a dome standing out of the stone
 // rather than a ball balanced on it.
-const BOSS = { r: 0.18, y: 1.18, seat: -6 };
+const BOSS = { r: 0.17, y: 1.19, seat: 10 };
 
 const WING = {
-  cove: 0.09, // the shoulder cove the wing flares out of
-  spring: 0.80,
-  flare: 60,
+  cove: 0.09,
+  spring: 0.72,
+  flare: 55,
   lobes: [
-    { r: 0.100 },
-    { r: 0.095, step: 0.160, rake: 18 },
-    { r: 0.090, step: 0.160, rake: 33 },
+    { r: 0.115 },
+    { r: 0.100, step: 0.170, rake: 40 },
+    { r: 0.085, step: 0.160, rake: 48 },
   ],
   notch: 0.020,
-  valley: 0.10,
-  sweep: 0.60,
+  valley: 0.09,
+  sweep: 0.90,
 };
 
 // ---------------------------------------------------------------------------

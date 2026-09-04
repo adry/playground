@@ -66,7 +66,7 @@ import { registerStone, buildArcSweepGeometry, inkText } from '../tombstones.js'
 //
 // Depth 0.23 on a 0.61 width, the same third the rest of the set runs at.
 const W = 0.305;
-const H = 0.92;
+const H = 0.88;
 const SHAPE = { halfWidth: W, height: H, depth: 0.23, plinth: 0.12 };
 
 // How far the cornice reaches down inside the slab. Only has to swallow the
@@ -95,10 +95,10 @@ const SINK = 0.16;
 //   halfWidth        where the roll's crown lands. The overhang is 0.09 a side,
 //                    30% of the shaft's half width.
 const CORNICE = {
-  coveR: 0.055,
+  coveR: 0.05,
   coveSweep: (46 * Math.PI) / 180,
-  rollR: 0.088,
-  halfWidth: 0.395,
+  rollR: 0.082,
+  halfWidth: 0.385,
 };
 
 // --- the palmette ----------------------------------------------------------
@@ -137,13 +137,13 @@ const CORNICE = {
 // scallop shell.
 const PALMETTE = {
   depth: 0.16,
-  edge: 0.045,
+  edge: 0.04,
   baseHalf: 0.13,
   pillar: 0.035,
   coveR: 0.05,
-  valleyR: 0.03,
+  valleyR: 0.034,
   leaves: [
-    { ang: 0, len: 0.285, rad: 0.068 },
+    { ang: 0, len: 0.285, rad: 0.069 },
     { ang: 48, len: 0.270, rad: 0.065 },
     { ang: 96, len: 0.270, rad: 0.065 },
   ],

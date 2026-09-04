@@ -313,11 +313,18 @@ export function createDirtPile({
     // and a cairn: a run of clods all showing their equator reads as stacked
     // stones, while a mixture, some proud and most with only a crown out, reads
     // as earth with lumps in it.
-    const sink = 0.30 + 0.75 * rng() * rng();
-    const y = coreHeight(x, z, core) - r * (0.9 + sink);
+    // How deep the clod is sunk is the whole difference between a heap and a
+    // potato, and it has a narrow window. A clod is 0.72r tall above its own
+    // centre, so sinking it much past half of that leaves nothing standing
+    // proud and the heap closes back up into one smooth dome, which is the
+    // ledger's failure arriving by the back door. Tried at 0.9r to 1.65r and
+    // the render was a bread roll. This range leaves every clod showing
+    // between a fifth and three fifths of its radius.
+    const sink = 0.12 + 0.42 * rng();
+    const y = coreHeight(x, z, core) - r * sink;
     const geo = lumpGeometry(rng, [12, 8]);
     placed(geo, {
-      pos: new THREE.Vector3(x, Math.max(y, -r * 0.55), z),
+      pos: new THREE.Vector3(x, Math.max(y, r * 0.22), z),
       // Flattened: a clod that has been dropped sits wider than it is tall, and
       // a flattened lump turns more of itself at the sky.
       scale: new THREE.Vector3(r * 2.25, r * 1.45, r * 2.0),

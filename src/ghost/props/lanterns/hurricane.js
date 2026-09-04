@@ -58,11 +58,13 @@ import { Profile, createSink, sinkToGeometry, latheInto, transformRange } from '
 //
 // World units, the fount's rim resting at y = 0, origin on the axis.
 //
-// Overall: 0.382 to the top of the vent crown, 0.216 across the fount. Against
+// Measured off the built geometry rather than added up from the table below:
+// 0.380 to the top of the vent crown, 0.253 across the widest part (the bow of
+// the two side tubes) and 0.196 across the fount. Against
 // createTombstone({ variant: 'fred' }) at 1.10 and the ghost at 1.60, that is a
 // third of the little headstone and just under a quarter of the ghost: shin
 // height, which is where a lamp somebody set down belongs. It is deliberately
-// the fattest of the set rather than the tallest, height over width 1.77 where
+// the fattest of the set rather than the tallest, height over width 1.50 where
 // the real article is nearer 2.4. A storm lantern squashed toward its own
 // footprint is the shape a vinyl toy of one would be.
 const M = {

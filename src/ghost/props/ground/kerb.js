@@ -36,8 +36,12 @@ export const KERB = {
 // The rounding. A fixed radius in world units rather than a fraction of the
 // block, for the reason tombstones.js gives: a proportional radius on a short
 // stone becomes a hairline and the piece stops reading as vinyl.
-const EDGE = 0.045;       // the roll across the stone, front and back
-const TOP_R = 0.055;      // the roll at the two ends, seen from above
+// EDGE started at 0.045 out of an 0.08 half-depth, which is 56% of the way to a
+// half-round and turned the run into a line of soft sausages. A kerb stone is a
+// BLOCK: it needs a top plane and two side planes that read as different
+// surfaces, with the corner rolled off between them.
+const EDGE = 0.033;       // the roll across the stone, front and back
+const TOP_R = 0.058;      // the roll at the two ends, seen from above
 const BOT_R = 0.035;      // the buried corners, only ever seen in silhouette
 
 // How much any of it is allowed to differ, stone to stone. Read these as the
@@ -45,15 +49,25 @@ const BOT_R = 0.035;      // the buried corners, only ever seen in silhouette
 const VARY = {
   length: 0.20,           // +/- fraction of the nominal length
   width: 0.08,
-  reveal: 0.16,           // a stone standing lower is a stone laid by hand
-  yaw: 0.055,             // rad, +/-. About 3 degrees off the run's direction
-  roll: 0.050,            // rad, tipped sideways across the run
-  tip: 0.038,             // rad, tipped along it
-  lateral: 0.014,         // world units off the line, left or right
-  gapMin: 0.008,          // the joint between two stones
-  gapMax: 0.034,
-  settleChance: 0.26,     // fraction of stones that have sunk further
-  settleMax: 0.030,
+  reveal: 0.20,           // a stone standing lower is a stone laid by hand
+  yaw: 0.070,             // rad, +/-. About 4 degrees off the run's direction
+  roll: 0.065,            // rad, tipped sideways across the run
+  tip: 0.050,             // rad, tipped along it
+  lateral: 0.016,         // world units off the line, left or right
+  gapMin: 0.010,          // the joint between two stones
+  gapMax: 0.040,
+  settleChance: 0.30,     // fraction of stones that have sunk further
+  settleMax: 0.035,
+};
+
+// The soft stain in the dirt where a stone is bedded. One patch per stone, not
+// a ribbon along the path: a wide joint gets a gap in the stain too, which is
+// half of what makes the run read as separate blocks from far enough away that
+// the joints themselves are a pixel wide.
+const CONTACT = {
+  long: 1.30,             // multiples of the stone's own length
+  across: 2.60,           // and of its width
+  opacity: 0.30,
 };
 
 // ---------------------------------------------------------------------------
@@ -157,6 +171,26 @@ function buildTextures(rng) {
   map.colorSpace = THREE.SRGBColorSpace;
   map.anisotropy = 8;
   return { map, normalMap: heightToNormalMap(height, 14) };
+}
+
+// A soft round stain, for the contact patches. style.js's contactShadow() makes
+// one of these as a whole mesh, which would be a draw call per stone; this is
+// the same gradient with the mesh part left to the caller.
+function contactTexture() {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createRadialGradient(size / 2, size / 2, size * 0.16, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(0,0,0,1)');
+  g.addColorStop(0.5, 'rgba(0,0,0,0.42)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 // ---------------------------------------------------------------------------
@@ -308,6 +342,7 @@ export function createKerbRun({ seed = 1, points, scale = 1 } = {}) {
   const unit = path.total / sum;
 
   const parts = [];
+  const stains = [];
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const e = new THREE.Euler();
@@ -370,6 +405,17 @@ export function createKerbRun({ seed = 1, points, scale = 1 } = {}) {
     geo.applyMatrix4(m.compose(p, q, one));
 
     parts.push(geo);
+
+    // The contact stain, flat on the ground and carrying the stone's yaw but
+    // none of its tilt.
+    if (hasDOM) {
+      const stain = new THREE.PlaneGeometry(length * CONTACT.long, width * CONTACT.across);
+      stain.rotateX(-Math.PI / 2);
+      stain.translate(p.x, 0.004, p.z);
+      stain.rotateY(0); // no-op, kept explicit: the yaw is applied below
+      stains.push(stain);
+    }
+
     s += pitch;
   }
 
