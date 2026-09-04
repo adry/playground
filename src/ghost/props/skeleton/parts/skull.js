@@ -336,8 +336,13 @@ const MAX_BACK = MAX_FRONT - 0.600 * M.skull.depth;
 // 7%, so the rows would have run forward of the face if they were left alone.
 // They are pulled back to keep the incisors under the nasal aperture rather
 // than in front of it.
-const UPPER_ARCH = { halfW: 0.262 * M.skull.width, front: 0.352 * M.skull.depth, back: 0.176 * M.skull.depth };
-const LOWER_ARCH = { halfW: 0.222 * M.skull.width, front: 0.333 * M.skull.depth, back: 0.166 * M.skull.depth };
+// ...and then pushed forward again, harder, when the reference's coordinate
+// table arrived: prosthion, the front of the upper tooth row, is at +0.555 of L
+// and pogonion, the front of the chin, at +0.525, both measured from the ear
+// canal. The rows were sitting 0.06 of L behind that, which is most of why the
+// face read as a small snout tucked under the braincase rather than as a block.
+const UPPER_ARCH = { halfW: 0.262 * M.skull.width, front: 0.412 * M.skull.depth, back: 0.236 * M.skull.depth };
+const LOWER_ARCH = { halfW: 0.222 * M.skull.width, front: 0.3855 * M.skull.depth, back: 0.2185 * M.skull.depth };
 // Shorter crowns than the 0.066 this used to be. The eye line is at half the
 // head's height now, which is where a real one is, and that leaves 0.19 of the
 // height between the orbit's floor and the bite line for a nasal aperture, a
@@ -369,8 +374,8 @@ const RAMUS_R = 0.062 * HS;
 // the ear canal -- the reference is explicit that it belongs below and behind
 // it, and a gonion in front of the hinge is most of why the old mandible read
 // as a hoop slung under the head rather than as a jaw hung off a joint.
-const JAW_EXTEND = 1.68;
-const JAW_FLARE = 0.40;
+const JAW_EXTEND = 1.568;
+const JAW_FLARE = 0.60;
 // The hinge, which is also where this build measures the ear canal: the condyle
 // sits in the mandibular fossa immediately in front of the meatus and the two
 // are within a couple of millimetres of each other on a real skull.
@@ -1346,7 +1351,7 @@ export function buildSkull({ material }) {
   const archPath = (side) => new THREE.CatmullRomCurve3([
     new THREE.Vector3(side * 0.300 * M.skull.width, ORBIT_V - 0.180 * HS, 0.272 * M.skull.depth),
     new THREE.Vector3(side * 0.402 * M.skull.width, ORBIT_V - 0.148 * HS, 0.175 * M.skull.depth),
-    new THREE.Vector3(side * 0.435 * M.skull.width, ORBIT_V - 0.132 * HS, 0.040 * M.skull.depth),
+    new THREE.Vector3(side * 0.452 * M.skull.width, ORBIT_V - 0.132 * HS, 0.040 * M.skull.depth),
     new THREE.Vector3(side * 0.418 * M.skull.width, ORBIT_V - 0.118 * HS, -0.085 * M.skull.depth),
     new THREE.Vector3(side * 0.352 * M.skull.width, ORBIT_V - 0.098 * HS, -0.180 * M.skull.depth),
   ], false, 'centripetal', 0.5);
@@ -1696,7 +1701,7 @@ export function buildSkull({ material }) {
   const bodyCurve = archCurve(
     { halfW: LOWER_ARCH.halfW * 1.06, front: LOWER_ARCH.front, back: LOWER_ARCH.back },
     0,
-    { inset: JAW_R, extend: JAW_EXTEND, rise: JAW_R * 0.28, flare: JAW_FLARE },
+    { inset: JAW_R, extend: JAW_EXTEND, rise: JAW_R * 0.10, flare: JAW_FLARE },
   );
   // No waist at all: shaft() thins the middle of a bone, and the middle of this
   // one is the chin. At 0.93 the chin sat 0.6% of the head's height short of
@@ -1744,18 +1749,22 @@ export function buildSkull({ material }) {
     // EDGE of an extrusion and does nothing at all to the corners of its
     // outline. Resampling the loop as a spline is what makes it a bone.
     const RAMUS_T = 0.038 * HS;
+    // Authored in the reference's own porion frame, like the vault's profile,
+    // so the three landmarks it has to hit -- condylion (-0.03, +0.015),
+    // the coronoid tip (+0.13, -0.02) and the gonion (+0.07, -0.30) -- are
+    // literally in the list rather than being aimed at with offsets.
     const ramusOutline = new THREE.CatmullRomCurve3([
-      [gonion.z - 0.004, gonionY - 0.012],   // buried in the gonion's cap
-      [gonion.z - 0.010, gonionY + 0.052],   // posterior border
-      [HINGE_Z - 0.009, HINGE_Y - 0.016],    // condylar neck
-      [HINGE_Z + 0.002, HINGE_Y + 0.001],    // the condyle itself
-      [HINGE_Z + 0.017, HINGE_Y - 0.026],    // down into the notch
-      [HINGE_Z + 0.032, HINGE_Y - 0.031],    // the mandibular notch's floor
-      [HINGE_Z + 0.048, HINGE_Y - 0.008],    // the coronoid process
-      [HINGE_Z + 0.038, HINGE_Y - 0.050],    // anterior border
-      [HINGE_Z + 0.024, HINGE_Y - 0.076],
-      [gonion.z + 0.030, gonionY - 0.010],   // lower edge, inside the body
-    ].map(([z, y]) => new THREE.Vector3(z, y, 0)), true, 'centripetal', 0.5)
+      [+0.100, -0.325],   // lower posterior corner, buried in the body's bar
+      [+0.045, -0.200],   // posterior border of the ramus
+      [-0.020, -0.030],   // condylar neck
+      [-0.030, +0.015],   // CONDYLION
+      [+0.020, -0.030],   // down into the mandibular notch
+      [+0.070, -0.055],   // the notch's floor
+      [+0.130, -0.020],   // CORONOID TIP
+      [+0.115, -0.100],   // anterior border
+      [+0.140, -0.240],
+      [+0.115, -0.335],   // lower anterior, buried in the body
+    ].map(([x, y]) => new THREE.Vector3(LZ(x), LY(y), 0)), true, 'centripetal', 0.5)
       .getPoints(72)
       .map((q) => new THREE.Vector2(q.x, q.y));
     const ramus = track(plate(ramusOutline, RAMUS_T, { bevel: 0.45, bevelSegments: 3 }));
@@ -1775,6 +1784,16 @@ export function buildSkull({ material }) {
     ball.translate(side * HINGE_X, HINGE_Y, HINGE_Z);
     jawRoot.add(add(ball, material, 'jaw-condyle'));
   }
+
+  // The mental protuberance, which is to say the chin. The body of the mandible
+  // is a swept round bar, so its lowest point sits well BEHIND its front: the
+  // reference has gnathion at +0.50 of L and pogonion at +0.525, only 0.025
+  // apart, and a round bar puts them 0.12 apart. A rounded block filling the
+  // front-lower corner is what a real chin is anyway, and it is the difference
+  // between a jaw that ends in a curve and one that ends in a face.
+  const chinGeo = track(toothGeometry(0.185 * M.skull.width, 0.108 * HS, 0.115 * M.skull.depth));
+  chinGeo.translate(0, Y_CHIN + 0.048 * HS, LOWER_ARCH.front - 0.055 * M.skull.depth);
+  jawRoot.add(add(chinGeo, material, 'jaw-chin'));
 
   // ------------------------------------------------------------- lower teeth
   const lowerRow = archCurve(LOWER_ARCH, Y_BITE - TOOTH_H / 2);
@@ -1808,6 +1827,10 @@ export function buildSkull({ material }) {
     orbitDiverge: orbitDiverge * (180 / Math.PI),
     zygGap: archGap,
     vaultBase: VAULT_BASE,
+    // The reference's own frame, so the checker can measure in it.
+    porionY: PORION_Y, porionZ: PORION_Z, L: L_SKULL, syUp: SY_UP, syDn: SY_DN,
+    basionY: LY(-0.13),
+    zFace: Z_FACE, zBack: Z_BACK,
   };
 
   return {
