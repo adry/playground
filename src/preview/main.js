@@ -98,18 +98,33 @@ const PROPS = {
       import('../ghost/props/tombstones.js'),
     ]);
     const group = new THREE.Group();
+    const parts = [];
     const stone = tb.createTombstone({ variant: 'fred', seed: 11 });
     stone.group.position.set(-0.62, 0, -0.30);
     stone.group.rotation.y = Math.PI / 4 + 0.18;
-    const gourd = pk.createPumpkin({ variant: params.get('variant') || 'classic', seed: 3 });
-    gourd.group.position.set(0.46, 0, 0.24);
-    gourd.group.rotation.y = Math.PI / 4 - 0.15;
-    group.add(stone.group, gourd.group);
-    const parts = [stone, gourd];
+    group.add(stone.group);
+    parts.push(stone);
+
+    // Placed in world coordinates but chosen in screen ones, since "to the
+    // left" is a thing about the frame and this camera maps world (1,0,-1) to
+    // screen right. Four bodies rather than one so the group reads as a set,
+    // and each turned differently so the four floor pools do not line up.
+    for (const p of [
+      { variant: 'classic', at: [0.46, 0.24], yaw: Math.PI / 4 - 0.15, seed: 3 },
+      { variant: 'tall', at: [-0.85, 0.99], yaw: Math.PI / 4 + 0.55, seed: 17 },
+      { variant: 'tiny', at: [0.14, 1.20], yaw: Math.PI / 4 - 0.62, seed: 8 },
+      { variant: 'squat', at: [-1.35, 0.10], yaw: Math.PI / 4 + 0.22, seed: 23 },
+    ]) {
+      const o = pk.createPumpkin({ variant: p.variant, seed: p.seed });
+      o.group.position.set(p.at[0], 0, p.at[1]);
+      o.group.rotation.y = p.yaw;
+      group.add(o.group);
+      parts.push(o);
+    }
     return {
       group,
-      update: (time, dt) => parts.forEach((p) => p.update?.(time, dt)),
-      dispose: () => parts.forEach((p) => p.dispose?.()),
+      update: (time, dt) => parts.forEach((x) => x.update?.(time, dt)),
+      dispose: () => parts.forEach((x) => x.dispose?.()),
     };
   },
 
