@@ -92,7 +92,7 @@ const CLOTH = {
   fallEnd: 0.420, // and at the outer end of the material, which is what sets
   // how far the corner falls past the shoulder
   swag: 0.110, // the middle of the front hem dips this much further again
-  tilt: 0.022, // and the whole hem falls further on one side than the other
+  tilt: 0.085, // and the whole hem falls further on one side than the other
 
   // Fewer, deeper. Three ridges across the face, and between them a narrow
   // groove each, because a ridge alone is a swell and a swell is what the light

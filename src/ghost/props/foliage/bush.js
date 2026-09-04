@@ -52,7 +52,16 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   // --- proportions ----------------------------------------------------------
   // Knee to waist and wider than tall, which is what an untrimmed yew does when
   // nobody has been round with the shears for a few years.
-  const H = 0.575 + rand() * 0.100;          // visible height above y = 0
+  //
+  // TALL is what the finished prop measures; H is only what the mass under the
+  // tufts is built at. The two are not the same and cannot be: the tufts stand
+  // proud of the mass by however much their own randomness gave them, which
+  // measured out at a quarter of the bush's height and drifting seed to seed.
+  // So the prop is built, measured, and then scaled to the height it promised,
+  // which is the only way "knee to waist, under the headstones" survives the
+  // next four plants being built on top of this.
+  const TALL = 0.62 + rand() * 0.14;
+  const H = 0.575 + rand() * 0.100;          // nominal height of the mass
   const W = H * (1.20 + rand() * 0.24);      // widest point
   const D = W * (0.80 + rand() * 0.20);      // and its depth, so it is not round
   const BURIED = H * 0.17;                   // how much of the dome is underground
@@ -77,10 +86,6 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
     scaleY: 0.90,
     fit: { width: W, depth: D, height: H, buried: BURIED },
   });
-  // The mass is only ever seen through the gaps between clumps, which are the
-  // deepest part of the bush, so it is darkened hard.
-  bakeFoliageTint(massGeo, { top: H, floor: 0.30, ceil: 0.84, down: 0.66, rand });
-  bakeWind(massGeo, { top: H * 0.90, base: 0, power: 1.8, flutter: 0 });
   disposables.push(massGeo);
 
   const massMat = foliageMaterial(FOLIAGE.deep);
@@ -112,9 +117,26 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
     gap: 0.44,
   });
   const clumpGeo = mergeLumps(buildTufts(tuftSites, { rand, W, H }));
-  bakeFoliageTint(clumpGeo, { top: H, floor: 0.40, ceil: 1.34, down: 0.52, root: 0.34, spread: 0.26, rand });
-  bakeWind(clumpGeo, { top: H * 0.90, base: 0, power: 1.8 });
   disposables.push(clumpGeo);
+
+  // --- fit to the promised height -------------------------------------------
+  // Uniform, so no normal has to be recomputed, and about y = 0, so the buried
+  // skirt keeps the same proportion of itself underground. Everything that
+  // reads a position -- the shading bake, the wind weights, the contact patch --
+  // happens after this, so nothing has to be corrected for it afterwards.
+  const K = TALL / measureExtent(massGeo, clumpGeo).top;
+  massGeo.scale(K, K, K);
+  clumpGeo.scale(K, K, K);
+  // Re-measured rather than taken as W * K, because the tufts stand outside the
+  // mass sideways as well as upward: the mass's fitted width under-reports the
+  // finished prop by about a fifth, which is exactly the amount a scene laying
+  // bushes out would then overlap them by.
+  const { width, depth } = measureExtent(massGeo, clumpGeo);
+
+  bakeFoliageTint(massGeo, { top: TALL, floor: 0.30, ceil: 0.84, down: 0.66, rand });
+  bakeWind(massGeo, { top: TALL * 0.86, base: 0, power: 1.8, flutter: 0 });
+  bakeFoliageTint(clumpGeo, { top: TALL, floor: 0.40, ceil: 1.34, down: 0.52, root: 0.34, spread: 0.26, rand });
+  bakeWind(clumpGeo, { top: TALL * 0.86, base: 0, power: 1.8 });
 
   const clumpMat = foliageMaterial(FOLIAGE.mid);
   disposables.push(clumpMat);
@@ -129,7 +151,7 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   // the independence the clumps need comes from uScatter and from the flutter,
   // both of which are bounded well inside the burial depth.
   const bend = {
-    sway: 0.088 * H,        // authored against the plant's own height
+    sway: 0.088 * TALL,     // authored against the plant's own height
     droop: 1.35,
     lag: 0.26,
     scatter: 0.20,
@@ -148,7 +170,7 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   body.rotation.z = (rand() - 0.5) * 0.10;
   body.rotation.x = (rand() - 0.5) * 0.08;
 
-  const patch = contactShadow({ radius: (W + D) * 0.20, opacity: 0.34, softness: 0.62 });
+  const patch = contactShadow({ radius: (width + depth) * 0.26, opacity: 0.34, softness: 0.62 });
   group.add(patch);
   disposables.push({ dispose: () => patch.userData.dispose?.() });
 
@@ -156,6 +178,9 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
 
   return {
     group,
+    // What the prop actually measures, so a scene can lay bushes out without
+    // building one and reading its bounding box back.
+    size: { height: TALL * scale, width: width * scale, depth: depth * scale },
     update(time) {
       // Every plant in the yard writes the same value into the same shared
       // uniform. Cheap, and it is what keeps them in one weather system.
@@ -174,6 +199,21 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
 // rather than a fixed count of random picks, because random picks clump and
 // leave a bald patch on one flank about a third of the time, and a bald flank on
 // a bush is very visible at a fixed camera azimuth.
+// What the finished prop actually measures, over every geometry in it.
+function measureExtent(...geos) {
+  let top = 0, minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const g of geos) {
+    const p = g.getAttribute('position');
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      if (y > top) top = y;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+  }
+  return { top: Math.max(1e-4, top), width: maxX - minX, depth: maxZ - minZ };
+}
+
 // One tier of tufts, from a list of sites.
 function buildTufts(sites, { rand, W, H, stretch = [0.55, 0.55] }) {
   const parts = [];

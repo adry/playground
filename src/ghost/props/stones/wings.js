@@ -80,7 +80,7 @@ const CROWN_SINK = 0.28;
 // The central boss: the roundel where the skull would be. Its circle reaches
 // well below the top of the slab, so it is a dome standing out of the stone
 // rather than a ball balanced on it.
-const BOSS = { r: 0.155, y: 1.21, seat: -18 };
+const BOSS = { r: 0.30, y: 1.06, seat: 22 };
 
 const WING = {
   cove: 0.115,
@@ -88,11 +88,11 @@ const WING = {
   flare: 55,
   lobes: [
     { r: 0.115 },
-    { r: 0.100, step: 0.185, rake: 36 },
-    { r: 0.085, step: 0.175, rake: 42 },
+    { r: 0.100, step: 0.190, rake: 34 },
+    { r: 0.085, step: 0.180, rake: 46 },
   ],
   notch: 0.020,
-  valley: 0.09,
+  valley: 0.06,
   sweep: 0.90,
 };
 

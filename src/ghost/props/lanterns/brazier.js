@@ -42,7 +42,7 @@ import { PALETTE, toyMaterial, contactShadow } from '../style.js';
 // at the same time from any angle, so the basket reads as round from every side
 // rather than as two flat faces.
 //
-// THE FIRE. See the FIRE block below. It is four surfaces, no particles and no
+// THE FIRE. See the FIRE block below. It is six meshes, no particles and no
 // texture, and it is the piece the prop lives or dies on. Its flicker is in
 // update(), with the measured numbers beside the two glazed lanterns' own.
 
@@ -373,8 +373,8 @@ function softLimb(material, key, power = 2.2) {
 
 // The warm on the ground, painted rather than lit.
 //
-// The point light does most of this job honestly, since the fire is only 0.95
-// up and its own inverse square reaches the floor at a useful level. What the
+// The point light does most of this job honestly, since the fire is only 0.94
+// up and its own falloff reaches the floor at a useful level. What the
 // light cannot give is the near field: at 0.2 from the source the falloff is
 // vicious enough that a level tuned for the ground at 0.8 out has already
 // scorched the legs white. So the light is set where the IRONWORK looks right

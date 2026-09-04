@@ -71,6 +71,14 @@ const VARY = {
   warm: 0.014,            // +/- red against blue, so the tone is not just value
 };
 
+// Two bits of baked occlusion, also carried on the vertex colour. Both are
+// there for the same reason: a kerb is background furniture, so it has to read
+// as separate blocks bedded in dirt at 300 pixels wide, where a joint is one
+// pixel across and the shading either side of it is all there is to see.
+const JOINT_AO = 0.16;    // the end faces, which look into a 2cm gap
+const GROUND_AO = 0.14;   // the last few centimetres before the dirt
+const GROUND_AO_H = 0.05; // over how much height that fades out
+
 // The soft stain in the dirt where a stone is bedded. One patch per stone, not
 // a ribbon along the path: a wide joint gets a gap in the stain too, which is
 // half of what makes the run read as separate blocks from far enough away that
@@ -251,15 +259,24 @@ function layUV(geo, baseY, uOff) {
   uv.needsUpdate = true;
 }
 
-// One flat colour over the whole block, as a vertex attribute so the run still
-// merges into a single mesh. See VARY.tone for why this exists at all.
-function tint(geo, tone, warm) {
-  const n = geo.getAttribute('position').count;
+// The per-stone tone and the baked occlusion, as a vertex attribute so the run
+// still merges into a single mesh. See VARY.tone and JOINT_AO for why each of
+// the three terms is here.
+function shade(geo, tone, warm, baseY) {
+  const pos = geo.getAttribute('position');
+  const nor = geo.getAttribute('normal');
+  const n = pos.count;
   const c = new Float32Array(n * 3);
-  for (let i = 0; i < n * 3; i += 3) {
-    c[i] = tone * (1 + warm);
-    c[i + 1] = tone;
-    c[i + 2] = tone * (1 - warm);
+  for (let i = 0; i < n; i++) {
+    const nx = Math.abs(nor.getX(i));
+    // Squared, so this stays on the end caps and their shoulders instead of
+    // creeping along the long faces.
+    let k = 1 - JOINT_AO * nx * nx;
+    const t = Math.min(1, Math.max(0, (baseY + pos.getY(i)) / GROUND_AO_H));
+    k *= 1 - GROUND_AO * (1 - t * t);
+    c[i * 3] = tone * k * (1 + warm);
+    c[i * 3 + 1] = tone * k;
+    c[i * 3 + 2] = tone * k * (1 - warm);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
 }
@@ -414,7 +431,7 @@ export function createKerbRun({ seed = 1, points, scale = 1 } = {}) {
     // keeps a whole stone inside the map with no wrap, so the joint faces never
     // pick up a seam.
     layUV(geo, baseY, 0.10 + rng() * Math.max(0.02, TEX_U - length - 0.24));
-    tint(geo, 1 + (rng() * 2 - 1) * VARY.tone, (rng() * 2 - 1) * VARY.warm);
+    shade(geo, 1 + (rng() * 2 - 1) * VARY.tone, (rng() * 2 - 1) * VARY.warm, baseY);
 
     // Yaw so +X follows the chord, then the two tilts in the stone's own frame:
     // roll tips it sideways across the run, tip rocks it along the run. Euler
