@@ -132,7 +132,7 @@ const smoothstep = (a, b, x) => {
 // crown broadside: a vault that is still full width up there fills the head
 // crop with forehead.
 const vaultWidth = (v) => 1
-  - 0.185 * smoothstep(0.58, 1.00, v)
+  - 0.150 * smoothstep(0.60, 1.00, v)
   - 0.110 * (1 - smoothstep(0.02, 0.36, v));
 // How square the cross-section is. Flat sides and a flat frontal plane across
 // the temples, rounding off toward the crown and the base -- one exponent for
@@ -142,20 +142,20 @@ const vaultWidth = (v) => 1
 // also most of the temporal flat: above the arch the side of the head is a
 // plane, and the arch standing off it is what makes the arch read.
 const vaultPlan = (v) => 2.20
-  + 0.68 * smoothstep(0.08, 0.34, v) * (1 - smoothstep(0.58, 0.94, v));
+  + 0.50 * smoothstep(0.08, 0.34, v) * (1 - smoothstep(0.54, 0.96, v));
 // How far the vault reaches forward, as a fraction of VZ_A. Full at the brow,
 // receding above it: this is the forehead's backward slope, and it is what puts
 // the crown behind the glabella instead of over it.
 const vaultFront = (v) => 1
-  - 0.30 * smoothstep(0.44, 1.00, v)
+  - 0.26 * smoothstep(0.50, 1.00, v)
   - 0.24 * (1 - smoothstep(0.02, 0.38, v));
 // How far it reaches back. Full at ear level and tucking in hard above and
 // below, which is what makes the occiput read as a projection rather than as
 // the back half of a sphere. It never exceeds 1: M.skull.depth is the budget
 // and the occiput spends all of it, it does not get to overspend.
 const vaultBack = (v) => 1
-  - 0.28 * smoothstep(0.40, 1.00, v)
-  - 0.34 * (1 - smoothstep(0.00, 0.26, v));
+  - 0.24 * smoothstep(0.46, 1.00, v)
+  - 0.46 * (1 - smoothstep(0.00, 0.30, v));
 
 function vaultField(x, y, z) {
   const v = vaultV(y);
@@ -679,18 +679,25 @@ export function buildSkull({ material }) {
   // history is the warning here: a ridge on the side of a skull turns into a
   // moulding seam the moment it is tall enough to catch a specular.
   const TEMP_R = 0.034 * HS;
-  const TEMP_INSET = 0.026 * HS;
-  // [bearing, height BELOW THE CROWN as a fraction of the skull's height]. It
-  // starts level with the top of the orbit and climbs, which is the whole
-  // character of the line; run at the orbit's own height all the way round -- as
-  // it was on the first attempt -- it crosses the middle of the side of the head
-  // and reads as a dent, not a line.
-  const TEMPORAL = [[0.88, 0.336], [1.24, 0.302], [1.62, 0.288], [1.98, 0.312], [2.32, 0.392]];
+  // [bearing, height BELOW THE CROWN as a fraction of the skull's height, how
+  // deep to bury this point]. It starts level with the top of the orbit and
+  // climbs, which is the whole character of the line; run at the orbit's own
+  // height all the way round -- as it was on the first attempt -- it crosses the
+  // middle of the side of the head and reads as a dent, not a line.
+  //
+  // The third number is the fix for a capsule chain's ends. tube() sweeps ONE
+  // radius, so a run that stops out in the open stops with a hemisphere on it,
+  // and that hemisphere came out as a pimple on the back of the head. Sinking
+  // the last point or two deeper than the ridge itself buries the cap instead.
+  const TEMPORAL = [
+    [0.88, 0.336, 0.040], [1.24, 0.302, 0.026], [1.62, 0.288, 0.024],
+    [1.98, 0.312, 0.030], [2.28, 0.386, 0.046],
+  ];
   const temporals = [-1, 1].map((side) => tube(
-    TEMPORAL.map(([a, h]) => {
+    TEMPORAL.map(([a, h, inset]) => {
       const ang = side * a;
       const y = Y_CROWN - h * HS;
-      const rho = surfaceRho(base, ang, y) - TEMP_INSET;
+      const rho = surfaceRho(base, ang, y) - inset * HS;
       return new THREE.Vector3(Math.sin(ang) * rho, y, Math.cos(ang) * rho);
     }),
     TEMP_R,
