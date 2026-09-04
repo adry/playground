@@ -773,7 +773,7 @@ function makeNoise(seed) {
 // stylistic call: against a hemisphere at 1.15 and a key at 2.1 a truthful
 // candle is invisible, and this is what makes the lantern read as lit.
 const LAMP = { min: 0.362, max: 0.78 };
-const GLASS_GLOW = { min: 0.30, max: 0.80 };
+const GLASS_GLOW = { min: 0.40, max: 1.05 };
 const WICK = { min: 0.58, max: 1.25 };
 const HUE_MID = 0.88, HUE_GAIN = 1.5;
 

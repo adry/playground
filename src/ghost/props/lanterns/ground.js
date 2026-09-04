@@ -92,8 +92,29 @@ const AROUND = 64;
 // Iron. Fat and soft rather than wrought: high roughness, no metalness at all,
 // exactly like every other surface in the set. What makes it read as metal is
 // that it is much darker than the stone beside it, not that it is shiny.
-const IRON = new THREE.Color(PALETTE.stone).multiplyScalar(0.46)
-  .lerp(new THREE.Color('#3b4452'), 0.42);
+//
+// The palette's stone taken down to two fifths of its value and tilted toward
+// the blue the scene's rim light already puts in every shadow. Two notes on how
+// rather than what.
+//
+// Worked in sRGB, the space the palette was authored in, and NOT as a lerp in
+// linear space toward a blue hex. That was the first attempt and it does not
+// work: linear mixing toward #39465c and three neighbours of it all landed on a
+// neutral #5d6068 to #64666b, because the blue's own channels are tiny once
+// decoded. A neutral grey is the one answer that is wrong here, since the
+// lantern is the darkest object in a frame full of warm candlelight and a
+// neutral dark next to that reads as mud.
+//
+// And it is here rather than in style.js because it is a change this prop makes
+// to the house palette, not a change to the palette: PALETTE.stone stays what
+// the tombstones were authored against.
+const IRON = (() => {
+  const c = new THREE.Color(PALETTE.stone);
+  const s = c.getRGB({ r: 0, g: 0, b: 0 }, THREE.SRGBColorSpace);
+  const V = 0.42;                  // how far below stone the ironwork sits
+  const TILT = [0.95, 1.10, 1.33]; // and how far round toward the rim light
+  return c.setRGB(s.r * V * TILT[0], s.g * V * TILT[1], s.b * V * TILT[2], THREE.SRGBColorSpace);
+})();
 
 // The glazing's own tint, a shade paler and greener than the fountain's
 // #93b2c6 because a pane is a millimetre of glass where a bowl is centimetres

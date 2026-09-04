@@ -87,11 +87,11 @@ const URN_SCALE = 1.18;
 // the urn at the FOOT of the rim flare, so the lip always overhangs the cloth
 // and the cloth's top edge sits in the lip's own shadow.
 const CLOAK = [
-  [0.215, 0.216],
-  [0.250, 0.212],
-  [0.290, 0.192],
-  [0.330, 0.160],
-  [0.355, 0.132],
+  [0.215, 0.222],
+  [0.250, 0.218],
+  [0.290, 0.198],
+  [0.330, 0.164],
+  [0.355, 0.134],
   [0.370, 0.110],
   [0.378, 0.104], // inside the urn here, so the cloth has run out by the flare
 ];
@@ -100,7 +100,7 @@ const DRAPE = {
   arcPos: 1.06,   // how far the cloth wraps one way, radians
   arcNeg: 0.92,   // and the other. Uneven on purpose: a hand-thrown cloth is.
   folds: 3,       // ridges across the whole span
-  foldDepth: 0.28,
+  foldDepth: 0.55,
   // Where the hem sits. It is written as a TUCK LINE up on the shoulder and a
   // fall below it, and the fall is scaled by the same fade that thins the cloth
   // at its ends. Written the other way round -- a hem height with a tilt added
@@ -110,7 +110,7 @@ const DRAPE = {
   // ends always tuck back up under the shoulder and there is nothing to pinch.
   tuck: 0.350,
   fall: 0.070,
-  hemWave: 0.026, // ridges hang lower than the hollows between them. Small: at
+  hemWave: 0.030, // ridges hang lower than the hollows between them. Small: at
                   // the amplitude that looks right up close, three scallops
                   // across the front read from a distance as a painted zigzag.
   hemTilt: 0.055, // and the whole hem falls further on one side than the other

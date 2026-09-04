@@ -202,7 +202,7 @@ function sweepBar(curve, radiusOf, along, around) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nors, 3));
   g.setIndex(idx);
-  g.computeVertexNormals !== undefined && g.computeBoundingSphere();
+  g.computeBoundingSphere();
   return g;
 }
 

@@ -37,8 +37,10 @@ const SHAPE = {
   // pattern of stone. A shade narrower and noticeably shorter: 1.40 against the
   // cross's 1.56 and the little one's 1.10, which puts it between them, and an
   // old stone that has settled into the ground is the short one for a reason.
-  // The face works out 727 by 1024 texels, inside the band the engraving
-  // treatment was calibrated for and well clear of the floor it collapses at.
+  // The face works out 727 by 1024 texels. That is wider than the 528 to 638 the
+  // engraving treatment was calibrated on, which is the safe direction to be
+  // out: the treatment fails on faces too NARROW to hold an 11 px groove wall,
+  // which is what a 233 px obelisk face did to the last set.
   halfWidth: 0.44,
   height: 1.24,
   depth: 0.29,
@@ -51,64 +53,60 @@ const SHAPE = {
 
 // --- the chip ---------------------------------------------------------------
 //
-// Circles subtracted from the slab's outline, positioned on the arch. `deg` is
-// where on the arch the circle sits (90 is top centre, 0 is the right side),
-// `bite` is how far inside the outline it reaches, `r` is how broad the scoop
-// is. Three of them, unequal and overlapping, because one circle is a bite out
-// of an apple and three are a chip.
+// Circles subtracted from the slab's outline. `deg` is where on the arch the
+// circle sits (90 is top centre, 0 is the right side), `bite` is how far inside
+// the outline it reaches, `r` is how broad the scoop is. Three of them, unequal
+// and overlapping, because one circle is a bite out of an apple and three are a
+// chip.
 //
-// Kept soft on purpose. This is a chipped bath toy, not shattered granite: the
-// scoop is concave and its lips are rounded by the same quarter-round sweep
+// Four renders went into these nine numbers and each one moved a different one:
+//
+//  - SPAN. The first pass ran from 98 to 174 degrees. The crown of the arch went
+//    with it, the stone came back a triangular shard and stopped reading as a
+//    headstone at all. A corner is a corner: the crown has to survive, or the
+//    silhouette is spent, which is what the postmortem says killed the last set.
+//  - SIDE. Same numbers on the left shoulder read as a wonky arch rather than as
+//    damage. The set is lit and viewed from the front right, so a break on the
+//    left is a notch in the far silhouette and its scoop, the whole point of it,
+//    faces away into shade. Mirrored onto the right shoulder the key light rakes
+//    straight into the dish and it reads as a corner knocked off. This is a
+//    decision about the camera, not about the stone.
+//  - DEPTH SPREAD. Circles of gently increasing depth union into one lens, and
+//    the render was a long straight bevel: a shouldered design rather than a
+//    damaged stone. Depths that do not run in order give it a belly.
+//  - LIMIT. A bite deeper than its own circle's radius puts that circle's centre
+//    INSIDE the stone, and then the subtraction is a hole rather than a scoop:
+//    the outline cannot express it and the vertices fold out through the face as
+//    a flap. Hence MAX_BITE below, clamped rather than trusted from the table. A
+//    deep scoop is therefore also a wide one, which is true of real chips too.
+//
+// Kept soft throughout. This is a chipped bath toy, not shattered granite: the
+// scoop is concave, and its lips are rounded by the same quarter-round sweep
 // that rounds every other edge on the piece, so nothing along the break is
 // sharper than the arch it came out of.
-// The first pass ran these from 98 to 174 degrees with a bite of 0.15, and the
-// render was decisive: the crown of the arch went with it, the stone came back
-// as a triangular shard and stopped reading as a headstone at all. A corner is
-// a corner. The crown has to survive, or the silhouette is spent, which is
-// exactly what the postmortem says killed the last set.
-//
-// The two outer circles are the ones that make it vinyl rather than flint. A
-// circle that cuts deep meets the arch at a steep angle, and that junction is a
-// spike: the second render came back with a little horn standing up where the
-// scoop started. So the ends of the chip are wide, shallow circles that barely
-// break the surface, and they feather the scoop into the intact outline over
-// twenty-odd degrees instead of meeting it at a point. Nothing on this stone is
-// allowed to be sharper than the arch.
-//
-// On the RIGHT shoulder, and that is a decision about the camera rather than
-// about the stone. The set is lit and viewed from front right, so a break put
-// on the left shoulder shows only as a notch in the far silhouette and its
-// scoop, the whole point of it, faces away into shade. Rendered on the left it
-// read as a wonky arch; the same numbers mirrored read as a corner knocked off,
-// because the key light rakes straight into the dish.
-// Two lobes rather than one scoop, and the depths deliberately do not run in
-// order. Three circles of gently increasing depth union into a single lens,
-// which came back as a long straight bevel: the stone read as a shouldered
-// design rather than a damaged one. A deep lobe, a shallower waist and a second
-// deep lobe is what makes it lumpy, which is what a chipped bath toy is.
 const CHIP = [
   { deg: 58, r: 0.135, bite: 0.090 },
   { deg: 44, r: 0.180, bite: 0.138 },   // the belly of the scoop
   { deg: 27, r: 0.110, bite: 0.094 },
 ];
-// A bite deeper than its own circle puts that circle's centre INSIDE the stone,
-// and then the subtraction is a hole rather than a scoop: the outline has no
-// way to express it and the vertices fold out through the face as a flap. It is
-// unmistakable in a render and worth failing quietly instead, so the depth is
-// clamped here rather than trusted from the table above. A deep scoop is
-// therefore also a wide one, which is true of real chips as well.
-const MAX_BITE = 0.8;   // of the circle's own radius
-// How far the three circles melt into each other. Zero leaves two visible
-// creases where they cross, which is the one hard edge this piece must not
-// have.
-// Bracketed from both sides. Six circles at 0.055 blended into one long shallow
-// bevel and the stone read as a shouldered design rather than a damaged one: a
-// blend as wide as the gaps between the circles eats the concavity that is the
-// whole read. Three circles at 0.032 went the other way and terraced, each
+const MAX_BITE = 0.8;   // of the circle's own radius, see LIMIT above
+
+// How far the circles melt into each other, and it is bracketed from both
+// sides. Six circles blended at 0.055 came out as one long shallow bevel: a
+// blend as wide as the gaps between the circles eats exactly the concavity that
+// says "broken". Three circles at 0.032 went the other way and terraced, each
 // lens meeting the next in a crease, which from behind was unmistakably a
-// staircase. Circles of similar depth and different radius, blended at about a
-// third of the smallest of them, come out as one belly with lumps in it.
+// staircase. About a third of the smallest circle is one belly with lumps in
+// it.
 const CHIP_BLEND = 0.048;
+
+// A little variation per stone, so two of these in one graveyard are not the
+// same chip twice. Small enough that every draw is still the shape above: the
+// face artwork cannot vary at all, since draw() is handed no seed, so the
+// silhouette is the only place a second instance can differ.
+const VARY_DEG = 3.0;    // degrees, either way
+const VARY_BITE = 0.08;  // of each bite
+const VARY_LEAN = 0.10;  // of the lean
 
 // --- the lean ---------------------------------------------------------------
 //
@@ -122,21 +120,26 @@ const CHIP_BLEND = 0.048;
 const LEAN_Z = 0.125;   // about 7 degrees sideways
 const LEAN_X = -0.035;  // and a little more of the backward tip the set already has
 // Leaning about the foot lifts one corner of the plinth clear of the ground, so
-// the whole thing is sunk by roughly what the lean lifts. It reads as settled
-// rather than as floating, which is what an old stone does anyway.
-// Measured, not guessed: at 0.052 the raised corner of the plinth's flat
-// underside still sat 4mm clear of the ground, which is a hairline of daylight
-// under a prop that is meant to have been there for a century.
+// the whole thing is sunk by roughly what the lean lifts, which also reads as
+// settled rather than as placed. Measured rather than guessed: at 0.052 the
+// raised corner of the plinth's flat underside still stood 4mm clear, a
+// hairline of daylight under a prop that is meant to have been here a century.
 const SINK = 0.060;
 
 // ---------------------------------------------------------------------------
 // the face
 //
-// INK BUDGET. The measured tell on the approved stones is 5 to 10% of the face
-// covered; the rejected set ran 12 to 19%. A crack counts as ink and a long one
-// spends more than it looks like it should, so it is paid for out of the same
-// purse as the lettering: the inscription starts as the cross stone's, which is
-// inside the band on its own, and the wear pass then takes back more than the
+// INK BUDGET. How dark and busy a stone reads beside its neighbours is the test
+// the last set failed, and coverage of the face is the number that says it: the
+// approved stones ran 5 to 10% by the postmortem's count and the rejected ones
+// 12 to 19%. Counted here on the raw mark canvas, which reads lower than that
+// throughout, the same three stones measure: cross 3.6%, fred 6.3%, this one
+// 3.1%. So it sits at the light end of its own set, which is where a stone whose
+// inscription has half worn away belongs.
+//
+// A crack counts as ink and a long one spends more than it looks like it
+// should, so it comes out of the same purse as the lettering: the inscription
+// starts as the cross stone's, and the wear pass takes back rather more than the
 // crack adds.
 
 const SERIF_SIZE = 0.135;   // of face height, the cross stone's own number
@@ -147,9 +150,7 @@ const SERIF_SIZE = 0.135;   // of face height, the cross stone's own number
 //
 // Points are fractions of the face. It starts at the lip of the missing corner,
 // which is the whole story of the piece in one line: the stone broke, and the
-// break ran on down through it.
-//
-// The run matters more than the width. Drawn first as a long sweep from the
+// break ran on down through it. The run matters more than the width. Drawn first as a long sweep from the
 // break down the left side and away to the right edge, it cut a triangle off
 // the bottom-left corner of the face, and a mark that fences off a corner stops
 // being a line and becomes the boundary between two planes: the render came
@@ -348,14 +349,14 @@ function insetAt(z, hz, e) {
   return e * (1 - Math.sqrt(1 - cc * cc));
 }
 
-function chipSlab(slab, { W, H, D, e, slabUV }) {
+function chipSlab(slab, { W, H, D, e, slabUV, chip }) {
   const geo = slab.geometry;
   const pos = geo.getAttribute('position');
   const nor = geo.getAttribute('normal');
   const uv = geo.getAttribute('uv');
   const hz = D / 2;
   const archY = H - W;
-  const circles = CHIP.map((c) => {
+  const circles = chip.map((c) => {
     const a = (c.deg * Math.PI) / 180;
     const dist = W + c.r - Math.min(c.bite, c.r * MAX_BITE);
     return { x: Math.cos(a) * dist, y: archY + Math.sin(a) * dist, r: c.r };
@@ -413,17 +414,24 @@ function chipSlab(slab, { W, H, D, e, slabUV }) {
 registerStone('cracked', {
   shape: SHAPE,
   draw: carve,
-  extras({ body, shape, halfWidth, height, edge, slabUV }) {
+  extras({ body, shape, halfWidth, height, edge, slabUV, rng }) {
+    const vary = (amount) => (rng() - 0.5) * 2 * amount;
+    const chip = CHIP.map((c) => ({
+      deg: c.deg + vary(VARY_DEG),
+      r: c.r,
+      bite: c.bite * (1 + vary(VARY_BITE)),
+    }));
+
     // The slab is the mesh standing on the plinth; the plinth itself is at zero
     // and keeps every corner it was cast with.
     const slab = body.children.find((m) => m.isMesh && m.position.y > 1e-6);
-    if (slab) chipSlab(slab, { W: halfWidth, H: height, D: shape.depth, e: edge, slabUV });
+    if (slab) chipSlab(slab, { W: halfWidth, H: height, D: shape.depth, e: edge, slabUV, chip });
 
     // The lean. A group slipped in under body, because body's own rotation is
     // set after this returns and would overwrite anything put on it here.
     const tilt = new THREE.Group();
     for (const child of [...body.children]) tilt.add(child);
-    tilt.rotation.z = LEAN_Z;
+    tilt.rotation.z = LEAN_Z * (1 + vary(VARY_LEAN));
     tilt.rotation.x = LEAN_X;
     tilt.position.y = -SINK;
     body.add(tilt);

@@ -777,6 +777,10 @@ varying vec3 vHP;`)
   // the finial 60mm off plumb.
   body.rotation.z = (rand() - 0.5) * 0.022;
   body.rotation.x = (rand() - 0.5) * 0.018;
+  // Bedded four millimetres, because a 0.6 foot tilted by eleven milliradians
+  // lifts its far edge three millimetres clear of the floor, and a prop that
+  // hovers is the one thing a contact patch cannot fix.
+  body.position.y = -0.004;
   // The head is square, so which way it faces is a real choice and should not
   // be the same one every time.
   body.rotation.y = rand() * Math.PI * 2;

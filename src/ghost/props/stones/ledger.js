@@ -107,7 +107,7 @@ registerStone('ledger', {
     ctx.fill();
   },
 
-  extras({ body, plinthH, height }) {
+  extras({ body, plinthH, halfWidth, height }) {
     const meshes = body.children.filter((o) => o.isMesh);
     // The registry lifts the slab onto the plinth and leaves the plinth at the
     // origin, so the two are told apart by where they sit rather than by the
