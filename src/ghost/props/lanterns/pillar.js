@@ -812,7 +812,7 @@ export function createPillarLantern({ seed = 1, scale = 1 } = {}) {
     // ray's own y. -0.22 puts it across the upper third of a pane at this
     // camera's elevation, and 0.13 makes it about a fifth of the pane deep: any
     // wider and it is a gradient again.
-    uGlare: { value: new THREE.Color('#f2f6ff').convertSRGBToLinear().multiplyScalar(3.20) },
+    uGlare: { value: new THREE.Color('#f2f6ff').convertSRGBToLinear().multiplyScalar(0.0) },
     uGlareAt: { value: new THREE.Vector2(-0.24, 0.060) },
     // Between the key in main.js and the one in the preview harness.
     uSunDir: { value: new THREE.Vector3(3.45, 6.0, 2.4).normalize() },

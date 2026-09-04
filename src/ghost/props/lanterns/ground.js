@@ -727,7 +727,14 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
   // could add here is the cap's shadow on the ground, which is a black ring the
   // size of a coin.
   const lamp = new THREE.PointLight(FLAME.clone(), 0, 2.4 * scale, 2);
-  lamp.position.set(0, flameBase + 0.022, 0);
+  // Sat at the flame's upper body rather than at its foot, and that is a cheat
+  // with a reason. three has no sphere light, so a point source two centimetres
+  // under the wax shoulder sits in an inverse-square singularity and burns the
+  // whole candle to flat white long before the pool on the ground is bright
+  // enough to see. Lifting it to the flame's tip is the cheapest stand-in for a
+  // source with a radius: it quarters the irradiance on the wax and changes the
+  // pool, a hundred and fifty millimetres away, by about two per cent.
+  lamp.position.set(0, flameBase + 0.042, 0);
   lamp.castShadow = false;
 
   // --- assembly ------------------------------------------------------------

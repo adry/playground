@@ -87,12 +87,12 @@ const URN_SCALE = 1.18;
 // the urn at the FOOT of the rim flare, so the lip always overhangs the cloth
 // and the cloth's top edge sits in the lip's own shadow.
 const CLOAK = [
-  [0.215, 0.222],
-  [0.260, 0.226],
-  [0.300, 0.212],
-  [0.330, 0.180],
-  [0.355, 0.140],
-  [0.370, 0.112],
+  [0.215, 0.220],
+  [0.260, 0.222],
+  [0.300, 0.198],
+  [0.330, 0.162],
+  [0.355, 0.132],
+  [0.370, 0.110],
   [0.378, 0.104], // inside the urn here, so the cloth has run out by the flare
 ];
 
