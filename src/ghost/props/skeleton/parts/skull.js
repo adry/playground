@@ -938,7 +938,12 @@ export function buildSkull({ material }) {
   // face starts. The dip is not modelled: it is the gap between this blob and
   // the glabella above, which is why neither of them is blended wide.
   const nasalBone = blob(
-    [0, ORBIT_V + 0.048 * HS, Z_FACE - 0.075 * M.skull.depth],
+    // Pulled back from Z_FACE. The authored profile puts the front of the face
+    // at its own height, and a bump that reached the glabella's own plane made
+    // the nose the front of the skull instead of the brow: measured, the
+    // front-most point of the head was at +0.60 of L but 0.14 up rather than
+    // 0.28 up, which is the nose, not the glabella.
+    [0, ORBIT_V + 0.048 * HS, Z_FACE - 0.112 * M.skull.depth],
     [0.072 * M.skull.width, 0.034 * HS, 0.075 * M.skull.depth], 2.4, 2.2,
   );
 
@@ -1065,9 +1070,13 @@ export function buildSkull({ material }) {
   // standing on two legs. They hang from just behind the ear canal, so they
   // followed the hinge up this pass -- left where they were they would have been
   // a pair of lumps on the underside of the skull with nothing above them.
+  // Moved forward and down against the reference's frame: it was reaching to
+  // -0.14 of L behind the ear canal, further back than basion, which put a lump
+  // under the occiput exactly where the outline is supposed to be closing in.
+  // A mastoid hangs BELOW porion and only a little behind it.
   const mastoid = (side) => blob(
-    [side * 0.300 * M.skull.width, HINGE_Y - 0.105 * HS, -0.215 * M.skull.depth],
-    [0.060 * M.skull.width, 0.095 * HS, 0.062 * M.skull.depth], 2.3);
+    [side * 0.300 * M.skull.width, HINGE_Y - 0.150 * HS, PORION_Z - 0.040 * M.skull.depth],
+    [0.060 * M.skull.width, 0.100 * HS, 0.062 * M.skull.depth], 2.3);
   const mastoidL = mastoid(-1);
   const mastoidR = mastoid(1);
 
@@ -1845,8 +1854,12 @@ export function buildSkull({ material }) {
   // was a lozenge stuck on the front of the jaw in the head-on view. It has to
   // be most of the width of the mandible's front for the block to BE the chin
   // rather than sit on it.
-  const chinGeo = track(toothGeometry(0.300 * M.skull.width, 0.125 * HS, 0.100 * M.skull.depth));
-  chinGeo.translate(0, Y_CHIN + 0.058 * HS, LOWER_ARCH.front - 0.045 * M.skull.depth);
+  // Narrower and lower than the first attempt, which at 0.30 of the skull's
+  // width and riding that high read head-on as a rounded plate stuck on the
+  // front of the jaw. It has to sit UNDER the bar's own front, filling the
+  // corner the sweep rounds away, not in front of it.
+  const chinGeo = track(toothGeometry(0.260 * M.skull.width, 0.115 * HS, 0.105 * M.skull.depth));
+  chinGeo.translate(0, Y_CHIN + 0.052 * HS, LOWER_ARCH.front - 0.050 * M.skull.depth);
   jawRoot.add(add(chinGeo, material, 'jaw-chin'));
 
   // ------------------------------------------------------------- lower teeth
