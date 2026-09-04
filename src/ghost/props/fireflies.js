@@ -27,11 +27,11 @@ import * as THREE from 'three';
 // disappears. The first pass looked fine on black and vanished on the ground.
 //
 // So a firefly is drawn in two parts with one blend mode. The BEAD is a small
-// opaque disc, bright warm-green in the middle and falling to a near-black
-// rim at its edge, which gives the thing an outline and therefore a shape that
-// survives any background. The HALO around it is additive and carries the
-// glow. Both come out of one fragment shader because the material blends
-// PREMULTIPLIED alpha: dst is scaled by 1 - src.a, and src.rgb is added on
+// opaque disc in three bands, a blown-out white middle, a warm green ring and
+// a near-black rim, which gives the thing an outline and therefore a shape
+// that survives any background, bright or dark. The HALO around it is additive
+// and carries the glow. Both come out of one fragment shader because the
+// material blends PREMULTIPLIED alpha: dst is scaled by 1 - src.a, and src.rgb is added on
 // top, so alpha = 0 with colour is pure addition (the halo) and alpha = 1 with
 // colour replaces (the bead). One material, one draw call, and the sprite can
 // be darker than the floor and brighter than the sky in the same pixel.
@@ -57,23 +57,28 @@ const CORE_IN = 0.07;   // solid bright out to here
 const CORE_OUT = 0.26;  // and dark by here, which is the rim
 const HALO_K = 5.2;     // gaussian falloff of the additive glow
 
-// World size of one firefly, the half extent of its quad. The bead is
-// BEAD_R of it, so about 0.05 across, and the halo reaches 0.17.
+// World size of one firefly, the half extent of its quad. The bead is BEAD_R
+// of it, so about 0.10 across, and the halo reaches 0.17 from the centre. At
+// the scene's own framing that is a bead of about 7 pixels in a glow of 24.
 const SIZE = 0.17;
 
 // How bright the bead and halo are before the pulse rides on them. These are
 // linear values fed through the scene's ACES curve, so the core sits above 1
 // on purpose: it is the one thing in the graveyard allowed to clip.
 const CORE_GAIN = 2.60;
-const WARM_GAIN = 1.15;  // the halo hue at bead strength, the ring inside the rim
+const WARM_GAIN = 1.15;  // the halo hue at bead strength, the ring inside it
 const HALO_GAIN = 0.66;
 // How hard the pulse rides the halo compared with the bead. See the fragment
 // shader for why it is not 1.
 const HALO_PULSE_EXP = 2.2;
 
 // Hover band. The ghost's eyes are at about 0.8, so a pellet at this height is
-// something it swallows rather than steps on.
-const HOVER = { min: 0.55, max: 0.85 };
+// something it swallows rather than steps on. The band is narrower than the
+// 0.5 to 0.9 it is allowed because the vertical drift and the bob are added on
+// top of it: at the worst phase of both, an anchor at 0.58 reaches 0.506 and
+// one at 0.82 reaches 0.894, so the whole field stays inside the band rather
+// than merely centring on it.
+const HOVER = { min: 0.58, max: 0.82 };
 
 // --- the pulse -------------------------------------------------------------
 //
@@ -88,8 +93,28 @@ const HOVER = { min: 0.55, max: 0.85 };
 // slower sines. Frequency modulated like that a carrier never stalls (its
 // derivative is zero only at the instantaneous peak, and the peak keeps
 // moving) and never repeats, because the carrier and its modulator are at
-// incommensurate rates. Measured stall fraction is in the module report; the
-// numbers below are what it was tuned to.
+// incommensurate rates.
+//
+// Measured over fifteen simulated minutes at 60fps, on the level in 0 to 1
+// that comes out of fireflyPulse, beside the same job done with two summed
+// smoothstep value noise channels of the same amplitudes. The noise is shown
+// twice: once at the rates a firefly pulse actually wants, and once with its
+// rates scaled up by 5.6 until its mean step per frame MATCHES this one, so
+// the stall figure cannot be waved away as the noise version simply being
+// slower.
+//
+//                        this        noise, same rate   noise, matched speed
+//   mean level           0.597       0.591 to 0.605     0.596 to 0.610
+//   spread (sd)          0.221       0.154 to 0.162     0.156 to 0.159
+//   1st percentile       0.192       0.263 to 0.285     0.273 to 0.280
+//   99th / max           0.96/0.96   0.91 to 0.93       0.93/1.02
+//   mean step per frame  0.0138 to 0.0162    0.0028     0.0156 to 0.0164
+//   frames within 0.002  6.4 to 7.5%   46.7 to 48.7%    9.9 to 11.4%
+//
+// The last row is the whole reason the pulse is written the way it is. Seeds
+// 1, 2 and 7 give the ranges above, so it is the technique and not one lucky
+// stream. At the rate a firefly wants, summed noise spends nearly half its
+// life standing still.
 const PULSE = {
   mid: 0.60,      // level about which the carriers swing
   a1: 0.29,       // fast carrier, the breath itself
@@ -102,8 +127,12 @@ const PULSE = {
   knee: 0.88,     // soft ceiling, so a bright peak has a shape and not a flat
 };
 
-// A pellet must stay visible, so the pulse never takes a firefly out. Level 0
-// is a lull and not an extinction: it still carries better than half its light.
+// A pellet must stay visible, so the pulse never takes a firefly out. At level
+// 0 the bead is still a bead, because its middle is clipped white at either
+// end of the swing, and the halo, which carries most of the visible change,
+// falls to about a fifth of its brightest. That reads as a lull, not as an
+// extinction, which matters: a pellet the player cannot see is a pellet the
+// player cannot plan a route through.
 const PULSE_MIN = 0.62;
 const PULSE_MAX = 1.22;
 
@@ -113,7 +142,7 @@ const PULSE_MAX = 1.22;
 const COLLECT_TIME = 0.52;
 const COLLECT_RISE = 0.42;  // how far it lifts as it goes
 const COLLECT_SWELL = 1.05; // extra size at the flash, as a fraction
-const COLLECT_FLASH = 2.30; // extra brightness at the flash
+const COLLECT_FLASH = 1.60; // extra brightness at the flash
 
 // The tiny PRNG the stones use, copied rather than imported so a field of
 // fireflies does not pull the headstone module and its canvases in with it.
@@ -178,6 +207,8 @@ const VERTEX = /* glsl */`
   varying vec2 vQuad;
   varying float vBright;
   varying float vFade;
+  varying float vBead;
+  varying float vFlash;
 
   #include <fog_pars_vertex>
 
@@ -213,6 +244,12 @@ const VERTEX = /* glsl */`
     // camera rather than glowing harder.
     float size = uSize * uScale * (0.94 + 0.10 * pulse);
     float fade = 1.0;
+    // The bead's radius as a fraction of the quad. It only moves during a
+    // collect, and it is what keeps the flash from reading as a balloon: the
+    // quad grows so the halo can bloom, and the bead shrinks by the same
+    // factor so the body of the insect stays the size it always was.
+    float bead = 1.0;
+    float flash = 1.0;
 
     // COLLECT. aTaken is the clock time the take began. Everything about the
     // animation is a function of how long ago that was, so taking a firefly is
@@ -223,8 +260,14 @@ const VERTEX = /* glsl */`
       // while it lifts. The bead going out is what tells the player it counted.
       float swell = exp(-pow((e - 0.16) / 0.15, 2.0));
       float shrink = 1.0 - smoothstep(0.22, 1.0, e);
-      size *= (1.0 + ${COLLECT_SWELL.toFixed(3)} * swell) * shrink;
-      bright *= 1.0 + ${COLLECT_FLASH.toFixed(3)} * swell;
+      float grow = 1.0 + ${COLLECT_SWELL.toFixed(3)} * swell;
+      size *= grow * shrink;
+      bead = (1.0 + 0.25 * swell) / grow;
+      // The flash is kept OUT of the pulse level and multiplied in at the end,
+      // because the halo raises the pulse to a power greater than one: pushed
+      // through that, a flash of this size comes out as a flat white disc with
+      // no falloff left in it, which reads as a bubble and not as a spark.
+      flash = 1.0 + ${COLLECT_FLASH.toFixed(3)} * swell;
       drift.y += ${COLLECT_RISE.toFixed(3)} * smoothstep(0.0, 1.0, e);
       fade = shrink;
       // Fully spent. Collapse the quad to a point so it rasterises nothing at
@@ -235,6 +278,8 @@ const VERTEX = /* glsl */`
     vQuad = position.xy;
     vBright = bright;
     vFade = fade;
+    vBead = bead;
+    vFlash = flash;
 
     // Billboard in view space. The scene's camera is a fixed orthographic
     // isometric, but doing it this way costs nothing and keeps the sprite
@@ -269,21 +314,27 @@ const FRAGMENT = /* glsl */`
   varying vec2 vQuad;
   varying float vBright;
   varying float vFade;
+  varying float vBead;
+  varying float vFlash;
 
   void main() {
     float d = length(vQuad);
     if (d > 1.0) discard;
+    // The bead is measured in its own radius, so a collect can bloom the halo
+    // without inflating the body with it. Outside a collect vBead is 1 and
+    // this is the same number.
+    float b = d / vBead;
 
     // The bead: an opaque disc with a soft edge. This is the part that gives a
     // firefly a shape on a pale floor, and it is why the material blends
     // premultiplied rather than additive.
-    float bead = 1.0 - smoothstep(${(BEAD_R - BEAD_SOFT).toFixed(3)}, ${BEAD_R.toFixed(3)}, d);
+    float bead = 1.0 - smoothstep(${(BEAD_R - BEAD_SOFT).toFixed(3)}, ${BEAD_R.toFixed(3)}, b);
     // Three bands across it, which is what makes a small disc read as a light
     // rather than as a sticker: a blown-out white middle, the warm green of
     // the glow around it, and the dark rim that draws the outline.
-    float core = 1.0 - smoothstep(${CORE_IN.toFixed(3)}, ${CORE_OUT.toFixed(3)}, d);
-    float rim = smoothstep(${(CORE_OUT * 0.8).toFixed(3)}, ${BEAD_R.toFixed(3)}, d);
-    vec3 body = mix(uWarm, uCore, core) * vBright;
+    float core = 1.0 - smoothstep(${CORE_IN.toFixed(3)}, ${CORE_OUT.toFixed(3)}, b);
+    float rim = smoothstep(${(CORE_OUT * 0.8).toFixed(3)}, ${BEAD_R.toFixed(3)}, b);
+    vec3 body = mix(uWarm, uCore, core) * vBright * vFlash;
     vec3 beadColor = mix(body, uRim, rim);
 
     // The halo: additive, and held out of the bead so the dark rim cannot be
@@ -298,7 +349,7 @@ const FRAGMENT = /* glsl */`
     float glow = pow(vBright, ${HALO_PULSE_EXP.toFixed(2)});
 
     float alpha = bead * vFade;
-    vec3 rgb = beadColor * alpha + uHalo * halo * glow * vFade;
+    vec3 rgb = beadColor * alpha + uHalo * halo * glow * vFlash * vFade;
 
     gl_FragColor = vec4(rgb, alpha);
 
@@ -342,7 +393,7 @@ const FRAGMENT = /* glsl */`
  * }}
  */
 export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
-  const rng = mulberry32((seed >>> 0) * 2654435761 + 12345);
+  const rng = mulberry32(Math.imul(seed >>> 0, 2654435761) + 12345);
   const count = points.length;
   const n = Math.max(1, count); // buffers of length zero upset some drivers
 
@@ -361,8 +412,8 @@ export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
   // radius, so the anchor is the honest centre of the thing and a pellet does
   // not become easier or harder to take depending on which way it happens to
   // be leaning.
-  const positions = new Float32Array(n * 3);
-  const collected = new Uint8Array(n);
+  const positions = new Float32Array(count * 3);
+  const collected = new Uint8Array(count);
 
   const uniforms = {
     // Fog uniforms have to be present by name, because the renderer refreshes
@@ -424,7 +475,7 @@ export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
     // a corridor is 2.0 wide and a firefly sits on its centreline, so even the
     // widest of these leaves 0.85 of clearance to the kerb.
     driftAttr[i * 4 + 0] = (0.055 + 0.070 * rng()) * scale;
-    driftAttr[i * 4 + 1] = (0.030 + 0.040 * rng()) * scale;
+    driftAttr[i * 4 + 1] = (0.025 + 0.030 * rng()) * scale;
     driftAttr[i * 4 + 2] = (0.055 + 0.070 * rng()) * scale;
     driftAttr[i * 4 + 3] = 0.62 + 0.46 * rng(); // pulse rate, Hz
 

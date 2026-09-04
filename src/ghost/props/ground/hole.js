@@ -12,8 +12,8 @@ import { addGroundHole } from '../../ground.js';
 //
 // A discard leaves a hard, aliased edge, so the geometry is built to hide it:
 // the pit's lip rolls up out of the ground and its turf skirt overhangs the cut
-// by ~0.15 units in every direction. You never see the cut itself, only a
-// rolled clay edge sitting on the floor.
+// by at least 0.078 units in every direction. You never see the cut itself,
+// only a rolled clay edge sitting on the floor.
 //
 //   const hole = createGraveHole({ seed: 3 });
 //   hole.group.position.set(2, 0, -1);
@@ -21,9 +21,14 @@ import { addGroundHole } from '../../ground.js';
 //   scene.add(hole.group);
 //   hole.registerWith(ground);      // ground = the mesh from createGround()
 //
-// Without registerWith() you get the pit and an uncut floor covering it, which
-// reads as a low mound. The group's origin is the centre of the mouth, and the
-// mouth is at y = 0.
+// Without registerWith() the floor stays whole and covers the pit: what is left
+// on screen is the rolled lip and its skirt, a rounded rectangle of broken
+// earth lying on the grass, which reads as a filled-in grave. That is a tidy
+// thing to fall back to, not a broken one, but it is not a hole.
+//
+// The group's origin is the centre of the mouth, and the mouth is at y = 0.
+// Position and rotate the outer group freely; the cut follows on registerWith()
+// and, if the hole is moved later, on the next update().
 
 // Mouth half extents, corner radius and depth, in scene units against a 1.6
 // unit ghost. 2.0 x 0.9 is casket sized.
@@ -39,8 +44,11 @@ const MOUTH_Z = 0.45;
 const CORNER = 0.20;
 const DEPTH = 1.45;
 
-// How far outside the mouth the floor is cut. The skirt reaches 0.40 out, so
-// 0.18 of it always rests on solid floor and covers the discard edge.
+// How far outside the mouth the floor is cut. The skirt reaches 0.22 out and
+// its edge wanders by up to 0.032, so at worst 0.078 of skirt still rests on
+// solid floor and hides the discard edge under it. The skirt stays narrow on
+// purpose: seen from the scene's own distance, a wide ring of spoil is louder
+// than the hole in the middle of it.
 const CUT_MARGIN = 0.11;
 
 const TURF = new THREE.Color('#8f949e'); // the floor's own colour
@@ -145,7 +153,7 @@ function profile(depth) {
   // extruded: the pit has to look dug, not drilled.
   const wallTop = -0.05;
   const wallBottom = -(depth - 0.16);
-  const N = 10;
+  const N = 14;
   for (let i = 0; i <= N; i++) {
     const f = i / N;
     push(-0.045 - 0.030 * f, wallTop + (wallBottom - wallTop) * f, { cut: 1, spade: 1 });
@@ -163,7 +171,7 @@ function profile(depth) {
 function buildPit({ seed, depth }) {
   const A = MOUTH_X - CORNER;
   const B = MOUTH_Z - CORNER;
-  const { pts, perimeter } = outline(A, B, CORNER, 128);
+  const { pts, perimeter } = outline(A, B, CORNER, 112);
   const rings = profile(depth);
   const cols = pts.length;
   const rows = rings.length;
@@ -171,9 +179,6 @@ function buildPit({ seed, depth }) {
   // Spade cuts: broad scoops the width of a blade, walked round the perimeter.
   // The count is whole so they wrap. It wants to be low: at one cut every
   // 270mm the wall came out as corduroy, which is a texture, not a dug hole.
-  // Everything below is measured against absolute depth in units, not against
-  // the pit's total depth: the top metre is all anyone ever sees, and it must
-  // not restyle itself if the pit is dug deeper.
   const scoops = Math.max(5, Math.round(perimeter / 0.26));
 
   const position = new Float32Array(cols * rows * 3 + 3);
@@ -182,6 +187,9 @@ function buildPit({ seed, depth }) {
 
   for (let r = 0; r < rows; r++) {
     const ring = rings[r];
+    // Depth as a fraction of the top 1.05 units, not of the pit's own depth:
+    // that top metre is the only part anyone ever sees, and its cuts and its
+    // colours must not restyle themselves when the pit is dug deeper.
     const depthF = Math.min(1, Math.max(0, -ring.y / 1.05));
     for (let i = 0; i < cols; i++) {
       const p = pts[i];
@@ -255,9 +263,9 @@ function buildPit({ seed, depth }) {
       // the light and reads as a rubber gasket laid round the hole.
       c.lerp(TURF, THREE.MathUtils.smoothstep(ring.inset, 0.085, 0.185));
       // Ambient occlusion, and not much of it: the wall has to stay lit enough
-      // to show what it is made of. The dark comes from the ramp above and
-      // from the near lip's own cast shadow, not from painting the pit black.
-      let shade = 1 - 0.20 * THREE.MathUtils.smoothstep(depthF, 0.08, 1.0);
+      // to show what it is made of. Most of the dark is the colour ramp above,
+      // and the rest is the two terms below, which are local.
+      let shade = 1 - 0.32 * THREE.MathUtils.smoothstep(depthF, 0.02, 0.80);
       // The lip rolls over and hangs a little into the pit, so there is a real
       // occlusion line under it. Drawing it is what makes the edge read as a
       // rolled clay lip rather than a printed outline.
@@ -323,7 +331,8 @@ function buildPit({ seed, depth }) {
  * A dug grave hole. Mouth at y = 0, group origin at the centre of the mouth.
  *
  * The returned object carries, beyond the usual prop contract:
- *   footprint            the rounded rect the floor must lose, in local units
+ *   footprint            the rounded rect the floor loses: halfX, halfZ and
+ *                        radius, already multiplied by scale
  *   registerWith(ground) cut it out of that floor and keep it in step
  */
 export function createGraveHole({ seed = 1, scale = 1 } = {}) {
@@ -362,7 +371,10 @@ export function createGraveHole({ seed = 1, scale = 1 } = {}) {
   let stamp = '';
 
   function pose() {
-    group.updateWorldMatrix(true, false);
+    // true, true: the transform that matters is the inner group's, and asking
+    // only for the outer one leaves it holding whatever matrix it was last
+    // rendered with, which on the first call is the identity.
+    group.updateWorldMatrix(true, true);
     const e = inner.matrixWorld.elements;
     // Column 0 is the local X axis in world space: (cos, 0, -sin) times scale.
     const s = Math.hypot(e[0], e[1], e[2]) || 1;

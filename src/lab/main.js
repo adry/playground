@@ -113,6 +113,7 @@ async function buildLineup() {
   const [
     ghostMod, pumpkin, tombstones, panel, broken, debris, gate, skeleton, fountain, shed,
     street, pillar, post, crook, groundLantern,
+    kerbGround, sandPath, gravelPath, bush, holeMod,
   ] = await Promise.all([
     import('../ghost/ghost.js'),
     import('../ghost/props/pumpkin.js'),
@@ -129,6 +130,11 @@ async function buildLineup() {
     import('../ghost/props/lanterns/post.js'),
     import('../ghost/props/lanterns/crook.js'),
     import('../ghost/props/lanterns/ground.js'),
+    import('../ghost/props/ground/kerb.js'),
+    import('../ghost/props/ground/sandpath.js'),
+    import('../ghost/props/ground/gravelpath.js'),
+    import('../ghost/props/foliage/bush.js'),
+    import('../ghost/props/ground/hole.js'),
   ]);
 
   // Slot 0, and the reason the grid is offset rather than the ghost. See
@@ -210,6 +216,45 @@ async function buildLineup() {
     place({ label, group: made.group, update: made.update });
   }
 
+  // The ground set. All three lie flat, and a flat prop is the one kind this
+  // lineup can misrepresent: spinning it is fine, but a path routed across a
+  // whole cell would run into its neighbours, so each is laid as a short run
+  // that stays inside the 4.0 cell even when the grid is turned end on. A
+  // straight run would also hide the only hard part of a path, which is the
+  // bend, so both paths carry one.
+  {
+    const bendRoute = [[-1.25, -0.95], [0.15, -0.35], [0.15, 1.05]];
+    for (const [label, made] of [
+      ['ground kerb run', kerbGround.createKerbRun({ seed: 3, points: [[-1.4, -0.5], [1.4, 0.5]] })],
+      ['ground kerb stone', kerbGround.createKerbStone({ seed: 5 })],
+      ['ground sand path', sandPath.createSandPath({ seed: 7, width: 1.1, points: bendRoute })],
+      ['ground gravel path', gravelPath.createGravelPath({ seed: 2, width: 1.1, points: bendRoute })],
+    ]) {
+      place({ label, group: made.group, update: made.update });
+    }
+  }
+
+  // Two seeds of the bush, because the one thing a single bush cannot show is
+  // whether two of them read as two plants or as one plant placed twice.
+  for (const seed of [1, 4]) {
+    const b = bush.createBush({ seed });
+    place({ label: `bush ${seed}`, group: b.group, update: b.update });
+  }
+
+  // The grave hole is the one prop here that is not only itself: it cuts the
+  // floor, so it has to be told which floor. registerWith reads the world
+  // matrix, so it goes AFTER place() has positioned it, and without it the pit
+  // is covered by the floor and reads as a filled grave rather than as broken.
+  {
+    const h = holeMod.createGraveHole({ seed: 3 });
+    // Not spun with the rest. The cut is registered in world space and follows
+    // the group, but a hole turning under a lineup that is also turning reads
+    // as the floor sliding about, and the pit is the one thing here whose
+    // interest is entirely in looking INTO it.
+    place({ label: 'grave hole', group: h.group, spin: false, update: h.update });
+    h.registerWith(ground);
+  }
+
   // --- camera ---------------------------------------------------------------
   const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
   // A very deep frustum, and the reason is the floor. The ground is a 400 unit
@@ -243,8 +288,39 @@ async function buildLineup() {
     // Centre of the grid, in the same screen coordinates the cells are chosen
     // in, then converted once.
     const [cx, cz] = atScreen(0, -((rows - 1) / 2) * CELL);
-    target.set(cx - BASE_X, 0.9, cz - BASE_Z);
-    view = Math.max(halfUp, halfRight / Math.max(0.5, aspect));
+    target.set(cx - BASE_X, 0, cz - BASE_Z);
+    // THE GRID'S SCREEN UP IS NOT THE CAMERA'S SCREEN UP, and the difference is
+    // the whole camera elevation. atScreen inverts a flat 45 degree map with no
+    // vertical foreshortening in it, so a row pitch of CELL is CELL of ground
+    // distance, and this camera looks down that ground at about 29 degrees. One
+    // unit of grid-up therefore covers only sin(elevation) of the frame, which
+    // is 0.48 here. Fitting on the raw number asked for a frustum twice as tall
+    // as the lineup needs and the whole set sat in the middle of the floor at
+    // half size, which is exactly the failure the comment above warns about,
+    // arrived at from the other direction.
+    //
+    // Measured off the camera rather than written down, so tilting CAM_DIR
+    // reframes correctly instead of quietly going wrong again.
+    const [ux, uz] = atScreen(0, 1);
+    const upPerUnit = Math.abs(new THREE.Vector3(ux, 0, uz).dot(up));
+
+    // Props also stand UP, and standing up is nearly free vertically under this
+    // camera: a world unit of height covers 0.88 of the frame against a ground
+    // unit's 0.48. The street lamp is 3.3 tall, so the top row's tallest piece
+    // reaches almost three units above the row behind it and is the first thing
+    // to be guillotined. Stated rather than measured off the props' bounding
+    // boxes, for the reason above: one instanced particle mesh with a generous
+    // bound would set this for everything.
+    const TALL = 3.4;
+    const mUp = CELL * 0.55 * upPerUnit;
+    // The frame in screen-up, taking slot 0's ground as the origin. The grid
+    // runs DOWN from there, and the props run up from wherever their row is.
+    const top = TALL * up.y + mUp;
+    const bottom = -(rows - 1) * CELL * upPerUnit - mUp;
+    // Half the tallest prop, which is exactly the height that recentres the
+    // frame on that band rather than on the floor it stands on.
+    target.y = TALL / 2;
+    view = Math.max((top - bottom) / 2, halfRight / Math.max(0.5, aspect));
   }
   const home = { target: target.clone(), view };
 

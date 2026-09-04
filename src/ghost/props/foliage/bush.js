@@ -67,13 +67,13 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   const BURIED = H * 0.17;                   // how much of the dome is underground
 
   // --- the mass -------------------------------------------------------------
-  // yBias slightly negative so the lobes favour the flanks and the skirt: the
-  // top of a bush is where it is most even, the bottom is where it is most
-  // overgrown, and a lobe set biased upward gave a mushroom.
-  // Few and large rather than many and small. Nine modest lobes averaged out
-  // into a dome with a texture on it; seven big ones give the mass actual
-  // shoulders and hollows, which is what the clumps then need in order to sit at
-  // different depths instead of paving an even sphere.
+  // Few large lobes rather than many small ones. Nine modest lobes averaged out
+  // into a dome with a texture on it; seven big ones give the mass real shoulders
+  // and hollows, which is what the tufts then need in order to sit at different
+  // depths instead of paving an even sphere. yBias is slightly negative so the
+  // lobes favour the flanks and the skirt: the top of a bush is where it is most
+  // even, the bottom is where it is most overgrown, and biasing them upward gave
+  // a mushroom.
   const massLobes = makeLobes(rand, {
     count: 7,
     amp: [0.15, 0.36],
@@ -109,8 +109,8 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   // scale. Detail you cannot resolve is not detail.
   const tuftSites = clumpPlacements(massGeo, {
     rand, W, H,
-    limit: 150,
-    yMin: 0.11,
+    limit: 168,
+    yMin: 0.05,
     big: [0.055, 0.028],
     small: [0.030, 0.020],
     bigOdds: 0.34,
@@ -121,9 +121,9 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
 
   // --- fit to the promised height -------------------------------------------
   // Uniform, so no normal has to be recomputed, and about y = 0, so the buried
-  // skirt keeps the same proportion of itself underground. Everything that
-  // reads a position -- the shading bake, the wind weights, the contact patch --
-  // happens after this, so nothing has to be corrected for it afterwards.
+  // skirt keeps the same proportion of itself underground. Everything that reads
+  // a position, meaning the shading bake, the wind weights and the contact
+  // patch, happens after this, so nothing has to be corrected for it afterwards.
   const K = TALL / measureExtent(massGeo, clumpGeo).top;
   massGeo.scale(K, K, K);
   clumpGeo.scale(K, K, K);
@@ -133,7 +133,7 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   // bushes out would then overlap them by.
   const { width, depth } = measureExtent(massGeo, clumpGeo);
 
-  bakeFoliageTint(massGeo, { top: TALL, floor: 0.38, ceil: 0.86, down: 0.68, rand });
+  bakeFoliageTint(massGeo, { top: TALL, floor: 0.44, ceil: 0.86, down: 0.70, rand });
   bakeWind(massGeo, { top: TALL * 0.86, base: 0, power: 1.8, flutter: 0 });
   bakeFoliageTint(clumpGeo, { top: TALL, floor: 0.50, ceil: 1.34, down: 0.56, root: 0.36, spread: 0.26, rand });
   bakeWind(clumpGeo, { top: TALL * 0.86, base: 0, power: 1.8 });
@@ -310,11 +310,13 @@ function clumpPlacements(geo, {
   for (let k = 0; k < n && out.length < limit; k++) {
     const i = order[k];
     p.fromBufferAttribute(pos, i);
-    // Nothing below ankle height: clumps down there are buried in the floor and
-    // only cost triangles. Thinned over the lower third so the bush is
-    // shaggiest at the crown, which is where the light is.
+    // Thinned over the lower third so the bush is shaggiest at the crown, which
+    // is where the light is, but only thinned. An earlier pass cut the skirt off
+    // entirely below a tenth of the height and thinned the rest by nearly half,
+    // and what came back was a smooth dark patch of bare mass along the front of
+    // the foot that read as a hole in the bush rather than as its shadow.
     if (p.y < H * yMin) continue;
-    if (p.y < H * 0.40 && rand() < 0.40) continue;
+    if (p.y < H * 0.40 && rand() < 0.22) continue;
     nv.fromBufferAttribute(nor, i);
     // Skip anything facing more than slightly downward: a clump on the underside
     // is invisible from an elevated camera and still costs a shadow pass.

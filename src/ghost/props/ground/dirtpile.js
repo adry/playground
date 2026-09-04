@@ -13,10 +13,13 @@ import { toyMaterial } from '../style.js';
 // beside the stone and reads as a stain rather than as soil. That is the same
 // failure that got the set's contact-shadow decals deleted four times.
 //
-// The finding is real and it is measurable. Rendered against the floor and
-// counted pixel by pixel, a smooth ellipsoid mound in a warm earth colour has
-// 71% of its pixels darker than the floor they replaced. Two things are going
-// on and both are the lighting rather than the colour:
+// The finding is real, and rendering it against this floor and counting the
+// pixels says exactly how real. A smooth ellipsoid mound 1.8 by 0.9 by 0.5, in
+// a warm earth colour, has 98% of its pixels darker than the floor they
+// replaced, and its brightest pixel anywhere is DARKER than the floor's mean.
+// There is no lit crown on it at all. It is a closed dark shape, which is what
+// the ledger said. Two things do it, and both are the lighting rather than the
+// colour:
 //
 //   * the hemisphere light is the bigger half. At intensity 1.15 the floor,
 //     whose normal points straight up, takes the sky colour (0xdfe6f5) neat.
@@ -25,31 +28,36 @@ import { toyMaterial } from '../style.js';
 //   * the key sits at 56 degrees, so the floor gets 0.83 of it and a 45 degree
 //     flank about 0.55.
 //
-// So the two answers a mound can give are both bad: dark, or a smooth pale
-// dome, which is what the first render here was, a beige potato. What actually
-// works is neither, and it is three things together:
+// Making it lighter does not fix that; it only trades a dark blob for a pale
+// one, and the first render here was a beige potato. What works is not a colour
+// at all, it is three things about the form:
 //
 //   1. NO SMOOTH FALLOFF ANYWHERE. The heap's whole surface is clods: rounded
 //      lumps half sunk into a core that is never seen bare. A dome has one
-//      continuous ramp from lit crown to dark skirt and the eye reads the ramp
-//      as a single closed form. Thirty lumps have thirty little crowns, and
-//      even down on the dark flank each one still catches a rim of key on its
-//      own top. The silhouette breaks up as well, which is what stops it
+//      continuous ramp from crown to skirt and the eye reads the ramp as a
+//      single closed form. A hundred lumps have a hundred little crowns, and
+//      even down on the shaded flank each one still catches a rim of key on its
+//      own top. The silhouette breaks up too, which is what stops the thing
 //      reading as one shape.
 //   2. LOW AND LONG. 1.8 by 0.9 by 0.5 is a ridge, not a hemisphere: at that
 //      ratio most of the surface the camera sees is turned upward rather than
-//      sideways, so most of the surface is taking the sky colour and most of
-//      the key.
-//   3. PAINTED UPWARD. Vertex colour ramps from a light warm tan on up-facing
-//      facets to a deep brown in the crevices between clods. This runs the same
-//      way the light does, so it doubles the separation between a clod's top
-//      and the gap beside it, and it lifts the mean well clear of the floor.
-//      Fresh earth is warmer and lighter than this floor's grey, which is also
-//      simply true of fresh earth, so nothing is being cheated.
+//      sideways, so most of it is taking the sky colour and most of the key.
+//   3. PAINTED UPWARD, and shaded in the crevices. Vertex colour ramps from a
+//      light warm tan on up-facing facets to a deep brown between clods, and a
+//      baked occlusion term darkens every gap the one shadow-casting light
+//      cannot reach into. Both run the same way the light does, so a clod's top
+//      and the gap beside it are separated twice over.
 //
-// Measured, same probe as before: the finished heap runs a mean luma of 149
-// against the floor's 119 and has 15% of its pixels darker than the floor,
-// against 71% for the smooth mound. It is a light shape on a grey floor.
+// Measured with the same probe, the finished heap has 34% of its pixels
+// BRIGHTER than the floor, against the mound's 2%, and a brightest pixel of 189
+// against the floor's 154 and the mound's 144. The two have almost the same
+// mean, 127 against 128: the mean was never the thing. What changed is that the
+// heap has highlights and the mound has none, and a shape with highlights in it
+// is a lit object while a shape without them is a hole in the ground.
+//
+// Its mean colour against the floor's, from that probe: #917d5e against
+// #979aa3. Warmer and browner, a shade darker in the mean and a great deal
+// lighter at the crowns, which is what fresh earth actually is.
 
 // The heap the spoil of a 2.0 by 0.9 by 1.0 hole actually makes: a ridge as
 // long as the hole is long, a little narrower, knee high. SCATTER is how far
@@ -145,10 +153,32 @@ function coreProfile(x, z, { a, c, h }) {
   return h * Math.pow(Math.max(0, 1 - rr * rr), CORE_Q) * Math.pow(1 - re * re, RIM_Q);
 }
 
-function coreGeometry({ a, c, h, rng }) {
-  const geo = new THREE.SphereGeometry(0.5, 44, 18, 0, Math.PI * 2, 0, Math.PI / 2);
+// The core's actual surface height at a point: the ridge profile, times the
+// crest wobble, plus the core's own undulation. ONE function, used to build the
+// mesh AND to seat every clod on it, because the two drifting apart is how a
+// clod ends up hovering over a bulge or buried under one.
+function coreShape(x, z, core, ph) {
+  const { a, c } = core;
+  const th = Math.atan2(z, x);
+  const rho = Math.min(1, Math.hypot(x / a, z / c));
+  // Crest wobble, strongest at the top and gone at the rim so the skirt still
+  // lands on the floor all the way round.
+  const cw = 1 + rho * (1 - rho) * (0.55 * Math.sin(2 * th + ph[2]) + 0.35 * Math.sin(4 * th - ph[0]));
+  // The core also undulates. Two seeds put a clod-sized gap in the skin and the
+  // render showed a smooth ramp of core through it, which is the dome failure
+  // looking out through a hole in the answer to it. A core that is itself lumpy
+  // has no smooth ramp anywhere to show.
+  const bump = 0.30 * core.h * rho * (1 - rho * rho) * (
+    Math.sin(7.3 * x + ph[3]) * Math.sin(9.1 * z - ph[0])
+    + 0.7 * Math.sin(12.7 * z + ph[1]) * Math.sin(5.9 * x + ph[2])
+  );
+  return coreProfile(x, z, core) * cw + bump;
+}
+
+function coreGeometry(core, ph) {
+  const { a, c } = core;
+  const geo = new THREE.SphereGeometry(0.5, 40, 16, 0, Math.PI * 2, 0, Math.PI / 2);
   const p = geo.attributes.position;
-  const ph = [rng() * 6.283, rng() * 6.283, rng() * 6.283, rng() * 6.283];
   const v = new THREE.Vector3();
   for (let i = 0; i < p.count; i++) {
     v.fromBufferAttribute(p, i);
@@ -156,30 +186,12 @@ function coreGeometry({ a, c, h, rng }) {
     const th = Math.atan2(v.z, v.x);
     // Outline wobble: the footprint of a tipped barrowload is not an ellipse.
     const w = 1 + 0.075 * Math.sin(3 * th + ph[0]) + 0.05 * Math.sin(5 * th + ph[1]);
-    // Crest wobble, strongest at the top and gone at the rim so the skirt still
-    // lands on the floor all the way round.
-    const cw = 1 + rho * (1 - rho) * (0.55 * Math.sin(2 * th + ph[2]) + 0.35 * Math.sin(4 * th - ph[0]));
     const px = a * rho * Math.cos(th) * w;
     const pz = c * rho * Math.sin(th) * w;
-    // The core also undulates. Two seeds put a clod-sized gap in the skin and
-    // the render showed a smooth ramp of core through it, which is the dome
-    // failure looking out through a hole in the answer to it. A core that is
-    // itself lumpy has no smooth ramp anywhere to show.
-    const bump = 0.055 * rho * (1 - rho * rho) * 4 * (
-      Math.sin(7.3 * px + ph[3]) * Math.sin(9.1 * pz - ph[0])
-      + 0.7 * Math.sin(12.7 * pz + ph[1]) * Math.sin(5.9 * px + ph[2])
-    );
-    p.setXYZ(i, px, coreProfile(a * rho * Math.cos(th), c * rho * Math.sin(th), { a, c, h }) * cw + bump, pz);
+    p.setXYZ(i, px, coreShape(px, pz, core, ph), pz);
   }
   geo.computeVertexNormals();
   return geo;
-}
-
-// Height of the core at a point, so a clod can be seated ON it rather than at a
-// height somebody chose. Same formula as the mesh minus the wobble, which is
-// close enough: the clod is sunk by a third of its radius anyway.
-function coreHeight(x, z, core) {
-  return coreProfile(x, z, core);
 }
 
 function placed(geo, { pos, scale, euler }) {
@@ -269,10 +281,10 @@ function paint(geo, { rng, height, clods, skip = -1, crevice = 0, tone = 1 }) {
 // centimetre and a half across and the blade is a rounded slab. The blade is
 // stuck in only to its shoulder rather than buried, because a shaft coming out
 // of a heap with no blade showing is a stick.
-function spadeGeometries(rng, core) {
+function spadeGeometries(rng, core, ph) {
   const { a, c } = core;
   const out = [];
-  const lean = 0.30 + rng() * 0.12;
+  const lean = 0.17 + rng() * 0.11;
   const yaw = -0.9 + rng() * 0.7;
   // The entry point is READ off the heap, not chosen: it is the core surface at
   // that spot plus the height a clod stands proud, so the blade's shoulder is
@@ -280,9 +292,9 @@ function spadeGeometries(rng, core) {
   // Stood near the end of the ridge rather than on the crest, where the earth
   // is low: on the crest the blade is swallowed by the clods around it and all
   // that shows is a stick.
-  const fx = a * (0.58 + rng() * 0.18);
+  const fx = a * (0.34 + rng() * 0.22);
   const fz = c * (-0.10 + rng() * 0.34);
-  const foot = new THREE.Vector3(fx, coreProfile(fx, fz, core) + 0.05, fz);
+  const foot = new THREE.Vector3(fx, coreShape(fx, fz, core, ph) + 0.05, fz);
   const dir = new THREE.Vector3(Math.sin(lean) * Math.cos(yaw), Math.cos(lean), Math.sin(lean) * Math.sin(yaw));
   const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
   const along = (t) => foot.clone().addScaledVector(dir, t);
@@ -299,7 +311,7 @@ function spadeGeometries(rng, core) {
   // Blade: a rounded slab, in to about its shoulder.
   const blade = new THREE.SphereGeometry(0.5, 16, 12);
   blade.scale(0.24, 0.31, 0.048);
-  const steel = put(blade, 0.10);
+  const steel = put(blade, 0.07);
   // Socket, where the blade takes the shaft.
   const socket = new THREE.CylinderGeometry(0.030, 0.044, 0.10, 10, 1);
   put(socket, 0.235);
@@ -338,12 +350,19 @@ function tint(geo, colour, jitter, rng) {
  *   length   1.8   along local +X, the axis to lay along the side of the hole
  *   spread   0.9   across, the width of the heap's own body
  *   height   0.5   crest above the floor
- *   scatter  1.2   full width including the loose clods at the foot
+ *   scatter  1.2   full width including the loose clods at the foot; follows
+ *                  `spread` unless it is given
  *   spade    false stand a spade in it
+ *   scale    1     scales the whole prop, clods and all
+ *
+ * length, spread and height RESHAPE the heap and leave the earth's grain alone:
+ * a clod is the same size on a short heap as on a long one, which is what a
+ * clod is. To make the whole thing bigger or smaller, use `scale`.
  *
  * Origin is the centre of the footprint, sitting on y = 0. Rotate the group
  * about y to run it along whichever side of the hole the scene wants; for a
- * 2.0 by 0.9 hole the heap sits about 0.95 off the hole's centre line.
+ * 2.0 by 0.9 hole the heap sits about 0.95 off the hole's centre line, and its
+ * own +X then runs along the hole's length.
  */
 export function createDirtPile({
   seed = 1,
@@ -351,7 +370,10 @@ export function createDirtPile({
   length = HEAP.length,
   spread = HEAP.spread,
   height = HEAP.height,
-  scatter = HEAP.scatter,
+  // Defaults to the same margin past the body that the standard heap has, so
+  // narrowing `spread` narrows the spill with it instead of leaving the loose
+  // clods stranded out at 1.2.
+  scatter = spread + (HEAP.scatter - HEAP.spread),
   spade = false,
 } = {}) {
   const rng = mulberry32(seed * 2654435761 + 91);
@@ -361,18 +383,22 @@ export function createDirtPile({
   // target footprint, because the clods stuck into it are what reach both.
   const a = (length / 2) * 0.90;
   const c = (spread / 2) * 0.86;
-  const h = height * 0.80;
+  const h = height * 0.84;
   const core = { a, c, h };
+  // Drawn once, up front: the core's shape has to be known before a clod can be
+  // seated on it.
+  const ph = [rng() * 6.283, rng() * 6.283, rng() * 6.283, rng() * 6.283];
 
   // Every clod is PLACED before any of them is BUILT, because the occlusion
   // pass needs the whole heap to shade one vertex of it.
   const clods = [];
 
   // --- the body: clods stuck into the core ---------------------------------
-  // Sampled over the footprint rather than over a ring, with the count set so
-  // the core is covered: nowhere on the heap may there be a patch of smooth
-  // falloff big enough for the eye to read as a dome.
-  const BODY = 52;
+  // Sampled over the footprint rather than round a ring. This is the bulk of
+  // the skin; the crest run and the repair pass below are what guarantee it,
+  // because nowhere on the heap may there be a patch of smooth falloff big
+  // enough for the eye to read as a dome.
+  const BODY = 46;
   for (let i = 0; i < BODY; i++) {
     // Square-root radius so the samples spread evenly over the area instead of
     // bunching at the crest, and a golden-angle spin so no two land on top of
@@ -381,12 +407,13 @@ export function createDirtPile({
     const th = i * 2.399963 + rng() * 0.55;
     const x = a * rho * Math.cos(th);
     const z = c * rho * Math.sin(th);
-    // A wide spread of sizes, because a heap of one size is gravel. Bigger
-    // lumps low down, where the barrow tipped and the coarse stuff rolled.
-    // A wide spread of sizes, because a heap of one size is gravel, but the
-    // floor of the spread is what actually matters: at 0.62 two seeds in three
-    // drew enough small clods in a row to leave a patch of bare core showing.
-    const r = (0.055 + 0.058 * rho) * (0.86 + rng() * rng() * 1.25);
+    // A wide spread of sizes, because a heap of one size is gravel, with
+    // bigger lumps low down where the barrow tipped and the coarse stuff
+    // rolled. Both ends of the spread are held: at a floor of 0.62 two seeds in
+    // three drew enough small clods in a row to leave bare core showing, and
+    // with the top end unclamped the tail of the draw put a 0.5 wide boulder on
+    // a 0.9 wide heap, which the eye reads as a rock and not as earth.
+    const r = Math.min(0.145, (0.055 + 0.058 * rho) * (0.86 + rng() * rng() * 1.25));
     // How deep the clod is sunk is the whole difference between a heap and a
     // potato, and it has a narrow window. A clod stands 0.72r above its own
     // centre, so sinking it much past half of that leaves nothing proud and
@@ -394,10 +421,10 @@ export function createDirtPile({
     // failure arriving by the back door. Tried at 0.9r to 1.65r and the render
     // was a bread roll. This range leaves every clod showing between a fifth
     // and three fifths of its radius.
-    const y = coreHeight(x, z, core) - r * (0.12 + 0.42 * rng());
+    const y = coreShape(x, z, core, ph) - r * (0.12 + 0.42 * rng());
     clods.push({
       x, y: Math.max(y, r * 0.22), z, r,
-      seg: [12, 8],
+      seg: [11, 7],
       // Flattened: a clod that has been dropped sits wider than it is tall, and
       // a flattened lump turns more of itself at the sky.
       scale: new THREE.Vector3(r * 2.25, r * 1.45, r * 2.0),
@@ -420,8 +447,8 @@ export function createDirtPile({
     const z = c * (rng() - 0.5) * 0.72;
     const r = 0.062 * (0.9 + rng() * 0.7);
     clods.push({
-      x, y: coreHeight(x, z, core) - r * (0.10 + 0.35 * rng()), z, r,
-      seg: [12, 8],
+      x, y: coreShape(x, z, core, ph) - r * (0.10 + 0.35 * rng()), z, r,
+      seg: [11, 7],
       scale: new THREE.Vector3(r * 2.25, r * 1.5, r * 2.0),
       euler: new THREE.Euler(rng() * 0.7 - 0.35, rng() * 6.283, rng() * 0.7 - 0.35),
       tone: TONE.lo + (TONE.hi - TONE.lo) * rng(),
@@ -440,7 +467,7 @@ export function createDirtPile({
     const r = (0.030 + 0.052 * (1 - t)) * (0.8 + rng() * 0.55);
     clods.push({
       x: rx * Math.cos(th), y: r * 0.62, z: rz * Math.sin(th), r,
-      seg: [10, 7],
+      seg: [9, 6],
       scale: new THREE.Vector3(r * 2.3, r * 1.45, r * 2.05),
       euler: new THREE.Euler(rng() * 0.6 - 0.3, rng() * 6.283, rng() * 0.6 - 0.3),
       tone: TONE.lo + (TONE.hi - TONE.lo) * rng(),
@@ -461,19 +488,90 @@ export function createDirtPile({
       y: r * 0.58,
       z: (scatter / 2) * (0.72 + 0.28 * t) * Math.sin(th),
       r,
-      seg: [8, 6],
+      seg: [6, 5],
       scale: new THREE.Vector3(r * 2.3, r * 1.45, r * 2.1),
       euler: new THREE.Euler(0, rng() * 6.283, 0),
       tone: TONE.lo + (TONE.hi - TONE.lo) * rng(),
     });
   }
 
-  const parts = [paint(coreGeometry({ a, c, h, rng }), { rng, height, clods, crevice: 0.30 })];
+  // --- coverage repair ------------------------------------------------------
+  // The three passes above spread clods evenly over the FOOTPRINT, which is not
+  // the same as evenly over the SURFACE: a steep flank has more surface than
+  // plan and comes up short, and on some seeds it came up short by a whole
+  // clod's worth. What showed through was a smooth pale ramp of bare core,
+  // which is precisely the dome the whole piece is built to avoid, arriving
+  // through a hole in the answer to it.
+  //
+  // So it is checked rather than hoped for. A grid of points on the core is
+  // tested against every clod's actual ellipsoid, and anything still bare gets
+  // a clod of its own. Nothing here is placed at a spacing somebody chose.
+  {
+    const test = [];
+    for (let ir = 0; ir < 10; ir++) {
+      const rho = (ir + 0.5) / 10;
+      const nth = Math.max(6, Math.round(34 * rho));
+      for (let it = 0; it < nth; it++) {
+        const th = ((it + 0.5) / nth) * 6.283 + ir * 0.7;
+        const x = a * rho * Math.cos(th) * 0.97;
+        const z = c * rho * Math.sin(th) * 0.97;
+        test.push([x, coreShape(x, z, core, ph), z]);
+      }
+    }
+    // How far a point is from being covered: the smallest ellipsoid distance to
+    // any clod, where under 1 means inside one. 0.44 rather than the
+    // ellipsoid's true 0.5 because a clod sunk into the core meets it in a
+    // circle smaller than its own equator, so counting the equator as covered
+    // leaves a visible collar of bare core round every one of them.
+    const exposure = ([x, y, z]) => {
+      let best = Infinity;
+      for (const d of clods) {
+        const dx = (x - d.x) / (d.scale.x * 0.44);
+        const dy = (y - d.y) / (d.scale.y * 0.48);
+        const dz = (z - d.z) / (d.scale.z * 0.44);
+        const q = dx * dx + dy * dy + dz * dz;
+        if (q < best) best = q;
+      }
+      return best;
+    };
+    // Worst first, and stop as soon as nothing is bare. Walking the grid in
+    // order and stopping at a budget spends the budget on the first holes it
+    // meets and leaves the worst one on the heap.
+    for (let pass = 0; pass < 28; pass++) {
+      let worst = -1;
+      let at = null;
+      for (const t of test) {
+        const e = exposure(t);
+        if (e > worst) { worst = e; at = t; }
+      }
+      if (worst <= 1 || !at) break;
+      const r = 0.058 * (0.9 + rng() * 0.6);
+      clods.push({
+        x: at[0], y: at[1] - r * (0.05 + 0.3 * rng()), z: at[2], r,
+        seg: [11, 7],
+        scale: new THREE.Vector3(r * 2.3, r * 1.5, r * 2.05),
+        euler: new THREE.Euler(rng() * 0.7 - 0.35, rng() * 6.283, rng() * 0.7 - 0.35),
+        tone: TONE.lo + (TONE.hi - TONE.lo) * rng(),
+      });
+    }
+  }
+
+  const parts = [paint(coreGeometry(core, ph), { rng, height, clods, crevice: 0.30 })];
   for (let i = 0; i < clods.length; i++) {
     const d = clods[i];
     const geo = lumpGeometry(rng, d.seg);
     placed(geo, { pos: new THREE.Vector3(d.x, d.y, d.z), scale: d.scale, euler: d.euler });
     parts.push(paint(geo, { rng, height, clods, skip: i, tone: d.tone }));
+  }
+
+  // The spade goes into the SAME merge as the earth. It is a different colour,
+  // but colour here is a vertex attribute rather than a material, so the whole
+  // prop stays one geometry and one draw call.
+  if (spade) {
+    const { steel, wood } = spadeGeometries(rng, core, ph);
+    parts.push(tint(mergeGeometries(wood, false), SPADE.handle, 0.1, rng));
+    for (const g of wood) g.dispose();
+    parts.push(tint(steel, SPADE.metal, 0.06, rng));
   }
 
   const geometry = mergeGeometries(parts, false);
@@ -484,21 +582,6 @@ export function createDirtPile({
   mesh.receiveShadow = true;
   group.add(mesh);
 
-  const extra = [];
-  if (spade) {
-    const { steel, wood } = spadeGeometries(rng, core);
-    const gw = tint(mergeGeometries(wood, false), SPADE.handle, 0.1, rng);
-    for (const g of wood) g.dispose();
-    const gs = tint(steel, SPADE.metal, 0.06, rng);
-    const merged = mergeGeometries([gw, gs], false);
-    gw.dispose(); gs.dispose();
-    const m = new THREE.Mesh(merged, material);
-    m.castShadow = true;
-    m.receiveShadow = true;
-    group.add(m);
-    extra.push(merged);
-  }
-
   group.scale.setScalar(scale);
 
   return {
@@ -507,7 +590,6 @@ export function createDirtPile({
     dispose() {
       geometry.dispose();
       material.dispose();
-      for (const g of extra) g.dispose();
     },
   };
 }
