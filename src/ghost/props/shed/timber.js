@@ -72,15 +72,35 @@ export function paint(geo, rand, { axis = GRAIN_UP, groundEnd = true, weather = 
   return geo;
 }
 
-// A sawn end with the arris knocked off, as a profile for board(). The fence
-// post's eased top, borrowed: a flat cut straight onto the sides gives a right
-// angle that goes black under the key light and makes a board read as card.
-export function easedTop(ease, take) {
+// A sawn end with the arris knocked off, as a profile for board().
+//
+// THE TRAP, which cost a render and is the same one fence/metrics.js records
+// against the post's eased top, from the other side. board() samples profile(t)
+// at evenly spaced rings and lofts straight lines between them, so an ease
+// SHORTER than one segment does not come out short: it comes out smeared over
+// the whole last segment. The cladding runs 7 segments over 1.4m, so a 14mm
+// ease asked for at the top of a wall board arrived as a 200mm spike, every
+// board on the shed came to a point, and the wall read as a row of pickets
+// with black wedges of interior between them.
+//
+// Two things follow, and both are load-bearing:
+//
+//   1. The taper's LENGTH is one segment, whatever is asked for. It cannot be
+//      shorter. So it is chosen, not wished for: keep the segment count honest
+//      about the board's length and read the taper as "the last segment".
+//   2. Because the taper is that long, how much it takes IN WIDTH has to be
+//      small, or it opens a wedge between neighbouring boards. The shaping goes
+//      into the THICKNESS instead, which is the front-to-back dimension nobody
+//      is looking down and which is what actually rounds the top edge over and
+//      puts a highlight on it.
+//
+// Hence two takes rather than one. `take` narrows the board, `roll` thins it.
+export function easedTop(ease, take = 0.10, roll = 0.5) {
   return (t) => {
     if (t <= 1 - ease) return [1, 1];
     const k = (t - (1 - ease)) / ease;
-    const s = 1 - take * (1 - Math.sqrt(Math.max(0, 1 - k * k)));
-    return [s, s];
+    const e = 1 - Math.sqrt(Math.max(0, 1 - k * k));
+    return [1 - take * e, 1 - roll * e];
   };
 }
 
@@ -88,13 +108,20 @@ export function easedTop(ease, take) {
 // course, a lintel, a brace. board()'s profile is one function of t, so the two
 // ends are the same easing read forwards and backwards and the narrower of the
 // two wins wherever they overlap.
-export function easedBoth(ease, take) {
-  const one = easedTop(ease, take);
+export function easedBoth(ease, take = 0.10, roll = 0.5) {
+  const one = easedTop(ease, take, roll);
   return (t) => {
     const a = one(t);
     const b = one(1 - t);
     return [Math.min(a[0], b[0]), Math.min(a[1], b[1])];
   };
+}
+
+// How many segments a board of this length wants, so that one segment (and so
+// the eased end above) is about `step` long. Clamped, because a 3m roof course
+// does not need thirty rings and a 100mm brace still needs a few.
+export function segmentsFor(length, step, lo = 5, hi = 16) {
+  return Math.min(hi, Math.max(lo, Math.round(length / step)));
 }
 
 // Turns a board that board() built standing on +Y into one lying along +X,

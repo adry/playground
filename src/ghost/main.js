@@ -10,6 +10,7 @@ import { createDebrisPile, createChipScatter } from './props/fence/debris.js';
 import { createGate, GATE_LAYOUT } from './props/fence/gate.js';
 import { createSwing } from './props/fence/swing.js';
 import { createGateController } from './props/fence/gate-controller.js';
+import { createShed } from './props/shed/index.js';
 import { createSkeletonRig } from './props/skeleton/model.js';
 
 const canvas = document.getElementById('view');
@@ -374,6 +375,16 @@ if (SCENE === 'full') {
   gateProps.push({ update(dt) { gateCtl.update(dt, ghost); } });
 
   fencePlot({ right: 1.0, up: FENCE_UP_PLOT, w: 3, h: 2, seed: 40, gates: { front: 1 }, broken: { back: 1, right: 0 } });
+
+  // The groundskeeper's shed, in the back corner of the right plot. Yaw is a
+  // small negative rather than addProp's usual PI/4: the shed is authored with
+  // its door on +Z and its window on +X so both faces are on show in this one
+  // fixed camera, and a quarter turn would hide the door and the dark interior
+  // behind it, which is the whole point of the thing.
+  {
+    const [sx, sz] = atScreen(6.0, 3.6);
+    addProp(createShed({ seed: 3 }), sx, sz, -0.12);
+  }
 
   // The skeleton, standing in its rest pose so it can be judged before anyone
   // rigs it. Out on the path between the two plots, turned a little off square

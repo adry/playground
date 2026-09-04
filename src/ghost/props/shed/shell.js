@@ -48,11 +48,19 @@ export function createInteriorShell({ halfWidth, halfSpan, wallTop, apex }) {
   const hx = halfWidth;
   const hz = halfSpan;
 
+  // The floor stands a hair off y = 0, and that is not tidiness. The scene's
+  // ground is a plane at exactly y = 0, this floor was too, and with the two
+  // coplanar the ground won the depth test (LEQUAL, and the ground is drawn
+  // second): through the open door you saw lit grass where the room should be,
+  // grid lines and all. Same fix as debris.js's CONTACT_BIAS, and for the same
+  // reason.
+  const FLOOR = 0.004;
+
   // The gable section, counter-clockwise seen from +X, so every face below is
   // wound outward and BackSide keeps exactly the ones facing into the room.
   const section = [
-    [-hz, 0],
-    [hz, 0],
+    [-hz, FLOOR],
+    [hz, FLOOR],
     [hz, wallTop],
     [0, apex],
     [-hz, wallTop],

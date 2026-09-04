@@ -35,7 +35,11 @@ export const S = {
   // one number that decides whether the shed is made of the fence's timber.
   clad: {
     thickness: F.picket.thickness,
-    width: 0.148,
+    // Close to the picket's 0.115 on purpose. Wider, because cladding is a
+    // wider cut than a picket, but not so much wider that a wall stops looking
+    // like it was cut from the same stock: at 0.148 the shed read flatter and
+    // crisper than the fence standing next to it in the same frame.
+    width: 0.134,
     round: F.picket.round,
     warp: 0.010,
     // Fractions of nominal, applied per board from the wall's seed.
@@ -48,22 +52,35 @@ export const S = {
     gap: 0.020,
     gapChance: 0.44,
     // The top of a board is a saw cut with the arris knocked off, not a
-    // cardboard edge. Same trick as the fence post's eased top.
-    top: { ease: 0.045, take: 0.30 },
-    // Rings and segments. Far below the fence's, and deliberately: a picket is
-    // one of seven and a clad board is one of sixty, the grain is a fragment
-    // effect that does not care about tessellation, and the only thing the
-    // extra rings buy is the rounded arris. See the note in index.js on cost.
-    segments: 7,
-    ring: 12,
+    // cardboard edge. `run` is how long that easing comes out, and it is a
+    // length rather than a fraction because board() cannot make one shorter
+    // than a segment; see easedTop in timber.js. `take` narrows the board and
+    // is kept small, because over a run this long anything more opens a wedge
+    // of daylight between neighbours. `roll` thins it front to back, which is
+    // where the shaping actually goes.
+    top: { run: 0.17, take: 0.05, roll: 0.55 },
+    // Rings only. Far below the fence's, and deliberately: a picket is one of
+    // seven and a clad board is one of sixty, the grain is a fragment effect
+    // that does not care about tessellation, and the only thing extra rings buy
+    // is the rounded arris. Eleven is where that arris stops improving on a
+    // board 134mm by 42mm; the fence runs its pickets at sixteen because seven
+    // of them are the whole prop and sixty of these are one wall.
+    // Segments are NOT set here, because how many a board wants depends on how
+    // long it is; see segmentsFor.
+    ring: 11,
   },
 
   // --- roof ----------------------------------------------------------------
   // Overlapping courses of horizontal boards, laid up the slope from the eaves.
   roof: {
-    thickness: 0.038,
-    width: 0.175,        // the board, across the slope
-    exposure: 0.128,     // how much of it the course above leaves showing
+    // Thickness against exposure is the roof's whole look, because the two of
+    // them fix the tilt (see TILT in index.js) and the tilt is how tall a step
+    // stands between one course and the next. At 0.038 on 0.128 the step was a
+    // third of the reveal and the roof read as a stack of pancakes seen from
+    // the front. Roughly a quarter is the ratio that reads as boards.
+    thickness: 0.034,
+    width: 0.180,        // the board, across the slope
+    exposure: 0.145,     // how much of it the course above leaves showing
     round: 0.30,
     warp: 0.012,
     // How far the eaves stand out past the wall face, measured horizontally.
@@ -72,10 +89,11 @@ export const S = {
     // per-end draw between these two, which is what makes the gable edge a
     // torn line instead of a sawn one.
     runOut: [0.015, 0.155],
-    segments: 10,
-    ring: 12,
+    // How long the eased, torn-looking end of a course comes out.
+    endRun: 0.21,
+    ring: 11,
     // The ridge board. The one heavy piece on the building.
-    ridge: { width: 0.200, thickness: 0.092, round: 0.32, over: 0.115 },
+    ridge: { width: 0.170, thickness: 0.078, round: 0.32, over: 0.105 },
   },
 
   // --- the doorway ---------------------------------------------------------
@@ -86,19 +104,19 @@ export const S = {
     width: 0.60,
     height: 1.05,
     // The head. A single board laid flat across the opening.
-    lintel: { width: 0.105, thickness: 0.058, over: 0.085 },
+    lintel: { width: 0.092, thickness: 0.042, over: 0.075 },
     // The leaf. Four boards on two cross braces with one diagonal between them.
     leaf: {
       clear: 0.018,       // gap between leaf and jamb, all round
       thickness: 0.036,
       boards: 4,
-      brace: { width: 0.085, thickness: 0.030, at: [0.17, 0.84] },
-      diagonal: { width: 0.072, thickness: 0.028 },
+      brace: { width: 0.085, thickness: 0.022, at: [0.17, 0.84] },
+      diagonal: { width: 0.070, thickness: 0.020 },
       knob: { radius: 0.032, stem: 0.030, at: 0.60 },
     },
     // Where it is standing. Negative swings the leaf out into +Z; see the note
     // on DOOR_HINGE in index.js.
-    open: -0.72,
+    open: -0.50,
   },
 
   // --- the window ----------------------------------------------------------
@@ -120,9 +138,9 @@ export const S = {
     clearance: 0.005,
     // Unlit colours, darkest first. See shell.js: these are not lit, so they
     // are the final pixel and not an albedo.
-    back: '#0a0908',
-    side: '#12100d',
-    floor: '#1a1611',
+    back: '#080707',
+    side: '#211b14',
+    floor: '#332a1e',
   },
 
   // --- debris --------------------------------------------------------------
@@ -130,7 +148,7 @@ export const S = {
   // broken planks the smashed fence panel leaves, and there is no reason for
   // the shed to own a second pile of rubbish.
   debris: {
-    pile: { planks: 9, radius: 0.38 },
+    pile: { planks: 8, radius: 0.44 },
     scatter: { count: 34, radius: 1.30 },
   },
 };

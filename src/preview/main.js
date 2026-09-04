@@ -161,6 +161,16 @@ const PROPS = {
     };
   },
 
+  shed: async () => {
+    const m = await import('../ghost/props/shed/index.js');
+    const shed = m.createShed({ seed: 3 });
+    return {
+      group: shed.group,
+      update: (time, dt) => shed.update?.(time, dt),
+      dispose: () => shed.dispose?.(),
+    };
+  },
+
   tombstones: async () => {
     const m = await import('../ghost/props/tombstones.js');
     // Lay the variants out in a row so one render shows the whole set.

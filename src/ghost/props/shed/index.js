@@ -5,7 +5,7 @@ import { createDebrisPile, createChipScatter } from '../fence/debris.js';
 import S, { PITCH } from './metrics.js';
 import { createInteriorShell } from './shell.js';
 import {
-  rng, paint, upright, lying, easedTop, easedBoth, fuse, at,
+  rng, paint, upright, lying, easedTop, easedBoth, segmentsFor, fuse, at,
   GRAIN_UP, GRAIN_ALONG,
 } from './timber.js';
 
@@ -137,11 +137,16 @@ function cladWall({ boards, top, openings = [] }) {
       if (len < clad.width * 0.4) continue;
       const grounded = s0 <= 0;
       const rand = rng(b.seed + Math.round(s0 * 1000));
-      // A board that reaches the dirt is eased at the top only; a stub over a
-      // doorway is a cut at both ends and shows both.
+      // Segments chosen so one of them is about clad.top.run long, and the ease
+      // then set to exactly one segment. That is the only way to control how
+      // long the eased end comes out; see the note on easedTop in timber.js.
+      const segments = segmentsFor(len, clad.top.run);
       const profile = grounded
-        ? easedTop(clad.top.ease * (clad.width / len) * 3, clad.top.take)
-        : easedBoth(clad.top.ease * (clad.width / len) * 3, clad.top.take);
+        // A board that reaches the dirt is eased at the top only. Its foot is
+        // in the ground and shaping it is geometry nobody will ever see.
+        ? easedTop(1 / segments, clad.top.take, clad.top.roll)
+        // A stub over a doorway or under a window is a cut at both ends.
+        : easedBoth(1 / segments, clad.top.take, clad.top.roll);
       const geo = upright({
         length: len,
         width: b.width,
@@ -149,7 +154,7 @@ function cladWall({ boards, top, openings = [] }) {
         round: clad.round,
         warp: clad.warp,
         profile,
-        segments: clad.segments,
+        segments,
         ring: clad.ring,
         rand,
       });
@@ -179,6 +184,27 @@ function cladWall({ boards, top, openings = [] }) {
 // key light, which no amount of shading on a flat wedge gives you.
 
 const TILT = Math.atan2(roof.thickness, roof.exposure);
+const LAP_RUN = roof.width * Math.cos(TILT);
+const LAP_RISE = roof.width * Math.sin(TILT);
+
+// How far the roof's underside stands off the rafter plane, perpendicular, at a
+// distance u up the slope. A sawtooth: LAP_RISE where a course begins and zero
+// where it lands back on the plane, repeating every exposure. The walls are cut
+// to this, so read the note on the gable line in createShed before touching it.
+function roofUnderside(u) {
+  if (u <= 0) return LAP_RISE;
+  const s = u - Math.floor(u / roof.exposure) * roof.exposure;
+  return Math.max(0, LAP_RISE * (1 - s / LAP_RUN));
+}
+
+// The vertical clearance a wall's boards need above the rafter plane to reach
+// the underside of the roof at a horizontal distance d from the ridge, plus a
+// few millimetres of overlap so the board is behind the roof rather than
+// exactly touching it and no seam can open through rounding.
+function roofSoffit(d) {
+  const u = (body.halfSpan + roof.overhang - d) / COS_P;
+  return roofUnderside(u) / COS_P + 0.006;
+}
 
 function slopeGeometry({ seed, halfWidth, slopeLen }) {
   const rand = rng(seed);
@@ -203,14 +229,18 @@ function slopeGeometry({ seed, halfWidth, slopeLen }) {
     const length = 2 * halfWidth + outA + outB;
     const xc = (outB - outA) / 2;
 
+    const segments = segmentsFor(length, roof.endRun);
     const geo = lying({
       length,
       width: w * (1 + sym() * 0.06),
       thickness: t,
       round: roof.round,
+      // A course is cut at both ends and both ends are on show, hanging out
+      // past the gable. Taking width out of them is what stops the run-outs
+      // reading as sawn dowels.
+      profile: easedBoth(1 / segments, 0.30, 0.55),
       warp: roof.warp,
-      profile: easedBoth(0.030, 0.34),
-      segments: roof.segments,
+      segments,
       ring: roof.ring,
       rand,
     });
@@ -256,19 +286,20 @@ function doorLeaf({ seed, width, height }) {
   // The face: vertical boards, same stock as the walls, cut narrower so four
   // of them make a leaf. Small gaps between, so daylight shows through the door
   // the way it shows through the walls.
-  const gap = 0.008;
+  const gap = 0.005;
   const bw = (width - gap * (L.boards - 1)) / L.boards;
   for (let i = 0; i < L.boards; i++) {
     const r = rng(seed + 31 * (i + 1));
     const x = i * (bw + gap) + bw / 2;
+    const segments = segmentsFor(height, clad.top.run);
     const geo = upright({
       length: height,
       width: bw * (1 + sym() * 0.04),
       thickness: L.thickness,
       round: clad.round,
       warp: clad.warp * 0.6,
-      profile: easedBoth(0.028, 0.32),
-      segments: clad.segments,
+      profile: easedBoth(1 / segments, clad.top.take, clad.top.roll),
+      segments,
       ring: clad.ring,
       rand: r,
     });
@@ -276,10 +307,13 @@ function doorLeaf({ seed, width, height }) {
     parts.push([geo, at(x, 0, 0)]);
   }
 
-  // Two cross braces on the inside face, and one diagonal between them. The
-  // braces sit behind the boards, which is where a ledged door's ledges go, so
-  // from outside you see boards and from inside you see the frame.
-  const bz = -(L.thickness / 2 + L.brace.thickness / 2);
+  // Two cross braces and one diagonal between them, on the OUTSIDE face. A
+  // ledged door really has its ledges on the inside, and that is where they
+  // went first; the reference has them on the face you look at, and on a door
+  // standing open in a dark doorway the inside of the leaf is the half nobody
+  // sees. So they are on the outside, which is also the only reading of the
+  // reference that puts a brace anywhere the transcription could have seen it.
+  const bz = L.thickness / 2 + L.brace.thickness / 2;
   const braceY = L.brace.at.map((f) => f * height);
   for (const y of braceY) {
     const r = rng(seed + 977 + Math.round(y * 1000));
@@ -290,8 +324,8 @@ function doorLeaf({ seed, width, height }) {
       thickness: L.brace.thickness,
       round: 0.30,
       warp: 0.006,
-      profile: easedBoth(0.05, 0.34),
-      segments: 8,
+      profile: easedBoth(1 / 6, 0.22, 0.5),
+      segments: 6,
       ring: 12,
       rand: r,
     });
@@ -317,8 +351,8 @@ function doorLeaf({ seed, width, height }) {
       thickness: L.diagonal.thickness,
       round: 0.30,
       warp: 0.005,
-      profile: easedBoth(0.05, 0.34),
-      segments: 10,
+      profile: easedBoth(1 / 6, 0.22, 0.5),
+      segments: 6,
       ring: 12,
       rand: r,
     });
@@ -357,37 +391,23 @@ export function createShed({ seed = 1, scale = 1 } = {}) {
     return mesh;
   };
 
-  const flatTop = () => body.wallTop;
-
-  // The gable line, which is the underside of the roof and not the rafter
-  // plane. This one cost two renders, so it is written out.
+  // The wall tops.
   //
-  // The courses lap, so a course's lower edge rides w*sin(TILT) proud of the
-  // rafter plane and its upper edge comes back down to the plane. Cut the gable
-  // cladding off at the plane and a wedge of daylight opens under every course,
-  // all the way up both slopes. Raise it by a constant instead and the boards
-  // come THROUGH the roof between the courses, which is what the second render
-  // showed: there is no single height that fits, because the surface being
-  // fitted to is a sawtooth.
+  // Not the rafter plane, and the difference cost two renders, so it is written
+  // out. The roof's courses lap, so a course's lower edge rides proud of the
+  // rafter plane and its upper edge comes back down onto it (see TILT above).
+  // Cut the cladding off at the plane and a wedge of daylight opens under every
+  // course; raise it by a constant instead and the boards come THROUGH the roof
+  // between the courses. There is no single height that fits, because the
+  // surface being fitted to is a sawtooth, so the cladding is cut to the
+  // sawtooth: roofSoffit(d) is that height, and both walls use it.
   //
-  // So the cladding is cut to the sawtooth. roofUnderside(u) is the perpendicular
-  // clearance of the covering course at a distance u up the slope, and dividing
-  // it by cos(pitch) turns a perpendicular offset into the vertical one a
-  // board's top needs.
-  const LAP_RUN = roof.width * Math.cos(TILT);
-  const LAP_RISE = roof.width * Math.sin(TILT);
-  const roofUnderside = (u) => {
-    if (u <= 0) return LAP_RISE;
-    const s = u - Math.floor(u / roof.exposure) * roof.exposure;
-    return Math.max(0, LAP_RISE * (1 - s / LAP_RUN));
-  };
+  // An eave wall meets the roof at one constant distance from the ridge, so its
+  // top is flat. A gable wall meets it all the way up, so its top is the rake.
+  const flatTop = () => body.wallTop + roofSoffit(body.halfSpan);
   const gableTop = (x) => {
     const d = Math.abs(x);
-    const plane = body.wallTop + body.rise * Math.max(0, 1 - d / body.halfSpan);
-    const u = (body.halfSpan + roof.overhang - d) / COS_P;
-    // A few millimetres of overlap, so the board is behind the roof rather than
-    // exactly touching it and no seam can open through rounding.
-    return plane + roofUnderside(u) / COS_P + 0.006;
+    return body.wallTop + body.rise * Math.max(0, 1 - d / body.halfSpan) + roofSoffit(d);
   };
 
   // --- the front wall, and the hole in it ----------------------------------
@@ -423,14 +443,15 @@ export function createShed({ seed = 1, scale = 1 } = {}) {
     const r = rng(wallSeed());
     const Ln = DOOR.lintel;
     const len = openW + Ln.over * 2;
+    const segments = segmentsFor(len, 0.12);
     const geo = lying({
       length: len,
       width: Ln.width,
       thickness: Ln.thickness,
       round: 0.30,
       warp: 0.008,
-      profile: easedBoth(0.045, 0.34),
-      segments: 10,
+      profile: easedBoth(1 / segments, 0.20, 0.5),
+      segments,
       ring: 12,
       rand: r,
     });
@@ -490,8 +511,8 @@ export function createShed({ seed = 1, scale = 1 } = {}) {
         thickness: Fr.thickness,
         round: 0.30,
         warp: 0.005,
-        profile: easedBoth(0.05, 0.34),
-        segments: 8,
+        profile: easedBoth(1 / 7, 0.20, 0.5),
+        segments: 7,
         ring: 12,
         rand: r,
       });
@@ -506,8 +527,8 @@ export function createShed({ seed = 1, scale = 1 } = {}) {
         thickness: Fr.thickness,
         round: 0.30,
         warp: 0.004,
-        profile: easedBoth(0.06, 0.34),
-        segments: 8,
+        profile: easedBoth(1 / 6, 0.20, 0.5),
+        segments: 6,
         ring: 12,
         rand: r,
       });
@@ -523,8 +544,8 @@ export function createShed({ seed = 1, scale = 1 } = {}) {
         thickness: WIN.bars.thickness,
         round: 0.34,
         warp: 0.004,
-        profile: easedBoth(0.06, 0.34),
-        segments: 8,
+        profile: easedBoth(1 / 6, 0.18, 0.5),
+        segments: 6,
         ring: 10,
         rand: r,
       });
@@ -583,6 +604,7 @@ export function createShed({ seed = 1, scale = 1 } = {}) {
     const r = rng(wallSeed());
     const R = roof.ridge;
     const len = 2 * body.halfWidth + R.over * 2;
+    const segments = segmentsFor(len, 0.16);
     const geo = lying({
       length: len,
       // lying() puts width along Y and thickness along Z. A ridge cap is thick
@@ -592,8 +614,8 @@ export function createShed({ seed = 1, scale = 1 } = {}) {
       thickness: R.width,
       round: R.round,
       warp: 0.010,
-      profile: easedBoth(0.035, 0.36),
-      segments: 12,
+      profile: easedBoth(1 / segments, 0.26, 0.5),
+      segments,
       ring: 14,
       rand: r,
     });
@@ -665,8 +687,8 @@ export function createShed({ seed = 1, scale = 1 } = {}) {
     planks: S.debris.pile.planks,
     radius: S.debris.pile.radius,
   });
-  pile.group.position.set(body.halfWidth * 0.86, 0, body.halfSpan + 0.22);
-  pile.group.rotation.y = 0.5;
+  pile.group.position.set(body.halfWidth * 1.08, 0, body.halfSpan * 0.62);
+  pile.group.rotation.y = 1.05;
   group.add(pile.group);
   owned.push(pile);
 
@@ -678,7 +700,7 @@ export function createShed({ seed = 1, scale = 1 } = {}) {
   // Pushed out in front of the shed rather than centred on it: centred, half
   // the litter lands on the floor inside, where it is lit while the room is
   // not and every chip reads as a bright speck floating in the dark.
-  scatter.group.position.set(body.halfWidth * 0.25, 0, body.halfSpan + 0.45);
+  scatter.group.position.set(body.halfWidth * 0.45, 0, body.halfSpan + 0.40);
   group.add(scatter.group);
   owned.push(scatter);
 

@@ -70,8 +70,20 @@ export async function openLab({
     if (verbose || m.type() === 'error' || m.type() === 'warning') console.log(`  [page] ${m.text()}`);
   });
 
+  // The shipped pages carry an analytics tag. A capture run has no business
+  // firing it, and in a sandboxed environment the request does not fail fast:
+  // it hangs on the proxy, so `waitUntil: 'load'` sat there until the timeout
+  // even though the scene had been ready since the first frame. Blocked at the
+  // route, and the wait moved to domcontentloaded, because the readyFlag below
+  // is the real gate and always was.
+  await page.route(/googletagmanager\.com|google-analytics\.com/, (r) => r.abort());
+
   const base = url.replace(/\/$/, '');
-  await page.goto(`${base}${entry}?${query}`, { waitUntil: 'load' });
+  // 120s rather than Playwright's 30s default. The first navigation pays for
+  // vite transforming the whole module graph cold, and on a loaded machine
+  // (several capture runs in parallel, all of them software-rasterising) that
+  // alone has taken over a minute. A slow cold start is not a hung page.
+  await page.goto(`${base}${entry}?${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
   await page.waitForFunction((flag) => window[flag] === true, readyFlag, { timeout: 60000 });
 
   const renderer = await page.evaluate(() => {
