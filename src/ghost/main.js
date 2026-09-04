@@ -98,18 +98,17 @@ scene.add(key.target);
 // 7.3 units from the middle of the frame while the visible floor runs out to
 // 17.9. Half the ground was literally behind the lamp. Standing it well back
 // along the same direction puts the whole scene in front of it.
-// Where the key sits also decides whether its shadows can be SEEN. The old
-// (3.2, 6.0, 2.4) put the lamp below and slightly right of frame centre in
-// screen terms, so a shadow travelled 0.66 up the screen per unit of caster
-// height and only 0.09 sideways: it landed directly behind the thing that cast
-// it and was hidden by it at every angle. That, as much as the frustum, is why
-// props looked like they had no shadow at all.
+// This direction is a deliberate choice, not an oversight, and it was tried
+// the other way. From here a shadow travels mostly up the screen and only
+// slightly sideways, so it tucks in behind the thing that cast it and stays
+// short. Swinging the key to the screen's upper left throws every shadow down
+// and to the right into open floor, which is the conventional isometric setup
+// and makes each one far more visible: the user looked at both and preferred
+// this, because the alternative put too much shadow in the frame. Keep it.
 //
-// From the screen's upper left instead, a shadow moves 0.47 right and 0.24
-// down per unit of height, so it falls clear. It is also the conventional
-// direction for an isometric scene, and it puts the light above the frame
-// rather than under it, which reads better on the carved stone faces.
-const LIGHT_DIR = new THREE.Vector3(-3.0, 6.0, 1.0).normalize();
+// Note that this is separate from the shadow camera's coverage. That was a
+// real bug and its fix stands whichever way the light points.
+const LIGHT_DIR = new THREE.Vector3(3.2, 6.0, 2.4).normalize();
 const LIGHT_DIST = 26;
 const LIGHT_OFFSET = LIGHT_DIR.clone().multiplyScalar(LIGHT_DIST);
 // Tall enough to hold the skeleton, which stands 2.5.
@@ -163,11 +162,9 @@ function fitShadowToView(aspect) {
   shadowTexel = (c.right - c.left) / key.shadow.mapSize.width;
 }
 
-// The rim moves with the key: it exists to put a cool edge on the side the key
-// does not reach, and with the key swung to screen upper left that side is now
-// the opposite one.
+// The rim edges the side the key does not reach, so it sits opposite it.
 const rim = new THREE.DirectionalLight(0xc4d4ff, 0.55);
-rim.position.set(4, 2.5, 3);
+rim.position.set(-4, 2.5, -3);
 scene.add(rim);
 
 // --- world ------------------------------------------------------------------
