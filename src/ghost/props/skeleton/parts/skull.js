@@ -83,9 +83,10 @@ const Z_VAULT_FRONT = Z_BACK + 0.90 * M.skull.depth;
 // A real braincase, measured, is nothing like a ball:
 //   * it is LONGER than it is wide (length : breadth : height about 1 : 0.78 :
 //     0.73), so the depth has to carry the mass, not the width;
-//   * its widest point is high, at the parietal eminences, about a quarter of
-//     the crown-to-chin height below the crown -- not at eye level, which is
-//     where an ellipsoid's equator puts it;
+//   * it has a widest point at all, and it is not the ellipsoid's equator: a
+//     dry skull is broadest high, at the parietal eminences, and the reference
+//     photo's toy head is broadest a little over half way down. Either way the
+//     vault tapers into the crown, and an ellipsoid does not;
 //   * the forehead is a near-vertical plane at the brow that RECEDES going up,
 //     so the crown sits well behind the glabella;
 //   * the occiput projects backwards furthest at about ear level and tucks in
@@ -96,9 +97,10 @@ const Z_VAULT_FRONT = Z_BACK + 0.90 * M.skull.depth;
 // All five are profiles along the vault's own height, so rather than blending
 // more blobs in (an occipital blob was tried in the previous build and drew a
 // hard contour line right round the back of the head at every blend width from
-// 0.02 to 0.10), the vault is ONE superellipsoid whose cross-section is scaled
-// and shifted as a function of height. There is no join, so there is nothing to
-// crease.
+// 0.02 to 0.10), the vault is ONE superellipsoid whose cross-section is scaled,
+// shifted and squared off as a function of height. There is no join anywhere in
+// it, so there is nothing to crease -- which is the whole reason it is done this
+// way and not with more blobs.
 //
 // `vaultV` is 0 at the base of the braincase and 1 at the crown.
 const VAULT_SPAN = Y_CROWN - VAULT_BASE;
@@ -111,7 +113,7 @@ const VZ_A = (Z_VAULT_FRONT - Z_BACK) / 2;
 // Squarer in section than the old 2.02, which is what flattens the crown. The
 // profiles below narrow the top at the same time, so it comes out a broad dome
 // rather than the helmet a high exponent alone gives.
-const VAULT_PV = 2.28;
+const VAULT_PV = 2.40;
 const VAULT_UNIT = Math.min(HW, VY_A, VZ_A);
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -205,10 +207,10 @@ const RAMUS_R = 0.062 * HS;
 // How far past the last molar the body runs, and how far it swings OUT on the
 // way. The flare is the fix for a jaw with no visible angle: at extend 1.62 and
 // no flare the gonion sat at 0.56 of the skull's half-width, tucked inside the
-// silhouette, and from the side the mandible read as a hoop hanging under the
-// head with no corner to it. A real bigonial breadth is about 0.72 of the
-// cranium's; 0.67 is as far as this can go before the condyle, which rides the
-// same x, floats clear of the skull at the hinge.
+// silhouette, and from the side and from behind the mandible read as a hoop
+// hanging under the head with no corner to it. These put it at 0.75, and a real
+// bigonial breadth is about 0.72 of the cranium's. The flare only bites beyond
+// the last tooth, so the tooth row does not widen with it.
 const JAW_EXTEND = 1.55;
 const JAW_FLARE = 0.55;
 // The hinge. Level with the root of the zygomatic arch and just behind the
@@ -275,10 +277,13 @@ const NASAL_H = 0.62 * M.skull.socket.height;
 const NASAL_V = Y_CROWN - 0.570 * HS;
 
 // How thick the bone is at the edge of a cut, which is the depth of the wall
-// inside every opening. A real cranial vault is about 5mm on a 145mm skull and
-// an orbital margin is thicker; 3% of the head's height is that, and it is also
-// about two and a half grid cells, which is the least a wall can be and still
-// have more than one quad's worth of shading in it.
+// inside every opening. Two things bracket it. Below about two grid cells the
+// wall has less than one quad of shading in it and reads as a painted line
+// rather than as a thickness; above about 3% of the head's height it exceeds
+// the radius of curvature of the valley between the nasal aperture and the
+// medial wall of an orbit, and anything offset inward by more than that in
+// there folds through itself. 2.3% is between the two, and it is also roughly
+// what a 5mm vault measures on a 145mm skull.
 const WALL_T = 0.023 * HS;
 // The rest of the wall's numbers are held as fractions of it rather than
 // authored separately, exactly as pumpkin.js holds its own: change the
@@ -328,9 +333,11 @@ const smax = (a, b, k) => -smin(-a, -b, k);
 // swallowed.
 //
 // Two exponents, not one. `ph` squares off the PLAN view and `pv` the profile,
-// and they have to be independent: a single exponent high enough to give the
-// skull the flat frontal plane the sockets sit on also squares the crown off
-// into a helmet. Flat in plan, domed in section is exactly the split.
+// and they have to be independent: the maxilla has to be flat underneath so the
+// tooth row has bone over it, and rounded in plan so the face plane does not
+// meet the side of the head at a corner. The vault wants the same split and
+// wants it to VARY with height, which is why it has its own field above rather
+// than calling this.
 function blob(c, s, ph, pv = ph) {
   const unit = Math.min(s[0], s[1], s[2]);
   const round = ph === 2 && pv === 2;
@@ -964,10 +971,12 @@ export function buildSkull({ material }) {
       // Clamp the pull to half a cell in each direction. A rim vertex is
       // shared with the quads that survive, and one dragged clean across a
       // neighbour turns it inside out: it back-face culls, and what shows
-      // through the gap is the dark cavity behind. At the 0.55 pumpkin.js uses
-      // two neighbours could between them move 1.1 cells toward each other,
-      // and a scatter of black specks appeared on the bridge of the nose doing
-      // exactly that. Half a cell each is the most that cannot cross.
+      // through the gap is the dark cavity behind. pumpkin.js clamps at 0.55,
+      // which lets two neighbours move 1.1 cells toward each other and so does
+      // not quite rule the crossing out; half a cell each does. The cost is
+      // that a vertex more than half a cell from the outline lands short of it,
+      // which is the last of the staircase left on a rim -- and it is smaller
+      // than the pixel the head occupies at prop size.
       const cellV = Math.abs(Math.cos(vPhi[k]) * vT[k]) * (Math.PI / NPH);
       const uN = u + Math.max(-0.50 * CELL_U, Math.min(0.50 * CELL_U, hit.X - u));
       const vN = v + Math.max(-0.50 * cellV, Math.min(0.50 * cellV, hit.Y - v));
@@ -1035,8 +1044,9 @@ export function buildSkull({ material }) {
   // has a dropped quad on one side and a kept one on the other. The rim
   // vertices are already snapped onto the outline, so the ribbon follows the
   // true curve; extruding each of them back along its own surface normal by
-  // WALL_T lands exactly where the cavity's mouth is, so wall and cavity meet
-  // with no seam.
+  // WALL_T lands on the same plane the cavity's mouth is built at, so wall and
+  // cavity meet to within the half cell the rim snap is allowed to fall short
+  // by -- and the cavity's skirt is wider than that, so the joint is shut.
   //
   // The wall is its own geometry so its normals never average into the skin's:
   // that is what keeps the lip a crisp edge instead of a smeared crease, and it
@@ -1120,22 +1130,23 @@ export function buildSkull({ material }) {
     }
 
     // Step four: close what is behind, so the head is not a lamp with the light
-    // off. A real orbit is a deep bowl, so that is what goes in: rings of the
-    // outline shrunk toward its own centre and sunk along the skin's normal,
-    // which traces a quarter ellipse from the mouth of the hole to a pole at
-    // the back. Because it is a separate mesh from the skin it cannot fold into
-    // it, which is the whole class of bug the old pressed-in dent had: pressed
-    // along the normal, a wall steeper than about 45 degrees folded the mesh
-    // over itself and dragged unpainted skin in front of the socket floor as a
-    // bright crescent that read as an eyeball. Nothing here can do that.
+    // off. A real orbit is a deep bowl, so that is what goes in: the outline
+    // sunk one wall thickness is the bowl's mouth, and from there a quarter
+    // ellipse runs in and back to a pole. Because it is a separate mesh from
+    // the skin it cannot fold into it, which is the whole class of bug the old
+    // pressed-in dent had: pressed along the surface normal, a wall steeper
+    // than about 45 degrees folded the mesh over itself and dragged unpainted
+    // skin in front of the socket floor as a bright crescent that read as an
+    // eyeball. Nothing here can do that, which is why real holes are a
+    // simplification and not just a feature.
     //
-    // The bowl's normals point at the MOUTH's centre, which is what the inside
-    // of a hemisphere's normals do. So the sides of the bowl face across the
-    // opening and go dark, the back of it faces out and catches a little light,
-    // and the socket reads as a cavity with a floor rather than as a black
-    // sticker. The colours have to stay very low all the same: this scene has
-    // no global illumination, so the hemisphere light reaches the back of the
-    // bowl as if nothing were in the way.
+    // The bowl's normals point at its own mouth's centre, which is what the
+    // inside of a hemisphere's normals do. So the sides face across the opening
+    // and go dark, the back faces out and catches a little light, and the
+    // socket reads as a cavity with a floor rather than as a black sticker. The
+    // colours have to stay very low all the same: this scene has no global
+    // illumination, so the hemisphere light reaches the back of the bowl as if
+    // nothing were in the way.
     const CAV_RINGS = 7;
     // The mouth ring is carried this far out past the outline, under the skin,
     // before it turns and goes back. It is never meant to be seen: it is there
@@ -1211,12 +1222,11 @@ export function buildSkull({ material }) {
       const centre = new THREE.Vector3();
       for (const q of mouthRing) centre.add(q);
       centre.divideScalar(n);
-      const mouth = centre;
 
       const pushRing = (points, lum) => {
         for (const q of points) {
           holeVerts.push(q.x, q.y, q.z);
-          nrm.copy(mouth).sub(q);
+          nrm.copy(centre).sub(q);
           const len = nrm.length();
           if (len > 1e-9) nrm.divideScalar(len);
           holeNors.push(nrm.x, nrm.y, nrm.z);
@@ -1240,7 +1250,7 @@ export function buildSkull({ material }) {
       const apex = centre.clone().addScaledVector(axis, -depth);
       const apexIdx = holeVerts.length / 3;
       holeVerts.push(apex.x, apex.y, apex.z);
-      nrm.copy(mouth).sub(apex).normalize();
+      nrm.copy(centre).sub(apex).normalize();
       holeNors.push(nrm.x, nrm.y, nrm.z);
       {
         const l = CAV_LUM[CAV_LUM.length - 1];
