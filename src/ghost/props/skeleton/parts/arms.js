@@ -336,49 +336,119 @@ export function buildArm({ material, side }) {
   elbow.position.copy(elbowP);
   shoulder.add(elbow);
 
-  const split = A.foreSplit;
-
-  // The two bones separate mostly sideways rather than front-to-back. Strictly
-  // a hand hanging pronated puts the radius in front of the ulna, but the photo
-  // shows the split as a groove straight down the front of the forearm, and a
-  // pair that separates in Z is a pair you cannot see in the view the figure is
-  // usually shot from. They get a little Z as well so the gap survives the side
-  // view too.
+  // Both forearm bones are authored as signed offsets from ONE shared
+  // centreline running elbow to wrist, instead of as two curves placed by hand
+  // in elbow space. That change is the whole fix for the twist the user saw.
   //
-  // The ulna owns the elbow and the radius owns the wrist, which is both true
-  // and useful: each bone converges to the joint it forms, so the pair crosses
-  // through a lens-shaped gap in the middle and neither one leaves a stub
-  // poking out of a bulb.
-  const ulna = [
-    V(0, 0, -f(0.0015)),
-    V(-sx * split * 0.52, -FORE * 0.34, -f(0.0045)),
-    V(-sx * split * 0.44, -FORE * 0.72, -f(0.0040)),
-    wristP.clone().add(V(-sx * f(0.0055), f(0.004), -f(0.0030))),
-  ];
-  add(shaft(new THREE.CatmullRomCurve3(ulna, false, 'catmullrom', 0.5), A.forearmR, {
-    endBias: 0.45,
-  }), elbow, 'ulna');
+  // What went wrong before. Each bone had its own control points written in
+  // elbow space, and the forearm's flare drifts the limb's own centreline
+  // sideways by sin(FOREARM_FLARE) * FORE on the way down. So offsets that
+  // looked like a tidy split at the elbow were nothing of the kind further
+  // along: measured against the axis, the radius left the elbow 0.012 lateral
+  // of it, was 0.007 MEDIAL of it at three quarters and came back to zero,
+  // while the ulna bowed medially to 0.017 and came back. The two centrelines
+  // never actually met -- sampled at twenty stations the gap stayed open and
+  // the sign never changed -- but two shafts that each sweep across the limb's
+  // own centreline in opposite senses draw an X, and an X reads as a twist.
+  // Chasing it as a crossing is a dead end; it is a curvature problem.
+  //
+  // The anatomy, and why it is deliberately not followed. A real forearm held
+  // in this figure's semi-pronated hang has the radius crossing over the ulna,
+  // a genuine X. At prop size that closes the one gap the eye has to tell it
+  // that a forearm is two bones, and it is exactly the read the user called
+  // wrong. So the pair here stays PARALLEL, one lateral and one medial the
+  // whole way down. Do not "fix" this back toward the real crossover.
+  const foreDir = wristP.clone().normalize();
+  const foreLat = V(sx, 0, 0).projectOnPlane(foreDir).normalize();   // out of the limb
+  const foreFwd = V(0, 0, 1).projectOnPlane(foreDir).normalize();    // the way it faces
 
-  const radius = [
-    V(sx * f(0.013), -FORE * 0.05, f(0.0055)),
-    V(sx * split * 0.54, -FORE * 0.38, f(0.0050)),
-    V(sx * split * 0.34, -FORE * 0.74, f(0.0055)),
-    wristP.clone().add(V(0, 0, f(0.0030))),
-  ];
-  add(shaft(new THREE.CatmullRomCurve3(radius, false, 'catmullrom', 0.5), A.forearmR, {
-    endBias: 0.45,
-  }), elbow, 'radius');
+  // The gap between the two centrelines, as a fraction of A.foreSplit. A lens:
+  // narrow enough at both ends that each bone vanishes into the bulb it belongs
+  // to, widest just past mid-shaft where there is room for the eye to see it.
+  // The linear term holds the wrist end tighter than the elbow end, because the
+  // carpal block is narrow and a pair still 0.6 apart at the wrist reads as a
+  // fork. It never reaches zero: two centrelines that touch produce a visible
+  // pinch where the tubes fuse.
+  const foreGap = (t) => A.foreSplit * (0.60 - 0.18 * t + 0.50 * Math.sin(Math.PI * t));
+
+  // How that gap is shared out either side of the axis. The ulna owns the elbow
+  // and the radius owns the wrist, so the ulna sits ON the axis at the top and
+  // the radius sits on it at the bottom, and the gap slides from one to the
+  // other in between. The point of doing it this way rather than splitting the
+  // gap evenly is that both bones then drift medially by the SAME amount over
+  // the length: same slant, constant separation, no sweep across the axis by
+  // either one. That is what makes them parallel rather than merely
+  // non-crossing.
+  const foreBias = (t) => t * t * (3 - 2 * t);
+
+  // Front to back the pair splits by this much of the sideways gap. The photo
+  // shows the split as a groove down the FRONT of the forearm, so sideways is
+  // the gap that has to carry the read, but a pair that splits only in X is a
+  // pair that fuses into one tube the moment the camera looks down the lateral
+  // axis. The bar to clear is the two waisted shafts side by side, which is
+  // 2 * M.shaftWaist * A.forearmR at mid, and 0.80 puts the depth gap just past
+  // it, which is where the previous build had it too. Tried 0.50 and the side
+  // view was one tube with a seam. Same lens profile and the same sign the
+  // whole way down, so the side view cannot show a crossing either.
+  const FORE_DEPTH = 0.80;
+
+  // The pair's own centreline: elbow to wrist, with a slight medial bow at
+  // mid-shaft as a fraction of the forearm's length. Both bones hang off THIS,
+  // so the bow moves the two of them together and cannot open or close the gap
+  // between them. A forearm that runs dead straight reads as a dowel, and the
+  // previous build's curve was doing real work here even though the asymmetry
+  // in it was the bug.
+  const FORE_BOW = 0.022;
+  const foreCentre = (t) => wristP.clone().multiplyScalar(t)
+    .addScaledVector(foreLat, -FORE_BOW * FORE * Math.sin(Math.PI * t));
+
+  // The ulna stops short of the carpals; the radius runs all the way in.
+  const ULNA_END = 0.96;
+
+  // t runs 0 at the elbow to 1 at the wrist. `lateral` is +1 for the radius and
+  // -1 for the ulna, and it is the ONLY thing that differs between the two, so
+  // the pair cannot drift out of step the way two hand-authored curves did.
+  // Neither bone ever takes the other's sign, at any t, by construction: that
+  // is the no-crossing guarantee, and it holds along the whole length rather
+  // than being a property to go back and measure afterwards. Measured anyway,
+  // at twenty stations: radius minus ulna keeps its sign in both the sideways
+  // and the front-to-back component, and the direction of the offset turns by
+  // under 4 degrees end to end, against 27 for the build that read as twisted.
+  const forePoint = (t, lateral) => {
+    const gap = foreGap(t);
+    const share = lateral > 0 ? 1 - foreBias(t) : -foreBias(t);
+    return foreCentre(t)
+      .addScaledVector(foreLat, gap * share)
+      .addScaledVector(foreFwd, lateral * 0.5 * FORE_DEPTH * gap);
+  };
+  // Six stations rather than four: with only the ends and two mid points a
+  // centripetal Catmull-Rom rounds the shoulders of the lens off and the widest
+  // point lands short of where foreGap puts it.
+  const foreCurve = (lateral, end) => new THREE.CatmullRomCurve3(
+    [0, 0.2, 0.4, 0.6, 0.8, 1].map((k) => forePoint(k * end, lateral)),
+    false, 'catmullrom', 0.5,
+  );
+
+  add(shaft(foreCurve(-1, ULNA_END), A.forearmR, { endBias: 0.45 }), elbow, 'ulna');
+  add(shaft(foreCurve(1, 1), A.forearmR, { endBias: 0.45 }), elbow, 'radius');
 
   // Olecranon and radial head, the two lumps that make the elbow read as a
   // hinge from behind rather than as a bead.
   add(jointBall(A.olecranonBulb * 0.82), elbow, 'olecranon')
     .position.set(-sx * f(0.002), f(0.009), -f(0.013));
+  // The radial head sits a little BELOW the hinge, not on it: it is the disc
+  // that spins under the capitulum. Taking it off the radius's own centreline
+  // at t = 0.05 rather than placing it by hand keeps it centred on the shaft
+  // however the lens above is retuned. Both bones now leave the elbow from
+  // inside the same bulb at the same height -- the earlier build started the
+  // radius 5% of the forearm lower than the ulna, and that alone made the two
+  // look like they were spiralling out of the joint.
   add(jointBall(A.radialHeadBulb), elbow, 'radialHead')
-    .position.copy(radius[0]);
+    .position.copy(forePoint(0.05, 1));
   // Ulnar styloid: the ulna does not reach the carpals, it stops just short and
   // beside them, and this bulb is what closes that end so nothing frays.
   add(jointBall(A.styloidBulb * 1.15), elbow, 'ulnarStyloid')
-    .position.copy(ulna[3]);
+    .position.copy(forePoint(ULNA_END, -1));
   // The distal radius is the wrist's other half: it is the bulb the carpal
   // block turns inside, and it stays on the forearm side of the hinge so that
   // no rotation of the wrist can open a seam there.

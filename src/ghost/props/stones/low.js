@@ -30,8 +30,9 @@ import { PALETTE, SEGMENTS, toyMaterial } from '../style.js';
 //     derivative-based tangent frame that MeshStandardMaterial builds for the
 //     normal map degenerates there. Both maps are therefore faded back to
 //     neutral in a band round the edge of the face, and no carving is drawn
-//     within about 6% of it. Inside that margin the surface still faces the
-//     camera and the treatment behaves exactly as it does on a slab.
+//     within 0.078 world units of the silhouette, which is a seventh of the
+//     face's height. Inside that margin the surface still faces the camera and
+//     the treatment behaves exactly as it does on a slab.
 //   - The lips. The catch-light assumes the cut's lower wall faces up. On a
 //     face that rolls away at the edges that assumption weakens with the
 //     cosine, which is another reason the artwork stays in the middle third of
@@ -665,6 +666,25 @@ function buildTextures({ faceAspect, draw, rng, rim = 0 }) {
 // ---------------------------------------------------------------------------
 // artwork
 
+// The two groove widths this file draws with, in world units.
+//
+// This is the whole reason the artwork was redrawn. A cut reads as carved
+// because it is THIN and the light finds its two walls; the first pass stroked
+// everything at 0.034, a groove wider than the ridge of stone left between two
+// turns of a spiral, and the marks came out stamped into the rock rather than
+// cut into it.
+//
+// The floor is set by the groove treatment itself, not by taste. The recess is
+// walled by a blur of WALL texels with a LIP inside each edge -- about
+// seventeen of the face's thousand texels all told -- so under roughly 0.010
+// world units the two walls meet in the middle and the cut flattens into a
+// scratch. These sit just above that, and at eighty pixels they measure about
+// the same on screen as the approved set's lettering does.
+const GROOVE = 0.0150; // the spirals and the grooves that link them
+const HAIRLINE = 0.0110; // the fillers, the small spirals, the edge grooves
+
+const SERIF = '"Liberation Serif", "Times New Roman", Georgia, serif';
+
 // A smooth polyline: quadratic segments through the midpoints of the input, so
 // the curve is C1 and no control point has to be authored twice.
 function strokeSmooth(ctx, pts, width) {
@@ -688,6 +708,19 @@ function strokeSmooth(ctx, pts, width) {
   ctx.stroke();
 }
 
+// A dense polyline stroked as it stands. Sampled curves -- an offset outline,
+// a zigzag -- already carry their own shape, and running them through
+// strokeSmooth would round the corners a chevron is made of.
+function strokePoly(ctx, pts, width, close = false) {
+  if (pts.length < 2) return;
+  ctx.lineWidth = width;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  if (close) ctx.closePath();
+  ctx.stroke();
+}
+
 // An Archimedean spiral, sampled from the middle outward and ending at a chosen
 // angle so its tail can be aimed at whatever it links to.
 function spiralPoints(cx, cy, rOuter, rInner, turns, aEnd, dir) {
@@ -703,66 +736,140 @@ function spiralPoints(cx, cy, rOuter, rInner, turns, aEnd, dir) {
   return pts;
 }
 
+// A run of the outline offset inward: the long grooves that follow the edge of
+// the rock, which every kerbstone in the reference carries and the first pass
+// had none of.
+//
+// The run is picked by the outward NORMAL's angle rather than by vertex index,
+// which is what keeps it stable when the outline's circles are edited. The
+// outline is convex, so its normal angle increases monotonically round the
+// ring and an angle window is always exactly one contiguous arc; the straight
+// tangent runs between arcs come through as the jumps between consecutive
+// samples, which is what makes the top of this rock one long straight groove
+// rather than a chain of little ones.
+function edgeRun(outline, inset, aFrom, aTo) {
+  const pts = [];
+  for (const p of outline.ring(inset)) {
+    let a = (Math.atan2(p.ny, p.nx) * 180) / Math.PI;
+    if (a < aFrom) a += 360;
+    if (a >= aFrom && a <= aTo) pts.push([p.x, p.y]);
+  }
+  return pts;
+}
+
+// A chain of lozenges along a line. Neighbours share a vertex, so the chain
+// reads as one continuous cut and not as a row of loose diamonds.
+function lozengeChain(ctx, from, to, count, halfW, P, width) {
+  const dx = (to[0] - from[0]) / count;
+  const dy = (to[1] - from[1]) / count;
+  const L = Math.hypot(dx, dy) || 1e-6;
+  const px = (-dy / L) * halfW;
+  const py = (dx / L) * halfW;
+  for (let i = 0; i < count; i++) {
+    const ax = from[0] + dx * i;
+    const ay = from[1] + dy * i;
+    const mx = ax + dx / 2;
+    const my = ay + dy / 2;
+    strokePoly(ctx, [
+      [ax, ay], [mx + px, my + py], [ax + dx, ay + dy], [mx - px, my - py],
+    ].map(P), width, true);
+  }
+}
+
+// A chevron band: one zigzag between two points. Nested vees were tried first
+// and are the more literal reading of the reference, but three of them inside
+// each other is three grooves within a groove's width of one another, and they
+// merged into a wedge of shadow long before eighty pixels.
+function chevronBand(ctx, from, to, count, amp, P, width) {
+  const pts = [];
+  for (let i = 0; i <= count * 2; i++) {
+    const t = i / (count * 2);
+    pts.push([
+      from[0] + (to[0] - from[0]) * t,
+      from[1] + (to[1] - from[1]) * t + (i % 2 ? amp : -amp) / 2,
+    ]);
+  }
+  strokePoly(ctx, pts.map(P), width);
+}
+
 // The Newgrange kerbstone face, in the boulder's own units, drawn through a
 // transform that maps face coordinates to texels.
 //
-// Composition is the reference's: one big spiral upper left, a smaller one
-// lower right, and long sweeping curves joining and framing them. What is NOT
-// the reference is the count. The kerbstones are dense -- lozenges, nested arcs,
-// a dozen motifs on one stone -- and at the sixty to a hundred and fifty pixels
-// this rock actually occupies, density is mud. Six marks, all of them large,
-// survive being shrunk to eighty pixels; the first pass had eleven and read as
-// a scuff. Everything is kept at least 6% of the face in from its edge, where
-// the planar projection is still honest.
+// The reference stones are not two big spirals. They carry spirals of several
+// sizes, lozenge and chevron bands filling the ground between them, and long
+// grooves running parallel to the edge of the rock. The first pass had four
+// marks at twice this width; they covered three quarters of the face and read
+// as a snail stamped into a pebble. This has nine, every one of them smaller,
+// and they cover about half the face box and a fourteenth of its area.
 //
-// Groove width is 0.034 world units, roughly a modern thumb across a metre-wide
-// rock. Wider than a real carving, and deliberately: 0.02 disappeared.
-function drawBoulderFace(ctx, W, H, face) {
+// The right-hand third is deliberately bare. That is the end the crack took
+// off, and a carving that ran into the break would have to be broken too;
+// stopping the composition short of it says the same thing and costs nothing.
+//
+// Placement is not a free hand. Two rules hold the whole layout together:
+//
+//   - Nothing comes within 0.078 of the silhouette. Inside that band the
+//     planar projection is compressed, the rim fade is already washing both
+//     maps back toward neutral, and a groove drawn there stretches into a
+//     gash. The first pass ran to 0.040 of it and the long band showed it.
+//   - Neighbouring marks keep at least 0.015 of plain rock between their
+//     EDGES, not their centres, and a spiral's own turns keep the same. Two
+//     cuts closer than the wall blur merge into one wide smudge, which is a
+//     large part of what made the first pass look thick.
+function drawBoulderFace(ctx, W, H, face, outline) {
   const sx = W / (face.x1 - face.x0);
   const sy = H / (face.y1 - face.y0);
   const X = (x) => (x - face.x0) * sx;
   const Y = (y) => H - (y - face.y0) * sy;
   const P = (p) => [X(p[0]), Y(p[1])];
-  const groove = 0.034 * sx;
+  const main = GROOVE * sx;
+  const fine = HAIRLINE * sx;
 
-  // The upper-left spiral, unwinding clockwise and leaving at its lower right.
-  const A = { x: -0.36, y: 0.325, r: 0.145 };
-  strokeSmooth(ctx, spiralPoints(A.x, A.y, A.r, 0.018, 1.85, -0.9, 1).map(P), groove);
-  // The lower-right one, smaller, and lifted clear of the bottom rim.
-  const B = { x: 0.045, y: 0.200, r: 0.100 };
-  strokeSmooth(ctx, spiralPoints(B.x, B.y, B.r, 0.016, 1.7, 2.3, -1).map(P), groove);
+  // Four spirals, largest to smallest, walking down the rock from the high
+  // left toward the break. Turn counts are set by the pitch and not chosen:
+  // each spiral gains about 0.030 of radius per turn, which is twice the
+  // groove, so a turn of stone always survives between two turns of cut.
+  const A = { x: -0.398, y: 0.302, r: 0.070, aEnd: -0.49 };
+  const B = { x: -0.243, y: 0.232, r: 0.052, aEnd: 2.93 };
+  const C = { x: -0.150, y: 0.330, r: 0.038, aEnd: -1.22 };
+  const D = { x: -0.520, y: 0.225, r: 0.032, aEnd: 1.85 };
+  strokeSmooth(ctx, spiralPoints(A.x, A.y, A.r, 0.011, 1.8, A.aEnd, 1).map(P), main);
+  strokeSmooth(ctx, spiralPoints(B.x, B.y, B.r, 0.011, 1.5, B.aEnd, -1).map(P), main);
+  strokeSmooth(ctx, spiralPoints(C.x, C.y, C.r, 0.008, 1.3, C.aEnd, 1).map(P), fine);
+  // The smallest is barely three quarters of a turn. A curl at this size is
+  // all the room there is: at a full turn its own two turns are 0.020 apart
+  // and they close up.
+  strokeSmooth(ctx, spiralPoints(D.x, D.y, D.r, 0.010, 0.75, D.aEnd, -1).map(P), fine);
 
-  // The join. Its ends sit exactly on the two spirals' outer ends, so the three
-  // marks read as one continuous groove rather than as three near misses.
-  strokeSmooth(ctx, [
-    [A.x + A.r * Math.cos(-0.9), A.y + A.r * Math.sin(-0.9)],
-    [-0.155, 0.180],
-    [B.x + B.r * Math.cos(2.3), B.y + B.r * Math.sin(2.3)],
-  ].map(P), groove);
+  // The links. Their ends sit exactly on the spirals' outer ends, so the run
+  // reads as one continuous groove rather than as marks that nearly touch.
+  const tail = (s) => [s.x + s.r * Math.cos(s.aEnd), s.y + s.r * Math.sin(s.aEnd)];
+  strokeSmooth(ctx, [tail(A), [-0.314, 0.250], tail(B)].map(P), main);
+  strokeSmooth(ctx, [tail(C), [-0.116, 0.286], [-0.086, 0.262]].map(P), fine);
 
-  // One long band wrapping the pair: over the top, round the broken end, back
-  // along the bottom and curling up at the left. It replaced three separate
-  // sweeps. The straight one across the top read as a bar rather than a
-  // carving, and a short arc tucked into the left corner sat close enough to
-  // the rim that the projection stretched it into a gash.
-  //
-  // Every point is at least the groove's own width clear of both spirals and
-  // 0.04 in from the face's edge, which is where the planar projection starts
-  // to lie. Shifting any of them is not a free hand: check both.
-  strokeSmooth(ctx, [
-    [-0.245, 0.478], [-0.085, 0.470], [0.075, 0.415], [0.185, 0.330],
-    [0.235, 0.230], [0.195, 0.130], [0.100, 0.075], [-0.080, 0.052],
-    [-0.300, 0.056], [-0.470, 0.078], [-0.552, 0.130], [-0.545, 0.195],
-  ].map(P), groove);
+  // The lozenge chain the smallest spiral runs into, and the chevron band
+  // along the bottom. These are the ground filler: at close range they are
+  // what makes the face look worked rather than decorated in two places, and
+  // at eighty pixels they go to a texture, which is what filler is for.
+  lozengeChain(ctx, [-0.086, 0.262], [0.086, 0.176], 3, 0.026, P, fine);
+  chevronBand(ctx, [-0.455, 0.128], [-0.190, 0.128], 4, 0.064, P, fine);
+
+  // Two long grooves following the top edge. The window is cut off at 112
+  // degrees on purpose: carried further round it swings down the tangent run
+  // on the upper left and passes within a groove's width of the big spiral.
+  strokePoly(ctx, edgeRun(outline, 0.078, 58, 112).map(P), fine);
+  strokePoly(ctx, edgeRun(outline, 0.112, 58, 112).map(P), fine);
 }
 
-// The outline groove of the broken stone: the stone's own silhouette, offset
-// inward, which is what says carved rather than cut from card.
+// The broken stone's face: a border groove that follows the stone's own
+// silhouette, a finer line inside it over the crown, and what the weather has
+// left of the lettering.
 //
-// Stroked OPEN, starting at `openAtArc` and running all the way round to the
-// point before it, so the two loose ends land on the tangent run that is the
-// break. The mason cut this groove before the stone lost its corner, so it has
-// to run to the break and stop dead there rather than turn the corner with it.
+// The border is stroked OPEN, starting at the crown arc and running all the
+// way round to the point before it, so its two loose ends land on the tangent
+// run that is the break. The mason cut this groove before the stone lost its
+// corner, so it has to run to the break and stop dead there rather than turn
+// the corner with it.
 //
 // Drawing it from an intact round-top outline instead was tried and is worse:
 // the surviving crown is a different circle from the intact one, so the groove
@@ -777,11 +884,66 @@ function drawOutlineGroove(ctx, W, H, face, outline, openAtArc, inset, width) {
     const p = ring[(from + i) % ring.length];
     pts.push([(p.x - face.x0) * sx, H - (p.y - face.y0) * sy]);
   }
-  ctx.lineWidth = width * sx;
-  ctx.beginPath();
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-  ctx.stroke();
+  strokePoly(ctx, pts, width * sx);
+}
+
+// Letters cut shallow. Alpha is not a shortcut for grey here: the mark canvas
+// is a mask that the recess, both lips and the height map are all stamped
+// through, so a half-alpha letter is a half-DEPTH letter, which is what a cut
+// that has been weathering for a century and a half actually is.
+function inkWornText(ctx, text, cx, cy, size, alpha) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = `bold ${size}px ${SERIF}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  // Font metrics put the alphabetic baseline low and the em box high, so
+  // centring on the glyphs' own ink is the only way two lines come out even.
+  const m = ctx.measureText(text);
+  ctx.fillText(text, cx, cy + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2);
+  ctx.restore();
+}
+
+function drawBrokenFace(ctx, W, H, face, outline, openAtArc) {
+  const sx = W / (face.x1 - face.x0);
+  const sy = H / (face.y1 - face.y0);
+  const X = (x) => (x - face.x0) * sx;
+  const Y = (y) => H - (y - face.y0) * sy;
+
+  // The lettering first, because the nicks that follow have to bite the
+  // letters and leave the border whole. A stone loses its inscription to
+  // weather long before it loses the deep groove round its edge.
+  inkWornText(ctx, 'R.I.P.', X(-0.050), Y(0.345), 0.072 * sy, 0.62);
+  inkWornText(ctx, '1874', X(-0.050), Y(0.232), 0.052 * sy, 0.40);
+
+  // Five soft bites out of the inscription. Hand-placed rather than seeded:
+  // the piece's own rng lays out the rubble ring, and drawing from it here
+  // would move sixteen pebbles every time a letter changed.
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-out';
+  for (const [x, y, r] of [
+    [-0.150, 0.352, 0.030], [-0.010, 0.362, 0.022], [0.062, 0.330, 0.026],
+    [-0.086, 0.238, 0.024], [0.030, 0.222, 0.019],
+  ]) {
+    const g = ctx.createRadialGradient(X(x), Y(y), 0, X(x), Y(y), r * sx);
+    g.addColorStop(0, 'rgba(0,0,0,1)');
+    g.addColorStop(0.55, 'rgba(0,0,0,0.85)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(X(x), Y(y), r * sx, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // The border, at the inset it has always been at -- only the width has come
+  // down, from 0.022 to a shade over half of it -- and a finer line inside it
+  // running over the crown alone, the way a headstone's arch is moulded twice.
+  // The two are 0.030 apart, which leaves 0.018 of plain stone between them:
+  // more than the wall blur on both of them put together, so they read as two
+  // lines and not as one wide one.
+  drawOutlineGroove(ctx, W, H, face, outline, openAtArc, 0.046, 0.0135);
+  strokePoly(ctx, edgeRun(outline, 0.076, 45, 170).map((p) => [X(p[0]), Y(p[1])]), 0.0095 * sx);
 }
 
 // ---------------------------------------------------------------------------
@@ -962,13 +1124,18 @@ export function createLowStone({ variant = 'urn', seed = 1, scale = 1 } = {}) {
   if (kind === 'boulder') {
     mainOutline = makeOutline(BOULDER_MAIN, 108);
     face = mainOutline.bounds;
-    draw = (ctx, W, H) => drawBoulderFace(ctx, W, H, face);
+    // The outline goes in as well as the face box: the edge grooves are the
+    // outline itself, offset inward.
+    draw = (ctx, W, H) => drawBoulderFace(ctx, W, H, face, mainOutline);
     // 7% of the shorter side. The carving is authored clear of it.
     rim = 0.07;
   } else if (kind === 'brokenRing') {
     mainOutline = makeOutline(BROKEN_STONE, 72);
     face = mainOutline.bounds;
-    draw = (ctx, W, H) => drawOutlineGroove(ctx, W, H, face, mainOutline, BROKEN_CROWN, 0.046, 0.022);
+    // No rim fade here, and there must not be one: this face is a flat slab,
+    // the planar projection over it is exact, and a fade would only wash out
+    // the border groove, which is the mark that has to reach the edge.
+    draw = (ctx, W, H) => drawBrokenFace(ctx, W, H, face, mainOutline, BROKEN_CROWN);
   }
 
   const tex = hasDOM

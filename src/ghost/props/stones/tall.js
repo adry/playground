@@ -605,14 +605,41 @@ function buildTextures(regions, rng) {
 // ---------------------------------------------------------------------------
 // artwork
 //
-// Every mark here was drawn twice: once at full texture resolution, and once
-// downsampled to the eighty-odd pixels the piece actually covers in a frame.
-// Anything that only worked at the first size was thrown away. What survives is
-// a small number of fat strokes.
+// Every mark here is drawn twice: once at full texture resolution, and once
+// downsampled to the ninety-odd pixels a piece covers when the camera is back.
+// Anything that only survives the first size is thrown away.
+//
+// The first pass at this set failed the same test three times over. The motifs
+// were sized to fill their faces, so where tombstones.js's small cross and neat
+// lettering read as engraving these read as blobs; and they were cut with
+// strokes half again as wide as that set's, which is what made them look
+// stamped rather than carved. Both are now held by measurement rather than by
+// eye. tombstones.js's cross covers about 6% of the area of its face and its
+// whole inscription about 30%; every motif here is inside that range, and every
+// groove on all three pieces is cut to one width.
+//
+// The room that buys back is spent on detail, which is the other half of the
+// same complaint: interlace along the celtic cross's shaft rather than a bare
+// groove, a border moulding following the arch's panel and the obelisk's faces,
+// three pairs of limbs on the tree instead of two.
 
-// Stroke a loop, offset inward, as a groove. This is the celtic cross's whole
-// decoration: a line running parallel to the outline a little way in, which is
-// what stops a flat cross reading as cut from card.
+// One chisel, as a fraction of the 1024-tall face the marks are drawn on: 18
+// texture pixels. It is a floor, not a preference.
+//
+// Two things set it. The groove wall is an 11px blur either side of the mark,
+// so a stroke much under this is all wall and no floor, and it loses the dark
+// body and the lit lower lip that make a cut read as cut rather than as a
+// smudge. And 18px is within a pixel of the stem width of tombstones.js's
+// R.I.P., which is the finest mark in the set that was approved -- about one
+// and a half screen pixels on a stone ninety pixels tall, which is where a line
+// stops resolving at all. Going finer than this trades the engraving treatment
+// away, not just some sharpness.
+const CUT = 0.0176;
+
+// Stroke a loop, offset inward, as a groove: a line running parallel to an
+// outline a little way in. This is a border moulding, and it is the single
+// cheapest mark that says a face was worked rather than stamped. The celtic
+// cross and the arch's panel both get one.
 function inkLoopGroove(ctx, arcs, inset, width, project) {
   const pts = sampleLoop(arcs, inset, 26);
   ctx.beginPath();
@@ -627,10 +654,22 @@ function inkLoopGroove(ctx, arcs, inset, width, project) {
   ctx.stroke();
 }
 
+// The same idea on a rectangle: the obelisk's faces have no outline to follow,
+// so their border is drawn straight. In the shaft's texture the two vertical
+// edges are u = 0 and u = 1 at every height, so a rectangle here comes out
+// following the taper without being told about it.
+function inkFrame(ctx, x0, y0, x1, y1, r, width) {
+  ctx.lineWidth = width;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.roundRect(x0, y0, x1 - x0, y1 - y0, r);
+  ctx.stroke();
+}
+
 // A spiral of `turns`, unrolling counter-clockwise from the centre. Used for
 // the tree's crown and the obelisk's scroll.
 function spiralPath(ctx, cx, cy, r0, r1, turns, phase = 0) {
-  const steps = Math.max(12, Math.round(turns * 18));
+  const steps = Math.max(12, Math.round(turns * 26));
   for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const a = phase + t * turns * TAU;
@@ -642,103 +681,159 @@ function spiralPath(ctx, cx, cy, r0, r1, turns, phase = 0) {
   }
 }
 
-// The tree of life, in the box (0,0)-(w,h) of the arch's recessed panel.
+// A two-strand plait, cut along a straight run from (x0,y0) to (x1,y1).
 //
-// Two pairs of limbs, a coiled crown and four roots: nine strokes in all. The
-// first version had six limbs and small hooked ends, and downsampled to the
-// thirty-odd pixels the panel really covers it read as a candelabra -- straight
-// trunk, symmetrical arms, nothing curling. What fixed it was fewer limbs, a
-// wider canopy, and ending each limb in a whole turn of spiral big enough to
-// still be a spiral after filtering, rather than a hook that closes up.
+// Two shallow waves half a period out of step, each broken where it passes
+// under the other. The break is what makes it interlace rather than a lattice,
+// and it is also the first thing to go when the piece shrinks -- which is fine.
+// At ninety pixels this stops being a plait and becomes a regular texture along
+// the shaft, which is exactly what a real interlace does at that distance and
+// is still worth having: it is the difference between worked stone and blank
+// stone. What it must not do is turn into noise, so it is two strands, never
+// three, and the cells are kept wider than they are tall.
+function inkPlait(ctx, x0, y0, x1, y1, amp, cells, width) {
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  const gap = (width * 1.35) / len; // half the break, in path parameter
+  ctx.save();
+  ctx.translate(x0, y0);
+  ctx.rotate(Math.atan2(y1 - y0, x1 - x0));
+  ctx.lineWidth = width;
+  ctx.lineCap = 'round';
+  const steps = Math.max(40, cells * 22);
+  for (const side of [1, -1]) {
+    // Which crossings this strand dives under. Alternating is what reads as
+    // woven; two strands that always cross the same way read as a chain.
+    const under = side > 0 ? 0 : 1;
+    ctx.beginPath();
+    let open = false;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const j = Math.round(t * cells);
+      if (j > 0 && j < cells && j % 2 === under && Math.abs(t - j / cells) < gap) {
+        open = false;
+        continue;
+      }
+      const x = t * len;
+      const y = side * amp * Math.sin(Math.PI * t * cells);
+      if (open) ctx.lineTo(x, y);
+      else { ctx.moveTo(x, y); open = true; }
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// The tree of life, inside the box (0,0)-(w,h). `cut` is the groove width in
+// pixels rather than in box fractions, which is the whole point of passing it:
+// the first pass scaled its strokes with its box, so shrinking the tree only
+// produced a smaller blob. Held fixed, the tree can be sized by what looks
+// right on the panel and the chisel stays the chisel.
 //
-// Nothing here is narrower than a twentieth of the box. That is the floor at
-// which a groove survives being a pixel and a half wide on screen.
-function inkTree(ctx, w, h) {
+// Three pairs of limbs now, not two. That is affordable because the strokes are
+// finer, and it is what the complaint about missing detail actually asks for.
+// Each limb ends in a hook and a bud, which is the smallest termination that
+// still reads as growth once the coil is three pixels across; whole turns of
+// spiral were tried and at this size a spiral drawn with an 18px chisel fills
+// its own middle and comes back as a dot.
+function inkTree(ctx, w, h, cut) {
   const X = (t) => t * w;
   const Y = (t) => t * h;
-  const S = w;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Trunk: a filled taper, wide at the foot, so it can splay into the roots
-  // without a stroke width having to change halfway along.
+  // Trunk, a shade heavier than the limbs. A mason cuts it with the same
+  // chisel and goes over it twice; without that hierarchy the tree reads as
+  // bent wire rather than as carving.
+  ctx.lineWidth = cut * 1.22;
   ctx.beginPath();
-  ctx.moveTo(X(0.398), Y(0.965));
-  ctx.bezierCurveTo(X(0.443), Y(0.86), X(0.462), Y(0.76), X(0.462), Y(0.625));
-  ctx.lineTo(X(0.538), Y(0.625));
-  ctx.bezierCurveTo(X(0.538), Y(0.76), X(0.557), Y(0.86), X(0.602), Y(0.965));
-  ctx.closePath();
-  ctx.fill();
-
-  // Roots. Four, splaying wide and shallow; they read as a foot rather than as
-  // the arrowhead that three symmetrical ones made.
-  ctx.lineWidth = S * 0.062;
-  ctx.beginPath();
-  ctx.moveTo(X(0.47), Y(0.905));
-  ctx.bezierCurveTo(X(0.36), Y(0.94), X(0.30), Y(0.945), X(0.185), Y(0.99));
-  ctx.moveTo(X(0.53), Y(0.905));
-  ctx.bezierCurveTo(X(0.64), Y(0.94), X(0.70), Y(0.945), X(0.815), Y(0.99));
-  ctx.moveTo(X(0.485), Y(0.93));
-  ctx.quadraticCurveTo(X(0.44), Y(0.965), X(0.395), Y(0.995));
-  ctx.moveTo(X(0.515), Y(0.93));
-  ctx.quadraticCurveTo(X(0.56), Y(0.965), X(0.605), Y(0.995));
+  ctx.moveTo(X(0.5), Y(0.955));
+  ctx.lineTo(X(0.5), Y(0.115));
   ctx.stroke();
 
-  // A limb: out and up from the trunk, then a full turn of spiral at the end.
-  // The spiral unrolls away from the trunk so the coil's opening faces out,
-  // which is what stops it reading as a blob on a stick.
-  const limb = (dir, y0, cx1, cy1, cx2, cy2, ex, ey, width, coil) => {
-    ctx.lineWidth = S * width;
+  // Roots: four, splaying wide and shallow, so the foot reads as a foot rather
+  // than as the arrowhead three symmetrical ones made.
+  ctx.lineWidth = cut;
+  ctx.beginPath();
+  ctx.moveTo(X(0.492), Y(0.855));
+  ctx.bezierCurveTo(X(0.40), Y(0.893), X(0.30), Y(0.918), X(0.155), Y(0.962));
+  ctx.moveTo(X(0.508), Y(0.855));
+  ctx.bezierCurveTo(X(0.60), Y(0.893), X(0.70), Y(0.918), X(0.845), Y(0.962));
+  ctx.moveTo(X(0.496), Y(0.900));
+  ctx.quadraticCurveTo(X(0.455), Y(0.942), X(0.368), Y(0.988));
+  ctx.moveTo(X(0.504), Y(0.900));
+  ctx.quadraticCurveTo(X(0.545), Y(0.942), X(0.632), Y(0.988));
+  ctx.stroke();
+
+  // A limb: out and up from the trunk, then a hook rolled over its own tip and
+  // back inward, closing on a bud. The hook opens away from the trunk so the
+  // curl's mouth faces out, which is what stops it reading as a knot on a
+  // stick. Sized in pixels off the chisel, so all three pairs curl the same
+  // amount however long they are.
+  const limb = (dir, y0, ex, ey, rc) => {
+    const tx = X(0.5 + dir * ex);
+    const ty = Y(ey);
+    const dy = Y(y0) - ty;
+    ctx.lineWidth = cut;
     ctx.beginPath();
-    ctx.moveTo(X(0.5 + dir * 0.028), Y(y0));
-    ctx.bezierCurveTo(X(0.5 + dir * cx1), Y(cy1), X(0.5 + dir * cx2), Y(cy2), X(0.5 + dir * ex), Y(ey));
+    ctx.moveTo(X(0.5 + dir * 0.012), Y(y0));
+    ctx.bezierCurveTo(X(0.5 + dir * ex * 0.38), Y(y0) - dy * 0.16, X(0.5 + dir * ex * 0.80), ty + dy * 0.44, tx, ty);
+    ctx.quadraticCurveTo(tx + dir * rc * 1.15, ty - rc * 0.15, tx + dir * rc * 0.92, ty - rc * 1.28);
+    ctx.quadraticCurveTo(tx + dir * rc * 0.52, ty - rc * 2.05, tx - dir * rc * 0.18, ty - rc * 1.60);
     ctx.stroke();
     ctx.beginPath();
-    spiralPath(ctx, X(0.5 + dir * ex) + dir * S * coil * 0.9, Y(ey) - h * coil * 0.55,
-      S * 0.012, S * coil, 0.92, dir > 0 ? Math.PI * 0.75 : Math.PI * 0.25);
-    ctx.stroke();
+    ctx.arc(tx - dir * rc * 0.18, ty - rc * 1.60, cut * 0.52, 0, TAU);
+    ctx.fill();
   };
-  // Both pairs leave the trunk climbing. An earlier pass had the lower pair
-  // leave level and sag before rising, and at any size it read as a moustache.
   for (const d of [-1, 1]) {
-    limb(d, 0.625, 0.19, 0.585, 0.38, 0.520, 0.455, 0.405, 0.060, 0.090);
-    limb(d, 0.530, 0.10, 0.470, 0.21, 0.372, 0.258, 0.272, 0.052, 0.074);
+    limb(d, 0.735, 0.325, 0.575, cut * 1.35);
+    limb(d, 0.610, 0.272, 0.408, cut * 1.25);
+    limb(d, 0.487, 0.212, 0.268, cut * 1.15);
   }
 
-  // Trunk on up to the crown, and the crown itself: a flat coil, the one place
-  // the reference's spirals survive being shrunk.
-  ctx.lineWidth = S * 0.060;
+  // The crown: a flat coil, the one place a spiral is worth the room it costs,
+  // because it is the mark the whole motif is read by.
+  ctx.lineWidth = cut;
   ctx.beginPath();
-  ctx.moveTo(X(0.5), Y(0.655));
-  ctx.lineTo(X(0.5), Y(0.275));
-  ctx.stroke();
-  ctx.lineWidth = S * 0.058;
-  ctx.beginPath();
-  spiralPath(ctx, X(0.5), Y(0.215), S * 0.015, S * 0.105, 1.05, Math.PI / 2);
+  spiralPath(ctx, X(0.5), Y(0.115), cut * 0.45, w * 0.145, 0.95, Math.PI / 2);
   ctx.stroke();
 }
 
-// The obelisk's front face: a radiant sun near the top, an open book with an
-// eye below it.
+// The obelisk's front face: a border moulding following the shaft, a small
+// radiant sun below the cap, and an open book with an eye under it.
+//
+// This face is the tightest of the three by a distance. The shaft is only about
+// nineteen screen pixels wide when the stone is ninety tall, so a motif at half
+// its width is nine pixels and a chisel is one and a half of them. Everything
+// here is therefore sized against the face and then checked against that, and
+// the sun in particular is a third of what it was: at two thirds of the face it
+// was the blob the note about blobs was written for.
 function inkSunAndBook(ctx, w, h) {
   const S = w;
+  const cut = h * CUT;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
+  // The border. Its top sits below the cap's shoulder -- run up onto the
+  // pyramid and the line crosses a fold in the silhouette, where it reads as a
+  // crack rather than as a moulding.
+  inkFrame(ctx, S * 0.125, h * 0.112, S * 0.875, h * 0.952, S * 0.11, cut);
+
   // --- sun ---
   const sx = w * 0.5;
-  const sy = h * 0.185;
-  const disc = S * 0.155;
+  const sy = h * 0.205;
+  const disc = S * 0.094;
   ctx.beginPath();
   ctx.arc(sx, sy, disc, 0, TAU);
   ctx.fill();
-  // Ten rays. Twelve merged into a collar at scene scale; eight read as a cog.
-  const rays = 10;
+  // Six rays, not ten. A ray has to be wider at its root than the chisel or it
+  // filters away before the disc does, and six is as many as will fit at that
+  // width without their roots touching into a collar.
+  const rays = 6;
   for (let i = 0; i < rays; i++) {
     const a = (i / rays) * TAU - Math.PI / 2;
-    const half = 0.085;
-    const r0 = disc * 1.12;
-    const r1 = disc * 2.05;
+    const half = 0.34;
+    const r0 = disc * 1.34;
+    const r1 = disc * 2.36;
     ctx.beginPath();
     ctx.moveTo(sx + r0 * Math.cos(a - half), sy + r0 * Math.sin(a - half));
     ctx.lineTo(sx + r1 * Math.cos(a), sy + r1 * Math.sin(a));
@@ -748,43 +843,36 @@ function inkSunAndBook(ctx, w, h) {
   }
 
   // --- book ---
-  // Cut as a solid, with the eye and its dots left standing proud inside it. An
-  // outlined book vanished at scene scale; a solid one with a light lens on it
-  // does not. The dots were outside the book to begin with and the eye read
-  // them as part of its silhouette, which turned the whole motif into a bat.
-  //
-  // Width is against the face, not against the texture region. The region maps
-  // the shaft's widest section and the book sits two thirds of the way up,
-  // where the shaft has tapered, so a book sized to the region ran round both
-  // corners and read as a black belt.
-  const by = h * 0.505;
-  const bw = S * 0.300;
-  const bh = S * 0.375;
+  // Cut as a solid with the eye left standing proud inside it. An outlined book
+  // vanished at scene scale and a solid one with a light lens on it does not,
+  // so the shape stays solid and only its size comes down.
+  const by = h * 0.560;
+  const bw = S * 0.215;
+  const bh = S * 0.270;
   // One page. The two edges that carry "open book" are the top, which peaks at
   // the spine, and the bottom, which sags to it: a shape whose top and bottom
   // both bulged outward read as two bricks with a gap.
   const page = (dir) => {
     ctx.beginPath();
-    ctx.moveTo(sx + dir * S * 0.048, by - bh * 0.46);
+    ctx.moveTo(sx + dir * S * 0.034, by - bh * 0.46);
     ctx.quadraticCurveTo(sx + dir * bw * 0.52, by - bh * 0.44, sx + dir * bw, by - bh * 0.26);
     ctx.quadraticCurveTo(sx + dir * bw * 1.01, by + bh * 0.06, sx + dir * bw * 0.96, by + bh * 0.26);
-    ctx.quadraticCurveTo(sx + dir * bw * 0.50, by + bh * 0.30, sx + dir * S * 0.048, by + bh * 0.50);
+    ctx.quadraticCurveTo(sx + dir * bw * 0.50, by + bh * 0.30, sx + dir * S * 0.034, by + bh * 0.50);
     ctx.closePath();
     ctx.fill();
   };
   page(-1);
   page(1);
 
-  // The eye, and the dots radiating from it, erased out of the book together.
-  // Two cubics rather than two quadratics for the lens: quadratics gave it
-  // corners, and at scene scale a lens with corners is a diamond.
-  // Bridge the spine behind the eye, so the lens sits on solid stone-shade
-  // instead of being cut in half by the gap between the pages.
+  // The eye, erased out of the book. Two cubics rather than two quadratics for
+  // the lens: quadratics gave it corners, and at scene scale a lens with
+  // corners is a diamond. The spine is bridged behind it so the lens sits on
+  // solid stone-shade instead of being cut in half by the gap between pages.
   const ey = by - bh * 0.02;
-  const ew = S * 0.115;
-  const eh = S * 0.066;
+  const ew = S * 0.086;
+  const eh = S * 0.050;
   ctx.beginPath();
-  ctx.roundRect(sx - S * 0.16, ey - S * 0.105, S * 0.32, S * 0.21, S * 0.05);
+  ctx.roundRect(sx - S * 0.115, ey - S * 0.078, S * 0.23, S * 0.156, S * 0.04);
   ctx.fill();
   ctx.save();
   ctx.globalCompositeOperation = 'destination-out';
@@ -794,29 +882,27 @@ function inkSunAndBook(ctx, w, h) {
   ctx.bezierCurveTo(sx + ew * 0.45, ey + eh, sx - ew * 0.45, ey + eh, sx - ew, ey);
   ctx.closePath();
   ctx.fill();
-  for (let i = 0; i < 4; i++) {
-    const a = -Math.PI * 0.80 + (i / 3) * Math.PI * 0.60;
-    ctx.beginPath();
-    ctx.arc(sx + Math.cos(a) * S * 0.165, ey + Math.sin(a) * S * 0.105, S * 0.014, 0, TAU);
-    ctx.fill();
-  }
   ctx.restore();
   ctx.beginPath();
-  ctx.arc(sx, ey, S * 0.034, 0, TAU);
+  ctx.arc(sx, ey, S * 0.026, 0, TAU);
   ctx.fill();
 }
 
-// The obelisk's side face: a double spiral, low down.
+// The obelisk's side face: the same border, and a single scroll low down.
+//
+// One volute rather than the pair that was here. A coil only reads as a coil
+// while its winds are further apart than the chisel is wide, which needs a
+// radius of about three chisels; two of those side by side do not fit between
+// the borders of a face this narrow, and the pair that did fit was two dark
+// lozenges.
 function inkScroll(ctx, w, h) {
   const S = w;
+  const cut = h * CUT;
   ctx.lineCap = 'round';
-  ctx.lineWidth = S * 0.085;
-  const cy = h * 0.70;
+  inkFrame(ctx, S * 0.125, h * 0.112, S * 0.875, h * 0.952, S * 0.11, cut);
+  ctx.lineWidth = cut;
   ctx.beginPath();
-  spiralPath(ctx, w * 0.5 - S * 0.20, cy - S * 0.10, S * 0.02, S * 0.155, 0.95, Math.PI * 0.5);
-  ctx.stroke();
-  ctx.beginPath();
-  spiralPath(ctx, w * 0.5 + S * 0.20, cy + S * 0.10, S * 0.02, S * 0.155, 0.95, Math.PI * 1.5);
+  spiralPath(ctx, w * 0.5, h * 0.700, cut * 0.5, S * 0.198, 1.15, Math.PI * 0.5);
   ctx.stroke();
 }
 
@@ -1045,17 +1131,44 @@ export function createTallStone({ variant = 'celtic', seed = 1, scale = 1 } = {}
         ctx.fill();
       },
       marks: (ctx, w, h) => {
-        // The tree's box, in the panel's own coordinates. Kept well inside the
-        // panel wall on every side: a limb that runs into the wall stops being
-        // a limb and reads as a crack in the stone.
         const P = (x, y) => [((x + A.W) / (2 * A.W)) * w, (1 - y / A.H) * h];
-        const half = (pb.maxX - pb.minX) / 2;
-        const [x0, yTop] = P(-half * 0.84, pb.minY + (pb.maxY - pb.minY) * 0.985);
-        const [x1, yBot] = P(half * 0.84, pb.minY + (pb.maxY - pb.minY) * 0.045);
+        const cut = h * CUT;
+        // A border moulding following the panel, which is the detail the panel
+        // was missing: a bare pocket with a motif floating in it reads as a
+        // sticker, and one line parallel to the wall turns it into architecture.
+        // The inset has to clear the recess wall, which is a 24px blur, or the
+        // groove sits in the ramp and comes back as a soft dent.
+        inkLoopGroove(ctx, panel, A.panelBorder, cut, P);
+
+        // The tree, in a box a little under half the face wide and set low, so
+        // the head of the arch above it stays plain stone. The old box was 0.84
+        // of the panel and the tree overflowed even that; at 55% of the panel's
+        // height the piece finally has the quiet stone around its mark that the
+        // approved set has.
+        const pw = pb.maxX - pb.minX;
+        const ph = pb.maxY - pb.minY;
+        const boxW = pw * 0.61;
+        const boxH = ph * 0.55;
+        const cy = pb.minY + ph * 0.46;
+        const [x0, yTop] = P(-boxW / 2, cy + boxH / 2);
+        const [x1, yBot] = P(boxW / 2, cy - boxH / 2);
         ctx.save();
         ctx.translate(x0, yTop);
-        inkTree(ctx, x1 - x0, yBot - yTop);
+        inkTree(ctx, x1 - x0, yBot - yTop, cut);
         ctx.restore();
+
+        // A trefoil in the head of the arch. Three touching circles is the one
+        // piece of gothic tracery small enough to survive here, and it fills
+        // the space the shorter tree left without competing with it.
+        const [tx, ty] = P(0, pb.minY + ph * 0.855);
+        const lobe = cut * 1.15;
+        ctx.lineWidth = cut;
+        for (let i = 0; i < 3; i++) {
+          const a = -Math.PI / 2 + (i / 3) * TAU;
+          ctx.beginPath();
+          ctx.arc(tx + Math.cos(a) * lobe * 1.02, ty + Math.sin(a) * lobe * 1.02, lobe, 0, TAU);
+          ctx.stroke();
+        }
       },
     });
     tex = hasDOM ? buildTextures(regions, rng) : null;

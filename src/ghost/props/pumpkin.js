@@ -337,6 +337,15 @@ const FLAME = new THREE.Color(PALETTE.glow).convertSRGBToLinear();
 // own glow washes out to cream well before it is bright enough to read as fire.
 const PLATE_EMBER = new THREE.Color('#ff7b2c');
 const PLATE_FLAME = new THREE.Color('#ffb44a');
+// How the two ends are mixed. The mix is levered about HUE_MID rather than
+// taken straight off the flicker's level, because the level spends its life in
+// the top eighth of its range: fed straight through, ember was reachable only
+// in a gutter deep enough to have put the light out. HUE_MID is the measured
+// mean of the level, so the resting colour is unchanged, and HUE_GAIN then says
+// how much harder than the brightness the colour swings. At 1.5 the mix
+// saturates at flame around level 0.96 and at ember around level 0.29, which
+// are respectively the top of a flare and the floor of a real gutter.
+const HUE_MID = 0.88, HUE_GAIN = 1.5;
 
 // Small deterministic PRNG: same seed, same pumpkin, and nothing at module scope.
 function makeRng(seed) {
@@ -378,10 +387,48 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // nominal radius rather than the seeded one, so it is exactly 1 for classic.
   // The lamp's reach and the stem's build are hung off it.
   const sizeK = V.bodyR / BODY_R;
-  // The stem leans relative to the *face*, not to world axes, so the bend reads
-  // from the angle the face is being seen from.
-  const side = rand() < 0.5 ? -1 : 1;
-  const aStem = side * (0.38 + rand() * 0.16) * Math.PI;   // out to one side
+  // Stem direction. Four seeded numbers, where there used to be one and a coin
+  // flip, and the change is a deliberate reversal of what was here.
+  //
+  // The old rule was that the stem leans relative to the *face* rather than to
+  // world axes, so the bend would read from whatever angle the face was being
+  // seen from. That reasoning is sound and it is also what made every pumpkin
+  // in the set carry the same stem: with the lean pinned at 0.38..0.54 of a
+  // turn either side of a face direction that is itself fixed at FACE_YAW, the
+  // whole family only ever had two narrow bands to choose between, twenty-nine
+  // degrees wide each, and a row rendered at one seed came out as six copies of
+  // one stem. Face-relative was never the point -- what the point was is that
+  // the stem should not habitually lean straight at the camera and sit over the
+  // carving, and that survives here as a preference rather than as a rule.
+  //
+  // So the azimuth is drawn over the whole circle and then warped away from the
+  // face. `a + k sin a` with k < 1 is monotonic, so every direction is still
+  // reachable, and it stretches the angles near the face apart while packing
+  // the ones behind it together: the density comes out as 1/(1 + k cos a),
+  // which at k = 0.45 is about two and a half times likelier to lean away from
+  // the face than toward it. A gentle thumb on the scale, not a fence.
+  const STEM_AWAY = 0.45;
+  const aRaw = (rand() * 2 - 1) * Math.PI;                  // from the face direction
+  const aStem = aRaw + STEM_AWAY * Math.sin(aRaw);
+  // How far off vertical the stem finishes, and how much of that it starts
+  // with. The spine turns linearly in arc length from `stemRoot` at the crown
+  // to `stemTip` at the end, so the two together are lean and curl: equal and
+  // it is a straight stalk at an angle, root near zero and it is a bow, and a
+  // root of the opposite sign is a stem that leaves the crown leaning one way
+  // and curls back the other, which is the hook a real stalk often has. Tip is
+  // capped short of horizontal so no stem can curl back down into the shell.
+  const stemTip = (0.20 + rand() * 0.68) * (Math.PI / 2);   // 18..79 degrees
+  const stemRoot = stemTip * (-0.40 + rand() * 0.78);
+  // How high the crown of the stem reaches, as the fraction of stemL the fixed
+  // spine used to reach. Seeded only a little: this is the one thing about the
+  // stem that reads as the pumpkin being bigger rather than as its stalk being
+  // different, and the variant's own `length` is what is supposed to say it.
+  const stemRise = 0.207 * (0.90 + rand() * 0.26);
+  // Where it sits on the crown, in fractions of the body radius and along the
+  // lean. Real stalks are not centred, and one that starts off-centre on the
+  // near side and reaches over reads differently from one that starts on the
+  // far side, so the small negative end of the range is wanted.
+  const stemOff = -0.02 + rand() * 0.11;
   const flickerPhase = rand() * 100;
 
   // --- The body surface ----------------------------------------------------
@@ -556,6 +603,10 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // multiple: the gourd's face is dropped onto the bulb, and a lamp left at
   // 1.25 there would be parked up inside the neck with the carving below it.
   const faceDir = new THREE.Vector3(Math.sin(FACE_YAW), 0, Math.cos(FACE_YAW));
+  // The same frame's other axis, along the face rather than out of it. The
+  // flame's sway is resolved in these two so a sideways lean stays sideways
+  // whatever FACE_YAW is set to.
+  const faceTan = new THREE.Vector3(Math.cos(FACE_YAW), 0, -Math.sin(FACE_YAW));
   const FLAME_AT = new THREE.Vector3(faceDir.x * bodyR * 0.50, yBase * V.flameY, faceDir.z * bodyR * 0.50);
 
   // How much of the flame reaches the plate at a point on it.
@@ -1298,25 +1349,82 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // and thinner than a scaled one (0.80 girth at 1.9 length), the tiny one's is
   // shorter and much fatter (1.55 at 0.95), and the two round ones are a scaled
   // classic with a little more of both.
-  const stemTop = profileY(1) + yBase;
   const stemK = sizeK * V.stem.girth;
   const stemL = sizeK * V.stem.length;
   const lean = new THREE.Vector2(Math.sin(aStem + FACE_YAW), Math.cos(aStem + FACE_YAW));
-  // The control points lean progressively rather than all at once, so the stem
-  // bends along its length instead of kinking at one joint.
-  const stemCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, stemTop - 0.035 * stemL, 0),
-    new THREE.Vector3(lean.x * 0.006 * stemL, stemTop + 0.045 * stemL, lean.y * 0.006 * stemL),
-    new THREE.Vector3(lean.x * 0.042 * stemL, stemTop + 0.105 * stemL, lean.y * 0.042 * stemL),
-    new THREE.Vector3(lean.x * 0.105 * stemL, stemTop + 0.150 * stemL, lean.y * 0.105 * stemL),
-    new THREE.Vector3(lean.x * 0.170 * stemL, stemTop + 0.172 * stemL, lean.y * 0.170 * stemL),
-  ]);
+
+  // Where the base sits. Off-centre, so the height it has to start from is the
+  // crown's height at that radius rather than at the pole. Near the pole
+  // profileR falls away so fast that this is only thousandths of a unit -- an
+  // eleventh of the body radius is already at s = 0.93 on the classic -- but it
+  // is the thousandths that decide whether a base pushed out toward the rim is
+  // buried in the dish or hanging over it. Solved off profileR alone, ignoring
+  // the ribs: a groove is narrower than the un-ribbed profile at the same s, so
+  // ignoring it errs toward a lower base, which is the safe direction.
+  const sAtR = (r) => {
+    let lo = Math.max(EQ, 0), hi = 1;
+    for (let k = 0; k < 24; k++) {
+      const m = (lo + hi) * 0.5;
+      if (profileR(m) > r) lo = m; else hi = m;
+    }
+    return (lo + hi) * 0.5;
+  };
+  const stemTop = profileY(sAtR(Math.abs(stemOff))) + yBase;
+  const baseX = lean.x * stemOff * bodyR;
+  const baseZ = lean.y * stemOff * bodyR;
+
+  // The spine is integrated rather than written out as five control points,
+  // because the direction is seeded now and fixed offsets cannot express it.
+  // The angle off vertical runs from stemRoot at the crown to stemTip at the
+  // end, linear in arc length -- which is how the old fixed points turned
+  // anyway: measured off them the tangent went 4, 31, 54 and 71 degrees at even
+  // steps along itself, so a spine built this way with a root near zero and a
+  // tip near 71 degrees is the stem this file always had.
+  //
+  // Arc length is solved and not seeded, from how high the stem is meant to
+  // reach: a hard curl spends much of its length going sideways and needs a
+  // longer spine to stand as tall as a straight one. Left un-solved, the
+  // upright seeds came out forty percent taller than the flopped ones and the
+  // family read as different-sized pumpkins rather than different stems.
+  const SPINE_PTS = 9, SPINE_SUB = 8;
+  let meanCos = 0;
+  for (let i = 0; i < 32; i++) meanCos += Math.cos(stemRoot + (stemTip - stemRoot) * ((i + 0.5) / 32));
+  const spineL = (stemRise * stemL) / Math.max(0.35, meanCos / 32);
+  // A little of the spine is buried in the dish, so the flared root sits IN the
+  // shell rather than on it.
+  const BURY = 0.035 * stemL;
+  const spine = [];
+  {
+    let h = 0, v = -BURY;
+    spine.push([h, v]);
+    const ds = (spineL + BURY) / ((SPINE_PTS - 1) * SPINE_SUB);
+    for (let i = 0; i < (SPINE_PTS - 1) * SPINE_SUB; i++) {
+      const u = Math.min(1, Math.max(0, ((i + 0.5) * ds - BURY) / spineL));
+      const th = stemRoot + (stemTip - stemRoot) * u;
+      h += Math.sin(th) * ds;
+      v += Math.cos(th) * ds;
+      if ((i + 1) % SPINE_SUB === 0) spine.push([h, v]);
+    }
+  }
+  const stemCurve = new THREE.CatmullRomCurve3(spine.map(([h, v]) =>
+    new THREE.Vector3(baseX + lean.x * h, stemTop + v, baseZ + lean.y * h)));
+  // The radius profile was authored against the old fixed spine, which measured
+  // 0.296 of stemL from buried end to tip. The taper is a fraction of the
+  // length and rides any spine, but the root flare and the tip cap are both
+  // absolute features -- a lip that spreads over four hundredths of a unit, a
+  // nub over five -- so they are held to that length rather than to this one.
+  // Left as plain fractions of t, a long floppy stem grew a lip twice as deep
+  // as an upright one.
+  const REF_L = 0.296 * stemL;
+  const SPINE_TOTAL = spineL + BURY;
+  const FLARE_T = 0.11 * REF_L / SPINE_TOTAL;
+  const CAP_T = 1 - 0.18 * REF_L / SPINE_TOTAL;
   const stemRadius = (t) => {
     const taper = 0.052 * stemK * (1 - 0.42 * Math.pow(t, 1.2));
-    const flare = 1 + 1.05 * Math.exp(-t / 0.11);     // spreads where it meets the dish
+    const flare = 1 + 1.05 * Math.exp(-t / FLARE_T);  // spreads where it meets the dish
     // A hemispherical roll-off rather than a flat disc: the tip of a toy stem
     // is a soft nub, and a truncated cone reads as a cut-off pencil.
-    const cap = t > 0.82 ? Math.sqrt(Math.max(0, 1 - Math.pow((t - 0.82) / 0.18, 2))) : 1;
+    const cap = t > CAP_T ? Math.sqrt(Math.max(0, 1 - Math.pow((t - CAP_T) / (1 - CAP_T), 2))) : 1;
     return taper * flare * cap;
   };
   const stemGeo = sweep(stemCurve, stemRadius, SEGMENTS.curve * 2, SEGMENTS.radial);
@@ -1539,34 +1647,80 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   return {
     group,
     update(time) {
-      // A candle is mostly steady. What makes it a candle and not a pulse is
-      // the shape of the exceptions: small irregular flutters nearly all the
-      // time, and every several seconds one real gutter that ducks hard and
-      // climbs back. Summed smooth noise on its own only wanders about its
-      // middle, which is why an early version read as a dimmer being nudged.
+      // A candle is mostly steady, and it is never still. Four things are going
+      // on at once here and the light only reads as a flame when all four are:
+      // a fine tremble that never stops, a slower wander breathing under it,
+      // the rare event -- a gutter that ducks hard, or a flare as the flame
+      // straightens and stands up -- and the flame physically moving while it
+      // does the rest.
+      //
+      // This is the third pass. The first swung +-0.21 about 0.84 and spent 37%
+      // of its time visibly down: a strobe. The second cut that to three small
+      // noise rates about 0.90 bottoming near 0.78, and came back as too
+      // subtle. What the second one got wrong is not its range, which is very
+      // nearly the range kept here. It is that it stood still: sampled at
+      // 60fps, 30% of its frames were within 0.002 of the frame before and 63%
+      // within 0.005, so a third of the time the light was doing nothing at
+      // all. No amount of extra amplitude fixes that -- it makes a bigger
+      // nothing with bigger jumps between.
+      //
+      // The cause is the noise itself. Smoothstep value noise has zero
+      // derivative at every lattice node, so a channel at f Hz stalls f times a
+      // second by construction and summing three of them just gives three sets
+      // of stalls that sometimes line up. Which is why the tremble below is not
+      // summed noise any more.
       const t = time + flickerPhase;
       const swing = (f, o) => (noise(t * f + o) - 0.5) * 2; // -1..1
 
-      // Flutter. Three rates so nothing in it has a period you can hear, and
-      // all three small enough that the flame never leaves the top of its
-      // range: this bottoms out near 0.78 and tops out at 1.02, so it grazes
-      // the ceiling and nothing more. The old 0.10 + 0.07 + 0.04 about a base
-      // of 0.84 spent a third of its time visibly down, which is a lamp on a
-      // bad circuit rather than a candle.
-      const flutter = 0.060 * swing(1.1, 0) + 0.040 * swing(4.7, 13.2) + 0.024 * swing(12.9, 41.7);
+      // Tremble: a carrier at a flame's own flicker rate whose PHASE is dragged
+      // about by slow noise. A flame's flutter has a frequency; what wanders is
+      // where in the cycle it has got to, not whether it is happening at all.
+      // Frequency-modulated like this it never stalls and never repeats, where
+      // the bare sine underneath it would read as a hum. Two carriers, both
+      // inside the 5..15Hz band a real candle flickers in and nothing faster:
+      // at 60fps a 20Hz carrier is three frames to a period and comes out as
+      // sparkle rather than as tremble.
+      const wobble = (f, drift, o) => Math.sin(Math.PI * 2 * (t * f + noise(t * drift + o) * 4));
+      const tremble = 0.034 * wobble(7.3, 0.6, 12.4) + 0.020 * wobble(12.9, 0.9, 55.1);
+
+      // Wander: the slow breathing underneath, over a second or two. Summed
+      // noise is right for this one and its stalls are a feature here -- a lull
+      // is exactly what the slow channel is for, and the tremble is still
+      // running through it.
+      const wander = 0.048 * swing(0.79, 0) + 0.034 * swing(2.3, 17.5);
 
       // Gutter. Only the top of a slow channel counts, so the events are
       // separate things that happen rather than a rhythm, and squaring the ramp
       // keeps the deep part of each one brief while its onset and recovery stay
       // soft. Its depth wobbles on a fast channel of its own, because a flame
-      // fighting for air does not duck smoothly. Measured over five minutes and
-      // four seeds this lands a duck every seven or eight seconds and a real
-      // gutter, past halfway down, every twenty-five or so.
-      const g = noise(t * 0.55 + 77.3);
-      const gutter = g > 0.72 ? (g - 0.72) / 0.28 : 0;
-      const dip = gutter * gutter * (0.34 + 0.26 * noise(t * 8.1 + 5.1));
+      // fighting for air does not duck smoothly.
+      const g = noise(t * 0.45 + 77.3);
+      const gutter = g > 0.73 ? (g - 0.73) / 0.27 : 0;
+      const dip = gutter * gutter * (0.40 + 0.28 * noise(t * 9.3 + 5.1));
 
-      const level = Math.min(1, Math.max(0, 0.90 + flutter - dip)); // 0 = guttering, 1 = flaring
+      // Flare, the gutter's other half and the one that was missing: now and
+      // then the flame straightens, stands up and the whole face goes pale for
+      // a second. Built the same way off a slow channel of its own, and set
+      // rarer than the gutter, because a flame droops far more often than it
+      // draws itself up.
+      const fl = noise(t * 0.37 + 143.9);
+      const flareRamp = fl > 0.80 ? (fl - 0.80) / 0.20 : 0;
+      const flare = flareRamp * flareRamp * (0.11 + 0.07 * noise(t * 7.1 + 91.2));
+
+      // A soft ceiling rather than a clamp, and this is what lets the flare be
+      // as big as it is without undoing the carving. Clamped at 1, every flare
+      // and a good many ordinary peaks landed flat on the ceiling and sat
+      // there, which pins the plate at GLOW.max -- the one state in which the
+      // per-vertex falloff stops separating the openings and the cut walls go
+      // back to being invisible. This bends the top over instead, matching both
+      // value and slope at the knee and asymptoting above it, so a flare comes
+      // out as a peak with a shape on it and the plate never quite arrives.
+      const KNEE = 0.90;
+      const raw = 0.900 + tremble + wander + flare - dip;
+      // 0 = guttering, 1 = flaring
+      const level = raw <= KNEE
+        ? Math.max(0, raw)
+        : 1 - (1 - KNEE) * Math.exp(-(raw - KNEE) / (1 - KNEE));
 
       const at = (range) => range.min + (range.max - range.min) * level;
       light.intensity = at(LAMP) * LAMP_GAIN;
@@ -1575,20 +1729,46 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
       // near saturation even as the spill on the ground drops away.
       faceMat.emissiveIntensity = at(GLOW);
       wallMat.emissiveIntensity = at(WASH);
-      // A guttering flame reddens as it drops, so the colour rides the same
-      // value rather than sitting at a fixed warm white. The plate has to do it
-      // too, not just the lamp: the openings are most of what is on screen, and
-      // a dip that only dims them reads as a dimmer where a dip that reddens
-      // them reads as a flame going short of air.
-      light.color.copy(EMBER).lerp(FLAME, level);
-      faceMat.emissive.copy(PLATE_EMBER).lerp(PLATE_FLAME, level);
+      // A guttering flame reddens as it drops and a flaring one goes whiter, so
+      // the colour rides the same value rather than sitting at a fixed warm
+      // white. The plate has to do it too, not just the lamp: the openings are
+      // most of what is on screen, and a dip that only dims them reads as a
+      // dimmer where a dip that reddens them reads as a flame short of air.
+      //
+      // Fed the level straight, though, the mix only ever travelled the top
+      // quarter of ember..flame, because that is where the level lives. So it
+      // is levered about the level's own mean instead: the resting colour is
+      // the one this file was tuned to, to three figures, and only the
+      // excursions change -- a real gutter now runs the whole way down to ember
+      // and a flare the whole way up to flame.
+      const hue = Math.min(1, Math.max(0, HUE_MID + (level - HUE_MID) * HUE_GAIN));
+      light.color.copy(EMBER).lerp(FLAME, hue);
+      faceMat.emissive.copy(PLATE_EMBER).lerp(PLATE_FLAME, hue);
 
-      // A candle is not nailed down; a few millimetres of sway makes the pool of
-      // light on the ground breathe.
+      // The flame is an object and it moves, and this is the half of the effect
+      // that modulating intensity cannot reach. Brightening and dimming in
+      // place can only pump the pool; moving the source swings the cone, slides
+      // the gobo's projected face across the floor and changes which side of
+      // every cut wall is lit. The lamp's target is parented to the group and
+      // stays where it is, so a step sideways is also a small yaw of the cone.
+      //
+      // Taken in the flame's own frame: `across` runs along the face, `into`
+      // back through the shell. Both ride sizeK, or the tiny one's flame would
+      // be swinging a third of its own body across the inside of its shell.
+      // Across is half slow noise and half a carrier of its own, so the tip
+      // whips at about the rate the brightness trembles at instead of drifting
+      // smoothly while the light flickers.
+      const across = 0.040 * sizeK * (0.55 * swing(0.83, 5.5) + 0.45 * wobble(5.9, 0.5, 71.6));
+      const into = 0.030 * sizeK * swing(0.61, 2.7);
+      // Up on a flare, down in a gutter, and a fine bob the rest of the time: a
+      // flame that stands up is a flame reaching higher, and one starved of air
+      // sinks back into the shell. Tied to the same two events, so a gutter
+      // drops the pool nearer the pumpkin as it dims it.
+      const rise = sizeK * (0.018 * swing(1.3, 8.1) + 0.055 * flare - 0.045 * dip);
       light.position.set(
-        lightHome.x + (noise(t * 0.9 + 5.5) - 0.5) * 0.03,
-        lightHome.y + (noise(t * 1.3 + 8.1) - 0.5) * 0.02,
-        lightHome.z + (noise(t * 0.8 + 2.7) - 0.5) * 0.03,
+        lightHome.x + faceTan.x * across + faceDir.x * into,
+        lightHome.y + rise,
+        lightHome.z + faceTan.z * across + faceDir.z * into,
       );
     },
     dispose() {
