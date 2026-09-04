@@ -49,17 +49,51 @@ const BACKDROP = new THREE.Color('#b9bec7').convertSRGBToLinear();
 const scene = new THREE.Scene();
 scene.background = BACKDROP;
 
-const VIEW = Number(params.get('view') || 1.5);
+// ?view= pins the half-height, for A/B shots that have to stay comparable
+// across edits. Left off, the camera frames whatever it was handed: a fixed
+// target that suits a pumpkin silently decapitates a two-and-a-half unit
+// skeleton, and a prop you cannot see all of is a prop you cannot judge.
+const FIXED_VIEW = params.has('view') ? Number(params.get('view')) : null;
 const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 const target = new THREE.Vector3(0, 0.45, 0);
+let view = FIXED_VIEW ?? 1.5;
+
+// Frame the prop from its own bounds. Measured on the screen axes the camera
+// actually uses, not on world Y, or a wide prop overflows sideways.
+function frame(group) {
+  const box = new THREE.Box3().setFromObject(group);
+  if (box.isEmpty()) return;
+  const centre = box.getCenter(new THREE.Vector3());
+  target.copy(centre);
+  if (FIXED_VIEW !== null) return;
+
+  const up = new THREE.Vector3(0, 1, 0).projectOnPlane(CAM_DIR).normalize();
+  const right = new THREE.Vector3().crossVectors(CAM_DIR, up).normalize();
+  let halfUp = 0;
+  let halfRight = 0;
+  const corner = new THREE.Vector3();
+  for (let i = 0; i < 8; i++) {
+    corner.set(
+      i & 1 ? box.max.x : box.min.x,
+      i & 2 ? box.max.y : box.min.y,
+      i & 4 ? box.max.z : box.min.z,
+    ).sub(centre);
+    halfUp = Math.max(halfUp, Math.abs(corner.dot(up)));
+    halfRight = Math.max(halfRight, Math.abs(corner.dot(right)));
+  }
+  view = Math.max(halfUp, halfRight / Math.max(0.35, aspectNow)) * 1.18;
+}
+
+let aspectNow = 1;
 
 function resize(w, h) {
   const aspect = w / h;
-  camera.left = -VIEW * aspect;
-  camera.right = VIEW * aspect;
-  camera.top = VIEW;
-  camera.bottom = -VIEW;
+  aspectNow = aspect;
+  camera.left = -view * aspect;
+  camera.right = view * aspect;
+  camera.top = view;
+  camera.bottom = -view;
   camera.updateProjectionMatrix();
   camera.position.copy(target).addScaledVector(CAM_DIR, 20);
   camera.lookAt(target);
@@ -77,8 +111,11 @@ key.shadow.camera.left = -4;
 key.shadow.camera.right = 4;
 key.shadow.camera.top = 4;
 key.shadow.camera.bottom = -4;
-key.shadow.bias = -0.0012;
-key.shadow.normalBias = 0.02;
+// Same values as the real scene. These used to be the pre-fix numbers, which
+// meant every prop was judged here under shadows that peter-panned and then
+// shipped into a scene that did not.
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.006;
 key.shadow.radius = 3;
 scene.add(key);
 const rim = new THREE.DirectionalLight(0xc4d4ff, 0.55);
@@ -93,6 +130,7 @@ let time = 0;
 async function boot() {
   prop = await PROPS[name]();
   scene.add(prop.group);
+  frame(prop.group);
   resize(canvas.clientWidth || 900, canvas.clientHeight || 700);
   renderer.render(scene, camera);
   window.__previewReady = true;
@@ -102,6 +140,9 @@ window.__preview = {
   setSize(w, h) {
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
+    // Aspect feeds the fit, so re-frame once the real size is known.
+    aspectNow = w / h;
+    if (prop) frame(prop.group);
     resize(w, h);
   },
   // Advance and redraw. Lets a flickering light be captured at a chosen moment.

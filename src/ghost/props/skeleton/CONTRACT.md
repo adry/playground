@@ -40,7 +40,7 @@ spineLower    waist bend
 spineUpper    chest bend
 neck
 head
-jaw           hinges open around local -X, closed at identity
+jaw           hinges open around local +X, closed at identity
 shoulderL/R   arm root at the collarbone
 elbowL/R
 wristL/R
@@ -51,6 +51,17 @@ ankleL/R
 
 Each joint's pivot must sit at the anatomical centre of its bulb, not at the
 end of the bone, or every rotation will visibly pop the joint apart.
+
+The jaw's sign is worth stating twice, because this file originally had it
+backwards. The rest pose faces +Z, so the chin sits below and in FRONT of the
+hinge, and the rotation that drops it is **positive** `rotation.x`. Negative
+drives the chin up through the skull. The model also publishes this as
+`joints.jaw.userData.openAxis` and `openSign`, so an animator can assert it
+rather than trust this paragraph.
+
+The model also hangs a ground-contact patch off `group.userData.contactShadow`.
+It is not part of the returned object, so the contract shape is unchanged, but
+choreography has to hide it while the skeleton is still underground.
 
 `shed` maps a name to a detachable `Object3D`, for bones that shake loose and
 drop. At minimum: `ribL3`, `ribR4`, `fingerL2`, `fingerR3`. Each must be a

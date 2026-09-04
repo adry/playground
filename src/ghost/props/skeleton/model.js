@@ -822,7 +822,7 @@ export function createSkeletonRig({ scale = 1 } = {}) {
       ),
       spineUpper,
     );
-    blade.position.set(side * 0.148, 0.250, -0.160);
+    blade.position.set(side * 0.146, 0.232, -0.182);
     blade.rotation.set(0.12, side * 0.44, side * 0.30);
   }
 

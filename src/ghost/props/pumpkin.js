@@ -40,7 +40,12 @@ const RINGS = SEGMENTS.height * 3;
 // makes the light and the face read as the same flame.
 const LAMP = { min: 1.05, max: 3.10 };     // PointLight intensity
 const GLOW = { min: 0.88, max: 1.38 };     // face emissiveIntensity
-const BLOOM = { min: 0.09, max: 0.32 };    // halo opacity
+// Raised from 0.09/0.32 once the mouth was measured properly. The reference's
+// cuts are chamfered, and that bevel catches enough light to read as part of the
+// opening: measure the reference's grin by its glow alone and it is no taller
+// than ours, but measure it by eye and it is half again as deep. The bloom is
+// the only thing we have standing in for the chamfer, so it has to carry it.
+const BLOOM = { min: 0.14, max: 0.42 };    // halo opacity
 
 // The flame's two ends: a dull ember at the bottom of a gutter, bright flame at
 // the top of a flare.
@@ -312,24 +317,32 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     EYE.inX * dir, EYE.inY,
   );
 
-  // Nose: an apex-up triangle a little under half an eye by area, sitting well
-  // clear of both. The old one was closer to the mouth than to the eyes and the
-  // bottom of the face read as crowded; on the reference there is a clear band
-  // of shell between its base and the grin.
-  const NOSE_W = 0.0362, NOSE_TIP = 0.3975, NOSE_BASE = 0.3344;
+  // Nose: an apex-up triangle a little under half an eye by area. Widened and
+  // dropped from the first solve: on the reference the gap from its base to the
+  // top of the grin measures about three quarters of what we had, so the nose
+  // hangs closer to the mouth than to the eyes.
+  const NOSE_W = 0.0400, NOSE_TIP = 0.3895, NOSE_BASE = 0.3264;
   const nose = triSampler(0, NOSE_TIP, -NOSE_W, NOSE_BASE, NOSE_W, NOSE_BASE);
 
-  // Mouth. A wide, fairly flat band -- it reaches past the outer corner of each
-  // eye -- that hooks up into a point at each end. The hook is late: across the
-  // middle two thirds both edges are almost level, and only the last fifth
-  // sweeps up. Parabolas through the same three points gave a droopy banana,
-  // which is what the old grin was.
-  const MW = 0.2213;      // half width
-  const M_TOP = 0.2645;   // upper edge at the centre
-  const M_BOT = 0.1883;   // lower edge at the centre
-  const M_TIP = 0.2924;   // where the two edges meet, at the lifted corners
-  const topAt = (q) => M_TOP + (M_TIP - M_TOP) * Math.pow(q, 3.2);
-  const botAt = (q) => M_BOT + (M_TIP - M_BOT) * Math.pow(q, 6.0);
+  // Mouth. One tall opening with teeth intruding into it, which is the whole
+  // difference between a carved grin and a row of boxes. The first solve had the
+  // right outline but the teeth reached nearly the full height of the band, and
+  // that chopped the mouth into five disconnected cells: segment, tooth,
+  // segment, tooth, segment. On the reference a continuous channel of light runs
+  // the entire width behind the teeth and never closes.
+  //
+  // Widths and heights below are the re-measured reference: tips at dx 243 of a
+  // 862px body, upper edge flat near y 635 and lower near y 705, both taken back
+  // through this camera.
+  const MW = 0.2300;      // half width
+  const M_TOP = 0.2665;   // upper edge across the middle
+  const M_BOT = 0.1800;   // lower edge across the middle
+  const M_TIP = 0.2940;   // where the two edges meet, at the lifted corners
+  // Both edges hold their level across the middle and then sweep up into the
+  // point. The exponents are a little lower than the reference measures, which
+  // starts the taper earlier: our cut is a flat plate with a hard rim where the
+  // reference's is chamfered, and without that chamfer eating into the last of
+  // the band our ends stopped in a blunt vertical edge instead of a point.
 
   // Teeth are blocks, not spikes: the little linear triangles we had before
   // merged into the grin and the whole mouth read as a W. block() is a plateau
@@ -342,27 +355,60 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     const t = Math.min(1, Math.max(0, (1 - d) / ramp));
     return t * t * (3 - 2 * t);
   };
-  const TOOTH_X = 0.134, TOOTH_HW = 0.038, TOOTH_DROP = 0.56, TOOTH_RAMP = 0.16;
-  const LOW_HW = 0.076, LOW_RISE = 0.62, LOW_DOME = 0.42, LOW_RAMP = 0.30;
+  // Tooth sizes are absolute, not fractions of the band: they all sit in the
+  // flat middle where the band barely changes, and absolute depths let the bloom
+  // outline be derived by simple inset. Both are under half the band's 0.086 on
+  // purpose. Measured off the reference the upper teeth bite about 40% of the
+  // way down; past a half and the channel of light behind them closes, which is
+  // what turned the first grin into five separate boxes.
+  const TOOTH_X = 0.122, TOOTH_HW = 0.035, TOOTH_DEPTH = 0.036, TOOTH_RAMP = 0.16;
+  // The lower tooth is a dome five times wider than it is tall, not the tall
+  // block it was. Root rather than parabola so the top is broad and the flanks
+  // land softly on the lower edge instead of cutting two square notches in it.
+  const LOW_HW = 0.098, DOME_H = 0.0415, LOW_ROUND = 0.55;
+  // Nothing may eat more than this much of the band, so the channel survives
+  // whatever the numbers above are nudged to.
+  const CLEAR = 0.22;
 
-  const mouth = (u, v) => {
-    const x = -MW + 2 * MW * u;
-    const q = Math.abs(x) / MW;
-    const top0 = topAt(q);
-    const bot0 = botAt(q);
-    const gap = top0 - bot0;
-    // Two teeth hang down from the upper edge, just inside the eyes.
-    let top = top0;
-    for (const tx of [-TOOTH_X, TOOTH_X]) {
-      top -= gap * TOOTH_DROP * block(Math.abs(x - tx) / TOOTH_HW, TOOTH_RAMP);
-    }
-    // One broad tooth rises from the lower edge in the middle. Its top is given
-    // a slight dome because a top that is flat in these coordinates projects as
-    // a sagging one -- the surface is falling away from the camera across it.
-    const dLow = Math.abs(x) / LOW_HW;
-    const bottom = bot0 + gap * LOW_RISE * (1 - LOW_DOME * dLow * dLow) * block(dLow, LOW_RAMP);
-    return [x, top + (bottom - top) * v];
+  // bleed = 0 is the cut itself; bleed = 1 is the outline the bloom uses. The
+  // bloom cannot be the usual scaled copy here, because scaling a shape with
+  // notches in it scales the notches too: the bloom's teeth came out wider than
+  // the real teeth and offset outward, so additive glow landed on the inner
+  // third of every tooth and the teeth rendered at barely half their true width.
+  // What is wanted is a dilation, and for a tooth that means insetting it while
+  // the outline pushes out.
+  const BLEED = 0.016;
+  const mouthAt = (bleed) => {
+    const g = BLEED * bleed;
+    const mw = MW + g * 1.6;
+    const top1 = M_TOP + g;
+    const bot1 = M_BOT - g;
+    const tip1 = M_TIP + g;
+    const depth = TOOTH_DEPTH - g;
+    const domeH = DOME_H - g;
+    const thw = TOOTH_HW - g * 0.7;
+    const lhw = LOW_HW - g * 0.7;
+    return (u, v) => {
+      const x = -mw + 2 * mw * u;
+      const q = Math.abs(x) / mw;
+      const top0 = top1 + (tip1 - top1) * Math.pow(q, 2.4);
+      const bot0 = bot1 + (tip1 - bot1) * Math.pow(q, 3.8);
+      const gap = top0 - bot0;
+      // Two teeth hang down from the upper edge, just inside the eyes.
+      let bite = 0;
+      for (const tx of [-TOOTH_X, TOOTH_X]) {
+        bite += depth * block(Math.abs(x - tx) / thw, TOOTH_RAMP);
+      }
+      // One broad tooth rises from the lower edge in the middle.
+      const dLow = Math.min(1, Math.abs(x) / lhw);
+      const grow = domeH * Math.pow(1 - dLow * dLow, LOW_ROUND);
+      const room = Math.max(0, gap * (1 - CLEAR));
+      const top = top0 - Math.min(bite, room);
+      const bottom = bot0 + Math.min(grow, room);
+      return [x, top + (bottom - top) * v];
+    };
   };
+  const mouth = mouthAt(0);
 
   // The mouth needs the samples: at 96 across, a tooth flank fell inside a
   // single column and its shoulders came out as a staircase. 240 puts two or
@@ -370,8 +416,8 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   const FACE_SHAPES = [
     { nx: 12, ny: 12, sampler: eye(-1), cx: -0.1462, cy: 0.4216 },
     { nx: 12, ny: 12, sampler: eye(1), cx: 0.1462, cy: 0.4216 },
-    { nx: 8, ny: 8, sampler: nose, cx: 0, cy: 0.3554 },
-    { nx: 240, ny: 10, sampler: mouth, cx: 0, cy: 0.2264 },
+    { nx: 8, ny: 8, sampler: nose, cx: 0, cy: 0.3474 },
+    { nx: 240, ny: 10, sampler: mouth, cx: 0, cy: 0.2233, halo: mouthAt(1) },
   ];
 
   const faceGeo = patchGeometry(FACE_SHAPES, FACE_LIFT);
@@ -397,10 +443,10 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // spills warmth onto the shell around each cut, the way light leaking out of
   // a real carving lifts the skin around the hole.
   const haloGeo = patchGeometry(
-    FACE_SHAPES.map(({ nx, ny, sampler, cx, cy }) => ({
+    FACE_SHAPES.map(({ nx, ny, sampler, cx, cy, halo }) => ({
       nx,
       ny,
-      sampler: (u, v) => {
+      sampler: halo || ((u, v) => {
         const [X, Y] = sampler(u, v);
         // 1.24, not the 1.5 this started at. The bloom is a scaled copy, so its
         // width grows with the shape it surrounds; once the face was resized to
@@ -409,7 +455,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
         // at the eyes, where scaling a triangle about its centroid pulls the
         // apex out into a spike.
         return [cx + (X - cx) * 1.24, cy + (Y - cy) * 1.24];
-      },
+      }),
     })),
     FACE_LIFT * 0.45,
   );

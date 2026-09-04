@@ -255,7 +255,7 @@ function drawInscription(variant, w, h) {
     // rounded edge, and wingtips that reach it get bent round the corner. cy is
     // the centre of the mark's own bounding box, so it sits square on the face
     // instead of hanging off whatever its tallest feature happens to be.
-    inkBat(ctx, w / 2, h * 0.46, w * 0.40);
+    inkBat(ctx, w / 2, h * 0.49, w * 0.40);
   } else {
     inkCross(ctx, w / 2, h * 0.28, h * 0.22);
     inkText(ctx, 'R.I.P.', w / 2, h * 0.55, h * 0.135, h * 0.011);
