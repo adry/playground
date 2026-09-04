@@ -118,8 +118,13 @@ function vein(ctx, w, h, rng, colour) {
       c.filter = 'none';
     });
   };
-  stroke(h * 0.030, 0.16, 5);
-  stroke(h * 0.008, 0.30, 1.5);
+  // Both passes are deliberately faint. A first attempt at 0.16 and 0.30 came
+  // back as a ball of string wound round the fountain: at the scale a prop this
+  // size occupies on screen, a vein you can read individually is already far
+  // too strong, and what wants to survive is only the sense that the stone has
+  // a grain.
+  stroke(h * 0.045, 0.055, 7);
+  stroke(h * 0.007, 0.105, 1.6);
 }
 
 // Height canvas -> tangent-space normal map. Lifted from tombstones.js for the
@@ -172,11 +177,11 @@ export function marbleTextures(seed = 1) {
   // Broad cloud first, then the veins on top of it, then a fine speckle. The
   // order matters: veins under the clouds go muddy, veins over the speckle eat
   // it. Strengths are all low -- this is a toy fountain, not a marble scan.
-  mottle(cc, TEX, TEX, rng, '150,142,128', '255,255,255', 0.075);
-  for (let i = 0; i < 11; i++) vein(cc, TEX, TEX, rng, '128,118,104');
-  for (let i = 0; i < 4; i++) vein(cc, TEX, TEX, rng, '104,94,84');
+  mottle(cc, TEX, TEX, rng, '156,148,134', '255,255,255', 0.060);
+  for (let i = 0; i < 7; i++) vein(cc, TEX, TEX, rng, '138,128,112');
+  for (let i = 0; i < 2; i++) vein(cc, TEX, TEX, rng, '116,106,94');
   for (let i = 0; i < 2400; i++) {
-    cc.fillStyle = `rgba(${rng() < 0.5 ? '146,140,130' : '255,255,255'}, 0.06)`;
+    cc.fillStyle = `rgba(${rng() < 0.5 ? '146,140,130' : '255,255,255'}, 0.045)`;
     cc.fillRect(rng() * TEX, rng() * TEX, 1.5, 1.5);
   }
 

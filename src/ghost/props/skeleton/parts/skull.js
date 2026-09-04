@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import M, { LEFT_X } from '../metrics.js';
-import { plate, shaft } from './bone.js';
+import { shaft } from './bone.js';
 
 // The skull, built from a photograph of a real one.
 //
@@ -220,18 +220,22 @@ const VAULT_BACK = curveThrough([
   [0.000, 0.416], [0.020, 0.266], [0.041, 0.213], [0.061, 0.181],
   [0.102, 0.128], [0.163, 0.069], [0.203, 0.043], [0.264, 0.011],
   [0.350, 0.002], [0.442, 0.000], [0.510, 0.008], [0.560, 0.030],
-  [0.620, 0.068], [0.700, 0.150], [0.780, 0.235], [0.860, 0.320],
+  [0.620, 0.068], [0.700, 0.148], [0.780, 0.205], [0.870, 0.268],
 ]);
 // Half-breadth at each height, from the front view, scaled so the maximum is
 // SKULL_W/2. The peak is at v 0.292 and it is a POINT rather than a band --
 // the parietal eminence blob below puts it above and behind the ear, which is
 // where the photograph's widest point is.
+// Trimmed against a measured render: the blends that carry the parietal
+// eminences into the vault push the built surface a little wider than the table
+// asks for, most of all near the crown, where the first cut of this came out
+// 18% wide at v 0.10 and 8% wide at the parietal eminence.
 const VAULT_HALFW = curveThrough([
-  [0.000, 0.000], [0.018, 0.103], [0.055, 0.186], [0.091, 0.247],
-  [0.128, 0.291], [0.164, 0.316], [0.201, 0.335], [0.237, 0.345],
-  [0.292, 0.350], [0.347, 0.345], [0.402, 0.336], [0.456, 0.328],
-  [0.511, 0.318], [0.566, 0.300], [0.620, 0.272], [0.700, 0.230],
-  [0.780, 0.180], [0.860, 0.120],
+  [0.000, 0.000], [0.018, 0.085], [0.055, 0.158], [0.091, 0.214],
+  [0.128, 0.258], [0.164, 0.286], [0.201, 0.307], [0.237, 0.320],
+  [0.292, 0.326], [0.347, 0.322], [0.402, 0.314], [0.456, 0.308],
+  [0.511, 0.300], [0.566, 0.284], [0.620, 0.258], [0.700, 0.220],
+  [0.780, 0.172], [0.860, 0.118],
 ]);
 // How square the plan section is. Round at the crown, squarer below, which is
 // what gives the side of the head a near-flat temporal wall for the fossa to be
@@ -250,6 +254,31 @@ const planTaper = (v, s) => {
     : 1 - (1 - back) * s * s;
 };
 
+// --- 2. the temporal fossa --------------------------------------------------
+// A GENUINE HOLLOW, and it is cut by narrowing the vault's own section rather
+// than by subtracting a solid from it. Two earlier shapes for this failed and
+// both failures are worth keeping:
+//
+//   * The previous build claimed the fossa as a side effect of a plan exponent
+//     -- "above the arch the side of the head is a plane" -- and a plane is not
+//     a dish. With nothing hollowed out the arch had nothing to stand off and
+//     no amount of proudness would have given it a shadow.
+//   * A very large ellipsoid subtracted with smax IS a dish, but its depth is
+//     the difference of two big numbers and falls away as the square of the
+//     distance from the blob's own centre: a scoop measuring 0.028 deep at its
+//     middle measured 0.004 where the arch actually spans it. Worse, an smax
+//     against a field with a hard window in it puts extra zero crossings on the
+//     sampling rays and the temple came out in horizontal stripes.
+//
+// Subtracting a constant from the half-breadth inside a smooth window has
+// neither problem: the scoop is the same depth everywhere inside the window,
+// the field stays a single smooth surface with one crossing per ray, and the
+// window's own edges ARE the fossa's boundaries -- the temporal line above, the
+// arch's span front to back, the cheek in front.
+const FOSSA_CUT = 0.062;                // of the head's height, uniform
+const fossaWindow = (v, zn) => smoothstep(0.24, 0.44, v) * (1 - smoothstep(0.56, 0.74, v))
+  * smoothstep(0.02, 0.30, zn) * (1 - smoothstep(0.56, 0.86, zn));
+
 const V_BASE = 0.870;                   // where the braincase's surface closes
 
 // The braincase, as a field. Negative inside.
@@ -264,7 +293,8 @@ function vaultField(x, y, z) {
   if (hd <= 1e-4) return 0.05;
   const s = (zn - c) / hd;
   if (Math.abs(s) > 3) return Math.abs(s) * 0.02;
-  const w = VAULT_HALFW(v) * planTaper(v, Math.max(-1, Math.min(1, s)));
+  const w = VAULT_HALFW(v) * planTaper(v, Math.max(-1, Math.min(1, s)))
+    - FOSSA_CUT * fossaWindow(v, zn);
   if (w <= 1e-4) return 0.05;
   const p = VAULT_PLAN(v);
   const q = Math.pow(Math.abs(x / (w * HS)), p) + Math.pow(Math.abs(s), p);
@@ -302,8 +332,8 @@ const SOCKET = (() => {
 // crown-to-chin and the craniometric mean is 0.190, so it is 0.230 counting the
 // aperture's apex above nasion. Width is 0.115, the front view's 24 px.
 const NASAL_W = 0.115 * HS;
-const NASAL_H = 0.230 * HS;
-const NASAL_V = LY(0.605);
+const NASAL_H = 0.220 * HS;
+const NASAL_V = LY(0.615);
 
 // Where the face is unwrapped from, and at what radius. u is arc length round
 // the vertical axis through P0 measured at FACE_R, v is world height; the
@@ -330,8 +360,8 @@ const AO_REACH = 0.030 * HS;
 // Tessellation. Set by the openings, not by the silhouette: the vault is smooth
 // at a third of this, but the edge of a cut is a contour crossing the grid at
 // an arbitrary angle and can only be as clean as the grid it lands on.
-const NTH = 216;
-const NPH = 148;
+const NTH = 288;
+const NPH = 184;
 
 // Polynomial smooth minimum. k is a real length, so a fillet between two parts
 // is the same size wherever it happens.
@@ -540,7 +570,15 @@ function snapTo(cut, X, Y) {
 //
 // The seam column is NOT duplicated: two coincident columns get separately
 // averaged normals and draw a crease.
-function sweepShape(centre, section, uMin, uMax, nU, { capStart = true, capEnd = true } = {}) {
+// `frame(u, side, vup, T)` overrides that: some bars want a frame that does NOT
+// follow the path. The supraorbital shelf is one. Its centre line runs along the
+// top margin of the orbit, and that margin dives steeply at both corners, so the
+// tangent there is nearly vertical, `T cross up` collapses to zero and the
+// default frame flips over -- which drew the shelf as two flat sheets standing
+// out sideways from the face, a whole afternoon of looking for a winding bug
+// that was not there. A shelf wants "out" to mean radially outward and "up" to
+// mean up, whatever its own path is doing.
+function sweepShape(centre, section, uMin, uMax, nU, { capStart = true, capEnd = true, frame = null } = {}) {
   const nR = section(uMin).length;
   const verts = [];
   const idx = [];
@@ -558,10 +596,14 @@ function sweepShape(centre, section, uMin, uMax, nU, { capStart = true, capEnd =
     centre(u + du * 0.02, a);
     centre(u - du * 0.02, b);
     T.subVectors(a, b).normalize();
-    side.crossVectors(T, up);
-    if (side.lengthSq() < 1e-12) side.set(1, 0, 0);
-    side.normalize();
-    vup.crossVectors(side, T).normalize();
+    if (frame) {
+      frame(u, side, vup, T);
+    } else {
+      side.crossVectors(T, up);
+      if (side.lengthSq() < 1e-12) side.set(1, 0, 0);
+      side.normalize();
+      vup.crossVectors(side, T).normalize();
+    }
     const sec = section(u);
     for (let j = 0; j < nR; j++) {
       const [h, w] = sec[j];
@@ -594,9 +636,51 @@ function sweepShape(centre, section, uMin, uMax, nU, { capStart = true, capEnd =
   };
   if (capStart) capAt(0, false);
   if (capEnd) capAt(nU, true);
+  // WHICH WAY ROUND IT CAME OUT IS MEASURED, NOT DERIVED. The section's winding
+  // fixes the orientation only relative to the direction the sweep runs in, and
+  // a symmetric pair is naturally authored running in opposite directions, so
+  // one of the two comes out inside out and back-face culls. Two rounds of
+  // hand-deriving the handedness from (T, side, vup) got it wrong both times
+  // and it looks exactly like a bar buried too deep, so: close the solid, take
+  // its signed volume, and reverse every triangle if it is negative. A few
+  // thousand dot products, once, and it cannot be got wrong again.
+  if (capStart && capEnd) {
+    let vol = 0;
+    for (let i = 0; i < idx.length; i += 3) {
+      const p = idx[i] * 3, q = idx[i + 1] * 3, r = idx[i + 2] * 3;
+      const ax = verts[p], ay = verts[p + 1], az = verts[p + 2];
+      const bx = verts[q], by = verts[q + 1], bz = verts[q + 2];
+      const cx = verts[r], cy = verts[r + 1], cz = verts[r + 2];
+      vol += ax * (by * cz - bz * cy) + ay * (bz * cx - bx * cz) + az * (bx * cy - by * cx);
+    }
+    if (vol < 0) for (let i = 0; i < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
+  }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
   geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// A process: a superellipsoid that tapers to a rounded POINT at one end. The
+// mastoid and the coronoid are both this, and neither can be a blob in the
+// field, because smin rounds a point off exactly as fast as you sharpen it and
+// the blend radius that hides the join is the same radius that eats the tip.
+// `narrow` is how far the far end draws in; `sign` is +1 to point up, -1 down.
+function processGeometry(hx, hy, hz, { exp = 2.6, narrow = 0.4, sign = -1 } = {}) {
+  const geo = new THREE.SphereGeometry(0.5, 18, 14);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i) * 2, y = pos.getY(i) * 2, z = pos.getZ(i) * 2;
+    const n = Math.pow(
+      Math.pow(Math.abs(x), exp) + Math.pow(Math.abs(y), exp) + Math.pow(Math.abs(z), exp),
+      1 / exp,
+    );
+    const k = 0.5 / Math.max(1e-6, n);
+    const ty = y * k;
+    const t = mix(1.0, narrow, smoothstep(-sign * 0.15, sign * 0.42, ty));
+    pos.setXYZ(i, x * k * 2 * hx * t, ty * 2 * hy, z * k * 2 * hz * t);
+  }
   geo.computeVertexNormals();
   return geo;
 }
@@ -625,9 +709,9 @@ function toothGeometry(w, h, d) {
 // spaced instead of bunching at the front where the parabola is flat. The curve
 // describes the OUTER face of the row; everything else in the mouth is that
 // curve inset, which is what keeps bone from creeping in front of the crowns.
-const UPPER_ARCH = { halfW: 0.173 * HS, front: LZ(0.955), back: LZ(0.700) };
-const LOWER_ARCH = { halfW: 0.150 * HS, front: LZ(0.940), back: LZ(0.688) };
-const TOOTH_H = 0.062 * HS;
+const UPPER_ARCH = { halfW: 0.173 * HS, front: LZ(0.945), back: LZ(0.700) };
+const LOWER_ARCH = { halfW: 0.152 * HS, front: LZ(0.932), back: LZ(0.690) };
+const TOOTH_H = 0.054 * HS;
 const TOOTH_D = 0.040 * HS;
 const AJAR = 0.009 * HS;                // the rows do not quite touch when shut
 
@@ -651,18 +735,59 @@ function archCurve({ halfW, front, back }, y, { inset = 0, extend = 1, flare = 0
 // specimen has one, biting shut, and it is measured with the rest.
 //
 // Verticals, in the measured frame: condylion at v 0.500, level with the top of
-// the ear canal; gonion at v 0.870; gnathion at v 1.000, which metrics pins.
+// the ear canal; gonion at v 0.828; gnathion at v 1.000, which metrics pins.
 // The bite plane at v 0.8365 is metrics' own and the photograph agrees with it
 // to 1.5%.
-const HINGE_Y = LY(0.500);
-const HINGE_Z = LZ(0.355);
-// Bicondylar breadth is 0.84 of the head's breadth in the tables, bigonial
-// 0.69. Both have to stay MEDIAL of the zygomatic arch at 0.94, because the
-// condyle sits in the mandibular fossa under the arch's root.
-const HINGE_X = 0.360 * SKULL_W;
-const GONION_X = 0.345 * SKULL_W;
-const GONION_Y = LY(0.870);
-const GONION_Z = LZ(0.330);
+const HINGE_Y = LY(0.540);
+const HINGE_Z = LZ(0.350);
+const HINGE_X = 0.305 * SKULL_W;
+
+// THE MANDIBLE IS ONE SWEPT BONE, condyle to condyle.
+//
+// The previous build made it a body plus two flat plates for the rami, and the
+// plates were the worst thing on the head: an extrusion has two big flat faces,
+// the key lamp catches one of them broadside, and what the lateral and rear
+// views showed was a paddle stuck on the side of the skull with a visible seam
+// where it met the body. Bellying the plate out helped and did not fix it,
+// because the fault is the seam, not the flatness. A real mandible has no seam
+// there: it is one bone, and the gonial angle is simply where it turns.
+//
+// So the sweep runs right condyle, down the right ramus, round the angle, along
+// the body, round the chin, and back out to the left condyle, and the SECTION
+// morphs along it: a deep rounded bar under the teeth, a broad thin plate up
+// the ramus, a small knob at the condyle. That needs an authored asymmetric
+// frame as well as an authored section, because at the ramus the sweep is
+// vertical and `T cross up` collapses -- see sweepShape.
+//
+// What it costs: no coronoid process and no mandibular notch. A single sweep
+// cannot fork, and the alternative is another separate plate, which is the
+// thing being fixed. The notch is hidden behind the zygomatic arch from every
+// angle but a straight lateral one, and a ramus with a smooth top edge is a far
+// smaller error than a paddle.
+//
+// Stations, from the chin outward. v and zn are the measured frame; x is a
+// fraction of the head's breadth; ht is the half thickness across the bone and
+// hb the half breadth IN its own plane, which is the body's depth under the
+// teeth and the ramus's front-to-back width once the sweep has turned upright;
+// p is the section's superellipse exponent; and nx/nz is the outward horizontal
+// the thickness is measured along.
+const JAW_STATIONS = [
+  //  x      v      zn     ht     hb     p    nx    nz
+  [0.000, 0.939, 0.876, 0.050, 0.061, 3.0, 0.00, 1.00],   // chin
+  [0.052, 0.936, 0.862, 0.048, 0.058, 2.9, 0.28, 0.96],
+  [0.104, 0.928, 0.822, 0.046, 0.052, 2.8, 0.55, 0.84],
+  [0.150, 0.917, 0.774, 0.043, 0.045, 2.7, 0.72, 0.69],
+  [0.190, 0.902, 0.714, 0.041, 0.038, 2.6, 0.86, 0.51],
+  [0.235, 0.884, 0.640, 0.039, 0.034, 2.5, 0.94, 0.34],
+  [0.290, 0.860, 0.540, 0.037, 0.034, 2.5, 0.98, 0.20],
+  [0.352, 0.826, 0.428, 0.037, 0.058, 2.4, 1.00, 0.06],   // the gonial angle
+  [0.344, 0.756, 0.382, 0.033, 0.090, 2.3, 1.00, 0.00],   // up the ramus
+  [0.322, 0.646, 0.362, 0.029, 0.094, 2.3, 1.00, 0.00],
+  [0.305, 0.540, 0.350, 0.032, 0.032, 2.2, 1.00, 0.00],   // condylion
+];
+const GONION_X = JAW_STATIONS[7][0] * SKULL_W;
+const GONION_Y = LY(JAW_STATIONS[7][1]);
+const GONION_Z = LZ(JAW_STATIONS[7][2]);
 
 // --- pieces that are meshes, not field --------------------------------------
 // The supraorbital shelf's section, in the sweep's own frame: h forward, w up.
@@ -675,14 +800,31 @@ const GONION_Z = LZ(0.330);
 // what shows is a lip standing BROW_OUT proud with its underside facing down
 // into the socket. A section centred on the surface puts half a sausage on the
 // forehead, which is what the first cut of this did.
+// Authored so the bar is mostly BURIED: its centre line is sunk into the
+// frontal by BROW_SINK and only the +h side of the section comes back out, so
+// what shows is a lip standing proud with its underside facing down into the
+// socket. A section centred ON the surface puts half a sausage on the forehead,
+// which is what the first cut of this did.
+//
+// h is FORWARD and w is UP, for both sides. The list must be counter-clockwise
+// in (h, w): sweepShape takes the solid's orientation from the section's
+// winding and then measures it, so a clockwise list simply comes out reversed.
 const BROW_SEC = [
-  [-0.120, +0.060], [-0.020, +0.058], [+0.030, +0.036],
-  [+0.042, +0.006], [+0.034, -0.020], [+0.006, -0.036],
-  [-0.040, -0.042], [-0.120, -0.030],
+  [-0.150, -0.020],   // bottom, deep inside the frontal
+  [-0.040, -0.038],   // the orbital roof
+  [+0.014, -0.034],   // THE OVERHANGING MARGIN: forward of the socket's rim
+  [+0.040, -0.014],
+  [+0.048, +0.010],   // the ridge's crest, the front-most point of the cranium
+  [+0.032, +0.032],
+  [-0.032, +0.048],   // back up into the forehead
+  [-0.150, +0.032],
 ];
 
 export function buildSkull({ material }) {
   const group = new THREE.Group();
+  // Pieces of the mandible that are built up with the cranium (they need the
+  // same helpers) but belong under the jaw's hinge once it exists.
+  const jawRootPending = [];
   const geometries = [];
   const materials = [];
   const track = (g) => { geometries.push(g); return g; };
@@ -709,8 +851,8 @@ export function buildSkull({ material }) {
   // because the tooth row has to have bone over it, and rounded in plan, so the
   // face plane does not meet the side of the head at a corner.
   const maxilla = blob(
-    [0, LY(0.700), LZ(0.828)],
-    [0.200 * HS, 0.118 * HS, 0.163 * HS],
+    [0, LY(0.668), LZ(0.812)],
+    [0.186 * HS, 0.1225 * HS, 0.150 * HS],
     3.0, 3.4,
   );
 
@@ -720,12 +862,12 @@ export function buildSkull({ material }) {
   // See the note at the top of the file; it is the one deliberate departure
   // from the photograph in the whole build and it is invisible from outside.
   const cranialBase = blob(
-    [0, LY(0.790), LZ(0.400)],
-    [0.170 * HS, 0.115 * HS, 0.235 * HS], 2.6, 3.0,
+    [0, LY(0.790), LZ(0.470)],
+    [0.150 * HS, 0.100 * HS, 0.160 * HS], 2.6, 3.0,
   );
 
   const base = (x, y, z) => {
-    let d = smin(vaultField(x, y, z), maxilla(x, y, z), 0.055);
+    let d = smin(vaultField(x, y, z), maxilla(x, y, z), 0.040);
     d = smin(d, cranialBase(x, y, z), 0.050);
     return d;
   };
@@ -749,8 +891,8 @@ export function buildSkull({ material }) {
   // where the braincase stops and the face starts. The dip is not modelled; it
   // is the gap between this and the brow, which is why neither is blended wide.
   const nasalBone = blob(
-    [0, LY(0.545), LZ(0.892)],
-    [0.048 * HS, 0.060 * HS, 0.048 * HS], 2.4, 2.2,
+    [0, LY(0.575), LZ(0.888)],
+    [0.046 * HS, 0.050 * HS, 0.045 * HS], 2.4, 2.2,
   );
 
   // The zygomatic bone, and the root of the arch on the temporal just above and
@@ -758,8 +900,8 @@ export function buildSkull({ material }) {
   // only part of the arch in the field; the span between them is a separate
   // mesh standing off the side of the head with daylight behind it.
   const malar = (side) => blob(
-    [side * 0.270 * SKULL_W, LY(0.560), LZ(0.820)],
-    [0.155 * SKULL_W, 0.090 * HS, 0.115 * HS], 2.6);
+    [side * 0.282 * SKULL_W, LY(0.556), LZ(0.808)],
+    [0.140 * SKULL_W, 0.082 * HS, 0.098 * HS], 2.6);
   // The lateral orbital margin: the frontal process of the zygomatic, a narrow
   // vertical bar at the outer edge of each orbit running from the end of the
   // brow down to the cheek. In profile it is the one feature that makes an
@@ -771,20 +913,37 @@ export function buildSkull({ material }) {
     [side * 0.305 * SKULL_W, LY(0.455), LZ(0.835)],
     [0.060 * SKULL_W, 0.105 * HS, 0.056 * HS], 2.4);
   const zygRoot = (side) => blob(
-    [side * 0.360 * SKULL_W, LY(0.508), LZ(0.290)],
-    [0.110 * SKULL_W, 0.058 * HS, 0.105 * HS], 2.4);
+    [side * 0.318 * SKULL_W, LY(0.508), LZ(0.285)],
+    [0.082 * SKULL_W, 0.058 * HS, 0.105 * HS], 2.4);
 
   const malarL = malar(-1), malarR = malar(1);
   const rimL = orbitalRim(-1), rimR = orbitalRim(1);
   const rootL = zygRoot(-1), rootR = zygRoot(1);
   const parietalL = parietal(-1), parietalR = parietal(1);
 
+  // The supraorbital region as a broad soft swelling IN the field, under the
+  // separate shelf that is built later. The shelf alone was not enough: a proud
+  // mesh laid on a surface that is flat behind it emerges along a hard line and
+  // reads as an arc stuck to the forehead. With the frontal itself convex there,
+  // that line falls on a surface already curving the same way and reads as the
+  // crest of a ridge instead of the edge of a part. The overhang still comes
+  // from the shelf; this only gives it something to grow out of.
+  const browSwell = [-1, 1].map((side) => tube(
+    [-0.62, -0.30, 0.05, 0.40, 0.72, 1.00].map((kx) => {
+      const [u, v] = socketToFace(side, kx * SOCKET.a, Math.pow(socketTop(kx), 0.45) * SOCKET.b + 0.030 * HS);
+      const ang = u / FACE_R;
+      const rho = surfaceRho(base, ang, v) - 0.048 * HS;
+      return new THREE.Vector3(Math.sin(ang) * rho, v, Math.cos(ang) * rho);
+    }),
+    0.058 * HS,
+  ));
+
   // Bone directly above every upper tooth, all the way to the back of the row.
   // Without it the maxilla's corners lift away from the outer teeth and they
   // hang in air.
   const ALV_R = 0.034 * HS;
   const alveolar = tube(
-    archCurve(UPPER_ARCH, Y_BITE + AJAR + TOOTH_H + 0.016 * HS, { inset: ALV_R * 0.8 })
+    archCurve(UPPER_ARCH, Y_BITE + AJAR + TOOTH_H + 0.020 * HS, { inset: ALV_R * 0.8 })
       .getSpacedPoints(20),
     ALV_R,
   );
@@ -795,9 +954,11 @@ export function buildSkull({ material }) {
     let d = base(x, y, z);
     d = smin(d, parietalL(x, y, z), 0.055);
     d = smin(d, parietalR(x, y, z), 0.055);
-    d = smin(d, nasalBone(x, y, z), 0.018);
-    d = smin(d, malarL(x, y, z), 0.026);
-    d = smin(d, malarR(x, y, z), 0.026);
+    d = smin(d, browSwell[0](x, y, z), 0.030);
+    d = smin(d, browSwell[1](x, y, z), 0.030);
+    d = smin(d, nasalBone(x, y, z), 0.016);
+    d = smin(d, malarL(x, y, z), 0.034);
+    d = smin(d, malarR(x, y, z), 0.034);
     d = smin(d, rimL(x, y, z), 0.024);
     d = smin(d, rimR(x, y, z), 0.024);
     d = smin(d, rootL(x, y, z), 0.026);
@@ -818,13 +979,6 @@ export function buildSkull({ material }) {
   // curvature and FOSSA_CUT the depth and they are independent, which is what
   // stops it reading as a dent. 0.045 of the head's height is half again what
   // the last build cut and it is what makes the shadow in the photograph.
-  const FOSSA_R = 0.66 * SKULL_W;
-  const FOSSA_CUT = 0.045 * HS;
-  const fossa = (side) => blob(
-    [side * (0.870 * HW + FOSSA_R - FOSSA_CUT), LY(0.500), LZ(0.430)],
-    [FOSSA_R, 0.230 * HS, 0.300 * HS], 2);
-  const fossaL = fossa(-1), fossaR = fossa(1);
-
   // The ear canal, as a small pit rather than a painted spot, so it has its own
   // walls and its own shading. Real porion is level with the orbit's lower rim,
   // which is the definition of the Frankfurt horizontal, and this is at 0.520.
@@ -842,8 +996,6 @@ export function buildSkull({ material }) {
 
   const scooped = (x, y, z) => {
     let d = solid(x, y, z);
-    d = smax(d, -fossaL(x, y, z), 0.030);
-    d = smax(d, -fossaR(x, y, z), 0.030);
     d = smax(d, -meatusL(x, y, z), 0.012);
     d = smax(d, -meatusR(x, y, z), 0.012);
     d = smax(d, -foramen(x, y, z), 0.022);
@@ -865,11 +1017,11 @@ export function buildSkull({ material }) {
   //
   // [bearing, v, how deep to bury this point].
   const TEMPORAL = [
-    [0.72, 0.400, 0.055], [1.02, 0.330, 0.020], [1.34, 0.298, 0.016],
-    [1.66, 0.300, 0.018], [1.98, 0.340, 0.030], [2.22, 0.412, 0.062],
+    [0.72, 0.400, 0.052], [1.02, 0.330, 0.014], [1.34, 0.298, 0.010],
+    [1.66, 0.300, 0.012], [1.98, 0.340, 0.024], [2.22, 0.412, 0.058],
     [2.40, 0.480, 0.100],
   ];
-  const TEMP_R = 0.030 * HS;
+  const TEMP_R = 0.034 * HS;
   const temporals = [-1, 1].map((side) => tube(
     TEMPORAL.map(([ang, v, inset]) => {
       const a = side * ang;
@@ -1153,18 +1305,29 @@ export function buildSkull({ material }) {
   // It stops short of the medial corner as well -- carried all the way in, the
   // two shelves converge over the bridge and build a raised V that reads as a
   // snout, which is what an earlier pass did.
-  const BROW_LIFT = 0.018 * HS;
-  const BROW_SINK = 0.026 * HS;
+  // The centre line rides this far above the socket's top edge, and this far
+  // INSIDE the frontal. Together with BROW_SEC they put the shelf's crest about
+  // 0.014 of the head's height proud of the skin and its lower lip about 0.03
+  // below the socket's upper margin, which is the overhang.
+  const BROW_LIFT = 0.024 * HS;
+  const BROW_SINK = 0.030 * HS;
   let browDrop = 0;
   for (const side of [-1, 1]) {
     // kx runs medial to lateral; both sides are swept in the +x direction so
     // the local frame's `h` means "forward" for both of them.
-    const k0 = side > 0 ? -0.80 : 1.02;
-    const k1 = side > 0 ? 1.02 : -0.80;
+    const k0 = side > 0 ? -0.78 : 1.06;
+    const k1 = side > 0 ? 1.06 : -0.78;
     const nrm = new THREE.Vector3();
+    // The margin is followed at a power, not raw: socketTop dives to zero at
+    // both corners of the opening and a shelf that dived with it would leave the
+    // orbit's outer corner unroofed. 0.55 keeps the ridge high across the whole
+    // span and lets it turn down only at the very ends, which is the course the
+    // photograph's ridge takes into the frontal process of the zygomatic.
+    const ridgeTop = (kx) => Math.pow(socketTop(kx), 0.45) * SOCKET.b + BROW_LIFT;
+    const bearing = (t) => socketToFace(side, mix(k0, k1, t) * SOCKET.a, ridgeTop(mix(k0, k1, t)))[0] / FACE_R;
     const centre = (t, out) => {
       const kx = mix(k0, k1, t);
-      const [u, v] = socketToFace(side, kx * SOCKET.a, socketTop(kx) * SOCKET.b + BROW_LIFT);
+      const [u, v] = socketToFace(side, kx * SOCKET.a, ridgeTop(kx));
       const ang = u / FACE_R;
       const rho = surfaceRho(field, ang, v);
       out.set(Math.sin(ang) * rho, v, Math.cos(ang) * rho);
@@ -1177,17 +1340,56 @@ export function buildSkull({ material }) {
       // wedge that grows from the bridge of the nose out to the frontozygomatic
       // corner, and a bar of constant section reads as a hoop.
       const kx = mix(k0, k1, t);
-      const heavy = 0.55 + 0.45 * smoothstep(-0.85, 0.30, kx);
+      const heavy = 0.72 + 0.28 * smoothstep(-0.80, 0.35, kx);
       // Both ends taper away so they vanish into the bone they are buried in
       // rather than ending in a visible stub. The medial end fades hardest:
       // carried on, the two shelves meet over the bridge and rebuild the raised
       // V that read as a snout two passes ago.
-      const fade = Math.min(smoothstep(-0.02, 0.22, t), 1 - 0.75 * smoothstep(0.88, 1.02, t));
-      const s = heavy * Math.max(0.10, fade) * HS;
-      return BROW_SEC.map(([h, w]) => [h * s * side, w * s]);
+      //
+      // Both of these are functions of kx and NOT of t, and that is the fix for
+      // a bug that took two cycles to see. The two sides are swept in opposite
+      // directions along kx, so a taper written against t fades the medial end
+      // of one shelf and the LATERAL end of the other: one brow came out a
+      // sliver and the other a slab standing out in front of the nose, and it
+      // looked like an asymmetric mesh rather than an asymmetric parameter.
+      const fade = Math.min(
+        smoothstep(-0.80, -0.45, kx),
+        1 - 0.60 * smoothstep(0.78, 1.06, kx),
+      );
+      const s = heavy * Math.max(0.04, fade) * HS;
+      // NOT mirrored for the right side. Both sweeps get the same (side, vup)
+      // frame from the `frame` callback below, in which h already means
+      // "radially outward" on whichever side it is. Negating h for one side
+      // turns the buried half of the shelf around and stands it out in the air
+      // in front of the face, which is exactly what it did.
+      return BROW_SEC.map(([h, w]) => [h * s, w * s]);
     };
-    const geo = track(sweepShape(centre, section, 0, 1, 40));
-    group.add(add(geo, material, 'brow'));
+    const geo = track(sweepShape(centre, section, 0, 1, 48, {
+      frame: (t, sd, vu) => {
+        const ang = bearing(t);
+        sd.set(Math.sin(ang), 0, Math.cos(ang));
+        vu.set(0, 1, 0);
+      },
+    }));
+    // The underside of a shelf is in shadow, and this scene has no global
+    // illumination to put it there: the hemisphere light reaches the roof of an
+    // orbit as if the brow above it were not there, so an honest overhang
+    // renders as a LIT wedge hanging inside a black socket, which reads as a
+    // chip of bone broken off into the eye. Painting the downward-facing half of
+    // the shelf is the whole fix, and it is the same argument the cavity
+    // colours below make.
+    {
+      const nAttr = geo.attributes.normal;
+      const col = new Float32Array(nAttr.count * 3);
+      for (let i = 0; i < nAttr.count; i++) {
+        const lum = 1 - 0.62 * clamp01(-nAttr.getY(i));
+        col[i * 3] = lum;
+        col[i * 3 + 1] = lum * (1 - 0.02 * (1 - lum));
+        col[i * 3 + 2] = lum * (1 + 0.10 * (1 - lum));
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    }
+    group.add(add(geo, skin, 'brow'));
     // How far the shelf's front lip hangs BELOW and FORWARD of the socket's top
     // rim, measured at the middle of the sweep. This is the number that says
     // whether there is an overhang at all, so it is published rather than
@@ -1222,9 +1424,9 @@ export function buildSkull({ material }) {
   const archPath = (side) => new THREE.CatmullRomCurve3([
     new THREE.Vector3(side * 0.230 * SKULL_W, LY(0.582), LZ(0.830)),
     new THREE.Vector3(side * 0.360 * SKULL_W, LY(0.576), LZ(0.720)),
-    new THREE.Vector3(side * 0.448 * SKULL_W, LY(0.564), LZ(0.580)),
-    new THREE.Vector3(side * 0.470 * SKULL_W, LY(0.548), LZ(0.435)),
-    new THREE.Vector3(side * 0.438 * SKULL_W, LY(0.528), LZ(0.325)),
+    new THREE.Vector3(side * 0.432 * SKULL_W, LY(0.564), LZ(0.580)),
+    new THREE.Vector3(side * 0.450 * SKULL_W, LY(0.548), LZ(0.435)),
+    new THREE.Vector3(side * 0.424 * SKULL_W, LY(0.528), LZ(0.325)),
     new THREE.Vector3(side * 0.352 * SKULL_W, LY(0.510), LZ(0.255)),
   ], false, 'centripetal', 0.5);
   let archGap = Infinity;
@@ -1252,29 +1454,26 @@ export function buildSkull({ material }) {
   const MASTOID_TOP = LY(0.500);
   const MASTOID_TIP = LY(0.625);
   for (const side of [-1, 1]) {
-    const geo = track(new THREE.SphereGeometry(0.5, 18, 14));
-    const pos = geo.attributes.position;
-    const half = (MASTOID_TIP - MASTOID_TOP) / 2;
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i) * 2, y = pos.getY(i) * 2, z = pos.getZ(i) * 2;
-      const n = Math.pow(
-        Math.pow(Math.abs(x), 2.6) + Math.pow(Math.abs(y), 2.6) + Math.pow(Math.abs(z), 2.6),
-        1 / 2.6,
-      );
-      const k = 0.5 / Math.max(1e-6, n);
-      // The taper is what makes it a process rather than a pebble: full width
-      // at the top where it leaves the skull, a third of that at the tip.
-      const ty = y * k;
-      const narrow = mix(1.0, 0.34, smoothstep(0.1, -0.5, ty));
-      pos.setXYZ(i,
-        x * k * 0.115 * SKULL_W * narrow,
-        ty * 2 * Math.abs(half),
-        z * k * 0.130 * HS * narrow);
-    }
-    geo.computeVertexNormals();
+    const geo = track(processGeometry(
+      0.058 * SKULL_W, (MASTOID_TIP - MASTOID_TOP) / 2, 0.065 * HS,
+      { exp: 2.6, narrow: 0.46, sign: -1 },
+    ));
     geo.rotateZ(side * -0.16);
-    geo.translate(side * 0.410 * SKULL_W, (MASTOID_TOP + MASTOID_TIP) / 2, LZ(0.322));
+    geo.translate(side * 0.406 * SKULL_W, (MASTOID_TOP + MASTOID_TIP) / 2, LZ(0.322));
     group.add(add(geo, material, 'mastoid'));
+  }
+
+  // The coronoid process, and with it the mandibular notch. It is not part of
+  // the mandible's own sweep: a single sweep cannot fork, and this is the fork.
+  // Its base is buried in the ramus, so the join happens inside bone.
+  for (const side of [-1, 1]) {
+    const top = LY(0.578), bot = LY(0.720);
+    const geo = track(processGeometry(
+      0.038 * SKULL_W, (bot - top) / 2, 0.046 * HS,
+      { exp: 2.4, narrow: 0.30, sign: +1 },
+    ));
+    geo.translate(side * 0.322 * SKULL_W, (top + bot) / 2, LZ(0.442));
+    jawRootPending.push([geo, side]);
   }
 
   // -------------------------------- the walls and the bowls inside the cuts
@@ -1551,113 +1750,87 @@ export function buildSkull({ material }) {
   jawRoot.position.set(0, -HINGE_Y, -HINGE_Z);
   jaw.add(jawRoot);
 
-  // The body: one swept bar from one angle of the jaw, round the chin, to the
-  // other, carrying an authored section. It needs a section that CHANGES along
-  // its own length -- deep and rounded at the chin, shallower and flatter under
-  // the molars, deepening again at the angle -- which shaft() cannot sweep,
-  // because shaft() sweeps one radius and a global squash afterwards squashes
-  // every station equally.
-  const JAW_U = 1.62;                   // how far past the last tooth the bar runs
-  const JAW_FLARE = 0.10;
-  const jawS = (u) => Math.min(1, Math.abs(u) / JAW_U);
-  const BODY_TOP = Y_BITE - 0.66 * TOOTH_H;
-  // The lower border is not a flat line: it climbs from the chin to the angle,
-  // and without that the bar reads as a bib clipped on under the teeth. The
-  // curve carries the section's CENTRE height, so the border can climb while
-  // the alveolar margin stays level under the teeth; one `rise` on the whole
-  // path moves both borders together and lifts the tooth row with them.
-  const jawTop = (s) => BODY_TOP + (LY(0.760) - BODY_TOP) * smoothstep(0.55, 1.0, s);
-  const jawBot = (s) => Y_CHIN + (GONION_Y - Y_CHIN) * s * s * s;
-  const bodyCentre = (u, out) => {
-    const uc = Math.max(-JAW_U, Math.min(JAW_U, u));
-    const s = jawS(uc);
-    const flare = 1 + JAW_FLARE * Math.max(0, Math.abs(uc) - 1);
-    return out.set(
-      LOWER_ARCH.halfW * 1.02 * uc * flare,
-      (jawTop(s) + jawBot(s)) / 2,
-      LOWER_ARCH.front - (LOWER_ARCH.front - LOWER_ARCH.back) * uc * uc,
-    );
+  // One sweep, condyle to condyle. The station list is mirrored about the chin
+  // and both the path and the section are read off the same index, so the
+  // section can never drift out of step with the point it belongs to.
+  const JAW_N = JAW_STATIONS.length;
+  const jawPts = [];
+  for (let i = JAW_N - 1; i >= 1; i--) {
+    const [x, v, zn] = JAW_STATIONS[i];
+    jawPts.push(new THREE.Vector3(-x * SKULL_W, LY(v), LZ(zn)));
+  }
+  for (let i = 0; i < JAW_N; i++) {
+    const [x, v, zn] = JAW_STATIONS[i];
+    jawPts.push(new THREE.Vector3(x * SKULL_W, LY(v), LZ(zn)));
+  }
+  const jawPath = new THREE.CatmullRomCurve3(jawPts, false, 'centripetal', 0.5);
+  const JAW_SEG = jawPts.length - 1;
+  // Which station a sweep parameter belongs to. CatmullRomCurve3.getPoint maps
+  // t uniformly across its segments, so this is exact rather than approximate.
+  const jawAt = (tt) => {
+    const t = clamp01(tt);
+    const f = Math.max(0, Math.min(JAW_SEG - 1e-9, t * JAW_SEG));
+    const i = Math.floor(f);
+    const k = f - i;
+    const gi = (j) => {
+      const idx = j <= JAW_N - 1 ? JAW_N - 1 - j : j - (JAW_N - 1);
+      const row = JAW_STATIONS[idx];
+      return { row, mirror: j < JAW_N - 1 ? -1 : 1 };
+    };
+    const a = gi(i), b = gi(Math.min(JAW_SEG, i + 1));
+    return {
+      ht: mix(a.row[3], b.row[3], k),
+      hb: mix(a.row[4], b.row[4], k),
+      p: mix(a.row[5], b.row[5], k),
+      nx: mix(a.row[6] * a.mirror, b.row[6] * b.mirror, k),
+      nz: mix(a.row[7], b.row[7], k),
+    };
   };
-  // A rounded rectangle, taller than it is thick, with the chin's own section
-  // squarer than the rest: the mental protuberance is the one place a mandible
-  // has a flat.
-  const JAW_SEC_N = 20;
-  const bodySection = (u) => {
-    const s = jawS(u);
-    const hv = (jawTop(s) - jawBot(s)) / 2;
-    const hh = mix(0.052, 0.040, smoothstep(0, 0.7, s)) * HS;
-    const p = mix(3.2, 2.5, smoothstep(0, 0.7, s));
-    const over = Math.max(0, Math.abs(u) - JAW_U) / 0.05;
-    const cap = over > 0 ? Math.sqrt(Math.max(0, 1 - over * over)) : 1;
+  const JAW_SEC_N = 22;
+  const jawSection = (t) => {
+    const { ht, hb, p } = jawAt(t);
+    const a = ht * HS, b = hb * HS;
     const sec = [];
     for (let j = 0; j < JAW_SEC_N; j++) {
       const th = (2 * Math.PI * j) / JAW_SEC_N;
       const ct = Math.cos(th), st = Math.sin(th);
       const r = Math.pow(
-        Math.pow(Math.abs(ct) / hh, p) + Math.pow(Math.abs(st) / hv, p),
+        Math.pow(Math.abs(ct) / a, p) + Math.pow(Math.abs(st) / b, p),
         -1 / p,
       );
-      sec.push([r * ct * cap, r * st * cap]);
+      sec.push([r * ct, r * st]);
     }
     return sec;
   };
-  jawRoot.add(add(
-    track(sweepShape(bodyCentre, bodySection, -JAW_U - 0.05, JAW_U + 0.05, 84)),
-    material, 'jaw-body',
-  ));
-
-  // The rami. An extruded PLATE, authored as an outline in the profile plane,
-  // which is the plane the shape lives in: posterior border, condylar neck, the
-  // mandibular notch, the coronoid process, anterior border, and a foot that
-  // runs inside the body's bar. A swept tube squeezed flat is a rod -- no top
-  // edge, so no notch, so no angle to the jaw, and the whole mandible reads as
-  // one sausage, which is what the previous build did.
-  //
-  // A flat plate cannot have its two ends at different x and they have to be,
-  // because the gonion and the condyle are at different breadths, so it is
-  // built at x = 0 and SHEARED. The outline runs through a closed Catmull-Rom
-  // before extrusion: plate() takes a Shape, and a Shape built straight from
-  // these points is a polygon, because plate()'s bevel rounds the EDGE of an
-  // extrusion and does nothing to the corners of its outline.
-  const RAMUS_T = 0.036 * HS;
-  const gonion = bodyCentre(JAW_U, new THREE.Vector3());
-  for (const side of [-1, 1]) {
-    const ramusOutline = new THREE.CatmullRomCurve3([
-      [0.318, 0.892],   // lower posterior corner, buried in the body's bar
-      [0.310, 0.800],   // posterior border of the ramus
-      [0.328, 0.665],
-      [0.344, 0.566],   // condylar neck
-      [0.360, 0.503],   // CONDYLION
-      [0.396, 0.552],   // down into the mandibular notch
-      [0.442, 0.596],   // the notch's floor
-      [0.482, 0.560],
-      [0.506, 0.522],   // CORONOID TIP, tucked behind the arch
-      [0.518, 0.618],   // anterior border
-      [0.512, 0.745],
-      [0.486, 0.874],   // lower anterior, buried in the body
-    ].map(([zn, v]) => new THREE.Vector3(LZ(zn), LY(v), 0)), true, 'centripetal', 0.5)
-      .getPoints(84)
-      .map((q) => new THREE.Vector2(q.x, q.y));
-    const ramus = track(plate(ramusOutline, RAMUS_T, { bevel: 0.42, bevelSegments: 4 }));
-    ramus.rotateY(-Math.PI / 2);
+  const jawOut = new THREE.Vector3();
+  const mandible = track(sweepShape(
+    (t, out) => out.copy(jawPath.getPoint(clamp01(t))),
+    jawSection,
+    0, 1, 132,
     {
-      // The foot leans a little OUTBOARD of the body's centreline: the body is
-      // thicker than the ramus, so a plate sheared to the body's own axis
-      // leaves the bar's rounded end standing proud of it, which reads as a
-      // separate pebble stuck on the outside of the angle.
-      const pos = ramus.attributes.position;
-      const span = HINGE_Y - GONION_Y;
-      const foot = GONION_X + 0.010 * HS;
-      for (let i = 0; i < pos.count; i++) {
-        const t = clamp01((pos.getY(i) - GONION_Y) / span);
-        pos.setX(i, pos.getX(i) + side * (foot + (HINGE_X - foot) * t));
-      }
-      pos.needsUpdate = true;
-      ramus.computeVertexNormals();
-    }
-    jawRoot.add(add(ramus, material, 'jaw-ramus'));
-    const ball = track(new THREE.SphereGeometry(0.048 * HS, 18, 12));
-    ball.scale(1.15, 0.80, 1.35);
+      // The thickness axis is the authored outward horizontal, made square to
+      // the path; the other axis follows. At the body that comes out as
+      // (across the bone, up), and at the ramus, where the path is vertical and
+      // the default frame has nothing to work with, as (across the bone, front
+      // to back). One frame, no roll, no degenerate station.
+      frame: (t, sd, vu, T) => {
+        const { nx, nz } = jawAt(t);
+        jawOut.set(nx, 0, nz).normalize();
+        sd.copy(jawOut).addScaledVector(T, -jawOut.dot(T));
+        if (sd.lengthSq() < 1e-10) sd.set(1, 0, 0);
+        sd.normalize();
+        vu.crossVectors(sd, T).normalize();
+      },
+    },
+  ));
+  jawRoot.add(add(mandible, material, 'jaw-body'));
+  for (const [geo] of jawRootPending) jawRoot.add(add(geo, material, 'jaw-coronoid'));
+
+  // The condyle heads, as their own bulbs on the axis the hinge turns about, so
+  // the joint cannot tear open when the mouth moves.
+  for (const side of [-1, 1]) {
+    const ball = track(new THREE.SphereGeometry(0.040 * HS, 18, 12));
+    ball.scale(1.25, 0.78, 1.0);
     ball.translate(side * HINGE_X, HINGE_Y, HINGE_Z);
     jawRoot.add(add(ball, material, 'jaw-condyle'));
   }
@@ -1683,10 +1856,10 @@ export function buildSkull({ material }) {
     nasalV: NASAL_V, nasalW: NASAL_W, nasalH: NASAL_H,
     porionY: PORION_Y, porionZ: PORION_Z,
     hingeX: HINGE_X, hingeY: HINGE_Y, hingeZ: HINGE_Z,
-    gonionX: Math.abs(gonion.x), gonionY: GONION_Y, gonionZ: GONION_Z,
+    gonionX: GONION_X, gonionY: GONION_Y, gonionZ: GONION_Z,
     // The four features a single field cannot have, as numbers.
     browOverhang: browDrop,               // how far the shelf's lip stands past the rim
-    fossaDepth: FOSSA_CUT,
+    fossaDepth: FOSSA_CUT * HS,
     zygGap: archGap,                      // daylight behind the arch; must be > 0
     mastoidDrop: MASTOID_TOP - MASTOID_TIP,
     orbitDiverge: orbitDiverge * (180 / Math.PI),

@@ -32,9 +32,9 @@ import * as THREE from 'three';
 // normals are taken by differencing that same function twice, so the shading
 // cannot disagree with the shape however hard the beads pinch.
 
-export const WATER_COLOUR = '#a9c1cf';
+export const WATER_COLOUR = '#93b2c6';
 
-const RINGS = 26; // steps down the fall
+const RINGS = 40; // steps down the fall
 const CROSS = 8; // steps round the ribbon
 
 // ---------------------------------------------------------------------------
@@ -51,6 +51,7 @@ attribute vec4 aShape; // flight time, lip radius, phase seed, flatten
 uniform float uTime;
 uniform float uG;
 uniform float uBeadAmp;
+uniform float uBreakAmp;
 uniform float uBeadFreq;
 uniform float uWaver;
 
@@ -66,26 +67,41 @@ vec3 flowPoint(float t, float ang) {
 
   // the water passing through here left the lip at this moment
   float ph = uTime - tau + aShape.z;
-  float grow = smoothstep(0.16, 1.0, t);
-  float bead = 1.0
-    + uBeadAmp * grow * sin(6.2831853 * uBeadFreq * ph)
-    + 0.30 * uBeadAmp * grow * sin(6.2831853 * uBeadFreq * 0.43 * ph + 2.1);
-  r *= max(0.11, bead);
+
+  // Two amplitudes, not one. A stream leaving a lip is smooth for the first
+  // stretch and only ripples gently; it is further down, once it has thinned,
+  // that surface tension starts pinching it apart. A single ramp gave every
+  // strand one big taper and they came back reading as icicles.
+  float amp = uBeadAmp * smoothstep(0.10, 0.60, t) + uBreakAmp * smoothstep(0.64, 1.0, t);
+
+  // And a NOTCH, not a sine. A sinusoidal radius makes a chain of pointed
+  // spindles, which is the second thing that read as icicles. Water necks: it
+  // stays full most of the way and pinches hard over a short stretch, and by
+  // the bottom those pinches are deep enough to cut it into drops. Raising the
+  // cosine to a power is what makes the narrow part narrow.
+  float w = 0.5 + 0.5 * cos(6.2831853 * uBeadFreq * ph);
+  float swell = 0.5 + 0.5 * cos(6.2831853 * uBeadFreq * 0.41 * ph + 1.7);
+  r *= max(0.13, 1.0 - amp * pow(w, 4.0) + 0.20 * amp * swell);
+
+  // The foot, where the stream goes into the pool and spreads. Without it the
+  // strand ends on a needle point hanging over the water.
+  r *= 1.0 + 0.85 * smoothstep(0.93, 1.0, t);
 
   // a ribbon at the lip, pulled round by surface tension on the way down
-  float flat = aShape.w * (1.0 - smoothstep(0.0, 0.70, t));
-  float a = r * (1.0 + flat);
-  float b = r * (1.0 - 0.70 * flat);
+  // named ribbon because flat is a reserved word in GLSL
+  float ribbon = aShape.w * (1.0 - smoothstep(0.0, 0.70, t));
+  float wide = r * (1.0 + ribbon);
+  float thin = r * (1.0 - 0.70 * ribbon);
 
   vec3 T = vel / sp;
   vec3 W = normalize(aSide - T * dot(aSide, T));
   vec3 N = cross(T, W);
 
-  float sway = uWaver * grow;
+  float sway = uWaver * smoothstep(0.10, 1.0, t);
   p += W * (sway * sin(6.2831853 * 0.82 * ph));
   p += N * (sway * 0.65 * sin(6.2831853 * 0.57 * ph + 1.7));
 
-  return p + N * (b * cos(ang)) + W * (a * sin(ang));
+  return p + N * (thin * cos(ang)) + W * (wide * sin(ang));
 }
 `;
 
@@ -172,16 +188,19 @@ function strandGeometry(strands) {
 // The impacts are evenly spaced on a circle because the scallops they fall from
 // are, so a pool only needs to know how many there are and where the first one
 // is. That fits in one vec4 and lets all three pools live in a single mesh.
-const POOL_PARS = `
-attribute vec4 aPlane; // impact radius, impact count, first impact angle, amplitude
-attribute float aRad;  // 0 at the centre, 1 at the rim
-
+const POOL_UNIFORMS = `
 uniform float uTime;
 uniform float uRingFreq;
 uniform float uRingSpeed;
 uniform float uDecay;
 uniform float uSwell;
+uniform float uChop;
+`;
 
+// Shared by both stages: the vertex stage displaces by the field, the fragment
+// stage tilts the normal by its gradient. Same field, differentiated rather
+// than sampled, so the shape and the shading can never drift apart.
+const POOL_FIELD = `
 float poolHeight(vec2 q, vec4 pl) {
   float h = 0.0;
   for (int k = 0; k < 12; k++) {
@@ -198,6 +217,19 @@ float poolHeight(vec2 q, vec4 pl) {
   return h;
 }
 
+// A fine capillary chop over the whole surface, in the shading only. Two
+// crossed travelling waves rather than a second copy of the ring field at a
+// scaled coordinate: scaling the coordinate moves the impact points too, and
+// what came back was a second, wrong set of rings on top of the right ones.
+vec2 chopGradient(vec2 q) {
+  const vec2 d1 = vec2(0.829, 0.559);
+  const vec2 d2 = vec2(-0.420, 0.907);
+  float k1 = 23.0;
+  float k2 = 31.0;
+  return uChop * (k1 * cos(dot(q, d1) * k1 - uTime * 3.1) * d1
+                + k2 * cos(dot(q, d2) * k2 + uTime * 2.3) * d2);
+}
+
 vec2 poolGradient(vec2 q, vec4 pl) {
   vec2 g = vec2(0.0);
   for (int k = 0; k < 12; k++) {
@@ -208,7 +240,6 @@ vec2 poolGradient(vec2 q, vec4 pl) {
     float d = max(length(dv), 1e-3);
     float e = exp(-d * uDecay);
     float w = 6.2831853 * (d * uRingFreq - uTime * uRingSpeed);
-    // d/dd of sin(2 pi (d f - t s)) * exp(-d k)
     g += (6.2831853 * uRingFreq * cos(w) * e - uDecay * sin(w) * e) * (dv / d);
   }
   g *= pl.w;
@@ -219,8 +250,18 @@ vec2 poolGradient(vec2 q, vec4 pl) {
 }
 `;
 
+const POOL_VARYINGS = `
+varying vec2 vSurf;
+varying vec4 vPlane;
+varying float vDamp;
+varying vec3 vAxX;
+varying vec3 vAxY;
+varying vec3 vAxZ;
+`;
+
 function poolGeometry(pools) {
   const pos = [];
+  const nor = [];
   const plane = [];
   const rad = [];
   const idx = [];
@@ -234,6 +275,7 @@ function poolGeometry(pools) {
       for (let j = 0; j < ANG; j++) {
         const a = (j / ANG) * Math.PI * 2;
         pos.push(r * Math.cos(a), p.y, r * Math.sin(a));
+        nor.push(0, 1, 0);
         plane.push(p.impactRadius, p.impactCount, p.impactPhase, p.amp);
         rad.push(fr);
       }
@@ -245,12 +287,16 @@ function poolGeometry(pools) {
         const b = base + i * ANG + j2;
         const c = base + (i + 1) * ANG + j;
         const d = base + (i + 1) * ANG + j2;
-        idx.push(a, c, b, b, c, d);
+        // Wound so the disc faces UP. It went in the other way first and the
+        // whole pool vanished: front-face culled, and a pool you cannot see
+        // looks exactly like a pool that is not there.
+        idx.push(a, b, c, b, d, c);
       }
     }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   g.setAttribute('aPlane', new THREE.Float32BufferAttribute(plane, 4));
   g.setAttribute('aRad', new THREE.Float32BufferAttribute(rad, 1));
   g.setIndex(idx);
@@ -284,13 +330,20 @@ export function createWater({ strands, pools }) {
   const uniforms = {
     uTime: { value: 0 },
     uG: { value: 3.4 },
-    uBeadAmp: { value: 0.68 },
-    uBeadFreq: { value: 5.4 },
-    uWaver: { value: 0.0075 },
-    uRingFreq: { value: 6.2 },
-    uRingSpeed: { value: 1.35 },
-    uDecay: { value: 3.1 },
-    uSwell: { value: 0.0022 },
+    uBeadAmp: { value: 0.30 },
+    uBreakAmp: { value: 0.62 },
+    uBeadFreq: { value: 8.0 },
+    uWaver: { value: 0.0105 },
+    // Rings die back quickly on purpose. Nine ring trains crossing a pool is
+    // what really happens and it looked like crumpled foil: the eye reads
+    // interference as noise, not as water. Damped, each strand keeps its own
+    // little halo of rings where it lands and the middle of the pool is calm,
+    // which is what the reference asks for and what a pool actually looks like.
+    uRingFreq: { value: 6.5 },
+    uRingSpeed: { value: 1.30 },
+    uDecay: { value: 3.6 },
+    uSwell: { value: 0.0017 },
+    uChop: { value: 0.00055 },
   };
 
   const strandMat = waterMaterial(0.42, 0.80, true);
@@ -313,18 +366,14 @@ export function createWater({ strands, pools }) {
   strandMesh.renderOrder = 2;
   group.add(strandMesh);
 
-  const poolMat = waterMaterial(0.34, 0.86, false);
+  const poolMat = waterMaterial(0.48, 0.80, false);
   poolMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
-${POOL_PARS}
-varying vec2 vSurf;
-varying vec4 vPlane;
-varying float vDamp;
-varying vec3 vAxX;
-varying vec3 vAxY;
-varying vec3 vAxZ;`)
+attribute vec4 aPlane; // impact radius, impact count, first impact angle, amplitude
+attribute float aRad;  // 0 at the centre, 1 at the rim
+${POOL_UNIFORMS}${POOL_VARYINGS}${POOL_FIELD}`)
       .replace('#include <begin_vertex>', `
   vec3 transformed = vec3(position);
   vSurf = position.xz;
@@ -333,52 +382,22 @@ varying vec3 vAxZ;`)
   // saw in and out of the stone it is supposed to be sitting inside.
   vDamp = 1.0 - smoothstep(0.78, 1.0, aRad);
   transformed.y += poolHeight(vSurf, aPlane) * vDamp;
-  // The frame the fragment stage needs to tilt the normal. Passed rather than
-  // rebuilt from normalMatrix, which three only declares in the vertex stage.
+  // The frame the fragment stage needs to tilt the normal into. Passed rather
+  // than rebuilt from normalMatrix, which three declares only in this stage.
   vAxX = normalMatrix * vec3(1.0, 0.0, 0.0);
   vAxY = normalMatrix * vec3(0.0, 1.0, 0.0);
   vAxZ = normalMatrix * vec3(0.0, 0.0, 1.0);`);
 
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
-uniform float uTime;
-uniform float uRingFreq;
-uniform float uRingSpeed;
-uniform float uDecay;
-uniform float uSwell;
-varying vec2 vSurf;
-varying vec4 vPlane;
-varying float vDamp;
-varying vec3 vAxX;
-varying vec3 vAxY;
-varying vec3 vAxZ;
-${POOL_PARS.split('float poolHeight')[0].split('attribute')[0].replace(/uniform float u\w+;\n?/g, '')}
-vec2 poolGradientF(vec2 q, vec4 pl) {
-  vec2 g = vec2(0.0);
-  for (int k = 0; k < 12; k++) {
-    if (float(k) >= pl.y) break;
-    float ang = 6.2831853 * (float(k) / pl.y) + pl.z;
-    vec2 c = vec2(cos(ang), sin(ang)) * pl.x;
-    vec2 dv = q - c;
-    float d = max(length(dv), 1e-3);
-    float e = exp(-d * uDecay);
-    float w = 6.2831853 * (d * uRingFreq - uTime * uRingSpeed);
-    g += (6.2831853 * uRingFreq * cos(w) * e - uDecay * sin(w) * e) * (dv / d);
-  }
-  g *= pl.w;
-  g += uSwell * vec2(
-    7.3 * cos(q.x * 7.3 + uTime * 0.9) * sin(q.y * 6.1 - uTime * 0.7),
-    6.1 * sin(q.x * 7.3 + uTime * 0.9) * cos(q.y * 6.1 - uTime * 0.7));
-  return g;
-}`)
+${POOL_UNIFORMS}${POOL_VARYINGS}${POOL_FIELD}`)
       .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
   {
-    // The mesh is coarse enough to carry only the long swell, so the fine ring
-    // train lives here, in the shading, where it costs nothing per vertex. Same
-    // analytic field either way, differentiated rather than sampled, so the two
-    // can never drift apart.
-    vec2 g = poolGradientF(vSurf, vPlane) * vDamp;
-    g += 0.45 * poolGradientF(vSurf * 2.03 + vec2(0.31, -0.17), vPlane) * vDamp;
+    // The mesh carries only the long swell -- fine enough tessellation for the
+    // ring train would have cost four times the vertices for detail that, at
+    // this camera elevation, is read off the shading and not the silhouette.
+    // So the fine rings live here instead, and cost nothing per vertex.
+    vec2 g = (poolGradient(vSurf, vPlane) + chopGradient(vSurf)) * vDamp;
     normal = normalize(vAxY - g.x * vAxX - g.y * vAxZ);
   }`);
   };

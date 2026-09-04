@@ -260,3 +260,78 @@ export function latheInto(sink, {
     }
   }
 }
+
+// Move everything appended since `start` into place. Lets one sink collect
+// several pieces that are each easiest to author at the origin -- a drum lying
+// on its side, a square base under a round column -- and still come out as one
+// draw call.
+export function transformRange(sink, start, matrix) {
+  const nm = new THREE.Matrix3().getNormalMatrix(matrix);
+  const p = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  for (let i = start; i < sink.pos.length; i += 3) {
+    p.set(sink.pos[i], sink.pos[i + 1], sink.pos[i + 2]).applyMatrix4(matrix);
+    sink.pos[i] = p.x; sink.pos[i + 1] = p.y; sink.pos[i + 2] = p.z;
+    n.set(sink.nor[i], sink.nor[i + 1], sink.nor[i + 2]).applyMatrix3(nm).normalize();
+    sink.nor[i] = n.x; sink.nor[i + 1] = n.y; sink.nor[i + 2] = n.z;
+  }
+}
+
+// A box with every edge and corner rounded off, built as the Minkowski sum of a
+// box and a sphere: for a point on a unit cube, clamp it into the inner box and
+// the leftover direction IS the surface normal, so faces, edges and corners all
+// fall out of one expression with no seams and no computeVertexNormals.
+export function roundedBoxInto(sink, { size, radius, segments = 5, tint = null }) {
+  const base = sink.pos.length / 3;
+  const half = [size[0] / 2, size[1] / 2, size[2] / 2];
+  const inner = half.map((h) => Math.max(1e-4, h - radius));
+  const rows = segments + 1;
+  const push = (p) => {
+    const c = [
+      Math.min(inner[0], Math.max(-inner[0], p[0])),
+      Math.min(inner[1], Math.max(-inner[1], p[1])),
+      Math.min(inner[2], Math.max(-inner[2], p[2])),
+    ];
+    const d = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+    const len = Math.hypot(d[0], d[1], d[2]) || 1;
+    const n = [d[0] / len, d[1] / len, d[2] / len];
+    sink.pos.push(c[0] + radius * n[0], c[1] + radius * n[1], c[2] + radius * n[2]);
+    sink.nor.push(n[0], n[1], n[2]);
+    // Planar UVs off the two axes the face does not use. The marble map tiles,
+    // so nothing has to line up across an edge.
+    sink.uv.push((c[0] + c[2]) * 1.4, (c[1] + c[2] * 0.5) * 1.4);
+    const t = tint ? tint(c, n) : null;
+    if (t) sink.col.push(t[0], t[1], t[2]);
+    else sink.col.push(1, 1, 1);
+  };
+
+  // Six faces, each a grid. Border vertices are duplicated between faces but
+  // land on the same point with the same normal, so the joint is invisible.
+  const AX = [[0, 1, 2], [1, 2, 0], [2, 0, 1]];
+  let vert = base;
+  for (const [a, b, c] of AX) {
+    for (const sgn of [1, -1]) {
+      const first = vert;
+      for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < rows; j++) {
+          const p = [0, 0, 0];
+          p[a] = half[a] * sgn;
+          p[b] = half[b] * (-1 + 2 * (i / segments));
+          p[c] = half[c] * (-1 + 2 * (j / segments));
+          push(p);
+          vert++;
+        }
+      }
+      for (let i = 0; i < segments; i++) {
+        for (let j = 0; j < segments; j++) {
+          const p0 = first + i * rows + j;
+          const p1 = p0 + 1;
+          const p2 = p0 + rows;
+          const p3 = p2 + 1;
+          if (sgn > 0) sink.idx.push(p0, p2, p1, p1, p2, p3);
+          else sink.idx.push(p0, p1, p2, p1, p3, p2);
+        }
+      }
+    }
+  }
+}

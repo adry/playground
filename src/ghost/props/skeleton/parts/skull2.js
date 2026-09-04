@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import M from '../metrics.js';
+import M, { LEFT_X } from '../metrics.js';
 
 // The skull, built as a SCULPTED MESH rather than as a sampled field.
 //
@@ -121,9 +121,10 @@ function mono(pts) {
 const T_TOP = 0.520;
 const T_BOT = -0.232;
 // The height of the maximum breadth, the parietal eminences. Measured off the
-// front view of the photograph: the outline is widest 27% of the way down from
-// the vertex, which is t = +0.312. High and, in profile, behind.
-const T_MID = 0.312;
+// front view of the photograph by scanning its silhouette row by row: the
+// outline is widest 30% of the way down from the vertex, which is t = +0.285.
+// High and, in profile, behind.
+const T_MID = 0.252;
 const Y_TOP = LY(T_TOP), Y_BOT = LY(T_BOT), Y_MID = LY(T_MID);
 const HY_UP = Y_TOP - Y_MID, HY_DN = Y_MID - Y_BOT;
 
@@ -156,7 +157,7 @@ const Z_FRONT = mono([
   [ 0.420, 0.412],
   [ 0.470, 0.300],
   [ 0.500, 0.212],   // bregma is at 0.51 / 0.20
-  [ 0.512, 0.168],
+  [ 0.512, 0.158],
   [ 0.520, 0.120],   // vertex
 ]);
 const Z_BACK = mono([
@@ -169,11 +170,12 @@ const Z_BACK = mono([
   [ 0.180, -0.400],  // opisthocranion
   [ 0.235, -0.394],
   [ 0.280, -0.379],
-  [ 0.335, -0.342],
-  [ 0.420, -0.220],  // lambda
+  [ 0.335, -0.334],
+  [ 0.378, -0.276],
+  [ 0.420, -0.204],  // lambda
   [ 0.470, -0.112],
   [ 0.500, -0.020],
-  [ 0.512,  0.048],
+  [ 0.512,  0.064],
   [ 0.520,  0.120],  // vertex
 ]);
 
@@ -186,11 +188,17 @@ const Z_BACK = mono([
 // curvature is highest, which measured out as a braincase 8mm narrow at prop
 // scale. SHRINK puts it back. It is a property of the subdivision, not of the
 // anatomy, so it lives on its own line rather than being folded into the table.
-const SHRINK = 1.048;
+const SHRINK = 0.972;
+// Every row of this table below the crown is read off the photograph's own
+// front silhouette, scanned row by row and renormalised so the vertex is 0 and
+// the upper tooth crowns are 1. The photograph's widths at and below the ear
+// include its zygomatic arches, which here are separate bars, so those rows are
+// taken in a little.
 const HALF_W = mono([
-  [-0.232, 0.34], [-0.180, 0.62], [-0.110, 0.83], [-0.040, 0.93],
-  [ 0.060, 0.965], [ 0.180, 0.988], [ 0.312, 1.000], [ 0.420, 0.885],
-  [ 0.470, 0.690], [ 0.500, 0.470], [ 0.512, 0.300], [ 0.520, 0.0],
+  [-0.232, 0.36], [-0.140, 0.82], [-0.058, 0.870], [ 0.030, 0.945],
+  [ 0.113, 0.968], [ 0.180, 0.990], [ 0.252, 1.000], [ 0.330, 0.968],
+  [ 0.371, 0.912], [ 0.413, 0.820], [ 0.455, 0.665], [ 0.496, 0.408],
+  [ 0.512, 0.222], [ 0.520, 0.0],
 ]);
 // How much the FRONT of the section is squeezed in relative to that maximum.
 // This is the wedge: below eye level a skull is wide at the cranial base and
@@ -200,7 +208,7 @@ const HALF_W = mono([
 // number that has to come out right.
 const NARROW = mono([
   [-0.232, 0.56], [-0.180, 0.52], [-0.110, 0.42], [-0.040, 0.24],
-  [ 0.060, 0.12], [ 0.180, 0.14], [ 0.280, 0.32], [ 0.335, 0.28],
+  [ 0.060, 0.12], [ 0.180, 0.16], [ 0.260, 0.30], [ 0.330, 0.26],
   [ 0.420, 0.06], [ 0.470, 0.10], [ 0.520, 0.0],
 ]);
 
@@ -208,8 +216,8 @@ const NARROW = mono([
 // squares off, which is what the parietal region does above the ears and what
 // the vault does NOT do at the crown.
 const PLAN_P = mono([
-  [-0.232, 2.25], [-0.110, 2.40], [ 0.060, 2.30], [ 0.180, 2.20],
-  [ 0.312, 2.12], [ 0.470, 2.02], [ 0.520, 2.00],
+  [-0.232, 2.22], [-0.110, 2.34], [ 0.060, 2.22], [ 0.180, 2.12],
+  [ 0.312, 2.05], [ 0.470, 2.00], [ 0.520, 2.00],
 ]);
 
 // The shape functions the loft actually evaluates: the true half-extent with
@@ -446,7 +454,22 @@ function distToPolyline(z, y, poly) {
 // Everything the sculpt and the openings are placed against, in one block, in
 // world units, so the anatomy is readable without arithmetic.
 
-const EYE_Y = (Y_CROWN + Y_CHIN) / 2;             // +0.12875, the eye line
+// THE EYE LINE. `.ref/SKULL-ANATOMY.md` says in prose that the orbits' centres
+// sit at exactly half of vertex-to-chin, "not 46%, not 55%", and calls it the
+// first thing to check. The photograph says otherwise and so does the table in
+// the same file: orbitale is at t = 0 and a real orbit is 0.19 of L tall, which
+// puts the centre at t = +0.095, or 43% of the way down, and measuring the
+// front view of the photograph gives 42%. Half height is a portrait-drawing
+// rule for a head WITH FLESH, where the eyeball sits lower in the socket than
+// the socket's own centre.
+//
+// This is not a small correction. At 50% the socket's top rim landed 0.108 of L
+// below the glabella instead of 0.04, which left a blank band of frontal bone
+// over the brow, pushed the whole face down the front of the vault, and is most
+// of why the braincase read as a balloon with a mask hung under it. Pinned so
+// the socket's LOWER rim lands on the table's own orbitale, the Frankfurt
+// horizontal comes out level as well.
+const EYE_Y = LY(0) + M.skull.socket.height / 2;  // +0.16024
 const BRIDGE = 0.145 * W;                         //  0.05024, orbit to orbit
 const ORB_X = BRIDGE / 2 + M.skull.socket.width / 2;
 const ORB_HW = M.skull.socket.width / 2;
@@ -456,7 +479,11 @@ const NASAL_BASE_Y = LY(-0.110);                  // nasospinale
 const NASAL_H = 0.190 * L;                        // piriform aperture, real proportion
 const NASAL_W = 0.145 * L;
 const ALV_Y = Y_BITE + 0.055 * L;                 // the upper alveolar margin
-const ARCH_Y = LY(-0.040);                        // the zygomatic arch's own height
+// The mandible's own outline along its length, s = 0 at the chin, 1 at a
+// condyle: `a` as a multiple of the body's half-depth, `b` of its half-width.
+const RAMUS_A = mono([[0, 1.0], [0.40, 0.95], [0.54, 1.16], [0.64, 1.50], [0.76, 1.42], [0.88, 0.82], [1.0, 0.34]]);
+const RAMUS_B = mono([[0, 1.0], [0.30, 0.86], [0.60, 0.74], [0.84, 0.70], [1.0, 0.46]]);
+const ARCH_Y = LY(-0.014);                        // the zygomatic arch's own height
 const MASTOID_Y = LY(-0.135);
 
 // ------------------------------------------------------------- the sculpt
@@ -470,8 +497,8 @@ function sculptCage(pos, nrm) {
   // in the (z, y) plane, from the zygomatic process of the frontal bone up over
   // the side of the vault and back down to the root of the arch.
   const TEMP_LINE = [
-    [ 0.150, 0.148], [ 0.128, 0.196], [ 0.086, 0.232], [ 0.020, 0.250],
-    [-0.058, 0.246], [-0.120, 0.222], [-0.158, 0.180], [-0.170, 0.140],
+    [ 0.128, 0.202], [ 0.104, 0.240], [ 0.052, 0.264], [-0.020, 0.270],
+    [-0.090, 0.256], [-0.145, 0.216], [-0.172, 0.170], [-0.182, 0.140],
   ];
   // The dental arch, in plan, as a polyline in (z, x) for the alveolar bulge.
   for (let i = 0; i < pos.length; i++) {
@@ -484,7 +511,7 @@ function sculptCage(pos, nrm) {
     // --- the frontal eminences. Two soft bosses on the forehead. Without them
     // the frontal bone reads as a bare ramp off the brow.
     {
-      const f = bump(ell(p, sx * 0.055, 0.262, 0.152, 0.090, 0.070, 0.115));
+      const f = bump(ell(p, sx * 0.056, 0.278, 0.146, 0.092, 0.066, 0.110));
       d.z += 0.0042 * f;
     }
 
@@ -492,41 +519,60 @@ function sculptCage(pos, nrm) {
     // between them. ryDn is a third of ryUp, so the shelf grows out of the
     // forehead and stops under itself: that asymmetry IS the overhang.
     {
-      const f = bump(ellAsym(p, sx * 0.078, EYE_Y + 0.062, 0.170, 0.088, 0.024, 0.062, 0.110));
-      d.z += 0.0190 * f;
-      d.y -= 0.0035 * f;
-      const g = bump(ellAsym(p, 0, EYE_Y + 0.058, 0.196, 0.038, 0.026, 0.058, 0.090));
+      const f = bump(ellAsym(p, sx * 0.084, EYE_Y + 0.064, 0.164, 0.094, 0.016, 0.046, 0.100));
+      d.z += 0.0275 * f;
+      d.y -= 0.0030 * f;
+      const g = bump(ellAsym(p, 0, EYE_Y + 0.090, 0.192, 0.042, 0.026, 0.044, 0.082));
       d.z += 0.0105 * g;
+      // The supraglabellar notch: the frontal bone dips just above the brow
+      // before it starts its climb. Without it the ridge merges into the
+      // forehead and stops reading as a separate shelf in profile.
+      const h = bump(ell(p, 0, EYE_Y + 0.100, 0.176, 0.085, 0.028, 0.068));
+      d.z -= 0.0060 * h;
     }
     // --- and the recess under it. The orbital opening's surround is pulled
     // BACK, which doubles the brow's projection over it without making the
-    // brow itself heavier.
+    // brow itself heavier. The two together are the overhang: a smooth field
+    // could not hold both a maximum and a minimum 12mm apart in y.
     {
-      const f = bump(ellAsym(p, sx * ORB_X, EYE_Y - 0.004, 0.185, 0.085, 0.062, 0.030, 0.095));
-      d.z -= 0.0125 * f;
+      const f = bump(ellAsym(p, sx * ORB_X, EYE_Y - 0.010, 0.182, 0.090, 0.058, 0.036, 0.090));
+      d.z -= 0.0170 * f;
     }
 
     // --- THE TEMPORAL FOSSA. A genuine scoop in the side of the vault, below
     // and behind the temporal line. Pushed along -x rather than along the
     // normal so the hollow is a flat rather than a dimple, which is what it is.
     {
-      const f = bump(ell(p, sx * 0.20, 0.150, 0.010, 0.230, 0.098, 0.150));
+      const f = bump(ell(p, sx * 0.21, 0.158, -0.006, 0.215, 0.080, 0.104));
       const lateral = smooth(0.02, 0.09, ax);
-      d.x -= sx * 0.0165 * f * lateral;
+      d.x -= sx * 0.0135 * f * lateral;
+    }
+    // --- the slot the arch stands off. A band of extra scoop immediately above
+    // and behind the arch's line, so the bar is separated from the vault by a
+    // real gap instead of resting on it.
+    {
+      const f = bump(ell(p, sx * 0.16, ARCH_Y + 0.034, 0.004, 0.090, 0.030, 0.086));
+      d.x -= sx * 0.0095 * f * smooth(0.02, 0.09, ax);
+    }
+    // --- and the infratemporal hollow under the arch, which is what gives the
+    // arch its daylight from below as well as from behind.
+    {
+      const f = bump(ell(p, sx * 0.155, ARCH_Y - 0.020, 0.024, 0.105, 0.050, 0.100));
+      d.x -= sx * 0.0165 * f * smooth(0.02, 0.09, ax);
     }
     // --- post-orbital constriction: the waist behind the outer orbital rim,
     // which is the front end of the same hollow and the reason the brow's outer
     // corner stands proud in a three-quarter view.
     {
-      const f = bump(ell(p, sx * 0.155, EYE_Y + 0.030, 0.090, 0.075, 0.075, 0.070));
+      const f = bump(ell(p, sx * 0.155, EYE_Y + 0.022, 0.086, 0.075, 0.070, 0.068));
       d.x -= sx * 0.0105 * f * smooth(0.02, 0.08, ax);
     }
     // --- THE TEMPORAL LINE itself: a low welt along the crest. Narrow support,
     // so subdivision keeps it as a crest and not as a swelling.
     {
       const dl = distToPolyline(p.z, p.y, TEMP_LINE);
-      const f = bump(clamp(dl / 0.030, 0, 1)) * smooth(0.05, 0.11, ax);
-      d.x += sx * 0.0060 * f;
+      const f = bump(clamp(dl / 0.032, 0, 1)) * smooth(0.05, 0.11, ax);
+      d.x += sx * 0.0040 * f;
     }
 
     // --- the parietal eminence. The widest point of the head, high and behind.
@@ -543,6 +589,14 @@ function sculptCage(pos, nrm) {
       d.y += 0.0130 * g;
       d.z += 0.0090 * g;
     }
+    // --- the foramen magnum, dished up into the base, with a condyle lug on
+    // each side of it. These are what the atlas would sit on.
+    {
+      const f = bump(ell(p, 0, LY(-0.190), LZ(-0.190), 0.042, 0.055, 0.058));
+      d.y += 0.0175 * f;
+      const g = bump(ell(p, sx * 0.034, LY(-0.195), LZ(-0.120), 0.026, 0.040, 0.036));
+      d.y -= 0.0105 * g;
+    }
     // --- the basiocciput. M.y.atlas is a derived number and the table's basion
     // lands 0.049 ABOVE it, so the neck would stop short of the skull. The base
     // carries the difference: this reaches down to meet the neck's top.
@@ -555,10 +609,10 @@ function sculptCage(pos, nrm) {
     // behind and below the ear canal. On a mesh this is just a hard local pull;
     // in a blended field it was always a smear.
     {
-      const f = bump(ell(p, sx * (PORION_X - 0.012), MASTOID_Y + 0.014, PORION_Z - 0.016, 0.052, 0.058, 0.055));
-      d.y -= 0.0355 * f;
-      d.x += sx * 0.0060 * f;
-      d.z -= 0.0035 * f;
+      const f = bump(ell(p, sx * (PORION_X - 0.010), MASTOID_Y + 0.016, PORION_Z - 0.018, 0.046, 0.056, 0.050));
+      d.y -= 0.0430 * f;
+      d.x += sx * 0.0080 * f;
+      d.z -= 0.0045 * f;
     }
     // --- the external auditory meatus, a small pit at porion, and the ridge of
     // the zygomatic process running forward from it that the arch springs off.
@@ -573,39 +627,47 @@ function sculptCage(pos, nrm) {
     // orbit's outer half. The arch bridges from here back to the ear, and the
     // hollow between the two is the temporal fossa above.
     {
-      const f = bump(ell(p, sx * 0.140, EYE_Y - 0.048, 0.125, 0.070, 0.060, 0.072));
-      d.x += sx * 0.0135 * f;
-      d.z += 0.0090 * f;
+      const f = bump(ell(p, sx * 0.112, EYE_Y - 0.058, 0.130, 0.058, 0.046, 0.058));
+      d.x += sx * 0.0280 * f;
+      d.z += 0.0145 * f;
+    }
+    // --- the infraorbital plate: the flat of the cheek directly under the
+    // orbit, set back from the cheekbone beside it. In profile this and the
+    // canine fossa are what stop the whole midface reading as one bulge.
+    {
+      const f = bump(ell(p, sx * 0.072, EYE_Y - 0.042, 0.176, 0.052, 0.032, 0.058));
+      d.z -= 0.0055 * f;
     }
     // --- the canine fossa, the small hollow beside the nose that separates the
     // cheekbone from the muzzle.
     {
-      const f = bump(ell(p, sx * 0.062, 0.048, 0.176, 0.048, 0.042, 0.060));
-      d.z -= 0.0075 * f;
+      const f = bump(ell(p, sx * 0.058, 0.048, 0.176, 0.050, 0.044, 0.060));
+      d.z -= 0.0062 * f;
+      d.x -= sx * 0.0028 * f;
     }
 
     // --- the nasal bones: a low ridge from the nasion down to the aperture,
     // which is what makes the profile read as a nose rather than as a slot.
     {
-      const f = bump(ell(p, 0, LY(0.130), 0.205, 0.030, 0.060, 0.055));
-      d.z += 0.0075 * f;
-      const g = bump(ell(p, 0, LY(0.215), 0.196, 0.030, 0.030, 0.045));
-      d.z -= 0.0060 * g;   // the nasion notch
+      const f = bump(ell(p, 0, LY(0.120), 0.208, 0.026, 0.058, 0.050));
+      d.z += 0.0135 * f;
+      const g = bump(ell(p, 0, LY(0.225), 0.198, 0.026, 0.026, 0.042));
+      d.z -= 0.0055 * g;   // the nasion notch
     }
 
     // --- THE MAXILLA. The alveolar process carrying the upper teeth: a forward
     // and downward block below the nose, narrower than the cheeks, with the
     // tooth row's parabola in its plan.
     {
-      const f = bump(ell(p, 0, ALV_Y + 0.014, 0.150, 0.098, 0.048, 0.075));
-      d.y -= 0.0080 * f;
-      d.z += 0.0060 * f * smooth(0.10, -0.02, p.z * 0 + ax);
+      const f = bump(ell(p, 0, ALV_Y + 0.020, 0.145, 0.100, 0.056, 0.080));
+      d.y -= 0.0135 * f;
+      d.z += 0.0045 * f;
     }
     // --- and the palate, pulled up between the tooth rows so the underside of
     // the face is a vault and not a slab.
     {
-      const f = bump(ell(p, 0, ALV_Y, 0.100, 0.062, 0.048, 0.090));
-      d.y += 0.0130 * f;
+      const f = bump(ell(p, 0, ALV_Y - 0.006, 0.098, 0.052, 0.040, 0.080));
+      d.y += 0.0105 * f;
     }
 
     void n;
@@ -617,15 +679,15 @@ function sculptCage(pos, nrm) {
 // Catmull-Clark if it had been said in the cage.
 function sculptFine(pos) {
   const TEMP_LINE = [
-    [ 0.150, 0.148], [ 0.128, 0.196], [ 0.086, 0.232], [ 0.020, 0.250],
-    [-0.058, 0.246], [-0.120, 0.222], [-0.158, 0.180], [-0.170, 0.140],
+    [ 0.128, 0.202], [ 0.104, 0.240], [ 0.052, 0.264], [-0.020, 0.270],
+    [-0.090, 0.256], [-0.145, 0.216], [-0.172, 0.170], [-0.182, 0.140],
   ];
   for (let i = 0; i < pos.length; i++) {
     const p = pos[i];
     const ax = Math.abs(p.x), sx = p.x >= 0 ? 1 : -1;
     // Sharpen the temporal line back into a crest.
     const dl = distToPolyline(p.z, p.y, TEMP_LINE);
-    p.x += sx * 0.0026 * bump(clamp(dl / 0.016, 0, 1)) * smooth(0.05, 0.11, ax);
+    p.x += sx * 0.0015 * bump(clamp(dl / 0.017, 0, 1)) * smooth(0.05, 0.11, ax);
     // The alveolar juga: the vertical swellings over the roots of the upper
     // teeth. Cheap, and the single strongest cue that the tooth row is set in
     // bone rather than glued to it.
@@ -1007,10 +1069,56 @@ export function buildSkull({ material }) {
       if (!o || !touchKeep[v]) continue;
       o.plane(pos[v], uvn);
       const [su, sv] = nearestOnPoly(o.poly, uvn.u, uvn.v);
-      const du = clamp(su - uvn.u, -0.55 * cell, 0.55 * cell);
-      const dv = clamp(sv - uvn.v, -0.55 * cell, 0.55 * cell);
+      const du = clamp(su - uvn.u, -0.75 * cell, 0.75 * cell);
+      const dv = clamp(sv - uvn.v, -0.75 * cell, 0.75 * cell);
       pos[v].addScaledVector(o.U, du).addScaledVector(o.V, dv);
       rimOf[v] = o;
+    }
+
+    // RELAX THE RIM. Snapping alone leaves a staircase: a vertex more than the
+    // clamp from the outline lands short of it, and its neighbours land short
+    // in the other direction, so the edge of the hole saws. Order each rim into
+    // a loop, then a few rounds of "move to the mean of your two neighbours,
+    // then back onto the outline" pull the run of vertices into an even chain
+    // along the true curve. Two passes is enough; more starts sliding vertices
+    // round the loop and shearing the quads that hold them.
+    //
+    // The loop is found by sorting on the bearing from the outline's centroid,
+    // which is sound here because both outlines are star-shaped about their own
+    // centre and every rim vertex has been pulled onto one of them.
+    for (const o of openings) {
+      const ring = [];
+      for (let v = 0; v < pos.length; v++) {
+        if (rimOf[v] !== o) continue;
+        o.plane(pos[v], uvn);
+        ring.push({ v, u: uvn.u, n: uvn.n, vv: uvn.v });
+      }
+      if (ring.length < 8) { o.ring = null; continue; }
+      let cu = 0, cv = 0;
+      for (const r of ring) { cu += r.u; cv += r.vv; }
+      cu /= ring.length; cv /= ring.length;
+      for (const r of ring) r.a = Math.atan2(r.vv - cv, r.u - cu);
+      ring.sort((a, b) => a.a - b.a);
+      const K = ring.length;
+      for (let pass = 0; pass < 3; pass++) {
+        const nu = new Float64Array(K), nv = new Float64Array(K), nn = new Float64Array(K);
+        for (let i = 0; i < K; i++) {
+          const a = ring[(i - 1 + K) % K], b = ring[(i + 1) % K];
+          const tu = mix(ring[i].u, (a.u + b.u) / 2, 0.7);
+          const tv = mix(ring[i].vv, (a.vv + b.vv) / 2, 0.7);
+          const [su, sv] = nearestOnPoly(o.poly, tu, tv);
+          nu[i] = su; nv[i] = sv;
+          nn[i] = mix(ring[i].n, (a.n + b.n) / 2, 0.65);
+        }
+        for (let i = 0; i < K; i++) { ring[i].u = nu[i]; ring[i].vv = nv[i]; ring[i].n = nn[i]; }
+      }
+      for (const r of ring) {
+        pos[r.v].copy(o.origin)
+          .addScaledVector(o.U, r.u)
+          .addScaledVector(o.V, r.vv)
+          .addScaledVector(o.axis, r.n);
+      }
+      o.ring = ring;
     }
   }
 
@@ -1022,8 +1130,8 @@ export function buildSkull({ material }) {
   const col = new Float32Array(pos.length * 3);
   {
     const TEMP_LINE = [
-      [0.150, 0.148], [0.128, 0.196], [0.086, 0.232], [0.020, 0.250],
-      [-0.058, 0.246], [-0.120, 0.222], [-0.158, 0.180], [-0.170, 0.140],
+      [0.128, 0.202], [0.104, 0.240], [0.052, 0.264], [-0.020, 0.270],
+      [-0.090, 0.256], [-0.145, 0.216], [-0.172, 0.170], [-0.182, 0.140],
     ];
     for (let i = 0; i < pos.length; i++) {
       const p = pos[i];
@@ -1033,19 +1141,22 @@ export function buildSkull({ material }) {
         o.plane(p, uvn);
         if (Math.abs(uvn.n) > 0.16) continue;
         const [, , d] = nearestOnPoly(o.poly, uvn.u, uvn.v);
-        k *= 1 - 0.30 * bump(clamp(d / 0.030, 0, 1));
+        k *= 1 - 0.21 * bump(clamp(d / 0.042, 0, 1));
       }
       // the temporal fossa holds shade
       const dl = distToPolyline(p.z, p.y, TEMP_LINE);
-      k *= 1 - 0.10 * smooth(0.10, 0.02, dl) * smooth(0.05, 0.11, Math.abs(p.x));
+      k *= 1 - 0.10 * smooth(0.10, 0.02, dl) * smooth(0.05, 0.11, Math.abs(p.x)) * smooth(-0.215, -0.150, p.z);
+      // the slot the zygomatic arch stands off
+      k *= 1 - 0.22 * bump(ell(p, 0.16 * Math.sign(p.x || 1), ARCH_Y + 0.030, 0.006, 0.085, 0.028, 0.088))
+        * smooth(0.05, 0.11, Math.abs(p.x));
       // under the brow, under the cheekbone, and up under the base
-      k *= 1 - 0.16 * smooth(0.0, 1.0, bump(ell(p, 0, EYE_Y + 0.030, 0.195, 0.170, 0.030, 0.075)));
+      k *= 1 - 0.13 * smooth(0.0, 1.0, bump(ell(p, 0, EYE_Y + 0.026, 0.192, 0.170, 0.034, 0.078)));
       k *= 1 - 0.12 * smooth(0.045, 0.005, p.y - Y_BOT + 0.02);
       // and a gentle tan toward the base, which is what an old skull does
       k *= mix(0.955, 1.0, smooth(0.02, 0.24, p.y));
       col[i * 3] = k;
-      col[i * 3 + 1] = k * (1 - 0.035 * (1 - k));
-      col[i * 3 + 2] = k * (1 - 0.115 * (1 - k));
+      col[i * 3 + 1] = k * (1 - 0.075 * (1 - k));
+      col[i * 3 + 2] = k * (1 - 0.230 * (1 - k));
     }
   }
 
@@ -1081,27 +1192,25 @@ export function buildSkull({ material }) {
   // grey halo. The last rings close on the axis, so nothing ever sees daylight
   // through the head.
   for (const o of openings) {
-    const rim = [];
-    for (let v = 0; v < pos.length; v++) {
-      if (rimOf[v] !== o) continue;
-      o.plane(pos[v], uvn);
-      rim.push({ u: uvn.u, v: uvn.v, n: uvn.n, a: Math.atan2(uvn.v - o.cy0 || uvn.v, uvn.u) });
-    }
-    if (rim.length < 8) continue;
+    if (!o.ring) continue;
+    const rim = o.ring.map((r) => ({ u: r.u, v: r.vv, n: r.n }));
     let cu = 0, cv = 0;
     for (const r of rim) { cu += r.u; cv += r.v; }
     cu /= rim.length; cv /= rim.length;
-    for (const r of rim) r.a = Math.atan2(r.v - cv, r.u - cu);
-    rim.sort((a, b) => a.a - b.a);
 
     const RINGS = 7;
     const P = [], C = [], idx = [];
     for (let j = 0; j <= RINGS; j++) {
       const t = j / RINGS;
-      const s = j === 0 ? 1 : mix(1, 0, Math.pow(t, 1.55)) * (1 - o.taper) + (1 - o.taper * t) * o.taper;
-      const shrink = j === 0 ? 1 : (1 - o.taper * Math.pow(t, 1.3)) * (1 - Math.pow(t, 5));
+      // The outline holds full size for the first ring and a half, which is the
+      // part of the wall that reads as the bone's thickness at the rim, then
+      // tapers and finally closes on the axis so the bowl behind is shut.
+      const shrink = (1 - o.taper * Math.pow(Math.max(0, t - 0.12) / 0.88, 1.25)) * (1 - Math.pow(t, 6));
       const depth = o.depth * (t < 1 ? t * t * (3 - 2 * t) : 1);
-      const shade = mix(1.0, 0.13, smooth(0, 0.55, t));
+      // A real orbit is very nearly black. Ivory bone lit from outside is not,
+      // and an interior that stays pale is most of what made an earlier pass
+      // read as a dented mask rather than as a hole.
+      const shade = mix(0.72, 0.055, smooth(0, 0.42, t));
       for (const r of rim) {
         const u = (cu + (r.u - cu) * shrink) * 1;
         const v = (cv + (r.v - cv) * shrink) * 1;
@@ -1113,7 +1222,6 @@ export function buildSkull({ material }) {
         );
         C.push(shade, shade * 0.965, shade * 0.90);
       }
-      void s;
     }
     const K = rim.length;
     for (let j = 0; j < RINGS; j++) {
@@ -1138,15 +1246,15 @@ export function buildSkull({ material }) {
   // ear, with the temporal fossa scooped away behind it. That gap is the
   // strongest single "this is a skull" cue in a three-quarter view.
   for (const side of [1, -1]) {
-    const a = new THREE.Vector3(side * 0.1120, ARCH_Y - 0.016, 0.1380);
-    const b = new THREE.Vector3(side * 0.1530, ARCH_Y - 0.008, 0.0620);
-    const c = new THREE.Vector3(side * 0.1610, ARCH_Y + 0.006, -0.0060);
-    const d = new THREE.Vector3(side * 0.1440, ARCH_Y + 0.022, -0.0560);
-    const e = new THREE.Vector3(side * (PORION_X - 0.014), PORION_Y - 0.004, PORION_Z - 0.004);
+    const a = new THREE.Vector3(side * 0.1040, ARCH_Y - 0.020, 0.1150);
+    const b = new THREE.Vector3(side * 0.1465, ARCH_Y - 0.010, 0.0560);
+    const c = new THREE.Vector3(side * 0.1575, ARCH_Y + 0.008, -0.0090);
+    const d = new THREE.Vector3(side * 0.1455, ARCH_Y + 0.020, -0.0560);
+    const e = new THREE.Vector3(side * (PORION_X - 0.018), PORION_Y - 0.008, PORION_Z - 0.006);
     const curve = new THREE.CatmullRomCurve3([a, b, c, d, e], false, 'catmullrom', 0.5);
     const geo = sweepBar((t) => curve.getPoint(t), (t) => ({
-      a: mix(0.0150, 0.0118, smooth(0.05, 0.72, t)) * mix(1, 1.45, smooth(0.86, 1, t)),
-      b: mix(0.0105, 0.0072, smooth(0.05, 0.62, t)) * mix(1, 1.5, smooth(0.86, 1, t)),
+      a: mix(0.0150, 0.0120, smooth(0.05, 0.72, t)) * mix(1, 1.40, smooth(0.86, 1, t)),
+      b: mix(0.0108, 0.0080, smooth(0.05, 0.62, t)) * mix(1, 1.45, smooth(0.86, 1, t)),
       p: 3.2,
     }), { steps: 34, radial: 16 });
     const cols = new Float32Array(geo.attributes.position.count * 3).fill(0.97);
@@ -1161,8 +1269,8 @@ export function buildSkull({ material }) {
   // in metrics.js; reported instead.
   const UPPER_N = M.skull.teeth.upper + (M.skull.teeth.upper % 2);
   const LOWER_N = M.skull.teeth.lower + (M.skull.teeth.lower % 2);
-  const UP_ARCH = { x: 0.0705, front: 0.1815, back: 0.1120 };
-  const LO_ARCH = { x: 0.0615, front: 0.1700, back: 0.1060 };
+  const UP_ARCH = { x: 0.0700, front: 0.1830, back: 0.1160 };
+  const LO_ARCH = { x: 0.0585, front: 0.1690, back: 0.1050 };
 
   function toothRow(n, arch, topY, botY, up) {
     const target = { pos: [], idx: [] };
@@ -1172,10 +1280,11 @@ export function buildSkull({ material }) {
       const u = (2 * i + 1) / n - 1;
       const x = arch.x * u;
       const z = arch.front - arch.back * u * u;
-      // Incisors are broad and flat, molars are deep and blocky.
+      // Incisors are broad and flat, molars are deep and blocky, and the pair
+      // between them narrows: a row of identical blocks reads as a zip.
       const k = Math.abs(u);
-      const hw = (arch.x / n) * 1.02 * mix(1.05, 1.30, k);
-      const hd = mix(0.0068, 0.0115, k);
+      const hw = (arch.x / n) * 1.02 * mix(1.26, 1.34, k) * mix(1, 0.86, bump(clamp(Math.abs(k - 0.34) / 0.16, 0, 1)));
+      const hd = mix(0.0064, 0.0128, smooth(0.15, 0.9, k));
       const hh = (topY - botY) / 2;
       const yc = (topY + botY) / 2;
       const geo = toothGeo(hw, hh, hd, mix(3.4, 4.4, k));
@@ -1205,10 +1314,12 @@ export function buildSkull({ material }) {
   // between them.
   const HINGE_Y = LY(0.010);                       // condylion
   const HINGE_Z = LZ(-0.030);
-  const CONDYLE_X = 0.120;
+  const CONDYLE_X = 0.116;
   const GONION_Y = LY(-0.300);                     // the corner of the jaw
   const GONION_Z = LZ(0.070);
-  const GONION_X = 0.122;
+  // Bigonial breadth is about 0.69 of the skull's own width on a real head, so
+  // the jaw's corners sit well inside the zygomatic arches.
+  const GONION_X = 0.298 * W;
 
   const jaw = new THREE.Object3D();
   jaw.position.set(0, HINGE_Y, HINGE_Z);
@@ -1229,27 +1340,27 @@ export function buildSkull({ material }) {
     // one mirrored, and the two are spliced without repeating the chin.
     const key = [
       new THREE.Vector3(CONDYLE_X, HINGE_Y, HINGE_Z),
-      new THREE.Vector3(GONION_X - 0.004, mix(HINGE_Y, GONION_Y, 0.62), mix(HINGE_Z, GONION_Z, 0.36)),
-      new THREE.Vector3(GONION_X, GONION_Y + 0.016, GONION_Z + 0.006),
-      new THREE.Vector3(GONION_X - 0.020, CH_Y + 0.004, GONION_Z + 0.058),
-      new THREE.Vector3(0.0700, CH_Y, 0.0700),
-      new THREE.Vector3(0.0490, CH_Y, 0.1350),
-      new THREE.Vector3(0.0000, CH_Y, 0.1690),
+      new THREE.Vector3(GONION_X + 0.004, mix(HINGE_Y, GONION_Y, 0.60), mix(HINGE_Z, GONION_Z, 0.34)),
+      new THREE.Vector3(GONION_X, GONION_Y + 0.010, GONION_Z - 0.004),
+      new THREE.Vector3(GONION_X - 0.020, CH_Y + 0.024, GONION_Z + 0.054),
+      new THREE.Vector3(0.0605, CH_Y + 0.011, 0.0840),
+      new THREE.Vector3(0.0430, CH_Y + 0.003, 0.1330),
+      new THREE.Vector3(0.0000, CH_Y, 0.1590),
     ];
     const pts = [];
     for (let i = 0; i < key.length; i++) pts.push(new THREE.Vector3(-key[i].x, key[i].y, key[i].z));
     for (let i = key.length - 2; i >= 0; i--) pts.push(key[i].clone());
     const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
-    // t = 0 and 1 are the condyles, t = 0.5 is the chin.
+    // t = 0 and 1 are the condyles, t = 0.5 is the chin. s runs 0 at the chin
+    // to 1 at a condyle, and these two are the bone's own outline along it: the
+    // body deep at the symphysis, the ramus half again broader at the gonial
+    // angle, then narrowing to a condylar neck so the coronoid prong added
+    // below stands clear of it with the sigmoid notch between.
     const sec = (t) => {
       const s = Math.abs(t - 0.5) * 2;             // 0 at the chin, 1 at a condyle
       // a: the plate's broad axis, vertical along the body and front-to-back up
       // the ramus. b: its thickness, always small.
-      const a = mix(CH_A, CH_A * 0.94, smooth(0, 0.42, s))
-        * mix(1, 1.68, smooth(0.52, 0.80, s))
-        * mix(1, 0.30, smooth(0.90, 1.0, s));
-      const b = mix(0.0158, 0.0118, smooth(0.08, 0.62, s)) * mix(1, 0.68, smooth(0.86, 1.0, s));
-      return { a, b, p: 3.4 };
+      return { a: CH_A * RAMUS_A(s), b: 0.0150 * RAMUS_B(s), p: 3.4 };
     };
     const geo = sweepBar((t) => curve.getPoint(t), sec, { steps: 110, radial: 20 });
     const cols = new Float32Array(geo.attributes.position.count * 3);
@@ -1275,9 +1386,9 @@ export function buildSkull({ material }) {
 
       const cor = sweepBar(
         (t) => new THREE.Vector3(
-          side * (GONION_X - 0.014 - 0.004 * t),
-          mix(GONION_Y + 0.058, HINGE_Y - 0.010, t),
-          mix(GONION_Z + 0.026, GONION_Z + 0.044, t * t),
+          side * (GONION_X - 0.010 - 0.006 * t),
+          mix(GONION_Y + 0.046, HINGE_Y - 0.012, t),
+          mix(GONION_Z + 0.010, GONION_Z + 0.028, t * t),
         ),
         (t) => ({ a: mix(0.0175, 0.0060, smooth(0.2, 1, t)), b: mix(0.0110, 0.0048, t), p: 3.0 }),
         { steps: 16, radial: 12 },
@@ -1293,6 +1404,9 @@ export function buildSkull({ material }) {
     ));
   }
 
+  // metrics.js asks every part to publish which way its own left is, so the
+  // assembler can assert it rather than trust a comment.
+  group.userData.outwardX = LEFT_X;
   group.userData.landmarks = {
     crown: Y_CROWN, chin: Y_CHIN, bite: Y_BITE,
     porion: [PORION_X, PORION_Y, PORION_Z],

@@ -26,9 +26,9 @@ const DISH_LOBES = 8; // top dish, and eight strands
 // hair inside the wall at that height: the disc is a separate mesh and pushing
 // it out to meet the stone exactly would z-fight along the whole waterline.
 export const TIERS = {
-  basin: { y: 0.826, radius: 0.624 },
-  bowl: { y: 1.334, radius: 0.342 },
-  dish: { y: 1.602, radius: 0.194 },
+  basin: { y: 0.906, radius: 0.622 },
+  bowl: { y: 1.410, radius: 0.344 },
+  dish: { y: 1.678, radius: 0.196 },
 };
 
 export const GRAVITY = 3.4;
@@ -75,51 +75,57 @@ export function buildProfile() {
   };
   P.setTag('plinth');
   P.moveTo(0, 0);
-  step(0.580, 0.000, 0.085, 0.026, 5);
-  step(0.485, 0.085, 0.168, 0.024, 2);
+  step(0.575, 0.000, 0.105, 0.028, 5);
+  step(0.478, 0.105, 0.205, 0.026, 2);
 
   // --- turned baluster foot ------------------------------------------------
   P.setTag('foot');
-  P.lineTo(0.255, 0.168, 2);
-  P.curve([[0.205, 0.196], [0.186, 0.224]], 5);
-  P.curve([[0.244, 0.252], [0.200, 0.288]], 7); // collar ring
-  P.curve([[0.256, 0.332], [0.292, 0.386], [0.268, 0.438]], 12); // belly
-  P.curve([[0.206, 0.470], [0.200, 0.494]], 5);
+  P.lineTo(0.262, 0.205, 2);
+  P.curve([[0.212, 0.236], [0.190, 0.268]], 5);
+  P.curve([[0.248, 0.300], [0.202, 0.336]], 7); // collar ring
+  P.curve([[0.258, 0.378], [0.294, 0.428], [0.270, 0.474]], 12); // belly
+  P.curve([[0.210, 0.500], [0.202, 0.520]], 5);
 
   // --- bottom basin --------------------------------------------------------
+  // Steeper than a saucer on purpose. The gadroons are the point of this wall
+  // and a wall that leans out past the camera's own elevation cannot be seen at
+  // all: the first pass swept the underside out almost flat, and every lobe on
+  // it was hidden under the rim's own overhang from the angle the scene is
+  // actually viewed from. This one climbs at about forty degrees, so the whole
+  // ring of lobes faces the camera.
   P.setTag('basin-out');
-  P.curve([[0.300, 0.522], [0.442, 0.576], [0.600, 0.662], [0.700, 0.762], [0.735, 0.812]], 22);
+  P.curve([[0.290, 0.548], [0.410, 0.588], [0.548, 0.660], [0.664, 0.760], [0.726, 0.848], [0.744, 0.896]], 24);
   P.setTag('basin-rim');
-  P.arc(0.700, 0.848, 0.0505, -Math.PI / 4, Math.PI, 14);
+  P.arc(0.704, 0.930, 0.0525, -0.698, Math.PI, 14);
   P.setTag('basin-in');
-  P.curve([[0.630, 0.826], [0.560, 0.806], [0.400, 0.798], [0.220, 0.796]], 12);
+  P.curve([[0.630, 0.906], [0.556, 0.884], [0.400, 0.874], [0.225, 0.872]], 12);
 
   // --- middle baluster -----------------------------------------------------
   P.setTag('mid-stem');
-  P.curve([[0.160, 0.800], [0.128, 0.836], [0.118, 0.880]], 6);
-  P.curve([[0.152, 0.912], [0.120, 0.944]], 6); // collar ring
-  P.curve([[0.113, 1.000], [0.122, 1.050]], 6);
+  P.curve([[0.165, 0.876], [0.130, 0.912], [0.120, 0.956]], 6);
+  P.curve([[0.154, 0.988], [0.122, 1.020]], 6); // collar ring
+  P.curve([[0.115, 1.076], [0.124, 1.126]], 6);
 
   // --- middle bowl ---------------------------------------------------------
   P.setTag('bowl-out');
-  P.curve([[0.162, 1.086], [0.246, 1.140], [0.346, 1.222], [0.412, 1.292], [0.430, 1.332]], 18);
+  P.curve([[0.164, 1.162], [0.248, 1.216], [0.348, 1.298], [0.414, 1.368], [0.432, 1.408]], 18);
   P.setTag('bowl-rim');
-  P.arc(0.400, 1.352, 0.036, -0.588, Math.PI, 11);
+  P.arc(0.402, 1.428, 0.036, -0.588, Math.PI, 11);
   P.setTag('bowl-in');
-  P.curve([[0.348, 1.336], [0.290, 1.322], [0.160, 1.318]], 9);
+  P.curve([[0.350, 1.412], [0.292, 1.398], [0.162, 1.394]], 9);
 
   // --- top baluster --------------------------------------------------------
   P.setTag('top-stem');
-  P.curve([[0.105, 1.322], [0.088, 1.352], [0.084, 1.392]], 6);
-  P.curve([[0.110, 1.416], [0.086, 1.442]], 5); // collar ring
+  P.curve([[0.107, 1.398], [0.090, 1.428], [0.086, 1.468]], 6);
+  P.curve([[0.112, 1.492], [0.088, 1.518]], 5); // collar ring
 
   // --- top dish ------------------------------------------------------------
   P.setTag('dish-out');
-  P.curve([[0.115, 1.472], [0.176, 1.521], [0.232, 1.570], [0.249, 1.601]], 12);
+  P.curve([[0.117, 1.548], [0.178, 1.597], [0.234, 1.646], [0.251, 1.677]], 12);
   P.setTag('dish-rim');
-  P.arc(0.233, 1.616, 0.0215, -0.733, Math.PI, 9);
+  P.arc(0.235, 1.692, 0.0215, -0.733, Math.PI, 9);
   P.setTag('dish-in');
-  P.curve([[0.198, 1.604], [0.150, 1.594], [0.075, 1.592]], 8);
+  P.curve([[0.200, 1.680], [0.152, 1.670], [0.077, 1.668]], 8);
 
   // --- finial --------------------------------------------------------------
   // The reference calls this a bud with two little side lobes and a rounded
@@ -128,10 +134,10 @@ export function buildProfile() {
   // a flared collar under a teardrop bud. Modelling literally two lobes would
   // have been the only asymmetric thing on the whole fountain.
   P.setTag('finial');
-  P.curve([[0.050, 1.600], [0.042, 1.628]], 5);
-  P.curve([[0.074, 1.650], [0.086, 1.674], [0.058, 1.696]], 8); // collar
-  P.curve([[0.046, 1.714], [0.064, 1.748], [0.072, 1.788], [0.058, 1.826]], 12); // bud
-  P.arc(0.0, 1.826, 0.058, 0, Math.PI / 2, 7);
+  P.curve([[0.052, 1.676], [0.044, 1.704]], 5);
+  P.curve([[0.076, 1.726], [0.088, 1.750], [0.060, 1.772]], 8); // collar
+  P.curve([[0.048, 1.790], [0.066, 1.824], [0.074, 1.864], [0.060, 1.902]], 12); // bud
+  P.arc(0.0, 1.902, 0.060, 0, Math.PI / 2, 7);
 
   return P.build();
 }
@@ -146,7 +152,7 @@ function carving(sample) {
   let dish = 0;
   let rim = 0; // proximity to a lip, for the weathering
 
-  if (tag === 'basin-out') gad = window01(u, 0.10, 0.34, 0.80, 0.99);
+  if (tag === 'basin-out') gad = window01(u, 0.06, 0.28, 0.74, 0.98);
   if (tag === 'basin-out') rim = smoothstep(0.72, 1.0, u) * 0.75;
   if (tag === 'basin-rim') rim = 1;
   if (tag === 'basin-in') rim = 1 - smoothstep(0.0, 0.45, u);
@@ -204,11 +210,11 @@ export function buildBodyGeometry({ segments = 84 } = {}) {
     let dr = 0;
     let dy = 0;
 
-    if (w.gad > 0) dr += 0.058 * w.gad * (lobes(theta, GADROONS, 0, 0.60) - 0.45);
+    if (w.gad > 0) dr += 0.072 * w.gad * (lobes(theta, GADROONS, 0, 0.55) - 0.45);
 
     if (w.bowl > 0) {
       const s = lobes(theta, BOWL_LOBES, 0, 0.62);
-      dr += 0.034 * w.bowl * (s - 0.42);
+      dr += 0.040 * w.bowl * (s - 0.42);
       // The rim dips where it bulges, so the lowest point of the scallop is
       // also its outermost. That is not decoration: it is where each strand
       // hangs from, and water leaving a lip that dips inboard of its widest
@@ -261,7 +267,7 @@ export function buildBodyGeometry({ segments = 84 } = {}) {
   };
 
   const sink = createSink();
-  latheInto(sink, { profile, segments, displace, tint, uRepeat: 4, vScale: 1.35 });
+  latheInto(sink, { profile, segments, displace, tint, uRepeat: 2, vScale: 0.62 });
   const geometry = sinkToGeometry(sink);
 
   return { geometry, profile, displace };

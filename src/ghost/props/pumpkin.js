@@ -312,7 +312,13 @@ const RINGS = SEGMENTS.height * 4;
 // cone: the gobo below is black over most of the cone and only the carved
 // shapes reach 1, so this is the intensity at the middle of an opening rather
 // than everywhere. Averaged over the pool it is close to what it always was.
-const LAMP = { min: 4.00, max: 8.60 };     // SpotLight intensity
+// Raised 1.6x from the pass that fed the old face-space stencil, and the ratio
+// between the two ends is untouched. The gobo is a real projection now: the
+// light is concentrated into three beams that have to stand clear of the
+// lantern's own omnidirectional glow (GLOW_LAMP, further down) rather than
+// being most of what is on the floor. At the old level the beams were legible
+// with the glow off and a smooth wash with it on.
+const LAMP = { min: 6.40, max: 13.80 };    // SpotLight intensity
 // Brought down hard, and this is the fix the report was actually asking for.
 // At 1.18..1.82 the plate tone-mapped to a flat #f3e0aa -- 95% luminance,
 // brighter than anything else in frame -- and the cut wall built at such
@@ -330,6 +336,16 @@ const GLOW = { min: 0.45, max: 1.58 };     // face emissiveIntensity
 // gives the cut its shape -- ceiling dark, lower lip catching the sky -- and a
 // strong emissive would flatten exactly that.
 const WASH = { min: 0.05, max: 0.15 };      // flame washing the inside of the cuts
+
+// The skin around every cut, lit from behind through the wall. Held low on
+// purpose: past about a third the shell stops being a pumpkin with light
+// inside it and becomes a paper lantern, and the falloff that carries it is
+// only a couple of centimetres wide, so a little of this goes a long way.
+const SKIN_GLOW = { min: 0.09, max: 0.26 };
+// Not the palette's glow. Two centimetres of orange flesh takes the blue out
+// first and the green next, so what comes through is closer to an ember than
+// to the flame behind it.
+const SKIN_EMBER = '#e83c06';
 
 // The flame's two ends: a dull ember at the bottom of a gutter, bright flame at
 // the top of a flare.
@@ -675,9 +691,12 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
     return target.addScaledVector(tmpN, lift);
   };
 
-  // Where the flame sits inside the shell. The lamp further down is parked at
-  // this same point, so what the openings show and what the floor is lit by are
-  // one flame rather than two sources that happen to agree.
+  // Where the flame sits inside the shell. It is what the emissive plate's
+  // per-vertex falloff is measured from, and the projector further down takes
+  // its HEIGHT from here and stands on the axis at that height -- see LAMP_AT
+  // for why it cannot simply sit at this point as well. So what the openings
+  // show and what the floor is lit by are still one flame at one height rather
+  // than two sources that happen to agree.
   // Its height is a multiple of yBase, one per variant, and each was picked so
   // the lamp sits a hair below the middle of that variant's carving -- which on
   // classic is what 1.25 already worked out to. It cannot just be a fixed
@@ -1012,6 +1031,48 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
     return best;
   };
 
+  // --- Light through the skin ------------------------------------------------
+  // A pumpkin wall is two centimetres of wet flesh and it is translucent. On a
+  // real one the shell is dull and orange nearly everywhere and openly GLOWING
+  // for a couple of centimetres around every cut, because that is where the
+  // knife has taken the wall down to an edge and where the flame is closest to
+  // the outside. It is one of the two or three things that say lit from within
+  // rather than painted orange, and nothing in this file was doing it: the
+  // lamp is inside a FrontSide shell whose normals all point away from it, so
+  // by construction the skin can never catch its own light.
+  //
+  // Distance from the nearest carved edge, in face space, run through a
+  // squared falloff. Not physically integrated through the wall -- that wants
+  // a thickness field this mesh does not carry -- but the shape of it is
+  // right, and the thing being modelled is a millimetres-thick wedge of flesh
+  // at the cut edge lighting up, which is a function of distance from that
+  // edge and very little else.
+  //
+  // The spread is in face-space units, where the classic body is about 0.8
+  // across, so 0.055 is a bit under two centimetres of real pumpkin: the depth
+  // light actually gets through this stuff before it is gone.
+  const GLOW_SPREAD = 0.055;
+  // Every fourth outline point. The outlines carry 40 points a side, 160 on
+  // the mouth, so a quarter of them still samples a tooth flank several times
+  // and the falloff is smooth over a distance many times the gap.
+  const GLOW_STEP = 4;
+  const skinGlow = (X, Y) => {
+    let best = Infinity;
+    for (const cut of CUTS) {
+      if (X < cut.minX - GLOW_SPREAD || X > cut.maxX + GLOW_SPREAD
+        || Y < cut.minY - GLOW_SPREAD || Y > cut.maxY + GLOW_SPREAD) continue;
+      const pts = cut.pts;
+      for (let i = 0; i < pts.length; i += GLOW_STEP) {
+        const dx = X - pts[i][0], dy = Y - pts[i][1];
+        const q = dx * dx + dy * dy;
+        if (q < best) best = q;
+      }
+    }
+    if (best === Infinity) return 0;
+    const t = 1 - Math.min(1, Math.sqrt(best) / GLOW_SPREAD);
+    return t * t;
+  };
+
   // --- Shell mesh ----------------------------------------------------------
   // Denser than the plain shell needed. The grid is now the thing being cut, so
   // its cell has to be small next to a tooth flank; at the old 180 x 96 a whole
@@ -1020,6 +1081,9 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   const shellVerts = [];
   const shellNors = [];
   const shellColors = [];
+  // Per-vertex: how much of the flame comes THROUGH the skin here. See
+  // skinGlow below for what it is measuring.
+  const shellGlow = [];
   const shellIdx = [];
   const wallVerts = [];
   const wallNors = [];
@@ -1127,6 +1191,7 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
     shellNors.push(n.x, n.y, n.z);
     const c0 = colorAt(0, -1);
     shellColors.push(c0.r, c0.g, c0.b);
+    shellGlow.push(0);
 
     for (let j = 1; j < RINGS; j++) {
       for (let i = 0; i < radial; i++) {
@@ -1141,6 +1206,8 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
         shellNors.push(n.x, n.y, n.z);
         const cc = colorAt(va[k], vs[k]);
         shellColors.push(cc.r, cc.g, cc.b);
+        const fq = faceOf(va[k], vs[k]);
+        shellGlow.push(skinGlow(fq[0], fq[1]));
       }
     }
 
@@ -1150,6 +1217,7 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
     shellNors.push(n.x, n.y, n.z);
     const c1 = colorAt(0, 1);
     shellColors.push(c1.r, c1.g, c1.b);
+    shellGlow.push(0);
     const topIdx = shellVerts.length / 3 - 1;
 
     const ring = (j, i) => 1 + vk(j, i);
@@ -1256,6 +1324,7 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   shellGeo.setAttribute('position', new THREE.Float32BufferAttribute(shellVerts, 3));
   shellGeo.setAttribute('normal', new THREE.Float32BufferAttribute(shellNors, 3));
   shellGeo.setAttribute('color', new THREE.Float32BufferAttribute(shellColors, 3));
+  shellGeo.setAttribute('aGlow', new THREE.Float32BufferAttribute(shellGlow, 1));
   shellGeo.setIndex(shellIdx);
   shellGeo.computeBoundingSphere();
 
@@ -1267,7 +1336,29 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   wallGeo.computeBoundingSphere();
 
   // Vertex colours carry the whole hue, so the material's own colour is white.
-  const shellMat = toyMaterial('#ffffff', { vertexColors: true, roughness: 0.78 });
+  const shellMat = toyMaterial('#ffffff', {
+    vertexColors: true,
+    roughness: 0.78,
+    // Deep and red rather than the palette's glow, and that is not a taste
+    // call: this is light that has been through two centimetres of orange
+    // flesh, which eats blue first and green next. A cut edge on a real lit
+    // pumpkin is nearer to embers than to the flame it is passing.
+    emissive: new THREE.Color(SKIN_EMBER),
+    emissiveIntensity: (SKIN_GLOW.min + SKIN_GLOW.max) / 2,
+  });
+  // vColor is already spoken for by the skin's own hue, so the transmission
+  // rides its own attribute. Emissive rather than a lightened diffuse, because
+  // it has to survive being on the shadowed side of the prop: this is light
+  // leaving the surface, not light landing on it.
+  shellMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = `attribute float aGlow;\nvarying float vSkinGlow;\n${shader.vertexShader}`
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vSkinGlow = aGlow;');
+    shader.fragmentShader = `varying float vSkinGlow;\n${shader.fragmentShader}`
+      .replace(
+        'vec3 totalEmissiveRadiance = emissive;',
+        'vec3 totalEmissiveRadiance = emissive * vSkinGlow;',
+      );
+  };
   const shell = new THREE.Mesh(shellGeo, shellMat);
   shell.castShadow = true;
   shell.receiveShadow = true;
@@ -1515,21 +1606,31 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   stem.receiveShadow = true;
 
   // --- The lamp inside -----------------------------------------------------
-  // A point light was wrong here. Three does not occlude lights without a
-  // shadow map, so an omnidirectional lamp inside an opaque shell lit the
-  // ground evenly all the way round -- including behind the pumpkin, where no
-  // light can actually get out.
+  // A lit pumpkin does two separate things and they are modelled separately,
+  // because one number cannot be both.
   //
-  // What the light physically does is leave through the three cuts and through
-  // nothing else, so the lamp is a spotlight whose projected texture IS the
-  // carving as the flame sees it. Every other number here falls out of that:
-  // where the cone points, how wide it is, and how soft its edges are, are all
-  // solved from the outlines rather than dialled in.
+  //   The BEAMS. Light leaving through the three cuts and through nothing
+  //   else. Strong, sharply shaped, and pointed wherever the face is pointed.
+  //   That is the spotlight below, and its projected texture IS the carving as
+  //   the flame sees it: where the cone points, how wide it is and how soft
+  //   its edges are are all solved from the outlines rather than dialled in.
   //
-  // Real shadow casting is still off. It would give the same answer -- the
-  // shell is a real hollow mesh with real holes now -- for the price of six
-  // more shadow maps in a scene that already renders one per frame, and the
-  // projection below is exact where a 512px shadow map from 20cm away is not.
+  //   The LANTERN. The shell itself, two centimetres of translucent flesh with
+  //   a flame against the inside of all of it, glowing in every direction.
+  //   Weak, shapeless, short range. That is glowLamp, further down.
+  //
+  // A single omnidirectional lamp cannot do the first -- three does not occlude
+  // lights without a shadow map, so it lights the ground behind the pumpkin as
+  // brightly as the ground in front, where no light can actually get out -- and
+  // a single spotlight cannot do the second, because a glow that only exists
+  // inside a forward cone is a torch. The file used to have only the spot, and
+  // that is most of why nothing standing beside a pumpkin ever caught anything.
+  //
+  // Real shadow casting is still off. It would give the beams the same answer
+  // -- the shell is a real hollow mesh with real holes now -- for the price of
+  // six more shadow maps in a scene that already renders one per frame, and
+  // the projection below is exact where a 512px shadow map from 20cm away is
+  // not.
 
   // Where the candle stands, which is NOT where FLAME_AT is, and the
   // difference is the whole reason a single projected texture can work.
@@ -1581,15 +1682,14 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // a smoothstep and not a wall: a shape that reaches the rim comes out dimmed
   // by the cone rather than shaped by the carving.
   //
-  // The floor under that is what carries the shell's own glow. A carved
-  // pumpkin is not only three beams: the flesh is a couple of centimetres
-  // thick and it transmits, so the whole lit front of the shell is a dull
-  // orange lamp in its own right, throwing a soft wash over everything in
-  // front of it whether or not that thing happens to be standing in a beam.
-  // That wash is the GOBO_GLOW layer below, and it needs somewhere to go, so
-  // the cone opens to a full 57 degrees even on a face that would fit in 40.
-  // Wider than this and the shapes start losing texels for no gain; narrower
-  // and the wash is a spotlight rather than a glow.
+  // The floor under that is for the forward part of the spill: the cut edges
+  // scattering, and the cavity bouncing light back out through the same holes
+  // off-axis. That is the GOBO_GLOW layer below, it is biased forward rather
+  // than even, and it needs somewhere to go, so the cone opens to a full 57
+  // degrees even on a face that would fit inside 40. Wider than this and the
+  // shapes start losing texels for no gain; narrower and the spill has a rim
+  // on it. What the shell throws sideways and backwards is glowLamp's job and
+  // deliberately not this cone's.
   const CONE_ANGLE = Math.min(1.20, Math.max(1.00, escape.half + 0.20));
   // Low, and for the opposite reason it used to be high. The rim used to be
   // the only thing keeping the pool from reading as a stain; now the gobo is
@@ -1641,9 +1741,10 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   //         been carved down to nothing and is at its most translucent, plus
   //         the light bouncing about inside the cavity and leaving through the
   //         same hole off-axis. Hugs the carving.
-  //   GLOW  the whole lit front of the shell working as one dull lamp. Nearly
-  //         featureless and nearly as wide as the cone, and it is what a ghost
-  //         standing anywhere in front of the pumpkin actually stands in.
+  //   GLOW  the same thing gone soft: nearly featureless, nearly as wide as
+  //         the cone, and the reason the ground between the beams is not black.
+  //         Only the forward half of the lantern's spill lives here; what it
+  //         throws sideways and behind is glowLamp's.
   //
   // Their weights are what is left after the shapes, and they are deliberately
   // small: at anything like the old 0.55 the wash is a fog that hides the very
@@ -1713,7 +1814,9 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
 
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = GOBO_SIZE;
-    const ctx = canvas.getContext('2d');
+    // Read back once per layer below, which the browser otherwise warns about
+    // and pays for by keeping the canvas on the GPU.
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
     // Each layer is normalised to its OWN peak before it is weighted, and each
     // is blurred out of the one before it rather than out of the shapes again.
@@ -1984,6 +2087,7 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
       // trick. The carving's range is shallower because a real cut-out stays
       // near saturation even as the spill on the ground drops away.
       faceMat.emissiveIntensity = at(GLOW);
+      shellMat.emissiveIntensity = at(SKIN_GLOW);
       wallMat.emissiveIntensity = at(WASH);
       // A guttering flame reddens as it drops and a flaring one goes whiter, so
       // the colour rides the same value rather than sitting at a fixed warm

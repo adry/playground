@@ -41,28 +41,37 @@ const TAU = Math.PI * 2;
 // down before there is any stride to have.
 const HIP_TALL = M.y.hip - 0.02;      // 1.205, at ease, knees bent about 22 deg
 const HIP_STALK = 1.195;              // walking. The bob takes it down from here
-const HIP_CROUCH = 0.20;              // the pose it climbs out of the hole in
+const HIP_CROUCH = 0.45;              // the pose it climbs out of the hole in
 
-// Walk. HALF_STEP is how far in front of its own hip a foot plants, so a foot
-// travels 2 * HALF_STEP backward through its stance. How far the BODY moves in
-// that time is a different number, and confusing the two is the classic way to
-// build a walk that skates: with a duty factor of 0.62 each foot is down for
-// 1.24 step periods, so the body advances only HALF_STEP / DUTY per step. Get
-// this wrong and the feet slide even though the phase is distance driven.
-const HALF_STEP = 0.34;
+// Walk. A planted foot travels HALF_STEP + LIFT_BEHIND backward relative to its
+// own hip before it lifts, and since the foot is nailed to the world that is
+// exactly how far the BODY moves during one stance. How far it moves per STEP
+// is a different number and confusing the two is the classic way to build a
+// walk that skates: at this duty factor a foot is down for 1.24 step periods,
+// so the step is the excursion over 1.24 rather than the excursion itself.
+const HALF_STEP = 0.36;               // how far in front of its hip a foot lands
+// And how far behind before it lifts again. It is further than it lands ahead,
+// because the heel comes off at the end of a stance and that hands the leg back
+// about 12cm of reach. Without the heel-off this figure cannot stride at all:
+// its legs are 1.15 long under a hip that stands at 1.225, so a flat foot runs
+// out of leg at 0.35 either side and the walk comes out as a scurry.
+const LIFT_BEHIND = 0.42;
+const MAX_HEEL = 0.55;                // radians of heel-off at the end of stance
 const DUTY = 0.62;                    // fraction of its cycle a foot is planted
-const STEP_LENGTH = HALF_STEP / DUTY; // body travel per step, 0.548
+const STEP_LENGTH = (HALF_STEP + LIFT_BEHIND) / (2 * DUTY);   // 0.629
 const TOP_SPEED = 1.25;               // the ghost does 4.5. Being chased is a mood.
 const STOP_RANGE = 1.25;              // stops an arm's length short
 const WAKE_RANGE = 7.0;               // the ghost comes this close and it wakes
 const GIVE_UP_RANGE = 13.0;           // and this far away before it gives up
 
 const FOOT_LIFT = 0.13;               // peak of the swing arc
-// How far the toe reaches in front of the ankle pivot. legs.js sets the pivot a
-// quarter of the way back along a foot M.leg.foot long, so this is the rest of
-// it, and it is what decides how far the foot can toe off before the toe is
+// How far the toe tip reaches in front of the ankle pivot. legs.js sets the
+// pivot a quarter of the way back along a foot M.leg.foot long; measured off
+// the built mesh the tip lands at 0.749 of that length, and the exact figure
+// matters because this is both the point the foot pivots on at the end of a
+// stance and the arm that decides how far it can toe off before the tip is
 // through the floor.
-const TOE_AHEAD = M.leg.foot * 0.72;
+const TOE_AHEAD = M.leg.foot * 0.749;
 const BOB = 0.045;                    // pelvis rise and fall, twice a cycle
 const SWAY = 0.035;                   // pelvis shift toward the stance foot
 
@@ -137,13 +146,22 @@ function mulberry32(seed) {
 // legs under so the feet are on the floor and the rise has something to push
 // against.
 const EMERGE_END = 5.2;
+// Hip height while it is waiting underground. Taken off the climb's own first
+// key, so waking up is a continuation rather than a cut.
+const BURIED_Y = -0.30;
 
 const CRAWL = {
-  // Hip pivot height. Starts a whole body length under the floor.
-  hipY: [[0, -1.05], [0.55, -1.00], [1.1, -0.88], [1.9, -0.58], [2.7, -0.34],
-    [3.5, -0.12], [4.3, 0.05], [5.2, HIP_CROUCH]],
+  // Hip pivot height. How deep it starts is not a free choice: the shoulder
+  // sits 0.449 up the torso from the hip and the arm is 0.94 from the shoulder
+  // to the fingertips, so a hand can only break the surface from 0.78 down.
+  // Buried deeper than that and the shot opens with a second and a half of
+  // empty floor while the figure climbs to where the performance starts.
+  hipY: [[0, BURIED_Y], [0.55, -0.28], [1.9, -0.28], [2.7, -0.22],
+    [3.5, -0.05], [4.3, 0.20], [5.2, HIP_CROUCH]],
   // Torso pitch. 100 is face down and a little past horizontal, 40 is the
-  // crouch it stands up out of.
+  // crouch it stands up out of. The crown is 1.275 up the torso from the hip,
+  // so the skull breaks the surface as this passes 68 degrees, which is what
+  // the gaze track below is timed against.
   pitch: [[0, 100], [0.9, 100], [1.6, 88], [2.4, 68], [3.4, 52], [4.3, 44], [5.2, 40]],
   // Extra bend at the two spine joints, on top of the torso pitch. Negative
   // arches the chest up and away from the floor, which is what the shoulders
@@ -156,14 +174,18 @@ const CRAWL = {
 
   // Right arm, the one that breaks the surface. World pitch: 0 hangs down,
   // -90 reaches straight forward, -180 straight up.
-  armR: [[0, 20], [0.32, -152, easeOutBack], [0.62, -168], [1.0, -150],
-    [1.5, -112], [2.2, -74], [3.0, -48], [4.0, -42], [5.2, -52]],
-  elbowR: [[0, 84], [0.32, 22], [0.62, 10], [1.2, 44], [2.0, 58], [3.0, 34], [4.0, 18], [5.2, 34]],
+  // These follow the SHOULDER, which is under the floor until about t = 3.2. A
+  // hand resting on the ground in front of a buried shoulder is an arm pointing
+  // up and forward, not down and forward, and every one of these angles is the
+  // elevation that puts the hand on the surface at that moment.
+  armR: [[0, 20], [0.32, -152, easeOutBack], [0.62, -168], [1.0, -148],
+    [1.5, -112], [2.2, -96], [3.0, -80], [3.6, -59], [4.3, -42], [5.2, -36]],
+  elbowR: [[0, 84], [0.32, 22], [0.62, 10], [1.2, 44], [2.0, 52], [3.0, 40], [4.0, 22], [5.2, 34]],
   wristR: [[0, 12], [0.5, -4], [0.85, 46], [1.4, 34], [2.5, 14], [5.2, 8]],
   // Left arm, the same beats about two thirds of a second behind and shallower.
-  armL: [[0, 24], [0.9, 24], [1.15, -146, easeOutBack], [1.5, -160], [2.0, -140],
-    [2.6, -96], [3.2, -58], [4.0, -44], [5.2, -54]],
-  elbowL: [[0, 88], [1.15, 26], [1.5, 12], [2.0, 46], [2.8, 56], [3.6, 30], [4.2, 20], [5.2, 36]],
+  armL: [[0, 24], [0.9, 24], [1.15, -146, easeOutBack], [1.5, -158], [2.0, -128],
+    [2.6, -104], [3.2, -82], [3.8, -62], [4.4, -44], [5.2, -38]],
+  elbowL: [[0, 88], [1.15, 26], [1.5, 12], [2.0, 46], [2.8, 50], [3.6, 34], [4.2, 22], [5.2, 36]],
   wristL: [[0, 14], [1.3, -2], [1.7, 42], [2.3, 30], [3.2, 12], [5.2, 8]],
   // Arm flare, so the hands plant wide of the shoulders rather than under them.
   spread: [[0, 6], [1.0, 16], [2.4, 22], [3.6, 16], [5.2, 10]],
@@ -180,7 +202,7 @@ const CRAWL = {
 // How far in front of the body each foot lands as the climb ends, staggered,
 // because a figure hauling itself out of a hole does not first tidy its feet
 // into a neat parallel stance. It stands up off the front one.
-const CROUCH_Z = { L: 0.02, R: 0.30 };
+const CROUCH_Z = { L: 0.28, R: 0.50 };
 
 export function createSkeletonPerformance({
   rig,
@@ -272,7 +294,7 @@ export function createSkeletonPerformance({
     shoulderL: 0, shoulderR: 0, elbowL: 0, elbowR: 0, wristL: 0, wristR: 0,
     spreadL: 0, spreadR: 0,
     hipL: 0, hipR: 0, kneeL: 0, kneeR: 0, ankleL: 0, ankleR: 0,
-    headYaw: 0, roll: 0, sway: 0, lift: -1.05,
+    headYaw: 0, roll: 0, sway: 0, lift: BURIED_Y,
   };
 
   // --- leg geometry -----------------------------------------------------------
@@ -281,18 +303,33 @@ export function createSkeletonPerformance({
   // limb in the sagittal plane and rotation.x preserves the local X coordinate,
   // so each leg is exactly a two link chain in its own YZ plane: link lengths
   // are the projections, and the rest angles are where those projections point.
-  const LEG = {};
-  for (const side of ['L', 'R']) {
-    const kp = J[`knee${side}`].position;
-    const ap = J[`ankle${side}`].position;
-    LEG[side] = {
-      hip: J[`hip${side}`].position.clone(),
+  function chainSpec(rootJoint, mid, tip) {
+    const kp = mid.position;
+    const ap = tip.position;
+    const alpha1 = Math.atan2(kp.z, kp.y);
+    const alpha2 = Math.atan2(ap.z, ap.y);
+    return {
+      root: rootJoint.position.clone(),
       a1: Math.hypot(kp.y, kp.z),
       a2: Math.hypot(ap.y, ap.z),
-      alpha1: Math.atan2(kp.z, kp.y),
-      alpha2: Math.atan2(ap.z, ap.y),
+      alpha1,
+      alpha2,
       cx: kp.x + ap.x,          // lateral offset the sagittal solve cannot change
+      // Which way the middle joint already bends in the rest pose. A knee is a
+      // few degrees flexed and an elbow a few degrees the other way, and that
+      // is the whole of what tells the solver which is which.
+      bend: Math.sign(wrap(alpha2 - alpha1)) || 1,
+      span: Math.hypot(kp.y, kp.z) + Math.hypot(ap.y, ap.z),
     };
+  }
+
+  const LEG = {};
+  const ARM = {};
+  for (const side of ['L', 'R']) {
+    LEG[side] = chainSpec(J[`hip${side}`], J[`knee${side}`], J[`ankle${side}`]);
+    // The arm's own root sits at the shoulder anchor's origin, so the offset
+    // inside its parent is zero and the targets are solved in that parent.
+    ARM[side] = chainSpec(J[`shoulder${side}`], J[`elbow${side}`], J[`wrist${side}`]);
   }
 
   // Solve one leg so its ankle pivot lands on `t`, expressed in the ROOT's
@@ -312,20 +349,22 @@ export function createSkeletonPerformance({
   // perpendicular to the plane, and it is 20cm of foot slip the moment the
   // torso is pitched over at 60 degrees during the climb.
   const ikOut = { hipX: 0, hipZ: 0, knee: 0, short: 0 };
-  function solveLeg(side, t) {
-    const L = LEG[side];
-    const dx = t.x - L.hip.x;
-    const dy = t.y - L.hip.y;
-    const dz = t.z - L.hip.z;
+  function solveChain(L, t) {
+    const dx = t.x - L.root.x;
+    const dy = t.y - L.root.y;
+    const dz = t.z - L.root.z;
 
     const rho = Math.hypot(dx, dy, dz);
-    const span = L.a1 + L.a2;
-    ikOut.short = Math.max(0, rho - span);
+    ikOut.short = Math.max(0, rho - L.span);
     // What is left for the two links to span once the lateral offset is spent.
     const r = Math.sqrt(Math.max(rho * rho - L.cx * L.cx, 1e-8));
 
     const cosG = (r * r - L.a1 * L.a1 - L.a2 * L.a2) / (2 * L.a1 * L.a2);
-    const gamma = Math.acos(clamp(cosG, -1, 1));
+    // The bend has a sign, and it is not the same one at both ends of the body.
+    // A knee folds backward and an elbow folds forward, so the same solver
+    // reaches the same point two different ways and only one of them is a
+    // joint. The sign is taken off the rig's own rest pose rather than chosen.
+    const gamma = L.bend * Math.acos(clamp(cosG, -1, 1));
     ikOut.knee = wrap(gamma + L.alpha1 - L.alpha2);
 
     // Where the chain points before either hip rotation: x is cx, and the rest
@@ -356,11 +395,20 @@ export function createSkeletonPerformance({
   // the whole reason the feet do not skate: at half speed the same stride takes
   // twice as long and covers the same ground.
   const feet = {
-    L: { plant: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), swing: 1, dur: 0.3, retarget: false },
-    R: { plant: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), swing: 1, dur: 0.3, retarget: false },
+    L: { plant: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), swing: 1, dur: 0.3, retarget: false, yaw: 0 },
+    R: { plant: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), swing: 1, dur: 0.3, retarget: false, yaw: 0 },
   };
+  // Hands, during the climb. Same idea as the feet and for the same reason: a
+  // crawl reads as a crawl because the hands stay where they were put and the
+  // body hauls itself past them. Posed by angle instead, the arms swim.
+  const hands = {
+    L: { plant: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), swing: 1, dur: 0.3 },
+    R: { plant: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), swing: 1, dur: 0.3 },
+  };
+  let armBlend = 0;        // 0 authored arm angles, 1 planted hands
+  let handsDown = false;   // the hands have taken hold of the ground
+
   let cursor = 0;          // steps taken, fractional
-  let nextStepAt = 1;      // cursor value the next step is due at
   let nextStep = 'R';
   let riseSteps = 0;       // shuffle steps taken at the top of the rise
   let legBlend = 0;        // 0 authored angles, 1 planted feet
@@ -369,7 +417,7 @@ export function createSkeletonPerformance({
   // The x a foot sits at when the leg is straight down. Taken off the rig, so
   // walking straight needs no lateral correction at the hip at all and the
   // stance is exactly as wide as the model was built.
-  const FOOT_X = { L: LEG.L.hip.x + LEG.L.cx, R: LEG.R.hip.x + LEG.R.cx };
+  const FOOT_X = { L: LEG.L.root.x + LEG.L.cx, R: LEG.R.root.x + LEG.R.cx };
 
   // --- body state -------------------------------------------------------------
   let phase = 'buried';
@@ -399,6 +447,7 @@ export function createSkeletonPerformance({
   // Scratch.
   const v1 = new THREE.Vector3();
   const v2 = new THREE.Vector3();
+  const v3 = new THREE.Vector3();
   const target = new THREE.Vector3();
 
   group.updateMatrixWorld(true);
@@ -411,12 +460,14 @@ export function createSkeletonPerformance({
     phaseTime = 0;
     if (next === 'buried') {
       setClipping(true);
+      armBlend = 0;
       speed = 0;
       yawVel = 0;
-      T.lift = -1.05;
-      S.lift.snap(-1.05);
+      T.lift = BURIED_Y;
+      S.lift.snap(BURIED_Y);
       legBlend = 0;
       cursor = 0;
+      handsDown = false;
     }
     if (next === 'rising') {
       riseSteps = 0;
@@ -430,33 +481,21 @@ export function createSkeletonPerformance({
     }
     if (next === 'chasing') {
       lostFor = 0;
-      // The feet come out of the rise standing square, which is half a cycle
-      // away from where a walk wants them. Letting the first step come due
-      // straight away is what stops the body walking out over its own planted
-      // feet before the gait has found its phase.
-      nextStepAt = cursor;
     }
   }
 
   // Buried. Not a switched-off object: it is listening, and what wakes it is
   // the ghost coming within range rather than a timer running out.
+  //
+  // The pose is the climb's own first frame rather than a separate one written
+  // out by hand. Two hand-written versions of the same crouch is how the first
+  // pass ended up with a buried figure whose spine was bent 86 degrees
+  // backwards: the crawl's spine numbers are relative to the torso and the
+  // buried one's were absolute, which reads identically and is not.
   function stepBuried(dt, ghost) {
-    T.lift = -1.05;
-    T.root = 100 * D;
-    T.lumbar = 14 * D;
-    T.thorax = 10 * D;
-    T.neck = 60 * D;
-    T.head = 110 * D;
-    T.shoulderL = 24 * D; T.shoulderR = 20 * D;
-    T.elbowL = -64 * D; T.elbowR = -64 * D;
-    T.wristL = -76 * D; T.wristR = -76 * D;
-    T.spreadL = 6 * D; T.spreadR = 6 * D;
-    T.hipL = 0; T.hipR = 0;
-    T.kneeL = 25 * D; T.kneeR = 25 * D;
-    T.ankleL = 35 * D; T.ankleR = 35 * D;
-    jawBeat = 0.04;
-    chatter = 0;
+    poseCrawl(0);
     strain = 0;
+    chatter = 0;
     if (ghost && Math.hypot(ghost.x - pos.x, ghost.z - pos.z) < wakeRange) enter('emerging');
   }
 
@@ -465,8 +504,48 @@ export function createSkeletonPerformance({
   // swallow it.
   function stepEmerge(dt, ghost) {
     const t = phaseTime;
+    poseCrawl(t);
     strain = track(CRAWL.strain, t);
+    chatter = 0.25 * strain;
 
+    // Feet find the floor for the last stretch, so the rise has something to
+    // push against. The blend is in angle space, so the legs swing up and
+    // forward out of the hole rather than snapping there.
+    if (t > 4.05) {
+      if (legBlend === 0) {
+        for (const side of ['L', 'R']) {
+          feet[side].plant.copy(group.localToWorld(
+            v1.set(FOOT_X[side], -group.position.y / scale, CROUCH_Z[side]),
+          ));
+          feet[side].plant.y = 0;
+          feet[side].yaw = yaw;
+          feet[side].swing = 1;
+        }
+      }
+      legBlend = clamp01((t - 4.05) / 0.6);
+    }
+
+    // The hands take hold, right first. Before that the arm is angle driven,
+    // because a hand punching up out of the ground is not holding anything.
+    if (t > 0.85 && !handsDown) {
+      handsDown = true;
+      reachHand('R', 0.22);
+      reachHand('L', 0.34);
+    }
+    // And they let go for the rise, so the push off the floor is the last thing
+    // the arms do before they come up in front.
+    if (handsDown) {
+      armBlend = t > 4.5
+        ? clamp01((EMERGE_END - t) / 0.6)
+        : clamp01((t - 0.85) / 0.45);
+      if (armBlend > 0) stepHands(dt);
+    }
+
+    maybeShed(t);
+    if (t >= EMERGE_END) enter('rising');
+  }
+
+  function poseCrawl(t) {
     T.lift = track(CRAWL.hipY, t);
     const pitch = track(CRAWL.pitch, t) * D;
     T.root = pitch;
@@ -493,26 +572,6 @@ export function createSkeletonPerformance({
     T.ankleL = 32 * D; T.ankleR = 38 * D;
 
     jawBeat = track(CRAWL.jaw, t);
-    chatter = 0.25 * strain;
-
-    // Feet find the floor for the last stretch, so the rise has something to
-    // push against. The blend is in angle space, so the legs swing up and
-    // forward out of the hole rather than snapping there.
-    if (t > 3.9) {
-      if (legBlend === 0) {
-        for (const side of ['L', 'R']) {
-          feet[side].plant.copy(group.localToWorld(
-            v1.set(FOOT_X[side], -group.position.y / scale, CROUCH_Z[side]),
-          ));
-          feet[side].plant.y = 0;
-          feet[side].swing = 1;
-        }
-      }
-      legBlend = clamp01((t - 3.9) / 0.7);
-    }
-
-    maybeShed(t);
-    if (t >= EMERGE_END) enter('rising');
   }
 
   // Up onto the feet. The feet are already planted, so the only thing being
@@ -605,7 +664,9 @@ export function createSkeletonPerformance({
     // above it.
     const cyc = (cursor * 0.5) % 1;
     const moving = smoothstep(0.05, 0.5, speed);
-    const bob = -BOB * moving * (1 - Math.cos(cyc * 2 * TAU)) * 0.5;
+    // Lowest at the footfall, highest at mid stance, and the cursor is pinned
+    // to the footfalls above, so the two cannot drift apart.
+    const bob = -BOB * moving * (1 + Math.cos(cyc * 2 * TAU)) * 0.5;
     T.lift = mix(HIP_TALL, HIP_STALK, moving) + bob;
     T.sway = SWAY * moving * Math.sin(cyc * TAU);
 
@@ -625,13 +686,16 @@ export function createSkeletonPerformance({
     T.neck = mix(T.thorax, gaze, 0.45);
     T.head = gaze;
 
-    // Arms out in front, swinging against the legs. The springs do the lag, so
-    // the hands arrive after the shoulders and the whole arm reads as heavy.
-    const swing = 14 * D * moving;
-    T.shoulderL = (-74 - 6 * moving) * D + swing * Math.sin(cyc * TAU);
-    T.shoulderR = (-74 - 6 * moving) * D - swing * Math.sin(cyc * TAU);
-    T.elbowL = T.shoulderL - (34 + 8 * Math.sin(cyc * TAU)) * D;
-    T.elbowR = T.shoulderR - (34 - 8 * Math.sin(cyc * TAU)) * D;
+    // Arms out in front, swinging against the legs. The swing is read off the
+    // legs themselves rather than off a phase of its own: the right arm goes
+    // forward because the left leg did, which is both what a body does and the
+    // only way the two can never drift out of step. The springs then do the
+    // lag, so the hands arrive after the shoulders and the arm reads as heavy.
+    const gait = clamp((S.hipR.value - S.hipL.value) * 0.38, -0.32, 0.32);
+    T.shoulderL = (-74 - 6 * moving) * D + gait;
+    T.shoulderR = (-74 - 6 * moving) * D - gait;
+    T.elbowL = T.shoulderL - 34 * D - gait * 0.4;
+    T.elbowR = T.shoulderR - 34 * D + gait * 0.4;
     T.wristL = T.elbowL - 16 * D;
     T.wristR = T.elbowR - 16 * D;
     T.spreadL = (14 + 6 * moving) * D;
@@ -648,7 +712,7 @@ export function createSkeletonPerformance({
     const near = dist < STOP_RANGE + 0.9;
     jawBeat = near
       ? 0.34 * Math.max(0, Math.sin(clock * 5.2)) ** 2
-      : 0.05 + 0.04 * moving;
+      : 0.03 + 0.03 * moving;
 
     if (ghost && dist < GIVE_UP_RANGE) lostFor = 0;
     else lostFor += dt;
@@ -659,7 +723,7 @@ export function createSkeletonPerformance({
   // as heavy as the climb was.
   function stepSettle(dt) {
     const t = phaseTime;
-    T.lift = mix(HIP_TALL, -1.05, easeInOutCubic(clamp01((t - 0.6) / 2.6)));
+    T.lift = mix(HIP_TALL, BURIED_Y - 0.05, easeInOutCubic(clamp01((t - 0.6) / 2.6)));
     const pitch = track([[0, 6], [0.6, 26], [1.6, 62], [3.2, 92]], t) * D;
     T.root = pitch;
     T.lumbar = pitch + 8 * D;
@@ -714,7 +778,16 @@ export function createSkeletonPerformance({
           f.to.lerp(v1, (1 - hold) * (1 - Math.exp(-16 * dt)));
         }
       }
-      if (f.swing >= 1) f.plant.copy(f.to);
+      if (f.swing >= 1) {
+        f.plant.copy(f.to);
+        f.yaw = yaw;
+        // Lock the gait phase to the footfall. The step trigger is geometric,
+        // so the cursor is only an estimate of where in the cycle the body is,
+        // and a bob that drifts out of step with the feet is the thing that
+        // makes a walk read as a puppet.
+        const snap = Math.round(cursor);
+        if (Math.abs(snap - cursor) < 0.3) cursor = snap;
+      }
     }
   }
 
@@ -743,6 +816,7 @@ export function createSkeletonPerformance({
     f.swing = 0;
     f.dur = dur;
     f.retarget = retarget;
+    f.yaw = yaw;
   }
 
   function stepFeet(dt) {
@@ -758,14 +832,21 @@ export function createSkeletonPerformance({
     // to the side still takes its turn, and urgency wins over turn order, which
     // is what unpicks the transient at the start of a walk or after a hard turn.
     let pick = null;
-    let best = 0;
+    let best = 0.98;
     for (const side of ['L', 'R']) {
       group.worldToLocal(v1.copy(feet[side].plant));
-      const back = -v1.z;
-      const wide = Math.abs(v1.x - FOOT_X[side]);
-      const urgency = Math.max(back / HALF_STEP, wide / 0.16);
-      const due = urgency > 0.95 || (side === nextStep && cursor >= nextStepAt);
-      if (due && urgency > best) { best = urgency; pick = side; }
+      // Two ways to be overdue, combined rather than taken separately: a foot
+      // the body has walked past, and a foot left out to the side by a turn.
+      // Taking the larger of the two was wrong in a way that took a while to
+      // see: on a turning start one foot would be 0.97 of the way to overdue on
+      // width while the other was 0.90 of the way there on distance, so the
+      // near foot stepped twice running and the far one was left more than a
+      // leg's length behind, which pulled the hips down into a squat.
+      const back = Math.max(0, -v1.z) / LIFT_BEHIND;
+      const wide = Math.abs(v1.x - FOOT_X[side]) / 0.16;
+      // Out of turn is allowed, but it has to be clearly more urgent.
+      const urgency = Math.hypot(back, wide) * (side === nextStep ? 1 : 0.8);
+      if (urgency > best) { best = urgency; pick = side; }
     }
     if (!pick) return;
 
@@ -777,8 +858,52 @@ export function createSkeletonPerformance({
       clamp(speed > 0.05 ? ((2 - 2 * DUTY) * STEP_LENGTH) / speed : 0.34, 0.16, 0.45),
       true,
     );
-    nextStepAt = Math.floor(cursor) + 1;
     nextStep = pick === 'L' ? 'R' : 'L';
+  }
+
+  // --- hands ------------------------------------------------------------------
+  // Where a hand should reach to: out in front of its own shoulder, on the
+  // floor. Worked from the shoulder's real position rather than from the body's
+  // origin, because during the climb the shoulder swings through most of a
+  // metre while the hips barely move.
+  const HAND_Y = 0.07;          // wrist height with the palm on the floor
+  const HAND_AHEAD = 0.42;
+  const HAND_OUT = 0.10;
+
+  function aimHand(side, out) {
+    J[`shoulder${side}`].getWorldPosition(out);
+    group.worldToLocal(out);
+    out.x += (side === 'L' ? 1 : -1) * HAND_OUT;
+    out.z += HAND_AHEAD;
+    out.y = -group.position.y / scale;
+    group.localToWorld(out);
+    out.y = 0;
+    return out;
+  }
+
+  function reachHand(side, dur = 0.30) {
+    const h = hands[side];
+    h.from.copy(h.plant);
+    aimHand(side, h.to);
+    h.swing = 0;
+    h.dur = dur;
+  }
+
+  // A hand lets go and reaches again once the shoulder has moved far enough
+  // that hanging on would tear the arm off. Nothing about this is on a clock:
+  // the body decides when the arms have to move by moving.
+  function stepHands(dt) {
+    for (const side of ['L', 'R']) {
+      const h = hands[side];
+      if (h.swing < 1) {
+        h.swing = Math.min(1, h.swing + dt / h.dur);
+        if (h.swing >= 1) h.plant.copy(h.to);
+        continue;
+      }
+      J[`shoulder${side}`].getWorldPosition(v3);
+      const reach = ARM[side].span * scale;
+      if (v3.distanceTo(h.plant) > reach * 0.88) reachHand(side);
+    }
   }
 
   // --- shed -------------------------------------------------------------------
@@ -809,7 +934,7 @@ export function createSkeletonPerformance({
   // every footfall because the skull does.
   const JAW_R_Y = 0.19;
   const JAW_R_Z = 0.248;
-  const JAW_GAIN = 0.055;
+  const JAW_GAIN = 0.040;
 
   function driveJaw(dt) {
     // The skull's acceleration, measured off the rig one frame late. Velocity
@@ -835,7 +960,10 @@ export function createSkeletonPerformance({
     chatterTimer -= dt;
     if (chatter > 0.02 && chatterTimer <= 0) {
       chatterTimer = 0.045 + rand() * 0.05;
-      S.jaw.velocity += (0.5 + rand()) * chatter * 2.6;
+      // Signed. An earlier version only ever kicked the jaw OPEN, which is not
+      // a rattle: it is a bias, and it left the mandible hanging 14 degrees
+      // open the whole time instead of clacking shut against its own teeth.
+      S.jaw.velocity += (rand() - 0.5) * 2 * (0.6 + rand() * 0.6) * chatter * 3.4;
     }
 
     S.jaw.target = clamp(jawBeat + clamp(torque, -0.18, 0.45), -0.02, JAW_OPEN_MAX);
@@ -899,9 +1027,43 @@ export function createSkeletonPerformance({
       const sh = S[`shoulder${side}`].value + fast * 0.5;
       const el = S[`elbow${side}`].value + fast;
       const wr = S[`wrist${side}`].value + fast * 1.6;
-      J[`shoulder${side}`].rotation.set(sh - thorax, 0, sgn * S[`spread${side}`].value);
-      J[`elbow${side}`].rotation.x = el - sh;
-      J[`wrist${side}`].rotation.x = wr - el;
+      let shoulderX = sh - thorax;
+      let shoulderZ = sgn * S[`spread${side}`].value;
+      let elbowX = el - sh;
+      let wristX = wr - el;
+
+      if (armBlend > 0) {
+        // The chain hangs off the shoulder anchor, which is four joints down
+        // from the group and has just been re-posed, so its matrix has to be
+        // brought up to date before a world point can be pulled into it.
+        const arm = J[`shoulder${side}`];
+        arm.updateWorldMatrix(true, false);
+        const h = hands[side];
+        if (h.swing < 1) {
+          v1.lerpVectors(h.from, h.to, easeInOutCubic(h.swing));
+          v1.y = Math.sin(h.swing * Math.PI) * 0.16;
+        } else {
+          v1.copy(h.plant);
+        }
+        v1.y += HAND_Y * scale;
+        arm.parent.worldToLocal(v1);
+        const ik = solveChain(ARM[side], v1);
+        shoulderX = mix(shoulderX, ik.hipX, armBlend);
+        shoulderZ = mix(shoulderZ, ik.hipZ, armBlend);
+        elbowX = mix(elbowX, ik.knee, armBlend);
+        // The hand keeps its authored angle relative to the forearm, so the
+        // claw survives whatever the solve does to the arm above it.
+        wristX = mix(wristX, wr - el, armBlend);
+        if (armBlend > 0.99) {
+          S[`shoulder${side}`].snap(thorax + ik.hipX);
+          S[`elbow${side}`].snap(thorax + ik.hipX + ik.knee);
+          S[`wrist${side}`].snap(thorax + ik.hipX + ik.knee + wristX);
+        }
+      }
+
+      J[`shoulder${side}`].rotation.set(shoulderX, 0, shoulderZ);
+      J[`elbow${side}`].rotation.x = elbowX;
+      J[`wrist${side}`].rotation.x = wristX;
     }
   }
 
@@ -928,35 +1090,46 @@ export function createSkeletonPerformance({
 
       if (legBlend > 0) {
         const f = feet[side];
+        // The ankle pivot's world target, and the pitch the foot holds to get
+        // there. Both come out of the same question: where is this foot
+        // touching the floor, and how is it standing on that.
+        let footPitch = 0;
         if (f.swing < 1) {
           // In the air. The arc is a half sine in height and an ease along the
           // ground, so the foot leaves and lands soft and travels fastest in
           // the middle, the way a real one does.
           const u = f.swing;
-          const e = easeInOutCubic(u);
-          v1.lerpVectors(f.from, f.to, e);
-          v1.y = Math.sin(u * Math.PI) * FOOT_LIFT;
+          v1.lerpVectors(f.from, f.to, easeInOutCubic(u));
+          const above = Math.sin(u * Math.PI) * FOOT_LIFT;
+          v1.y = above + M.y.ankle * scale;
+          // Toes down coming off, toes up going in, and the toes-down half is
+          // capped by how much clearance the foot actually has. The toe is a
+          // quarter of a metre in front of the pivot, so a full toe-off at
+          // ground level would put it through the floor; clamping it against
+          // the real clearance is also what makes the foot roll off the ground
+          // rather than flick off it.
+          const raw = 0.5 * (1 - u) ** 1.5 - 0.22 * u * u;
+          footPitch = Math.min(raw, Math.asin(clamp(above / (TOE_AHEAD * scale), 0, 0.98)));
         } else {
+          // Planted. The heel comes off as the body walks past, and from then
+          // on the foot is pivoting on its toe: the ankle rises and moves
+          // forward while the CONTACT stays exactly where it was put. That is
+          // the whole trick that lets a figure with legs this short take a
+          // stride, and it is also why the ankle is placed by rotating it about
+          // the toe rather than by adding a fudge to its height.
+          group.worldToLocal(v3.copy(f.plant));
+          footPitch = smoothstep(0.03, LIFT_BEHIND, -v3.z) * MAX_HEEL;
+          const ch = Math.cos(footPitch);
+          const sh = Math.sin(footPitch);
+          const ahead = (TOE_AHEAD * (1 - ch) + M.y.ankle * sh) * scale;
           v1.copy(f.plant);
+          v1.x += Math.sin(f.yaw) * ahead;
+          v1.z += Math.cos(f.yaw) * ahead;
+          v1.y += (M.y.ankle * ch + TOE_AHEAD * sh) * scale;
         }
-        const above = v1.y;
-        v1.y += M.y.ankle * scale;
         J.root.worldToLocal(v1);
-        const ik = solveLeg(side, v1);
-        // A foot flat on the floor is world pitch zero at the ankle, whatever
-        // the rest of the leg is doing. In the air it toes down coming off and
-        // lifts the toes coming in, and the toe-down is limited by how high the
-        // ankle actually is: the toe is a quarter of a metre in front of the
-        // pivot, so a full toe-off at ground level puts it through the floor.
-        // Clamping it against the real clearance is also what makes the foot
-        // roll off rather than flick.
-        let swingPitch = 0;
-        if (f.swing < 1) {
-          const u = f.swing;
-          const raw = 0.42 * (1 - u) ** 1.5 - 0.20 * u * u;
-          const room = Math.asin(clamp(above / TOE_AHEAD, 0, 0.98));
-          swingPitch = Math.min(raw, room);
-        }
+        const ik = solveChain(LEG[side], v1);
+        const swingPitch = footPitch;
         const kneeWorld = S.root.value + ik.hipX + ik.knee;
         hipX = mix(hipX, ik.hipX, legBlend);
         hipZ = mix(hipZ, ik.hipZ, legBlend);
@@ -975,6 +1148,11 @@ export function createSkeletonPerformance({
       J[`hip${side}`].rotation.set(hipX, 0, hipZ);
       J[`knee${side}`].rotation.x = knee;
       J[`ankle${side}`].rotation.x = ankle;
+      // The sole stays level side to side. The pelvis rolls and the hip swings
+      // the leg out sideways to reach a plant, and without this the foot goes
+      // with them and stands on its outside edge, with the far edge a couple of
+      // centimetres under the floor.
+      J[`ankle${side}`].rotation.z = -(S.roll.value + hipZ) * legBlend;
     }
   }
 
@@ -988,9 +1166,13 @@ export function createSkeletonPerformance({
       const patch = contacts[i];
       patch.visible = show > 0.01;
       if (!patch.visible) continue;
-      if (patch.material) patch.material.opacity = contactOpacity[i] * show;
       const joint = i === 0 ? J.ankleL : J.ankleR;
       joint.getWorldPosition(v1);
+      // A foot in the air keeps its patch, but faintly. A contact stain at full
+      // strength under a foot 15cm off the floor is the sort of thing nobody
+      // can name and everybody can see.
+      const lift = clamp01(1 - Math.max(0, v1.y - M.y.ankle * scale) / 0.22);
+      if (patch.material) patch.material.opacity = contactOpacity[i] * show * (0.35 + 0.65 * lift);
       group.worldToLocal(v1);
       patch.position.set(v1.x, (0.004 - group.position.y) / scale, v1.z);
     }
@@ -1001,7 +1183,7 @@ export function createSkeletonPerformance({
   // trig calls rather than a matrix update.
   function liftLimit() {
     if (legBlend < 0.5) return Infinity;
-    const reach = (LEG.L.a1 + LEG.L.a2) * scale * 0.995;
+    const reach = LEG.L.span * scale * 0.995;
     const cr = Math.cos(S.roll.value);
     const sr = Math.sin(S.roll.value);
     const cp = Math.cos(S.root.value);
@@ -1015,7 +1197,7 @@ export function createSkeletonPerformance({
       // The hip in the group's frame: the pelvis is swayed sideways and rolled,
       // and rolling swings one hip up and the other down by as much as 25mm,
       // which is worth having when the margin at full stretch is 20.
-      const hx = LEG[side].hip.x;
+      const hx = LEG[side].root.x;
       const lx = rootRest.x + S.sway.value + hx * cr;
       const ly = hx * sr * cp;
       const lz = rootRest.z + hx * sr * sp;
@@ -1025,7 +1207,11 @@ export function createSkeletonPerformance({
       const up = Math.sqrt(Math.max(reach * reach - horiz * horiz, 0));
       cap = Math.min(cap, f.plant.y + M.y.ankle * scale + up - ly * scale);
     }
-    return cap;
+    // A floor under the ceiling. If something has gone wrong enough that a foot
+    // is most of a leg out of position, a figure crouching to reach it looks
+    // far worse than a foot a centimetre off the ground for the two frames it
+    // takes the gait to fix itself.
+    return Math.max(cap, (HIP_TALL - 0.25) * scale);
   }
 
   // --- the loop ---------------------------------------------------------------
@@ -1094,9 +1280,10 @@ export function createSkeletonPerformance({
     speed = 0;
     travel = 0;
     cursor = 0;
-    nextStepAt = 1;
     nextStep = 'R';
     legBlend = 0;
+    armBlend = 0;
+    handsDown = false;
     cursor = 0;
     enter('buried');
     stepBuried(0, null);
@@ -1130,8 +1317,14 @@ export function createSkeletonPerformance({
       };
       for (const side of ['L', 'R']) {
         J[`ankle${side}`].getWorldPosition(v1);
+        // The contact point, not the pivot. Once the heel is off, the ankle is
+        // supposed to be moving and the toe is supposed not to be, so the toe
+        // is the only honest place to measure foot slip.
+        v2.set(0, -M.y.ankle, TOE_AHEAD);
+        J[`ankle${side}`].localToWorld(v2);
         out.feet[side] = {
           world: v1.toArray(),
+          toe: v2.toArray(),
           swinging: feet[side].swing < 1,
           plant: feet[side].plant.toArray(),
         };
