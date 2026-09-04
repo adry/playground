@@ -66,11 +66,26 @@ const VAULT_BASE = -0.012 * HS;
 // behind the middle of a real skull, but only just: put them much further back
 // and the whole head reads as an egg tipping forward off the neck, which was
 // the other fault two builds ago. 54/46 is as far back as it takes.
+//
+// These two are now the ENDS of the skull's length rather than approximations
+// to it: Z_BACK is the opisthocranion and Z_FACE is the glabella, so the whole
+// of M.skull.depth is spent between them and the cranial index falls out as
+// M.skull.width / M.skull.depth = 0.781 by construction instead of by tuning.
+// The build before this one spent only 0.90 of the depth on the braincase and
+// gave the rest to the maxilla, which put the index back at 0.87 even once the
+// metrics themselves had been corrected. A number that has to come out right
+// should be built out of the numbers that fix it, not aimed at.
 const Z_BACK = -0.54 * M.skull.depth;
-const Z_FACE = Z_BACK + M.skull.depth;        // front of the maxilla
-// The vault itself stops short of the face: the last tenth of the depth is the
-// brow, the cheek and the maxilla riding on the front of it.
-const Z_VAULT_FRONT = Z_BACK + 0.90 * M.skull.depth;
+const Z_FACE = Z_BACK + M.skull.depth;
+// The brow's own dimensions have to be declared up here, because the vault's
+// frontal plane is derived FROM them. The glabella is a midline swelling on the
+// brow and it is the front reference for the skull's length, so the glabella is
+// what lands on Z_FACE, and the plane the brow rides on is Z_FACE less however
+// proud the brow stands off it.
+const BROW_R = 0.046 * HS;
+const BROW_INSET = 0.018 * HS;
+const BROW_PROUD = BROW_R - BROW_INSET;
+const Z_VAULT_FRONT = Z_FACE - BROW_PROUD;
 
 // --- the vault's profile ---------------------------------------------------
 // This is the part of the head that was most wrong, and it was wrong in a way
@@ -102,6 +117,27 @@ const Z_VAULT_FRONT = Z_BACK + 0.90 * M.skull.depth;
 // it, so there is nothing to crease -- which is the whole reason it is done this
 // way and not with more blobs.
 //
+// WHAT THIS PASS CHANGED, and why it could not have been done before. All of
+// the above was already true of the previous build and the head still read as a
+// ball, because M.skull.width was 0.141 and M.skull.depth 0.150: an index of
+// 0.94, a braincase wider than it was long. Every profile below could only fix
+// the SIDE view, and the plan view stayed square whatever they did. metrics.js
+// now says 0.125 by 0.160, an index of 0.781, and with a plan that is finally
+// longer than it is wide four things become expressible that were not:
+//
+//   * the widest point can be put high AND behind, because there is now a
+//     front-to-back axis to put it behind the middle OF. `planTaper` narrows
+//     the section toward the face, which is the plan view of a real skull and
+//     was simply not available on a square one;
+//   * the forehead can slope back over a real distance instead of a token one;
+//   * the occiput can project without the head going spherical, because the
+//     projection is now a small part of a long axis rather than a large part of
+//     a short one;
+//   * the temporal flat has somewhere to be. On the old plan the side of the
+//     head was the widest thing about it from the eye backwards, so a flat
+//     there ate the silhouette; on this one the side aft of the eye is already
+//     inboard of the parietal eminence and the flat costs nothing.
+//
 // `vaultV` is 0 at the base of the braincase and 1 at the crown.
 const VAULT_SPAN = Y_CROWN - VAULT_BASE;
 const vaultV = (y) => (y - VAULT_BASE) / VAULT_SPAN;
@@ -113,8 +149,15 @@ const VZ_A = (Z_VAULT_FRONT - Z_BACK) / 2;
 // Squarer in section than the old 2.02, which is what flattens the crown. The
 // profiles below narrow the top at the same time, so it comes out a broad dome
 // rather than the helmet a high exponent alone gives.
-const VAULT_PV = 2.40;
+const VAULT_PV = 2.35;
 const VAULT_UNIT = Math.min(HW, VY_A, VZ_A);
+// The vault's own maximum half-width, as a fraction of HW. It is deliberately
+// short of 1: the crest of the temporal line rides on top of the parietal
+// eminence at very nearly the same height and bearing, and the two together are
+// what M.skull.width measures. Give the vault the full width as well and the
+// measured breadth comes out over by twice the ridge's proudness, which is
+// enough to push the cranial index from 0.78 to 0.82.
+const WIDTH_PEAK = 1.017;
 
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smoothstep = (a, b, x) => {
@@ -122,42 +165,61 @@ const smoothstep = (a, b, x) => {
   return t * t * (3 - 2 * t);
 };
 
-// Half-width as a fraction of HW. Broadest across the temples and tapering
-// steadily into the crown, which is the egg the reference photo's head is; the
-// old ellipsoid put its widest point at eye level and had the same width all
-// the way up to the parting.
+// Half-width as a fraction of WIDTH_PEAK * HW, against height.
 //
-// A real dry skull is widest higher, at the parietal eminences. The reference
-// is not a dry skull, it is a toy, and measured off the photo its widest point
-// is a little over half way down from the crown. That is also the shape that
-// survives the game camera, which looks DOWN at the figure and so presents the
-// crown broadside: a vault that is still full width up there fills the head
-// crop with forehead.
-const vaultWidth = (v) => 1
-  - 0.150 * smoothstep(0.60, 1.00, v)
-  - 0.110 * (1 - smoothstep(0.02, 0.36, v));
+// The previous build put the widest point "a little over half way down from the
+// crown", measured off the toy in the reference photo, and tapered gently. That
+// is not where a skull is widest. The parietal eminences sit about two thirds
+// of the way UP the braincase -- v = 0.66, which is 0.28 of the whole head's
+// height below the crown -- and the vault falls away from them in every
+// direction, into the crown above and into the temporal squama below. The
+// plateau here is deliberately short so that "the widest point" is a place on
+// the head and not a band.
+const vaultWidth = (v) => WIDTH_PEAK * (1
+  - 0.30 * smoothstep(0.70, 1.02, v)
+  - 0.36 * (1 - smoothstep(0.02, 0.62, v)));
 // How square the cross-section is. Flat sides and a flat frontal plane across
 // the temples, rounding off toward the crown and the base -- one exponent for
 // the whole vault cannot do that: high enough for a face plane the sockets can
 // sit on and the crown squares off into a helmet, low enough for a round crown
-// and the face comes to a point and the orbits curl onto the temples. This is
-// also most of the temporal flat: above the arch the side of the head is a
-// plane, and the arch standing off it is what makes the arch read.
-const vaultPlan = (v) => 2.20
-  + 0.62 * smoothstep(0.06, 0.36, v) * (1 - smoothstep(0.50, 1.00, v));
-// How far the vault reaches forward, as a fraction of VZ_A. Full at the brow,
-// receding above it: this is the forehead's backward slope, and it is what puts
-// the crown behind the glabella instead of over it.
+// and the face comes to a point and the orbits curl onto the temples. Raised
+// from 2.82 at the eye line because the sockets are a larger fraction of a
+// narrower head now: at the old exponent the outer third of each orbit lay on
+// curvature that was already turning into the temple.
+const vaultPlan = (v) => 2.30
+  + 1.35 * smoothstep(0.08, 0.40, v) * (1 - smoothstep(0.62, 1.02, v));
+// How far the vault reaches forward, as a fraction of VZ_A. Full from the top of
+// the orbit up to the brow and receding above it: that recession is the
+// forehead's backward slope, and it is what puts the crown behind the glabella
+// instead of over it. It falls away below the orbit too, where the maxilla
+// takes the front over.
 const vaultFront = (v) => 1
-  - 0.26 * smoothstep(0.50, 1.00, v)
-  - 0.24 * (1 - smoothstep(0.02, 0.38, v));
-// How far it reaches back. Full at ear level and tucking in hard above and
-// below, which is what makes the occiput read as a projection rather than as
-// the back half of a sphere. It never exceeds 1: M.skull.depth is the budget
-// and the occiput spends all of it, it does not get to overspend.
+  - 0.30 * smoothstep(0.60, 1.00, v)
+  - 0.30 * (1 - smoothstep(0.10, 0.40, v));
+// How far it reaches back. Full between v = 0.50 and 0.68, which is above ear
+// level and level with the parietal eminence, and tucking in hard above and
+// below: that is what makes the occiput read as a projection rather than as the
+// back half of a sphere. The old peak sat at v = 0.30 to 0.46, which is at and
+// below the ear, and a bulge down there is not an occiput -- it is the back of
+// an egg, and in profile that is exactly what it looked like. It never exceeds
+// 1: M.skull.depth is the budget and the occiput spends all of it, it does not
+// get to overspend.
 const vaultBack = (v) => 1
-  - 0.24 * smoothstep(0.46, 1.00, v)
-  - 0.46 * (1 - smoothstep(0.00, 0.30, v));
+  - 0.26 * smoothstep(0.75, 1.05, v)
+  - 0.40 * (1 - smoothstep(0.16, 0.58, v));
+// The plan view's own taper: how wide the section is at a given point along its
+// OWN depth, front to back. This is the piece that only became possible when
+// the plan stopped being square. A skull seen from above is a blunt egg, widest
+// behind the middle at the parietal eminences and narrowing toward the temples
+// and the face; a superellipse with one half-width per height is symmetric front
+// to back and can only ever be a lozenge. zn runs -1 at the occiput to +1 at the
+// face, and the peak is parked at -0.25 so the widest point of the head is
+// behind its own mid-length in plan as well as high up in profile.
+const ZN_PEAK = -0.25;
+const planTaper = (zn) => {
+  const q = Math.max(-1.6, Math.min(1.6, zn)) - ZN_PEAK;
+  return 1 - (q > 0 ? 0.115 : 0.107) * q * q;
+};
 
 function vaultField(x, y, z) {
   const v = vaultV(y);
@@ -166,8 +228,9 @@ function vaultField(x, y, z) {
   const ph = vaultPlan(v);
   const sz = VZ_A * (f + b) * 0.5;
   const cz = VZ_C + VZ_A * (f - b) * 0.5;
-  const ax = Math.abs(x / (HW * vaultWidth(v)));
-  const az = Math.abs((z - cz) / sz);
+  const zn = (z - cz) / sz;
+  const ax = Math.abs(x / (HW * vaultWidth(v) * planTaper(zn)));
+  const az = Math.abs(zn);
   const ay = Math.abs((y - VY_C) / VY_A);
   const h = Math.pow(Math.pow(ax, ph) + Math.pow(az, ph), VAULT_PV / ph);
   return (Math.pow(h + Math.pow(ay, VAULT_PV), 1 / VAULT_PV) - 1) * VAULT_UNIT;
@@ -178,25 +241,41 @@ function vaultField(x, y, z) {
 // 2), because the tooth row has to have bone directly above it all the way out
 // to the back molars. An ellipsoid's underside curves away at the corners and
 // leaves the outer teeth hanging in air -- a fault two builds back had.
-const MAX_TOP = 0.305 * HS;
-const MAX_BOTTOM = 0.091 * HS;                // the palate, just above the crowns
+//
+// It also stops SHORT of the glabella now, by 0.035 of the skull's depth. The
+// glabella is the front reference for the skull's length and it has to be the
+// most anterior thing on the head or the cranial index is measured off the
+// wrong landmark; a face plane flush with it also loses the small step under
+// the brow that reads, in profile, as a brow at all.
+const MAX_TOP = 0.215 * HS;
+const MAX_BOTTOM = 0.105 * HS;                // the palate, just above the crowns
 // Wider than it was. The face plane has to carry a cheek out to the root of
 // the zygomatic arch, and at 0.298 the maxilla stopped short of it and left the
 // arch springing out of nowhere.
-const MAX_HALF_W = 0.318 * M.skull.width;
-const MAX_BACK = Z_FACE - 0.643 * M.skull.depth;
+const MAX_HALF_W = 0.330 * M.skull.width;
+const MAX_FRONT = Z_FACE - 0.035 * M.skull.depth;
+const MAX_BACK = MAX_FRONT - 0.600 * M.skull.depth;
 
 // --- the tooth rows --------------------------------------------------------
 // Not in metrics.js: only the counts are. Sized off the photo, where the
 // visible tooth row is a shade under half the skull's width, and written as
 // fractions of the measurements that ARE there so a change of scale carries.
-const UPPER_ARCH = { halfW: 0.262 * M.skull.width, front: 0.400 * M.skull.depth, back: 0.208 * M.skull.depth };
-const LOWER_ARCH = { halfW: 0.222 * M.skull.width, front: 0.379 * M.skull.depth, back: 0.197 * M.skull.depth };
-const TOOTH_H = 0.066 * HS;
-const TOOTH_D = 0.045 * HS;
+// The two arches are held as fractions of the skull's depth, which just grew by
+// 7%, so the rows would have run forward of the face if they were left alone.
+// They are pulled back to keep the incisors under the nasal aperture rather
+// than in front of it.
+const UPPER_ARCH = { halfW: 0.262 * M.skull.width, front: 0.352 * M.skull.depth, back: 0.176 * M.skull.depth };
+const LOWER_ARCH = { halfW: 0.222 * M.skull.width, front: 0.333 * M.skull.depth, back: 0.166 * M.skull.depth };
+// Shorter crowns than the 0.066 this used to be. The eye line is at half the
+// head's height now, which is where a real one is, and that leaves 0.19 of the
+// height between the orbit's floor and the bite line for a nasal aperture, a
+// nasal floor and a strip of maxilla under it. Tall teeth eat that strip, and
+// what they eat first is the clearance the nasal floor needs.
+const TOOTH_H = 0.056 * HS;
+const TOOTH_D = 0.042 * HS;
 // The rows do not meet. In the reference there is a dark line between them and
 // it is most of what stops the mouth reading as a painted stripe.
-const AJAR = 0.018 * HS;
+const AJAR = 0.015 * HS;
 
 // --- the mandible ----------------------------------------------------------
 // A thin deep bar: thin side to side, deep top to bottom, and no deeper than
@@ -211,13 +290,29 @@ const RAMUS_R = 0.062 * HS;
 // hanging under the head with no corner to it. These put it at 0.75, and a real
 // bigonial breadth is about 0.72 of the cranium's. The flare only bites beyond
 // the last tooth, so the tooth row does not widen with it.
-const JAW_EXTEND = 1.55;
-const JAW_FLARE = 0.55;
-// The hinge. Level with the root of the zygomatic arch and just behind the
-// middle of the skull, which is where the fossa is; the condyle balls sit half
-// buried in the skull base there so the joint has somewhere to be.
-const HINGE_Y = 0.096 * HS;
-const HINGE_Z = -0.080 * M.skull.depth;
+// Extended from 1.55 and the flare eased from 0.55 to keep the same bigonial
+// breadth: the extra length is spent taking the angle of the jaw BACKWARD past
+// the hinge rather than outward. At 1.55 the gonion came out at z = -0.058 of
+// the depth and the hinge at -0.080, so the corner of the jaw sat in FRONT of
+// the ear canal -- the reference is explicit that it belongs below and behind
+// it, and a gonion in front of the hinge is most of why the old mandible read
+// as a hoop slung under the head rather than as a jaw hung off a joint.
+const JAW_EXTEND = 1.68;
+const JAW_FLARE = 0.40;
+// The hinge, which is also where this build measures the ear canal: the condyle
+// sits in the mandibular fossa immediately in front of the meatus and the two
+// are within a couple of millimetres of each other on a real skull.
+//
+// It has come up by 0.083 of the head's height. Two things put it there. The
+// Frankfurt horizontal, the plane a real skull is measured on, runs through the
+// ear canal and the orbit's lower rim, so with the eye line at half the height
+// the ear canal lands at 0.63 below the crown; and that also puts the base of
+// the braincase -- the line from the brow back to the ear -- at two thirds of
+// the way down, which is the cranium-to-face split the reference asks for. The
+// old 0.096 put it at 0.71, which shortened the ramus to less than half the
+// length of a real one and hung the jaw joint below the skull's own base.
+const HINGE_Y = 0.163 * HS;
+const HINGE_Z = -0.085 * M.skull.depth;
 // The condyle rides NARROWER than the gonion, so the ramus leans inward on its
 // way up and the joint tucks under the root of the zygomatic arch instead of
 // standing off the side of the head as a bare knob. A real bicondylar breadth
@@ -259,22 +354,30 @@ const ORBIT_U = BRIDGE / 2 + M.skull.socket.width / 2;
 // the size metrics gives it and rides higher than the photo's does, which costs
 // forehead and buys back a face.
 //
-// 0.495 was the previous value and it was still too low: it left 0.07 of the
-// head's height between the orbit's floor and the crowns of the upper teeth,
-// where a real skull has nearly 0.20, and the face came out crushed against the
-// mouth under an enormous forehead. At 0.462 the crown-to-orbit-rim distance is
-// 0.33 of crown-to-chin, which is what a real skull measures, and there is half
-// as much face again below the eye.
-const ORBIT_V = Y_CROWN - 0.462 * HS;
+// 0.495 was the value two passes ago and 0.462 the last one, and both were
+// aimed at the crown-to-brow distance instead of at the eye line itself. The
+// eye line is the one landmark in a head that is worth measuring first: the
+// centres of the orbits sit at exactly half of vertex-to-chin, and everything
+// else in the face is checked against them. So this is 0.500 now and it is not
+// a tuning parameter. It costs 0.038 of the head's height off the forehead and
+// hands it to the face, which is the direction both rejected builds needed to
+// move in and neither did far enough.
+const ORBIT_V = Y_CROWN - 0.500 * HS;
 
 // The nasal aperture is not in metrics.js. Written against the socket so the
 // two stay in proportion. Its floor has to clear the crowns of the upper teeth:
-// at the previous height and size it hung 0.007 BELOW them, which is why the
-// nose and the mouth used to run together into one dark smear on the front of
-// the face.
-const NASAL_W = 0.60 * M.skull.socket.width;
-const NASAL_H = 0.62 * M.skull.socket.height;
-const NASAL_V = Y_CROWN - 0.570 * HS;
+// two builds ago it hung 0.007 BELOW them, which is why the nose and the mouth
+// used to run together into one dark smear on the front of the face.
+//
+// Now sized off the reference rather than guessed: the aperture is about half
+// the orbit's height, and as wide at its base as it is tall. Its apex reaches up
+// BETWEEN the orbits, just under the eye line, which is what makes it read as a
+// pear rather than as a keyhole punched into the middle of the maxilla -- there
+// is no room below the orbits for the whole of it, and there is not supposed to
+// be. The floor clears the tooth crowns by 0.05 of the head's height.
+const NASAL_W = 0.46 * M.skull.socket.width;
+const NASAL_H = 0.52 * M.skull.socket.height;
+const NASAL_V = Y_CROWN - 0.588 * HS;
 
 // How thick the bone is at the edge of a cut, which is the depth of the wall
 // inside every opening. Two things bracket it. Below about two grid cells the
@@ -303,7 +406,17 @@ const NASAL_CAVITY = 0.075 * HS;
 // it curls round onto the temple. FACE_R is the radius that arc length is
 // measured at: it is the distance from the axis out to the brow, so the socket
 // is honest where it matters and only slightly stretched elsewhere.
-const FACE_R = 0.45 * M.skull.width;
+//
+// It used to be a fraction of the WIDTH, which was very nearly the same as a
+// fraction of the depth while the two were equal, and stopped being so the
+// moment they were corrected: 0.45 of the new width is 0.141 against a face
+// that stands 0.184 out from the axis, so every opening was being placed at a
+// third again the bearing its arc length called for. The orbits' outer rims
+// came out at 60 degrees round the head, curling onto the temples, and the pair
+// of them spanned almost the whole frontal arc. Held against the DEPTH instead
+// they land at 50 degrees with the temporal flat and the arch's root clear
+// behind them, and the sockets come out the size metrics says they are.
+const FACE_R = 0.42 * M.skull.depth;
 
 // Where the sphere grid is centred. Deep inside the vault, so that every ray
 // out of it reaches the surface without leaving the solid on the way.
@@ -416,23 +529,30 @@ function surfaceRho(field, ang, y) {
 // anatomical orbit is a touch shallower at its medial corner -- rather than an
 // expression.
 //
-// The exponents sit a little above 2 so the opening is a rounded rectangle
-// rather than a pure ellipse. A true ellipse read as a cartoon eye; the
-// straight-ish stretches along the top and bottom are what keep it a skull.
+// The exponents sit well above 2 so the opening is a rounded rectangle rather
+// than a pure ellipse. A true ellipse read as a cartoon eye; the straight-ish
+// stretches along the top and bottom are what keep it a skull, and the
+// reference is explicit that a real orbit is roughly square with generously
+// rounded corners -- neither an almond nor a circle. Raised from 2.35 and
+// 2.5/2.2 for this pass. The warning in the history stands and is worth
+// repeating: at 3.0 on the top edge, with the old medial taper of 0.6 and the
+// old slant of 0.60 under it, this was the frown. What makes it safe here is
+// that the taper is 0.88 and the slant is 0.12; a square opening is only a glare
+// when something else is already pulling its top edge down toward the nose.
 const SOCKET_TAPER_LO = 0.88;
-const SOCKET_PX = 2.35;
+const SOCKET_PX = 2.75;
 function socketTaper(kx) {
   return SOCKET_TAPER_LO + (1 - SOCKET_TAPER_LO) * smoothstep(-1, 0.35, kx);
 }
 function socketShape(kx, ky) {
   const k = ky / socketTaper(kx);
-  const e = ky > 0 ? 2.5 : 2.2;
+  const e = ky > 0 ? 2.70 : 2.50;
   return Math.pow(Math.abs(kx), SOCKET_PX) + Math.pow(Math.abs(k), e);
 }
 // The top edge of the socket, in the same frame, at a given kx.
 function socketTop(kx) {
   const rem = 1 - Math.pow(Math.abs(kx), SOCKET_PX);
-  return rem <= 0 ? 0 : socketTaper(kx) * Math.pow(rem, 1 / 2.5);
+  return rem <= 0 ? 0 : socketTaper(kx) * Math.pow(rem, 1 / 2.70);
 }
 // Face-space (u across, v up) coordinates of a point in the socket's own frame.
 function socketToFace(side, q, w) {
@@ -600,8 +720,11 @@ export function buildSkull({ material }) {
   skin.vertexColors = true;
   materials.push(skin);
 
-  const add = (geo, mat) => {
+  // Named, because the landmark check reads the built geometry rather than the
+  // constants above and has to know which mesh is which.
+  const add = (geo, mat, name = '') => {
     const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = name;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     return mesh;
@@ -609,11 +732,11 @@ export function buildSkull({ material }) {
 
   // ---------------------------------------------------------------- the field
   const maxilla = blob(
-    [0, (MAX_TOP + MAX_BOTTOM) / 2, (Z_FACE + MAX_BACK) / 2],
-    [MAX_HALF_W, (MAX_TOP - MAX_BOTTOM) / 2, (Z_FACE - MAX_BACK) / 2],
+    [0, (MAX_TOP + MAX_BOTTOM) / 2, (MAX_FRONT + MAX_BACK) / 2],
+    [MAX_HALF_W, (MAX_TOP - MAX_BOTTOM) / 2, (MAX_FRONT - MAX_BACK) / 2],
     // Rounded in plan, flat underneath. Boxy both ways (3.6) put a hard
     // vertical corner where the face plane met the side of the head.
-    2.8, 4.0,
+    3.1, 4.0,
   );
   const base = (x, y, z) => smin(vaultField(x, y, z), maxilla(x, y, z), 0.055);
 
@@ -629,9 +752,10 @@ export function buildSkull({ material }) {
   // it stands (0.030 of the head's height rather than 0.018): the socket is a
   // real hole now, so its rim is a crisp edge and the shelf above it has to be
   // a real shelf or the eye reads the edge and nothing else.
+  // BROW_R and BROW_INSET now live at the top of the file: the vault's frontal
+  // plane is derived from how proud they make the brow stand, so that the
+  // glabella between them lands exactly on Z_FACE.
   const BROW_LIFT = 0.020 * HS;
-  const BROW_R = 0.048 * HS;
-  const BROW_INSET = 0.018 * HS;
   const brows = [-1, 1].map((side) => {
     const pts = [];
     for (let i = 0; i <= 12; i++) {
@@ -646,33 +770,62 @@ export function buildSkull({ material }) {
     return tube(pts, BROW_R);
   });
 
-  // The zygomatic arches, running back from the outer orbital rim toward the
-  // ear. Same trick: the path is a bearing and a height, the radius comes off
-  // the vault, so the arch hugs whatever shape the vault happens to be.
+  // The glabella: the smooth midline swelling between the brows. It is the
+  // front reference for the skull's length and the reference asks for it
+  // explicitly, and it is also the only way to have one: the two brow shelves
+  // stop short of the midline on purpose (carried all the way in they converge
+  // into a V that reads as a snout), so without this there is nothing between
+  // them but bare frontal plane and the most anterior point on the head ends up
+  // being a pair of points either side of the nose.
   //
-  // Kept short and low. Carried back to 103 degrees and standing far proud it
-  // stopped being a cheekbone and became a moulding seam running right round
-  // the side of the head. It stands a little prouder than it did because the
-  // temple behind it is dished now -- the arch is not bigger, the head next to
-  // it is smaller, which is the anatomy.
-  const ZYG_R = 0.038 * HS;
-  const ZYG_INSET = 0.009 * HS;
-  const zygos = [-1, 1].map((side) => {
-    const pts = [];
-    for (let i = 0; i <= 11; i++) {
-      const f = i / 11;
-      // Carried back to 1.80 radians and dropped to the hinge's own height at
-      // the far end, so it finishes as a root over the jaw joint. It used to
-      // stop short at 1.56 and a hand's breadth above the condyle, which left
-      // the condyle ball hanging off the side of the head as a bare knob -- the
-      // one thing about the jaw that read worst in the back view.
-      const ang = side * (0.80 + 1.00 * f);
-      const y = (0.245 - 0.135 * f - 0.020 * Math.sin(Math.PI * f)) * HS;
-      const rho = surfaceRho(base, ang, y) - ZYG_INSET;
-      pts.push(new THREE.Vector3(Math.sin(ang) * rho, y, Math.cos(ang) * rho));
-    }
-    return tube(pts, ZYG_R);
-  });
+  // Its front face is on Z_FACE by construction -- that is what Z_VAULT_FRONT
+  // was derived backwards from -- so it projects past the frontal plane by
+  // exactly BROW_PROUD and past the face plane below it by a little more.
+  const GLAB_D = 0.100 * M.skull.depth;
+  const glabella = blob(
+    [0, ORBIT_V + SOCKET.b + 0.055 * HS, Z_FACE - GLAB_D],
+    [0.115 * M.skull.width, 0.062 * HS, GLAB_D], 2.6, 2.2,
+  );
+
+  // The zygomatic bone, at the outer-lower corner of the orbit, and the root of
+  // the arch on the temporal bone just above and in front of the ear canal.
+  // These two are the arch's ABUTMENTS and they are the only part of it in the
+  // field; the span between them is a separate mesh, built below, standing off
+  // the side of the head with daylight behind it.
+  //
+  // The whole of the previous build's arch was in the field, swept along the
+  // vault's own surface at a fixed inset, and blended into it with smin. That
+  // cannot produce a gap -- a smooth union of two solids is one solid -- so what
+  // it produced instead was a moulding seam, and the note it left behind about
+  // standing "a little prouder" was chasing an effect the method cannot reach.
+  // The gap is the single strongest skull cue in a three-quarter view, so the
+  // arch stops being part of the head and becomes a bridge over it.
+  const malar = (side) => blob(
+    [side * 0.300 * M.skull.width, ORBIT_V - 0.115 * HS, 0.270 * M.skull.depth],
+    [0.115 * M.skull.width, 0.085 * HS, 0.105 * M.skull.depth], 2.4);
+  const zygRoot = (side) => blob(
+    [side * 0.340 * M.skull.width, HINGE_Y + 0.030 * HS, -0.150 * M.skull.depth],
+    [0.085 * M.skull.width, 0.058 * HS, 0.105 * M.skull.depth], 2.4);
+  const malarL = malar(-1), malarR = malar(1);
+  const rootL = zygRoot(-1), rootR = zygRoot(1);
+
+  // The temporal fossa: the shallow dish on the side of the vault between the
+  // temporal line above and the arch below. It is subtracted, not implied.
+  //
+  // The previous build claimed the fossa as a side effect of the vaultPlan
+  // exponent -- "above the arch the side of the head is a plane" -- and a plane
+  // is not a dish. With nothing hollowed out, the arch had nothing to stand off
+  // and no amount of proudness would have given it a shadow. This is a very
+  // large ellipsoid barely intersecting the side of the head, so the cut is a
+  // broad shallow saucer about 0.024 of the head's height deep rather than a
+  // thumbprint: FOSSA_RX sets the curvature and FOSSA_CUT sets the depth, and
+  // they are independent, which is what stops it reading as a dent.
+  const FOSSA_RX = 0.62 * M.skull.width;
+  const FOSSA_CUT = 0.030 * HS;
+  const fossa = (side) => blob(
+    [side * (0.845 * HW + FOSSA_RX - FOSSA_CUT), ORBIT_V - 0.075 * HS, -0.038 * M.skull.depth],
+    [FOSSA_RX, 0.420 * HS, 0.500 * M.skull.depth], 2);
+  const fossaL = fossa(-1), fossaR = fossa(1);
 
   // The temporal line: the soft ridge that sweeps up and back from the outer
   // corner of the brow, over the temple, and turns down toward the ear. It is
@@ -685,20 +838,30 @@ export function buildSkull({ material }) {
   // It stands only 0.012 of the head's height proud. The zygomatic arch's
   // history is the warning here: a ridge on the side of a skull turns into a
   // moulding seam the moment it is tall enough to catch a specular.
+  //
+  // It has a second job now that it did not have before: it is the UPPER BOUND
+  // of the temporal fossa. The dish is subtracted just below it, so the line is
+  // where the flat starts, and a ridge with a hollow under it reads as an edge
+  // of something rather than as a scratch on a dome. Its crest also rides on the
+  // parietal eminence, which is why the vault's own peak width is held at
+  // WIDTH_PEAK rather than 1.
   const TEMP_R = 0.034 * HS;
   // [bearing, height BELOW THE CROWN as a fraction of the skull's height, how
-  // deep to bury this point]. It starts level with the top of the orbit and
+  // deep to bury this point]. It starts at the outer corner of the brow and
   // climbs, which is the whole character of the line; run at the orbit's own
   // height all the way round -- as it was on the first attempt -- it crosses the
-  // middle of the side of the head and reads as a dent, not a line.
+  // middle of the side of the head and reads as a dent, not a line. The far end
+  // turns DOWN toward the root of the arch above the ear, which is the real
+  // course of the supramastoid crest and also stops the line running off the
+  // back of the head into nothing.
   //
   // The third number is the fix for a capsule chain's ends. tube() sweeps ONE
   // radius, so a run that stops out in the open stops with a hemisphere on it,
   // and that hemisphere came out as a pimple on the back of the head. Sinking
   // the last point or two deeper than the ridge itself buries the cap instead.
   const TEMPORAL = [
-    [0.86, 0.340, 0.062], [1.12, 0.314, 0.034], [1.42, 0.296, 0.025],
-    [1.72, 0.294, 0.026], [2.00, 0.322, 0.040], [2.26, 0.386, 0.078],
+    [0.95, 0.372, 0.058], [1.25, 0.322, 0.030], [1.60, 0.300, 0.024],
+    [1.95, 0.310, 0.026], [2.25, 0.362, 0.042], [2.48, 0.436, 0.080],
   ];
   const temporals = [-1, 1].map((side) => tube(
     TEMPORAL.map(([a, h, inset]) => {
@@ -732,10 +895,12 @@ export function buildSkull({ material }) {
   // Mastoid processes. Two jobs: they are real bone, and they are what the top
   // of each ramus tucks behind. Kept small: at 0.15 of the skull's height they
   // stopped being processes and turned the back of the head into a lamp
-  // standing on two legs.
+  // standing on two legs. They hang from just behind the ear canal, so they
+  // followed the hinge up this pass -- left where they were they would have been
+  // a pair of lumps on the underside of the skull with nothing above them.
   const mastoid = (side) => blob(
-    [side * 0.290 * M.skull.width, 0.028 * HS, -0.230 * M.skull.depth],
-    [0.058 * M.skull.width, 0.090 * HS, 0.058 * M.skull.depth], 2.3);
+    [side * 0.300 * M.skull.width, HINGE_Y - 0.105 * HS, -0.215 * M.skull.depth],
+    [0.060 * M.skull.width, 0.095 * HS, 0.062 * M.skull.depth], 2.3);
   const mastoidL = mastoid(-1);
   const mastoidR = mastoid(1);
 
@@ -748,12 +913,18 @@ export function buildSkull({ material }) {
   const foramen = blob([0, -0.005, FORAMEN_Z],
     [0.085 * M.skull.width, 0.096 * HS, 0.120 * M.skull.depth], 2.4);
 
+  // Order matters here in one place: the fossa is subtracted AFTER the malar and
+  // the arch's root are added, so the dish is cut between the two abutments and
+  // they stand out of it. Subtract first and the abutments simply fill it in.
   const field = (x, y, z) => {
     let d = base(x, y, z);
     d = smin(d, brows[0](x, y, z), 0.020);
     d = smin(d, brows[1](x, y, z), 0.020);
-    d = smin(d, zygos[0](x, y, z), 0.017);
-    d = smin(d, zygos[1](x, y, z), 0.017);
+    d = smin(d, glabella(x, y, z), 0.022);
+    d = smin(d, malarL(x, y, z), 0.028);
+    d = smin(d, malarR(x, y, z), 0.028);
+    d = smin(d, rootL(x, y, z), 0.026);
+    d = smin(d, rootR(x, y, z), 0.026);
     d = smin(d, temporals[0](x, y, z), 0.022);
     d = smin(d, temporals[1](x, y, z), 0.022);
     d = smin(d, alveolar(x, y, z), 0.024);
@@ -761,6 +932,8 @@ export function buildSkull({ material }) {
     d = smin(d, condyleR(x, y, z), 0.016);
     d = smin(d, mastoidL(x, y, z), 0.030);
     d = smin(d, mastoidR(x, y, z), 0.030);
+    d = smax(d, -fossaL(x, y, z), 0.030);
+    d = smax(d, -fossaR(x, y, z), 0.030);
     d = smax(d, -foramen(x, y, z), 0.022);
     return d;
   };
@@ -1038,7 +1211,48 @@ export function buildSkull({ material }) {
   craniumGeo.setAttribute('color', new THREE.BufferAttribute(color, 3));
   craniumGeo.setIndex(index);
   craniumGeo.computeBoundingSphere();
-  group.add(add(craniumGeo, skin));
+  group.add(add(craniumGeo, skin, 'cranium'));
+
+  // ------------------------------------------------------- the zygomatic arch
+  // A slender bar bridging from the zygomatic bone to the root above the ear,
+  // its two ends buried deep inside the abutment blobs that are in the field and
+  // its middle standing clear of the temporal fossa. Both ends being inside the
+  // solid is what makes the join invisible: the bar emerges from bone at each
+  // end the way a real arch does, and there is no seam to fillet because there
+  // is no meeting of surfaces out in the open.
+  //
+  // The path is authored in world coordinates rather than snapped to the vault
+  // with surfaceRho, which is how the old arch was placed. That was the bug in
+  // miniature: a path that follows the surface cannot stand off it. The standoff
+  // is the whole point, so it is a number here, checked below and reported.
+  const ARCH_R = 0.029 * HS;
+  const ARCH_FLAT = 1.55;               // taller than it is thick, as a real arch is
+  const archPath = (side) => new THREE.CatmullRomCurve3([
+    new THREE.Vector3(side * 0.285 * M.skull.width, ORBIT_V - 0.105 * HS, 0.300 * M.skull.depth),
+    new THREE.Vector3(side * 0.395 * M.skull.width, ORBIT_V - 0.128 * HS, 0.185 * M.skull.depth),
+    new THREE.Vector3(side * 0.428 * M.skull.width, ORBIT_V - 0.130 * HS, 0.045 * M.skull.depth),
+    new THREE.Vector3(side * 0.412 * M.skull.width, ORBIT_V - 0.118 * HS, -0.080 * M.skull.depth),
+    new THREE.Vector3(side * 0.352 * M.skull.width, ORBIT_V - 0.100 * HS, -0.175 * M.skull.depth),
+  ], false, 'centripetal', 0.5);
+  // How much daylight there is behind the middle of the arch: the bar's inner
+  // face against the dished vault at the same height and bearing. Measured, not
+  // assumed -- the whole reason the arch is built this way is this number being
+  // greater than zero.
+  let archGap = Infinity;
+  for (const side of [-1, 1]) {
+    const path = archPath(side);
+    const geo = track(shaft(path, ARCH_R, { waist: 0.86, endBias: 0.9, segments: 40 }));
+    const mid = path.getPoint(0.5);
+    geo.translate(0, -mid.y, 0);
+    geo.scale(1, ARCH_FLAT, 1);
+    geo.translate(0, mid.y, 0);
+    group.add(add(geo, material, 'arch'));
+    for (const t of [0.35, 0.5, 0.65]) {
+      const p = path.getPoint(t);
+      const ang = Math.atan2(p.x, p.z);
+      archGap = Math.min(archGap, Math.hypot(p.x, p.z) - ARCH_R - surfaceRho(field, ang, p.y));
+    }
+  }
 
   // Step three: the wall inside each cut. One ribbon quad per grid edge that
   // has a dropped quad on one side and a kept one on the other. The rim
@@ -1051,6 +1265,13 @@ export function buildSkull({ material }) {
   // The wall is its own geometry so its normals never average into the skin's:
   // that is what keeps the lip a crisp edge instead of a smeared crease, and it
   // is the difference between a hole and a bruise.
+  // How far each orbit's own axis points away from the midline, filled in when
+  // the bowls are built. A real orbit diverges about 23 degrees, and since the
+  // bowl's axis is the mean of the skin's normals round the opening it is a
+  // measurement of how the face is shaped rather than a number that can be set:
+  // flatten the frontal plane and the orbits look more forward, round it off
+  // and they splay. That is why it is reported.
+  let orbitDiverge = 0;
   const holeVerts = [];
   const holeNors = [];
   const holeColors = [];
@@ -1219,6 +1440,7 @@ export function buildSkull({ material }) {
       const axis = new THREE.Vector3();
       for (const nv of mouthNor) axis.add(nv);
       axis.normalize();
+      if (ci < 2) orbitDiverge = Math.max(orbitDiverge, Math.atan2(Math.abs(axis.x), axis.z));
       const centre = new THREE.Vector3();
       for (const q of mouthRing) centre.add(q);
       centre.divideScalar(n);
@@ -1283,6 +1505,7 @@ export function buildSkull({ material }) {
   holeGeo.setIndex(holeIdx);
   holeGeo.computeBoundingSphere();
   const holes = new THREE.Mesh(holeGeo, skin);
+  holes.name = 'holes';
   // It faces into a hole; a caster here is only shadow acne on its own wall.
   holes.castShadow = false;
   holes.receiveShadow = true;
@@ -1301,6 +1524,7 @@ export function buildSkull({ material }) {
   cavityGeo.scale(0.187 * M.skull.width, 0.101 * HS, 0.187 * M.skull.depth);
   cavityGeo.translate(0, Y_BITE - 0.059 * HS, 0.155 * M.skull.depth);
   const cavity = new THREE.Mesh(cavityGeo, cavityMat);
+  cavity.name = 'mouth-cavity';
   group.add(cavity);
 
   // ------------------------------------------------------------- upper teeth
@@ -1310,7 +1534,7 @@ export function buildSkull({ material }) {
     (upperLen / M.skull.teeth.upper) * 0.82, TOOTH_H, TOOTH_D,
   ));
   const up = new THREE.Vector3(0, 1, 0);
-  const placeRow = (curve, geo, n, parent) => {
+  const placeRow = (curve, geo, n, parent, name) => {
     const tan = new THREE.Vector3();
     const nrm = new THREE.Vector3();
     const m = new THREE.Matrix4();
@@ -1322,13 +1546,13 @@ export function buildSkull({ material }) {
       // The curve is the outer face of the row, so the block sits behind it.
       p.addScaledVector(nrm, -TOOTH_D * 0.45);
       m.makeBasis(tan, up, nrm);
-      const mesh = add(geo, material);
+      const mesh = add(geo, material, name);
       mesh.quaternion.setFromRotationMatrix(m);
       mesh.position.copy(p);
       parent.add(mesh);
     }
   };
-  placeRow(upperRow, upperTooth, M.skull.teeth.upper, group);
+  placeRow(upperRow, upperTooth, M.skull.teeth.upper, group, 'tooth-upper');
 
   // ----------------------------------------------------------------- the jaw
   // The hinge node itself sits on the axis through both condyles, so the
@@ -1365,7 +1589,7 @@ export function buildSkull({ material }) {
   const bodyGeo = track(shaft(bodyCurve, JAW_R, { waist: 1, endBias: 0.85, segments: 48 }));
   bodyGeo.scale(1, JAW_SQUASH, 1);
   bodyGeo.translate(0, (bodyTop + Y_CHIN) / 2, 0);
-  jawRoot.add(add(bodyGeo, material));
+  jawRoot.add(add(bodyGeo, material, 'jaw-body'));
 
   // Rami and condyles. The gonion is wherever the body curve ends, so the
   // ramus always lands on the bone rather than near it.
@@ -1380,7 +1604,7 @@ export function buildSkull({ material }) {
     const cap = track(jointBall(JAW_R * 0.98, { squash: 1 }));
     cap.scale(1, JAW_SQUASH * 0.80, 1);
     cap.translate(side * gonionX, gonionY, gonion.z);
-    jawRoot.add(add(cap, material));
+    jawRoot.add(add(cap, material, 'jaw-gonion'));
 
     // The ramus is a flat plate, so it is swept round and then squeezed to a
     // little over half its width -- and its two ends no longer share an x, because the
@@ -1396,10 +1620,10 @@ export function buildSkull({ material }) {
     ramus.translate(-side * mx, 0, 0);
     ramus.scale(SQ, 1, 1);
     ramus.translate(side * mx, 0, 0);
-    jawRoot.add(add(ramus, material));
+    jawRoot.add(add(ramus, material, 'jaw-ramus'));
     const ball = track(jointBall(RAMUS_R * 0.66));
     ball.translate(side * HINGE_X, HINGE_Y, HINGE_Z);
-    jawRoot.add(add(ball, material));
+    jawRoot.add(add(ball, material, 'jaw-condyle'));
   }
 
   // ------------------------------------------------------------- lower teeth
@@ -1407,11 +1631,33 @@ export function buildSkull({ material }) {
   const lowerTooth = track(toothGeometry(
     (lowerRow.getLength() / M.skull.teeth.lower) * 0.82, TOOTH_H, TOOTH_D,
   ));
-  placeRow(lowerRow, lowerTooth, M.skull.teeth.lower, jawRoot);
+  placeRow(lowerRow, lowerTooth, M.skull.teeth.lower, jawRoot, 'tooth-lower');
 
   // Symmetric, so this asserts nothing about the skull's own geometry; it is
   // published because metrics.js asks every part to, and the assembler checks.
   group.userData.outwardX = LEFT_X;
+
+  // The landmarks a skull is judged on, published so they can be checked
+  // against the reference rather than eyeballed. Two rejected builds passed
+  // three-quarter renders while being wrong in plan, so the acceptance test for
+  // this part is a table of numbers and a straight-on profile, not a look.
+  // Everything here is a world-space height or length; the checker turns them
+  // into fractions of crown-to-chin itself.
+  group.userData.landmarks = {
+    orbitV: ORBIT_V,
+    browY: ORBIT_V + SOCKET.b + BROW_LIFT,
+    hingeY: HINGE_Y,
+    hingeZ: HINGE_Z,
+    hingeX: HINGE_X,
+    gonionY,
+    gonionZ: gonion.z,
+    gonionX,
+    nasalFloor: NASAL_V - NASAL_H / 2,
+    nasalH: NASAL_H,
+    nasalW: NASAL_W,
+    orbitDiverge: orbitDiverge * (180 / Math.PI),
+    zygGap: archGap,
+  };
 
   return {
     group,
