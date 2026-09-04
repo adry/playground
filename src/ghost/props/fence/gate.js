@@ -205,9 +205,21 @@ export const GATE_LAYOUT = {
   length: L,
   pitch: PANEL_LAYOUT.pitch,
   hingeX: HINGE_X,
-  leaf: { x0: HINGE_X, length: LEAF_LEN, bottom: GROUND_CLEAR, mid: LEAF_MID },
+  leaf: {
+    x0: HINGE_X, length: LEAF_LEN, bottom: GROUND_CLEAR, mid: LEAF_MID,
+    // Half the leaf's thickest section, corner included. What a collision test
+    // has to add to whatever it is testing against, since the leaf is a board
+    // and not a line.
+    half: LEAF_HALF_MAX,
+  },
   post: { half: POST_HALF, height: F.post.height * POST_TALLER },
   latchAngle: LATCH_ANGLE,
+  // REACH, said out loud for whoever has to keep the ground clear. Every point
+  // of the leaf is within this of the pivot at every angle, by construction --
+  // it is the number LEAF_LEN was solved out of. The swept region is the whole
+  // DISC of this radius about the hinge and not a half of one, because the gate
+  // is double-acting and uses both halves.
+  sweepRadius: REACH,
 };
 
 export function createGate({ seed = 1, scale = 1, hingeSide = 'left' } = {}) {
@@ -408,6 +420,17 @@ export function createGate({ seed = 1, scale = 1, hingeSide = 'left' } = {}) {
     group,
     hinge,
     latchAngle: LATCH_ANGLE,
+    hingeSide: hingeSide === 'right' ? 'right' : 'left',
+    // Which way along local X the leaf runs from the pivot: +1 for a gate
+    // hinged at the -X end, -1 for the mirrored one. Reported rather than
+    // rederived because it is the sign that decides which way a positive
+    // hinge.rotation.y carries the leaf's free edge, and a physics caller that
+    // guesses it gets a gate that opens into whatever pushed it.
+    leafSign: s,
+    // The pivot in the group's own frame, so a caller can place the swept disc
+    // without walking the object graph.
+    hingeAt: { x: s * HINGE_X, z: LEAF_MID },
+    sweepRadius: REACH,
     // Inert, like the panel's. The swing belongs to whoever owns the physics;
     // this prop must never write hinge.rotation itself or there would be two
     // hands on it.

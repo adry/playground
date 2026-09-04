@@ -430,6 +430,18 @@ window.__ghost = {
   __scene: scene,
   __ghostObj: ghost,
   __props: props,
+  // TEMP: advance the sim without rendering, so a capture can walk the ghost
+  // somewhere in a fraction of the time a rendered walk costs on a CPU raster.
+  __quiet(dt, axis, n = 1) {
+    for (let i = 0; i < n; i++) {
+      sceneTime += dt;
+      ghost.update(dt, { x: axis?.x ?? 0, y: axis?.y ?? 0, jump: !!axis?.jump });
+      for (const prop of props) prop.update?.(sceneTime, dt);
+      for (const g of gateProps) g.update(dt);
+      follow(dt);
+    }
+  },
+  __render() { renderer.render(scene, camera); },
   // Shadow coverage is invisible until something stops casting, and then it is
   // hard to tell a frustum miss from a lighting bug. This reports the fitted
   // box and whether a given world point would land inside it.

@@ -140,6 +140,17 @@ const HINGE = 0.03;    // rad/s^2
 // a floor on the speed. Same argument as MIN_BOUNCE in the skeleton's debris.
 const MIN_BOUNCE = 0.22;   // rad/s
 
+// The fastest a MOVING stop (see `block` below) may drag the leaf along with
+// it. A body walking at a couple of metres a second asks for a modest angular
+// rate out at the leaf's tip and an unbounded one next to the pivot, where a
+// centimetre sideways is most of a radian, so the rate has to be capped
+// somewhere or a walk past the hinge post flings the gate across its whole
+// travel. 8 rad/s is a leaf tip doing about 14 m/s on the shipped gate, well
+// past anything the ghost can produce honestly and slow enough that the one
+// frame where the cap bites reads as the leaf being shoved rather than as it
+// teleporting.
+const MAX_SHOVE = 8.0;     // rad/s
+
 // --- sleep ---------------------------------------------------------------------
 const REST_SPEED = 0.05;   // rad/s, slow enough to be resting rather than moving
 // How far off the settle point still counts as home. This is a FLOOR, not the
@@ -264,6 +275,102 @@ export function createSwing({
   let lastH = -1;
   let linDecay = 1;
 
+  // --- a stop that walks ------------------------------------------------------
+  //
+  // Everything above is a stop the gate was BUILT with: the frame and the far
+  // limits never move, so the leaf can be laid out around them once. A body
+  // standing in the gateway is not like that. It arrives on either side, it
+  // crosses from one to the other, and it can turn up underneath a leaf that
+  // was already still.
+  //
+  // It is given to this file the way everything else here is, as an angle: the
+  // forbidden interval `at` +/- `half`, in leaf angles, handed over fresh every
+  // frame. What shape the body is and how a circle and a bar become an interval
+  // is geometry, and geometry lives with the model, not in here. This file only
+  // has to keep the leaf out of it.
+  //
+  // Two different things happen and they want different answers:
+  //
+  //   THE LEAF SWINGS INTO THE BODY. A collision, and treated as exactly that:
+  //   resolved per substep, with the same restitution and the same MIN_BOUNCE
+  //   floor as the built stops. Swept, not sampled -- the test is between the
+  //   angle at the START of the substep and the angle at the end, so a leaf
+  //   moving fast enough to cross the whole interval inside one step is still
+  //   caught instead of tunnelling through the body.
+  //
+  //   THE BODY WALKS INTO THE LEAF. Not a collision at all: the leaf never
+  //   moved, the interval did. Handled once per frame before the substeps, by
+  //   carrying the leaf out to the near edge at the speed that edge is
+  //   travelling, so leaning on a shut gate shoves it open instead of snapping
+  //   it open.
+  let obstacle = null;
+  // Which side of the interval the leaf is on. REMEMBERED rather than worked
+  // out fresh each time, because for a leaf sitting exactly on the centre line
+  // -- a body standing square in the closed plane, which is the case a player
+  // will find within a minute -- there is no right answer, and computing one
+  // from a sign that is flipping about at 1e-17 buzzes the leaf between the two
+  // edges. Held instead, so whichever side it went out first is the side it
+  // stays on until it is genuinely clear.
+  let obstacleSide = 1;
+
+  // The swept half. `prev` is the angle at the start of the substep.
+  function resolveObstacle(prev) {
+    if (!obstacle) return;
+    const { at, half } = obstacle;
+    const g0 = prev - at;
+    const side = g0 > 0 ? 1 : g0 < 0 ? -1 : obstacleSide;
+    obstacleSide = side;
+    // How far past the near edge the leaf ended up. Positive is inside the
+    // body, and it is positive for a leaf that stopped inside the interval AND
+    // for one that shot clean out the far side, which is the whole point of
+    // measuring it from the edge the leaf started outside of.
+    const depth = half - side * (angle - at);
+    if (depth <= 0) return;
+    const surface = at + side * half;
+    if (side * velocity < -MIN_BOUNCE) {
+      // Same trade as resolveStops: give back the overshoot scaled by the
+      // restitution rather than clamping it away, or every bounce reads a
+      // substep late.
+      angle = surface + side * depth * restitution;
+      velocity = -velocity * restitution;
+    } else {
+      angle = surface;
+      if (side * velocity < 0) velocity = 0;
+    }
+    // The body can stand somewhere that leaves the leaf pinched between it and
+    // a built stop. The built stop wins: it is the one made of wood.
+    if (angle < lo) { angle = lo; velocity = 0; } else if (angle > hi) { angle = hi; velocity = 0; }
+  }
+
+  // The other half, once per frame: the interval moved, not the leaf.
+  function resolveDisplacement(dt) {
+    if (!obstacle) return;
+    const { at, half } = obstacle;
+    const g = angle - at;
+    if (Math.abs(g) >= half) { obstacleSide = g >= 0 ? 1 : -1; return; }
+    const side = g > 0 ? 1 : g < 0 ? -1 : obstacleSide;
+    obstacleSide = side;
+    // Capped in DISTANCE as well as in speed, so the worst a body that jumps
+    // (a spawn, a teleport, a dropped frame) can do is overlap the leaf for a
+    // frame or two while it is pushed clear. That is quiet. Moving the leaf the
+    // whole way in one frame instead is the spasm this cap exists to avoid.
+    const step = Math.min(half - side * g, MAX_SHOVE * dt);
+    if (step <= 0) return;
+    angle += side * step;
+    if (angle < lo) angle = lo; else if (angle > hi) angle = hi;
+    // Carried, not thrown: the leaf ends up moving at the speed the edge is
+    // moving, and a leaf already going faster than that keeps what it had.
+    const rate = step / Math.max(dt, 1e-6);
+    velocity = side > 0 ? Math.max(velocity, rate) : Math.min(velocity, -rate);
+    // A shove wakes the gate. A leaf held off its settle point by a body cannot
+    // retire again while the body is there -- `resting` tests against `settle`
+    // and the leaf is nowhere near it -- which is correct rather than a leak: a
+    // gate somebody is leaning on is not a gate at rest, and it goes back to
+    // sleep on its own within a tenth of a second of them stepping away.
+    asleep = false;
+    still = 0;
+  }
+
   // Reflect off whichever limit was crossed. The distance travelled past the
   // surface inside this substep is the distance the leaf would have travelled
   // coming back out, scaled by the restitution; clamping to the surface instead
@@ -328,9 +435,13 @@ export function createSwing({
     //    energy. Every one of steps 2 to 4 is a contraction of |v|, so the only
     //    thing that can ever ADD energy is the symplectic gravity kick, and a
     //    symplectic kick cannot add it secularly.
+    const prev = angle;
     angle += velocity * h;
 
     resolveStops();
+    // After the built stops, and against `prev`, so a rebound that throws the
+    // leaf across the body is caught by the same swept test as a direct hit.
+    resolveObstacle(prev);
   }
 
   return {
@@ -372,6 +483,26 @@ export function createSwing({
       resolveStops();
     },
 
+    // Put a stop somewhere it can move: the forbidden interval `centre` +/-
+    // `half`, in leaf angles, for a body standing in the leaf's way. Recompute
+    // and re-set it every frame from wherever the body is; pass null (or a
+    // non-positive half) to take it away again. See the long note by
+    // `obstacle`. `centre` must be given in the same continuous branch the
+    // leaf's own angle lives in, i.e. within PI of `angle`, since this file
+    // never wraps anything.
+    block(centre, half) {
+      obstacle = centre !== null && Number.isFinite(centre) && Number.isFinite(half) && half > 0
+        ? { at: centre, half }
+        : null;
+    },
+
+    // Is there one, and is the leaf actually up against it? Reported for the
+    // model and for tests; nothing in here reads them.
+    get blocked() { return !!obstacle; },
+    get onBlock() {
+      return !!obstacle && Math.abs(Math.abs(angle - obstacle.at) - obstacle.half) < 1e-9;
+    },
+
     update(dt) {
       // A retired gate costs one comparison per frame and nothing else, the way
       // the skeleton's debris retires a settled bone. Fifty shut gates should
@@ -381,7 +512,14 @@ export function createSwing({
       // divides into a finite number of substeps of infinite length, and turns
       // the angle into a NaN that then propagates into the gate's transform and
       // out through the whole scene graph. Cheap to refuse here.
-      if (asleep || !Number.isFinite(dt) || dt <= 0) return angle;
+      if (!Number.isFinite(dt) || dt <= 0) return angle;
+
+      // Before the retired check, and before anything else: a body that walks
+      // into a sleeping gate has to be able to wake it. Nothing else in this
+      // file can, because a retired gate does not integrate.
+      resolveDisplacement(dt);
+
+      if (asleep) return angle;
 
       const steps = Math.min(Math.ceil(dt / MAX_STEP), MAX_SUBSTEPS);
       const h = Math.min(dt / steps, MAX_STEP);
@@ -415,6 +553,8 @@ export function createSwing({
       velocity = 0;
       still = 0;
       asleep = true;
+      obstacle = null;
+      obstacleSide = 1;
     },
   };
 }
