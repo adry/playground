@@ -58,6 +58,17 @@ const VARY = {
   gapMax: 0.040,
   settleChance: 0.30,     // fraction of stones that have sunk further
   settleMax: 0.035,
+  // Per-stone tone, as a vertex colour multiplying the shared map.
+  //
+  // The mottle is authored at headstone scale, where one blob is 6 to 28cm
+  // across: a 45cm kerb stone therefore sees a fraction of one blob and comes
+  // out very nearly flat, so twenty of them off one map read as one moulded
+  // strip however different their shapes are. This is the missing frequency,
+  // and it is the one a real run has most of: block to block, not within a
+  // block. Kept small enough that no stone drifts away from the headstones'
+  // grey, which is the whole reason the map is shared in the first place.
+  tone: 0.050,            // +/- multiplier on the whole stone
+  warm: 0.014,            // +/- red against blue, so the tone is not just value
 };
 
 // The soft stain in the dirt where a stone is bedded. One patch per stone, not
@@ -67,7 +78,7 @@ const VARY = {
 const CONTACT = {
   long: 1.30,             // multiples of the stone's own length
   across: 2.60,           // and of its width
-  opacity: 0.30,
+  opacity: 0.40,
 };
 
 // ---------------------------------------------------------------------------
@@ -240,6 +251,19 @@ function layUV(geo, baseY, uOff) {
   uv.needsUpdate = true;
 }
 
+// One flat colour over the whole block, as a vertex attribute so the run still
+// merges into a single mesh. See VARY.tone for why this exists at all.
+function tint(geo, tone, warm) {
+  const n = geo.getAttribute('position').count;
+  const c = new Float32Array(n * 3);
+  for (let i = 0; i < n * 3; i += 3) {
+    c[i] = tone * (1 + warm);
+    c[i + 1] = tone;
+    c[i + 2] = tone * (1 - warm);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+}
+
 // ---------------------------------------------------------------------------
 // The path
 
@@ -322,6 +346,7 @@ export function createKerbRun({ seed = 1, points, scale = 1 } = {}) {
   const material = toyMaterial(PALETTE.stone, {
     map: tex ? tex.map : null,
     normalMap: tex ? tex.normalMap : null,
+    vertexColors: true,
   });
 
   const nomLength = KERB.length * scale;
@@ -389,6 +414,7 @@ export function createKerbRun({ seed = 1, points, scale = 1 } = {}) {
     // keeps a whole stone inside the map with no wrap, so the joint faces never
     // pick up a seam.
     layUV(geo, baseY, 0.10 + rng() * Math.max(0.02, TEX_U - length - 0.24));
+    tint(geo, 1 + (rng() * 2 - 1) * VARY.tone, (rng() * 2 - 1) * VARY.warm);
 
     // Yaw so +X follows the chord, then the two tilts in the stone's own frame:
     // roll tips it sideways across the run, tip rocks it along the run. Euler

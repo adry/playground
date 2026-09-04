@@ -80,18 +80,18 @@ const SHAPE = { halfWidth: 0.40, height: 1.38, depth: 0.33, plinth: 0.18 };
 // SHOULDER, not from the top of the stone, because that is the number the eye
 // reads and the one that decides how much face is left for the lettering.
 const CLOTH = {
-  thick: 0.032, // a chunky vinyl cloth; below about 0.030 it reads as paper
-  gapMin: 0.0090, // clearance at the hem: the shadow line under the roll
+  thick: 0.028, // a chunky vinyl cloth; below about 0.030 it reads as paper
+  gapMin: 0.0060, // clearance at the hem: the shadow line under the roll
   gapMax: 0.0130, // and further in, where nothing can see it, enough to keep
   // the cloth's shadow off the stone it is lying on
   roll: 0.055, // how much material the rolled hem takes, in material units
-  bead: 0.42, // and how far it swells past its own thickness just inside it
+  bead: 0.30, // and how far it swells past its own thickness just inside it
 
   endOver: 0.070, // hang down the ENDS of the stone, below the shoulder roll
   fallMid: 0.345, // hang down the front, at the middle
   fallEnd: 0.420, // and at the outer end of the material, which is what sets
   // how far the corner falls past the shoulder
-  swag: 0.090, // the middle of the front hem dips this much further again
+  swag: 0.110, // the middle of the front hem dips this much further again
   tilt: 0.022, // and the whole hem falls further on one side than the other
 
   // Fewer, deeper. Three ridges across the face, and between them a narrow
@@ -101,19 +101,19 @@ const CLOTH = {
   // so the creases are a third the width of the ridges and cut most of the way
   // through the cloth's thickness.
   ridges: [
-    { p: -0.270, w: 0.105, a: 0.80 },
-    { p: 0.000, w: 0.150, a: 1.00 },
-    { p: 0.270, w: 0.100, a: 0.85 },
+    { p: -0.250, w: 0.062, a: 1.00 },
+    { p: 0.000, w: 0.070, a: 0.92 },
+    { p: 0.250, w: 0.060, a: 1.00 },
   ],
   creases: [
-    { p: -0.375, w: 0.050, a: 0.75 },
-    { p: -0.155, w: 0.055, a: 1.00 },
-    { p: 0.155, w: 0.055, a: 0.95 },
-    { p: 0.375, w: 0.050, a: 0.70 },
+    { p: -0.375, w: 0.055, a: 0.40 },
+    { p: -0.125, w: 0.060, a: 0.45 },
+    { p: 0.125, w: 0.060, a: 0.42 },
+    { p: 0.375, w: 0.055, a: 0.38 },
   ],
-  foldDepth: 0.90, // ridge height as a fraction of the cloth's thickness
+  foldDepth: 1.55, // ridge height as a fraction of the cloth's thickness
   creaseDepth: 0.85, // and how much of that thickness a groove takes back
-  hemWave: 0.050, // how much lower the hem hangs under a ridge
+  hemWave: 0.030, // how much lower the hem hangs under a ridge
   // Folds gather at the bottom of a hanging cloth and are pulled out of it over
   // the shoulder, so they open downwards rather than running as parallel pipes.
   foldBase: 0.50,

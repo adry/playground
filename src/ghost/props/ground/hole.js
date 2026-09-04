@@ -26,17 +26,22 @@ import { addGroundHole } from '../../ground.js';
 // mouth is at y = 0.
 
 // Mouth half extents, corner radius and depth, in scene units against a 1.6
-// unit ghost. 2.0 x 0.9 is casket sized. The depth is more than the 1.0 a
-// grave would want because the camera looks in at 29 degrees: a shallower pit
-// shows its floor, and a floor you can see is a floor you have to light.
+// unit ghost. 2.0 x 0.9 is casket sized.
+//
+// The depth is not the 1.0 a grave would want, and that is the whole trick. The
+// camera looks in at 29 degrees, so a sight line entering over the near lip
+// drops one unit for every 1.8 it travels across: at 1.0 deep it lands on the
+// pit floor and you read a shallow dish. At 1.45 it lands on the far wall well
+// above the bottom, the bottom is never in frame, and what closes the pit is
+// darkness rather than a floor. None of the extra depth is ever seen.
 const MOUTH_X = 1.0;
 const MOUTH_Z = 0.45;
 const CORNER = 0.20;
-const DEPTH = 1.15;
+const DEPTH = 1.45;
 
 // How far outside the mouth the floor is cut. The skirt reaches 0.40 out, so
 // 0.18 of it always rests on solid floor and covers the discard edge.
-const CUT_MARGIN = 0.16;
+const CUT_MARGIN = 0.15;
 
 const TURF = new THREE.Color('#8f949e'); // the floor's own colour
 const SPOIL = new THREE.Color('#93715a'); // broken earth at the lip
@@ -121,31 +126,33 @@ function profile(depth) {
   // Turf skirt: sits a few millimetres above the floor and blends to its
   // colour, so the discarded edge underneath is never on screen. Ortho depth
   // is linear, so 4mm of clearance is thousands of depth units: no z-fight.
-  push(0.30, 0.004, { rim: 1 });
-  push(0.24, 0.010);
-  push(0.175, 0.022);
-  push(0.115, 0.038);
-  push(0.065, 0.049);
+  // It stays low and narrow: raised any higher it stops reading as broken turf
+  // and starts reading as a rubber gasket laid round the hole.
+  push(0.28, 0.004, { rim: 1 });
+  push(0.215, 0.008);
+  push(0.150, 0.016);
+  push(0.100, 0.028);
+  push(0.058, 0.038);
   // The lip: a rolled clay edge, not a knife cut.
-  push(0.032, 0.054, { cut: 0.4 });
-  push(0.008, 0.050, { cut: 0.9 });
-  push(-0.012, 0.038, { cut: 1 });
-  push(-0.030, 0.018, { cut: 1, spade: 0.35 });
-  push(-0.042, -0.010, { cut: 1, spade: 0.75 });
-  // Wall. A slight inward taper, which is both how a pit is dug and what keeps
-  // the far wall catching a little more light than the near one.
+  push(0.030, 0.043, { cut: 0.4 });
+  push(0.008, 0.041, { cut: 0.9 });
+  push(-0.010, 0.032, { cut: 1 });
+  push(-0.026, 0.015, { cut: 1, spade: 0.35 });
+  push(-0.038, -0.012, { cut: 1, spade: 0.75 });
+  // Wall. Near vertical, with only enough taper to keep it from reading as
+  // extruded: the pit has to look dug, not drilled.
   const wallTop = -0.05;
-  const wallBottom = -(depth - 0.30);
-  const N = 9;
+  const wallBottom = -(depth - 0.16);
+  const N = 10;
   for (let i = 0; i <= N; i++) {
     const f = i / N;
-    push(-0.050 - 0.035 * f, wallTop + (wallBottom - wallTop) * f, { cut: 1, spade: 1 });
+    push(-0.045 - 0.030 * f, wallTop + (wallBottom - wallTop) * f, { cut: 1, spade: 1 });
   }
-  // Fillet into the bottom, then the bottom itself.
-  push(-0.105, -(depth - 0.16), { cut: 1, spade: 0.7 });
-  push(-0.140, -(depth - 0.07), { cut: 1, spade: 0.4 });
-  push(-0.180, -(depth - 0.02), { cut: 1, spade: 0.15 });
-  push(-0.220, -depth, { cut: 1 });
+  // A tight fillet into the bottom. Broad and it domes, and a domed bottom is
+  // the one part of a pit that reads as a bowl.
+  push(-0.105, -(depth - 0.085), { cut: 1, spade: 0.6 });
+  push(-0.160, -(depth - 0.025), { cut: 1, spade: 0.25 });
+  push(-0.215, -depth, { cut: 1 });
   return rings;
 }
 
@@ -162,7 +169,10 @@ function buildPit({ seed, depth }) {
   // Spade cuts: broad scoops the width of a blade, walked round the perimeter.
   // The count is whole so they wrap. It wants to be low: at one cut every
   // 270mm the wall came out as corduroy, which is a texture, not a dug hole.
-  const scoops = Math.max(5, Math.round(perimeter / 0.46));
+  // Everything below is measured against absolute depth in units, not against
+  // the pit's total depth: the top metre is all anyone ever sees, and it must
+  // not restyle itself if the pit is dug deeper.
+  const scoops = Math.max(5, Math.round(perimeter / 0.40));
 
   const position = new Float32Array(cols * rows * 3 + 3);
   const color = new Float32Array(cols * rows * 3 + 3);
@@ -170,7 +180,7 @@ function buildPit({ seed, depth }) {
 
   for (let r = 0; r < rows; r++) {
     const ring = rings[r];
-    const depthF = Math.min(1, Math.max(0, -ring.y / depth));
+    const depthF = Math.min(1, Math.max(0, -ring.y / 1.05));
     for (let i = 0; i < cols; i++) {
       const p = pts[i];
       const t = p.t;
@@ -189,8 +199,8 @@ function buildPit({ seed, depth }) {
         const bite = 0.35 + 0.9 * hash2(idx, 7, seed);
         const reach = 0.45 + 0.55 * hash2(idx, 19, seed);
         const start = 0.06 * hash2(idx, 31, seed);
-        const along = THREE.MathUtils.smoothstep(depthF, start, start + 0.12)
-          * (1 - THREE.MathUtils.smoothstep(depthF, reach - 0.22, reach + 0.10));
+        const along = THREE.MathUtils.smoothstep(depthF, start, start + 0.10)
+          * (1 - THREE.MathUtils.smoothstep(depthF, reach - 0.20, reach + 0.12));
         d += ring.spade * 0.075 * bite * lobe * along;
         // Terraces: the digger works in layers, so the wall steps a little.
         d += ring.spade * 0.012 * Math.cos(depthF * Math.PI * 2 * 2.2 + t * 1.7);

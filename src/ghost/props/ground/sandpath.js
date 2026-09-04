@@ -35,12 +35,12 @@ const DEFAULT_POINTS = [[-4, 0], [4, 0]];
 
 // Pale warm sand. Lighter than the floor's #8f949e and warmer, but well short
 // of a beach: this is dry trodden dirt in an overcast graveyard.
-const SAND = '#b5a892';
+const SAND = '#b0a794';
 // Where the sand has been trodden thin at the rim and the dirt underneath comes
 // through. The fringe fades to THIS and not to the floor's grey: a fade to the
 // floor colour reads as a cold halo drawn round the path, which is exactly the
 // stain the brief warns about.
-const RIM = '#8d8474';
+const RIM = '#95908a';
 
 // --- small helpers ---------------------------------------------------------
 
@@ -337,7 +337,7 @@ export function createSandPath({ seed = 1, width = 1.2, points, scale = 1 } = {}
   // --- maps --------------------------------------------------------------
   const tex = typeof document !== 'undefined' ? buildMaps(rng, width, length) : null;
 
-  const material = toyMaterial(SAND, {
+  const material = toyMaterial('#ffffff', {
     roughness: 0.97,
     map: tex ? tex.map : null,
     normalMap: tex ? tex.normalMap : null,
@@ -424,10 +424,21 @@ export function createSandPath({ seed = 1, width = 1.2, points, scale = 1 } = {}
 // v running 0..1 over the entire arc length and the texture clamped, there is
 // no second copy of anything to spot.
 //
-// The height canvas is the important one. At a 38 degree camera a colour map
-// does almost nothing that the flat albedo was not already doing, while a slope
-// of ten degrees moves the shading several percent. So everything drawn here is
-// drawn as relief first and tinted second.
+// The colour map is painted in absolute colours and the material is white,
+// rather than the white-map-times-palette-colour idiom the stones use. That is
+// deliberate: on a white base every feature can only ever darken, and half of
+// what a sand path is made of is LIGHTER than the sand around it, the dry
+// crown, the loose grit, the sand pushed up at the lip of a print. SAND below
+// is still the one place the colour is decided.
+//
+// The height canvas is the more important of the two. At a 38 degree camera a
+// colour map does little the flat albedo was not already doing, while a slope
+// of ten degrees moves the shading several percent. So everything here is drawn
+// as relief first and tinted second.
+const SAND_DRY = '#c3bcac';   // the crown and the wear, where it has dried out
+const SAND_DAMP = '#9a9488';  // pressed down, in a rut or a print
+const GRIT = '#c6c0b4';
+
 function buildMaps(rng, width, length) {
   const px = Math.max(26, Math.min(88, 2048 / Math.max(1, length)));
   const w = Math.max(48, Math.min(256, Math.round(width * px)));
@@ -442,13 +453,22 @@ function buildMaps(rng, width, length) {
   height.width = w; height.height = h;
   const hc = height.getContext('2d');
 
-  // White base on the colour map: the hue lives on the material so SAND stays
-  // the single source of truth. Mid grey on the height map, so features can go
-  // either way from it.
-  cc.fillStyle = '#ffffff';
+  cc.fillStyle = SAND;
   cc.fillRect(0, 0, w, h);
+  // Mid grey on the height map, so a feature can go either way from it.
   hc.fillStyle = '#808080';
   hc.fillRect(0, 0, w, h);
+
+  const rgb = (hex) => {
+    const c = new THREE.Color(hex);
+    return `${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)}`;
+  };
+  const DRY = rgb(SAND_DRY);
+  const DAMP = rgb(SAND_DAMP);
+  const EDGE = rgb(RIM);
+  const STONE = rgb(GRIT);
+  const DOWN = '30,30,30';
+  const UP = '226,226,226';
 
   // A soft blotch, drawn to whichever map it belongs on.
   const blot = (ctx, x, y, rx, ry, rot, col, a) => {
@@ -466,42 +486,44 @@ function buildMaps(rng, width, length) {
     ctx.fill();
     ctx.restore();
   };
-  const DOWN = '30,30,30';
-  const UP = '226,226,226';
 
-  // 1. Swells and dips a hand's width across. This is the layer that stops the
-  //    camber reading as one airbrushed tube: without it the only shading on
-  //    the path is a single gradient from one edge to the other.
+  // 1. Swells and dips a hand's width across, in relief and in colour together:
+  //    a high spot has dried paler, a low one is damp and darker. This is the
+  //    layer that stops the camber reading as one airbrushed tube, which is all
+  //    the path was before it existed.
   for (let i = 0; i < Math.round(length * 9) + 8; i++) {
     const x = -w * 0.1 + rng() * w * 1.2;
     const y = -pxV * 0.3 + rng() * (h + pxV * 0.6);
-    const r = pxU * (0.13 + rng() * 0.26);
-    const down = rng() < 0.5;
-    blot(hc, x, y, r, r * (pxV / pxU) * (0.7 + rng() * 1.1), rng() * Math.PI, down ? DOWN : UP, 0.3);
+    const rx = pxU * (0.13 + rng() * 0.26);
+    const ry = rx * (pxV / pxU) * (0.7 + rng() * 1.1);
+    const rot = rng() * Math.PI;
+    const up = rng() < 0.5;
+    blot(hc, x, y, rx, ry, rot, up ? UP : DOWN, 0.3);
+    blot(cc, x, y, rx * 1.2, ry * 1.2, rot, up ? DRY : DAMP, 0.2);
   }
 
-  // 2. Broad dirt patches, colour only: where the sand is thinner or has been
-  //    walked dirty. Long wavelength on purpose, a lot of small ones is grain.
-  for (let i = 0; i < Math.round(length * 2.6) + 6; i++) {
+  // 2. Broad patches of dirt walked into the sand. Colour only, and long
+  //    wavelength on purpose: a lot of small ones is grain.
+  for (let i = 0; i < Math.round(length * 2.2) + 5; i++) {
     const x = rng() * w;
     const y = rng() * h;
-    const r = (0.14 + rng() * 0.4) * Math.min(w, pxV * 1.4);
-    const dark = rng() < 0.55;
-    blot(cc, x, y, r, r * (0.6 + rng() * 0.9), rng() * Math.PI, dark ? '150,140,126' : '255,252,245', dark ? 0.16 : 0.2);
+    const r = (0.12 + rng() * 0.26) * Math.min(w, pxV * 1.5);
+    const dark = rng() < 0.5;
+    blot(cc, x, y, r, r * (0.6 + rng() * 0.9), rng() * Math.PI, dark ? DAMP : DRY, 0.13);
   }
 
   // 3. The two wheel hollows. The geometry already sinks them; this is the dirt
   //    pressed darker and smoother inside them, and the loose sand pushed up
-  //    into a low ridge along their outer lips.
+  //    into a low pale ridge along their outer lips.
   for (const base of [0.30, 0.70]) {
     let uu = base;
+    const side = base < 0.5 ? -1 : 1;
     for (let y = -pxV * 0.4; y < h + pxV * 0.4; y += pxV * 0.12) {
       uu += (rng() - 0.5) * 0.014;
-      const u = Math.max(0.08, Math.min(0.92, uu));
-      const x = u * w;
-      blot(cc, x, y, pxU * 0.10, pxV * 0.13, 0, '143,133,118', 0.14);
+      const x = Math.max(0.08, Math.min(0.92, uu)) * w;
+      blot(cc, x, y, pxU * 0.10, pxV * 0.13, 0, DAMP, 0.16);
       blot(hc, x, y, pxU * 0.075, pxV * 0.13, 0, DOWN, 0.26);
-      const side = base < 0.5 ? -1 : 1;
+      blot(cc, x + side * pxU * 0.12, y, pxU * 0.055, pxV * 0.13, 0, DRY, 0.14);
       blot(hc, x + side * pxU * 0.115, y, pxU * 0.05, pxV * 0.13, 0, UP, 0.2);
     }
   }
@@ -516,45 +538,49 @@ function buildMaps(rng, width, length) {
     const rx = pxU * (0.055 + rng() * 0.035);
     const ry = pxV * (0.085 + rng() * 0.055);
     const rot = (rng() - 0.5) * 0.5;
-    blot(hc, x, y, rx, ry, rot, DOWN, 0.55);
-    blot(cc, x, y, rx * 1.2, ry * 1.2, rot, '148,139,125', 0.13);
     const side = rng() < 0.5 ? -1 : 1;
+    blot(hc, x, y, rx, ry, rot, DOWN, 0.55);
+    blot(cc, x, y, rx * 1.2, ry * 1.2, rot, DAMP, 0.2);
     blot(hc, x + side * rx * 1.25, y, rx * 0.75, ry * 0.9, rot, UP, 0.32);
+    blot(cc, x + side * rx * 1.3, y, rx * 0.8, ry * 0.95, rot, DRY, 0.18);
   }
 
   // 5. The scuffed rim. Narrow on purpose: a wide soft gradient is an airbrushed
-  //    halo, and a halo is the failure mode this whole prop is trying to avoid.
-  //    It fades to RIM, the dirt showing through where the sand has been kicked
+  //    halo, and a halo is the failure this whole prop is trying to avoid. It
+  //    fades to RIM, the dirt showing through where the sand has been kicked
   //    thin, and the tongues break it up so it is never a clean ramp either.
-  const rim = ratioToMap(RIM);
-  const BAND = 0.15;
+  const BAND = 0.16;
   for (const side of [0, 1]) {
     const x0 = side ? w : 0;
     const x1 = side ? w * (1 - BAND) : w * BAND;
     const g = cc.createLinearGradient(x0, 0, x1, 0);
-    g.addColorStop(0, `rgba(${rim},0.85)`);
-    g.addColorStop(0.5, `rgba(${rim},0.32)`);
-    g.addColorStop(1, `rgba(${rim},0)`);
+    g.addColorStop(0, `rgba(${EDGE},0.95)`);
+    g.addColorStop(0.45, `rgba(${EDGE},0.42)`);
+    g.addColorStop(1, `rgba(${EDGE},0)`);
     cc.fillStyle = g;
     cc.fillRect(side ? x1 : 0, 0, w * BAND, h);
     for (let i = 0; i < Math.round(length * 4) + 5; i++) {
       const y = rng() * h;
-      const depth = pxU * (0.04 + rng() * 0.14);
-      const x = side ? w - depth * 0.35 : depth * 0.35;
-      blot(cc, x, y, depth, pxV * (0.08 + rng() * 0.13), 0, rng() < 0.5 ? '255,252,245' : rim, 0.34);
-      // A little relief goes with it, so the rim is chewed rather than shaded.
-      blot(hc, x, y, depth * 0.8, pxV * (0.06 + rng() * 0.1), 0, rng() < 0.55 ? DOWN : UP, 0.3);
+      const depth = pxU * (0.05 + rng() * 0.15);
+      const x = side ? w - depth * 0.3 : depth * 0.3;
+      const ry = pxV * (0.08 + rng() * 0.13);
+      const dry = rng() < 0.5;
+      blot(cc, x, y, depth, ry, 0, dry ? DRY : EDGE, 0.3);
+      // A little relief goes with it, so the rim is chewed and not just shaded.
+      blot(hc, x, y, depth * 0.8, ry * 0.8, 0, dry ? UP : DOWN, 0.3);
     }
   }
 
   // 6. Grit. Small enough to be many, big enough not to be grain: one of these
-  //    is about two centimetres, and it is a bump with a lit top, not a speck.
-  for (let i = 0; i < Math.round(length * 22) + 16; i++) {
+  //    is about two centimetres, and it is a pale bump with a lit top, not a
+  //    speck. The dark ones are the same stone pressed into the dirt.
+  for (let i = 0; i < Math.round(length * 18) + 14; i++) {
     const x = 0.06 * w + rng() * w * 0.88;
     const y = rng() * h;
-    const r = pxU * (0.015 + rng() * 0.022);
-    blot(hc, x, y, r, r * (pxV / pxU) * 0.9, 0, UP, 0.62);
-    blot(cc, x, y, r * 1.2, r * (pxV / pxU) * 1.1, 0, rng() < 0.6 ? '255,253,247' : '156,148,136', 0.2);
+    const r = pxU * (0.016 + rng() * 0.024);
+    const proud = rng() < 0.65;
+    blot(hc, x, y, r, r * (pxV / pxU) * 0.9, 0, proud ? UP : DOWN, 0.5);
+    blot(cc, x, y, r * 1.25, r * (pxV / pxU) * 1.15, 0, proud ? STONE : DAMP, 0.34);
   }
 
   const map = new THREE.CanvasTexture(colour);
@@ -569,18 +595,4 @@ function buildMaps(rng, width, length) {
   normalMap.wrapT = THREE.ClampToEdgeWrapping;
 
   return { map, normalMap };
-}
-
-// The multiplier that turns SAND into some other colour, in the space the map
-// is sampled in. Worked out rather than eyeballed, so a fringe painted with it
-// lands on exactly the colour asked for instead of near it.
-function ratioToMap(target) {
-  const a = new THREE.Color(SAND).convertSRGBToLinear();
-  const b = new THREE.Color(target).convertSRGBToLinear();
-  const c = new THREE.Color(
-    Math.min(1, b.r / Math.max(1e-4, a.r)),
-    Math.min(1, b.g / Math.max(1e-4, a.g)),
-    Math.min(1, b.b / Math.max(1e-4, a.b)),
-  ).convertLinearToSRGB();
-  return `${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)}`;
 }

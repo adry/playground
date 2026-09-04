@@ -174,31 +174,37 @@ function gravelTextures(seed) {
     // Biased small: a laid path is mostly one grade of chipping with a few
     // bigger stones in it, not an even spread of every size.
     const r = (CHIP_R[0] + (CHIP_R[1] - CHIP_R[0]) * Math.pow(rand(), 1.6)) * (TEX / TILE);
+    // Chippings are not marbles. An elongated cap with a random heading is the
+    // difference between a bed of gravel and a bed of peas, and it costs one
+    // rotation per chip.
+    const aspect = 1 + rand() * 0.55;
+    const ra = r * aspect;
+    const rb = r / aspect;
+    const ang = rand() * Math.PI;
+    const ca = Math.cos(ang);
+    const sa = Math.sin(ang);
     // A little settle jitter, so chips do not all peak at the same height and
     // the field gets a coarse unevenness on top of the chip-scale one.
     const peak = r * CHIP_FLAT * (0.72 + rand() * 0.5);
-    const bed = (rand() - 0.5) * r * 0.30;
+    const bed = (rand() - 0.5) * r * 0.22;
     tint.push(rand());
 
-    const r2 = r * r;
-    const lo = Math.floor(-r) - 1;
-    const hi = Math.ceil(r) + 1;
-    for (let dy = lo; dy <= hi; dy++) {
-      const py = cy + dy;
+    const reach = Math.ceil(Math.max(ra, rb)) + 1;
+    for (let dy = -reach; dy <= reach; dy++) {
+      const py = Math.round(cy) + dy;
       // Wrapping is done on the texel index, so every chip that runs off one
       // edge comes back on the other and the tile is seamless by construction.
-      const iy = ((Math.round(py) % TEX) + TEX) % TEX;
-      const fy = Math.round(py) - cy;
-      const fy2 = fy * fy;
-      if (fy2 > r2) continue;
-      const halfx = Math.sqrt(r2 - fy2);
-      for (let dx = -Math.ceil(halfx); dx <= Math.ceil(halfx); dx++) {
-        const px = cx + dx;
-        const fx = Math.round(px) - cx;
-        const d2 = fx * fx + fy2;
-        if (d2 > r2) continue;
-        const ix = ((Math.round(px) % TEX) + TEX) % TEX;
-        const h = bed + peak * Math.sqrt(1 - d2 / r2);
+      const iy = ((py % TEX) + TEX) % TEX;
+      const fy = py - cy;
+      for (let dx = -reach; dx <= reach; dx++) {
+        const px = Math.round(cx) + dx;
+        const fx = px - cx;
+        const u1 = (fx * ca + fy * sa) / ra;
+        const u2 = (-fx * sa + fy * ca) / rb;
+        const d2 = u1 * u1 + u2 * u2;
+        if (d2 > 1) continue;
+        const ix = ((px % TEX) + TEX) % TEX;
+        const h = bed + peak * Math.sqrt(1 - d2);
         const k = iy * TEX + ix;
         if (h > height[k]) { height[k] = h; owner[k] = i; }
       }
@@ -660,8 +666,8 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
     const sc = new THREE.Vector3();
     const col = new THREE.Color();
     const base = new THREE.Color(GRAVEL.base);
-    const pale = new THREE.Color(GRAVEL.pale);
     const dark = new THREE.Color(GRAVEL.dark);
+    const crev = new THREE.Color(GRAVEL.crevice);
 
     for (let i = 0; i < chipCount; i++) {
       const f = rand() * (N - 1);
@@ -702,14 +708,16 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
       q.setFromEuler(e);
       chips.setMatrixAt(i, m.compose(p, q, sc));
 
-      // Kept close to the mass. The first pass let these run to the pale end
-      // of the ramp and the rim came out looking like spilled popcorn: a chip
-      // sitting proud already catches more key than the surface it lies on, so
-      // giving it a pale colour as well doubles the effect.
+      // Deliberately DARKER than the mass, which looks wrong written down and
+      // is right on screen. A chip standing proud presents a face pointing
+      // straight at the sky, while the mass around it is a field of broken
+      // normals averaging well off vertical. Give the two the same albedo and
+      // the chips come out as chalk-white pebbles scattered on grey gravel.
+      // Taking the instances down about a fifth lands them on the same value.
       const t = rand();
-      col.copy(base);
-      if (t < 0.5) col.lerp(dark, ((0.5 - t) / 0.5) * 0.55);
-      else col.lerp(pale, ((t - 0.5) / 0.5) * 0.30);
+      col.copy(dark);
+      if (t < 0.5) col.lerp(crev, ((0.5 - t) / 0.5) * 0.55);
+      else col.lerp(base, ((t - 0.5) / 0.5) * 0.60);
       chips.setColorAt(i, col);
     }
     chips.instanceMatrix.needsUpdate = true;

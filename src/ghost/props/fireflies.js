@@ -175,6 +175,8 @@ const VERTEX = /* glsl */`
   varying float vBright;
   varying float vFade;
 
+  #include <fog_pars_vertex>
+
   ${PULSE_GLSL}
 
   void main() {
@@ -236,6 +238,14 @@ const VERTEX = /* glsl */`
     vec4 centre = modelViewMatrix * instanceMatrix * vec4(drift, 1.0);
     centre.xy += position.xy * size;
     gl_Position = projectionMatrix * centre;
+
+    // The scene fogs to the backdrop from 24 units out, and a field that spans
+    // the level has fireflies out there. Depth is taken from the sprite's
+    // centre rather than its corners so a quad cannot fog unevenly across
+    // itself.
+    #ifdef USE_FOG
+      vFogDepth = -centre.z;
+    #endif
   }
 `;
 
@@ -244,6 +254,7 @@ const FRAGMENT = /* glsl */`
 
   #include <tonemapping_pars_fragment>
   #include <colorspace_pars_fragment>
+  #include <fog_pars_fragment>
 
   uniform vec3 uCore;
   uniform vec3 uHalo;
@@ -276,6 +287,20 @@ const FRAGMENT = /* glsl */`
 
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
+
+    // Fog, but not three's fog_fragment chunk, which mixes toward the fog
+    // COLOUR. On a premultiplied sprite that would paint a grey square over
+    // the floor wherever the halo is transparent. Fogging a light means it
+    // stops reaching you, so both the colour and the coverage go to zero
+    // together and the sprite dissolves into the backdrop instead.
+    #ifdef USE_FOG
+      #ifdef FOG_EXP2
+        float fogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth);
+      #else
+        float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
+      #endif
+      gl_FragColor *= 1.0 - fogFactor;
+    #endif
   }
 `;
 
@@ -323,6 +348,9 @@ export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
   const collected = new Uint8Array(n);
 
   const uniforms = {
+    // Fog uniforms have to be present by name, because the renderer refreshes
+    // them by writing straight into this object when material.fog is true.
+    ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
     uTime: { value: 0 },
     uSize: { value: SIZE },
     uScale: { value: scale },
@@ -350,6 +378,7 @@ export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
     depthTest: true,
     depthWrite: false,
     toneMapped: true,
+    fog: true,
   });
 
   const mesh = new THREE.InstancedMesh(geometry, material, n);

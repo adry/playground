@@ -128,6 +128,22 @@ function lumpGeometry(rng, seg) {
 // short, which is the whole of point 2 above: a broad crest is surface pointing
 // at the sky.
 const CORE_Q = 0.44;
+// The crest is a LINE, not a point. A dome over an ellipse peaks at one spot
+// and reads as a dome however it is dressed; a spoil heap tipped along the side
+// of a trench has a ridge. RIDGE is the fraction of the half length over which
+// the top stays at full height, measured in a stadium-shaped metric, and RIM is
+// a second falloff in the plain elliptical metric whose only job is to make
+// sure the whole outline still lands on the floor.
+const RIDGE = 0.34;
+const RIM_Q = 0.30;
+
+function coreProfile(x, z, { a, c, h }) {
+  const u = Math.abs(x) / a;
+  const rr = Math.hypot(Math.max(0, u - RIDGE) / (1 - RIDGE), z / c);
+  const re = Math.hypot(u, z / c);
+  if (re >= 1) return 0;
+  return h * Math.pow(Math.max(0, 1 - rr * rr), CORE_Q) * Math.pow(1 - re * re, RIM_Q);
+}
 
 function coreGeometry({ a, c, h, rng }) {
   const geo = new THREE.SphereGeometry(0.5, 30, 12, 0, Math.PI * 2, 0, Math.PI / 2);
@@ -143,12 +159,9 @@ function coreGeometry({ a, c, h, rng }) {
     // Crest wobble, strongest at the top and gone at the rim so the skirt still
     // lands on the floor all the way round.
     const cw = 1 + rho * (1 - rho) * (0.55 * Math.sin(2 * th + ph[2]) + 0.35 * Math.sin(4 * th - ph[0]));
-    p.setXYZ(
-      i,
-      a * rho * Math.cos(th) * w,
-      h * Math.pow(Math.max(0, 1 - rho * rho), CORE_Q) * cw,
-      c * rho * Math.sin(th) * w,
-    );
+    const px = a * rho * Math.cos(th) * w;
+    const pz = c * rho * Math.sin(th) * w;
+    p.setXYZ(i, px, coreProfile(a * rho * Math.cos(th), c * rho * Math.sin(th), { a, c, h }) * cw, pz);
   }
   geo.computeVertexNormals();
   return geo;
@@ -157,9 +170,8 @@ function coreGeometry({ a, c, h, rng }) {
 // Height of the core at a point, so a clod can be seated ON it rather than at a
 // height somebody chose. Same formula as the mesh minus the wobble, which is
 // close enough: the clod is sunk by a third of its radius anyway.
-function coreHeight(x, z, { a, c, h }) {
-  const rho = Math.hypot(x / a, z / c);
-  return rho >= 1 ? 0 : h * Math.pow(1 - rho * rho, CORE_Q);
+function coreHeight(x, z, core) {
+  return coreProfile(x, z, core);
 }
 
 function placed(geo, { pos, scale, euler }) {
@@ -323,7 +335,9 @@ export function createDirtPile({
   const h = height * 0.88;
   const core = { a, c, h };
 
-  const parts = [paint(coreGeometry({ a, c, h, rng }), { rng, height, crevice: 0.30 })];
+  // Every clod is PLACED before any of them is BUILT, because the occlusion
+  // pass needs the whole heap to shade one vertex of it.
+  const clods = [];
 
   // --- the body: clods stuck into the core ---------------------------------
   // Sampled over the footprint rather than over a ring, with the count set so
@@ -338,33 +352,26 @@ export function createDirtPile({
     const th = i * 2.399963 + rng() * 0.55;
     const x = a * rho * Math.cos(th);
     const z = c * rho * Math.sin(th);
-    // Bigger lumps low down, where the barrow tipped and the big stuff rolled;
-    // finer material stays up on the crest.
     // A wide spread of sizes, because a heap of one size is gravel. Bigger
     // lumps low down, where the barrow tipped and the coarse stuff rolled.
     const r = (0.058 + 0.062 * rho) * (0.62 + rng() * rng() * 1.5);
-    // How deep the clod is sunk into the core is the difference between soil
-    // and a cairn: a run of clods all showing their equator reads as stacked
-    // stones, while a mixture, some proud and most with only a crown out, reads
-    // as earth with lumps in it.
     // How deep the clod is sunk is the whole difference between a heap and a
-    // potato, and it has a narrow window. A clod is 0.72r tall above its own
-    // centre, so sinking it much past half of that leaves nothing standing
-    // proud and the heap closes back up into one smooth dome, which is the
-    // ledger's failure arriving by the back door. Tried at 0.9r to 1.65r and
-    // the render was a bread roll. This range leaves every clod showing
-    // between a fifth and three fifths of its radius.
-    const sink = 0.12 + 0.42 * rng();
-    const y = coreHeight(x, z, core) - r * sink;
-    const geo = lumpGeometry(rng, [12, 8]);
-    placed(geo, {
-      pos: new THREE.Vector3(x, Math.max(y, r * 0.22), z),
+    // potato, and it has a narrow window. A clod stands 0.72r above its own
+    // centre, so sinking it much past half of that leaves nothing proud and
+    // the heap closes back up into one smooth dome, which is the ledger's
+    // failure arriving by the back door. Tried at 0.9r to 1.65r and the render
+    // was a bread roll. This range leaves every clod showing between a fifth
+    // and three fifths of its radius.
+    const y = coreHeight(x, z, core) - r * (0.12 + 0.42 * rng());
+    clods.push({
+      x, y: Math.max(y, r * 0.22), z, r,
+      seg: [12, 8],
       // Flattened: a clod that has been dropped sits wider than it is tall, and
       // a flattened lump turns more of itself at the sky.
       scale: new THREE.Vector3(r * 2.25, r * 1.45, r * 2.0),
       euler: new THREE.Euler(rng() * 0.7 - 0.35, rng() * 6.283, rng() * 0.7 - 0.35),
+      tone: TONE.lo + (TONE.hi - TONE.lo) * rng(),
     });
-    parts.push(paint(geo, { rng, height, tone: TONE.lo + (TONE.hi - TONE.lo) * rng() }));
   }
 
   // --- the spill: loose clods on the floor round the foot -------------------
@@ -376,36 +383,43 @@ export function createDirtPile({
     const t = Math.pow(rng(), 0.55); // biased outward, they are the spill
     const rx = (length / 2) * (0.86 + 0.16 * t);
     const rz = (spread / 2) * 0.92 + ((scatter - spread) / 2) * (0.5 + 0.5 * t);
-    const x = rx * Math.cos(th);
-    const z = rz * Math.sin(th);
     const r = (0.030 + 0.052 * (1 - t)) * (0.8 + rng() * 0.55);
-    const geo = lumpGeometry(rng, [10, 7]);
-    placed(geo, {
-      pos: new THREE.Vector3(x, r * 0.62, z),
+    clods.push({
+      x: rx * Math.cos(th), y: r * 0.62, z: rz * Math.sin(th), r,
+      seg: [10, 7],
       scale: new THREE.Vector3(r * 2.3, r * 1.45, r * 2.05),
       euler: new THREE.Euler(rng() * 0.6 - 0.3, rng() * 6.283, rng() * 0.6 - 0.3),
+      tone: TONE.lo + (TONE.hi - TONE.lo) * rng(),
     });
-    parts.push(paint(geo, { rng, height, tone: TONE.lo + (TONE.hi - TONE.lo) * rng() }));
   }
 
   // --- crumbs --------------------------------------------------------------
-  // The fine stuff, thrown furthest. Small enough that they are three or four
-  // pixels at scene range, which is the point: they soften the edge of the
-  // footprint so the heap does not end on a line.
+  // The fine stuff, thrown furthest. Three or four pixels at scene range, which
+  // is the point: they soften the edge of the footprint so the heap does not
+  // end on a line.
   const CRUMBS = 26;
   for (let i = 0; i < CRUMBS; i++) {
     const th = rng() * 6.283;
     const t = Math.pow(rng(), 0.4);
-    const x = (length / 2) * (0.98 + 0.10 * t) * Math.cos(th);
-    const z = (scatter / 2) * (0.72 + 0.28 * t) * Math.sin(th);
     const r = 0.016 + 0.026 * rng();
-    const geo = lumpGeometry(rng, [8, 6]);
-    placed(geo, {
-      pos: new THREE.Vector3(x, r * 0.58, z),
-      scale: new THREE.Vector3(r * 2.3, r * 1.5, r * 2.1),
+    clods.push({
+      x: (length / 2) * (0.98 + 0.10 * t) * Math.cos(th),
+      y: r * 0.58,
+      z: (scatter / 2) * (0.72 + 0.28 * t) * Math.sin(th),
+      r,
+      seg: [8, 6],
+      scale: new THREE.Vector3(r * 2.3, r * 1.45, r * 2.1),
       euler: new THREE.Euler(0, rng() * 6.283, 0),
+      tone: TONE.lo + (TONE.hi - TONE.lo) * rng(),
     });
-    parts.push(paint(geo, { rng, height, tone: TONE.lo + (TONE.hi - TONE.lo) * rng() }));
+  }
+
+  const parts = [paint(coreGeometry({ a, c, h, rng }), { rng, height, clods, crevice: 0.30 })];
+  for (let i = 0; i < clods.length; i++) {
+    const d = clods[i];
+    const geo = lumpGeometry(rng, d.seg);
+    placed(geo, { pos: new THREE.Vector3(d.x, d.y, d.z), scale: d.scale, euler: d.euler });
+    parts.push(paint(geo, { rng, height, clods, skip: i, tone: d.tone }));
   }
 
   const geometry = mergeGeometries(parts, false);

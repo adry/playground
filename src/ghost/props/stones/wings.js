@@ -80,16 +80,16 @@ const CROWN_SINK = 0.28;
 // The central boss: the roundel where the skull would be. Its circle reaches
 // well below the top of the slab, so it is a dome standing out of the stone
 // rather than a ball balanced on it.
-const BOSS = { r: 0.17, y: 1.19, seat: 10 };
+const BOSS = { r: 0.155, y: 1.21, seat: -18 };
 
 const WING = {
-  cove: 0.09,
-  spring: 0.72,
+  cove: 0.115,
+  spring: 0.70,
   flare: 55,
   lobes: [
     { r: 0.115 },
-    { r: 0.100, step: 0.170, rake: 40 },
-    { r: 0.085, step: 0.160, rake: 48 },
+    { r: 0.100, step: 0.185, rake: 36 },
+    { r: 0.085, step: 0.175, rake: 42 },
   ],
   notch: 0.020,
   valley: 0.09,
@@ -244,8 +244,8 @@ registerStone('wings', {
   // and worse, it crowds the wings.
   draw(ctx, w, h) {
     const size = h * 0.115;
-    inkText(ctx, 'AT', w / 2, h * 0.50, size, size * 0.05);
-    inkText(ctx, 'REST', w / 2, h * 0.68, size, size * 0.05);
+    inkText(ctx, 'AT', w / 2, h * 0.40, size, size * 0.05);
+    inkText(ctx, 'REST', w / 2, h * 0.58, size, size * 0.05);
   },
 
   extras({ body, material, shape, plinthH, halfWidth: W, height: H, edge, slabUV, disposables }) {
