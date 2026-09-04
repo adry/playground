@@ -11,6 +11,8 @@ import { createGate, GATE_LAYOUT } from './props/fence/gate.js';
 import { createSwing } from './props/fence/swing.js';
 import { createGateController } from './props/fence/gate-controller.js';
 import { createSkeletonRig } from './props/skeleton/model.js';
+import { createDebris } from './props/skeleton/motion.js';
+import { createSkeletonPerformance } from './props/skeleton/perform.js';
 
 const canvas = document.getElementById('view');
 const params = new URLSearchParams(location.search);
@@ -375,11 +377,31 @@ if (SCENE === 'full') {
 
   fencePlot({ right: 1.0, up: FENCE_UP_PLOT, w: 3, h: 2, seed: 40, gates: { front: 1 }, broken: { back: 1, right: 0 } });
 
-  // The skeleton, standing in its rest pose so it can be judged before anyone
-  // rigs it. Out on the path between the two plots, turned a little off square
-  // because dead-on hides the depth of the ribcage and the pelvis both.
+  // The skeleton, buried on the path between the two plots, waiting for the
+  // ghost to come within seven units. Turned a little off square because
+  // dead-on hides the depth of the ribcage and the pelvis both.
+  //
+  // The rig is only the model; perform.js drives it, and it is the one prop
+  // that needs to know where the ghost is, so it is wrapped at the call site
+  // rather than by widening the prop signature for everything else.
   const [skx, skz] = atScreen(-1.0, -1.8);
-  addProp(createSkeletonRig(), skx, skz, Math.PI / 4 + 0.35);
+  const skeleton = createSkeletonRig();
+  skeleton.group.position.set(skx, 0, skz);
+  skeleton.group.rotation.y = Math.PI / 4 + 0.35;
+  scene.add(skeleton.group);
+
+  // Local clipping is what lets it come up THROUGH the floor rather than rise
+  // as a solid slab. It costs nothing on materials carrying no planes, and the
+  // performance takes its own planes off again once the figure is clear.
+  renderer.localClippingEnabled = true;
+
+  const bones = createDebris({ scene, gravity: -9.8, bounce: 0.32, floorY: 0 });
+  const skeletonPerf = createSkeletonPerformance({
+    rig: skeleton, scene, debris: bones, renderer, seed: 5,
+  });
+  // The performance steps the debris itself. Updating `bones` here as well
+  // would advance it twice a frame and every shed bone would fall at 2g.
+  props.push({ update: (time, dt) => skeletonPerf.update(dt, ghost.pos) });
 
   // The wreckage sits in the breach in the right plot's back fence.
   const [bx, bz] = atScreen(1.0 + 1.5 * PANEL, 0.6 + 2 * PANEL - 0.35);
