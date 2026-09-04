@@ -62,6 +62,126 @@ export function registerStone(name, def) {
 export { inkText, inkCross, inkBat };
 
 // ---------------------------------------------------------------------------
+// The general sweep.
+//
+// buildSlabGeometry above is the convex special case of this: four corner
+// circles at fixed centres. This one takes an arbitrary chain of arcs, each
+// carrying a `sign` saying which way it turns, so an outline may have notches,
+// valleys and coves in it.
+//
+// It is here rather than in a stone because two stones wrote it independently,
+// the twin arch and the heart, in near-identical form, and a third with a notch
+// would have written it a third time. If you need a silhouette the slab builder
+// cannot express, use this rather than copying either of them.
+//
+// The whole thing rests on one fact about offsetting an arc chain: a convex
+// arc's radius shrinks by the inset and a concave arc's GROWS by it, while
+// every centre stays put. So two tangent arcs stay tangent at the same angles
+// when one loses d and the other gains it, every ring is the same chain with
+// the same endpoints, and no normal is ever averaged.
+//
+//   outline: [{ cx, cy, r, a0, a1, sign }], counter-clockwise, tangent at joins
+//   uv:      (x, y, front) -> [u, v], the mapping handed to extras()
+export function buildArcSweepGeometry({ outline, depth, edge: e, uv }) {
+  const hz = depth / 2;
+  // One segment per ~14mm of arc, so a lobe and the little cove under it are
+  // both smooth at the size the eye meets them.
+  // A concave arc is at its widest at the flat face, where the inset has added
+  // the rim radius to it, so it is that radius the segment count has to answer.
+  const arcs = outline.map((c) => ({
+    ...c,
+    seg: Math.max(8, Math.ceil((Math.abs(c.a1 - c.a0) * (c.sign < 0 ? c.r + e : c.r)) / 0.014)),
+  }));
+  const N = arcs.reduce((n, c) => n + c.seg + 1, 0);
+
+  const B = Math.max(6, Math.round(SEGMENTS.curve / 2));
+  const profile = [];
+  for (let k = 0; k <= B; k++) {
+    const t = (k / B) * (Math.PI / 2);
+    profile.push({ inset: e * (1 - Math.sin(t)), z: hz - e + e * Math.cos(t), ns: Math.sin(t), nz: Math.cos(t), front: true });
+  }
+  profile.push({ inset: 0, z: hz - e, ns: 1, nz: 0, front: false });
+  profile.push({ inset: 0, z: -(hz - e), ns: 1, nz: 0, front: false });
+  for (let k = B; k >= 0; k--) {
+    const t = (k / B) * (Math.PI / 2);
+    profile.push({ inset: e * (1 - Math.sin(t)), z: -(hz - e + e * Math.cos(t)), ns: Math.sin(t), nz: -Math.cos(t), front: false });
+  }
+
+  const pos = [];
+  const nor = [];
+  const uvs = [];
+  const idx = [];
+  const push = (x, y, z, nx, ny, nz, front) => {
+    pos.push(x, y, z);
+    nor.push(nx, ny, nz);
+    const [u, v] = uv(x, y, front);
+    uvs.push(u, v);
+  };
+
+  for (const p of profile) {
+    for (const c of arcs) {
+      const r = c.r - c.sign * p.inset;
+      for (let j = 0; j <= c.seg; j++) {
+        const t = c.a0 + (c.a1 - c.a0) * (j / c.seg);
+        const ct = Math.cos(t);
+        const st = Math.sin(t);
+        push(c.cx + r * ct, c.cy + r * st, p.z, ct * c.sign * p.ns, st * c.sign * p.ns, p.nz, p.front);
+      }
+    }
+  }
+  for (let i = 0; i < profile.length - 1; i++) {
+    for (let j = 0; j < N; j++) {
+      const j2 = (j + 1) % N;
+      const a = i * N + j;
+      const b = i * N + j2;
+      const c = (i + 1) * N + j2;
+      const d = (i + 1) * N + j;
+      idx.push(a, c, b, a, d, c);
+    }
+  }
+
+  // Front and back faces. The first ring is already the outline inset by the
+  // full rim radius with its normal facing straight forward, and the last ring
+  // is its mirror, so both faces are triangulations of that one polygon and need
+  // no vertices of their own. twin.js fans its faces from a hub, which asks the
+  // outline to be star shaped; this one has a deeper valley and a cove scooped
+  // into each side, so rather than argue the hub can see past all three it goes
+  // through three's own ear clip, which does not care.
+  // Consecutive arcs share their tangency point exactly, so the ring carries a
+  // repeated vertex at every join, and a repeated vertex is what breaks an ear
+  // clip. They are dropped here and the survivors mapped back to their place in
+  // the ring, so the faces still index the vertices the rim already made.
+  const contour = [];
+  const ring = [];
+  for (let j = 0; j < N; j++) {
+    const x = pos[j * 3];
+    const y = pos[j * 3 + 1];
+    const prev = contour[contour.length - 1];
+    if (prev && Math.abs(prev.x - x) < 1e-7 && Math.abs(prev.y - y) < 1e-7) continue;
+    contour.push(new THREE.Vector2(x, y));
+    ring.push(j);
+  }
+  const back = (profile.length - 1) * N;
+  for (const t of THREE.ShapeUtils.triangulateShape(contour, [])) {
+    const [p0, p1, p2] = t.map((k) => ring[k]);
+    const area =
+      (pos[p1 * 3] - pos[p0 * 3]) * (pos[p2 * 3 + 1] - pos[p0 * 3 + 1]) -
+      (pos[p2 * 3] - pos[p0 * 3]) * (pos[p1 * 3 + 1] - pos[p0 * 3 + 1]);
+    const [a, b, c] = area >= 0 ? [p0, p1, p2] : [p0, p2, p1];
+    idx.push(a, b, c);
+    idx.push(back + a, back + c, back + b);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(idx);
+  geo.computeBoundingSphere();
+  return geo;
+}
+
+// ---------------------------------------------------------------------------
 // deterministic noise
 
 function mulberry32(seed) {

@@ -165,11 +165,11 @@ function roundedBlock(rBot, rTop, y0, y1, edge, seg = 7) {
 // Proportions.
 //
 // Authored against the headstones, which measure 1.10 for the short one and
-// 1.56 for the tall pair with the ghost at about 1.78. This tops out at 1.27,
-// which puts the head at a standing figure's waist and the roof clear of the
-// short stone's shoulder. Every block is wider than it is tall: the piece has
-// to read as heavy, and a slender stone lantern is a metal lantern's silhouette
-// in the wrong material.
+// 1.56 for the tall pair with the ghost at about 1.78. This tops out at 1.26,
+// which puts the lit chamber at a standing figure's waist and the roof at the
+// short stone's shoulder. Every block but the shaft is wider than it is tall:
+// the piece has to read as heavy, and a slender stone lantern is a metal
+// lantern's silhouette in the wrong material.
 const FOOT = { rBot: 0.300, rTop: 0.286, y0: 0.000, y1: 0.112, edge: 0.050 };
 const PLATE = { rBot: 0.232, rTop: 0.222, y0: 0.100, y1: 0.182, edge: 0.042 };
 const SHAFT = { rBot: 0.190, rTop: 0.158, y0: 0.170, y1: 0.648, edge: 0.055 };
@@ -182,10 +182,10 @@ const TABLE = { rBot: 0.176, rTop: 0.250, y0: 0.600, y1: 0.730, edge: 0.046 };
 // inside out.
 const HEAD = { r: 0.256, y0: 0.686, y1: 1.046, rv: 0.058, t: 0.048 };
 
-// One arched window, in the head's face space: x across the face, y in world
+// The arched window, in the head's face space: x across the face, y in world
 // height. It is the headstones' own outline shrunk to a hand's width, which is
 // not a joke at the set's expense so much as the cheapest way to say the two
-// things came from the same yard.
+// things came from the same yard. Two faces carry it.
 const WIN = { half: 0.105, y0: 0.756, y1: 0.976, rBot: 0.030 };
 // The other two faces get a small round moon instead. See FACE_CUTS for why.
 const MOON_HOLE = { y: 0.870, r: 0.052 };
@@ -790,7 +790,6 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
     return rings;
   })();
 
-  const wallBase = stone.pos.length / 3;
   const wallOf = new Map(); // rim vertex -> its column of wall vertices
   {
     const p0 = new THREE.Vector3();
@@ -866,7 +865,6 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
       }
     }
   }
-  void wallBase;
 
   // --- the candle -----------------------------------------------------------
   // A stub of wax on the chamber floor. It is small and it is only ever seen
