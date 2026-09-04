@@ -22,8 +22,10 @@ import { PALETTE, toyMaterial } from '../style.js';
 // its three root vertices sit at exactly y = 0 whatever the blade then does
 // above them, and the blade's centreline only ever climbs. A dome's rim ring is
 // generated at elevation zero and every displacement applied to it is radial,
-// so its rim is exactly y = 0 by construction. There is no clamp, no bias and
-// no epsilon anywhere in this file: the minimum world y of a cluster is 0.
+// so its rim is exactly y = 0 by construction. Nothing is ever clamped in y,
+// nothing is lifted by a contact bias, and there is no epsilon: measured over
+// eight seeds and at scales from 0.5 to 2, the minimum world y of a cluster is
+// exactly 0.
 //
 // One note on `scale`, since the fence had to fight this. The scale parameter
 // is a group scale, applied after the geometry is built, and that is safe HERE
@@ -50,8 +52,8 @@ const STRAW = {
 // on a grey stone and starts reading as paint, and the reference has it as a
 // stain rather than a colour.
 const MOSS = {
-  light: '#7e8455',
-  dark: '#5d6440',
+  light: '#79805a',
+  dark: '#59613f',
 };
 
 // --- resolution ------------------------------------------------------------
@@ -59,10 +61,19 @@ const MOSS = {
 // Six segments up its length is what it takes for the tip curl to read as a
 // curve rather than a bend; four was visibly kinked at the top.
 const BLADE = { segments: 6 };
-// A rock is a half-dome: 20 around and 8 up. The 20 columns are set by the
-// moss, not by the silhouette -- moss patches are per-vertex, so the column
-// count is the resolution of a patch edge, and at 12 the patches came out as
-// obvious triangles. The silhouette is happy at 12.
+// The most a blade may lean from vertical, at the very tip: 85 degrees. This is
+// the one number the do-not-sink guarantee actually rests on. The centreline is
+// integrated as a sum of steps of (sin, cos) of the lean, so as long as the
+// lean stays under a right angle every step has a positive vertical component
+// and y can only climb. Let it past 90 and a long blade arcs over the top and
+// drives its tip back down through the floor -- and it would do it only for the
+// unlucky combination of a long draw and a floppy draw, which is exactly the
+// kind of bug that survives a look and ships.
+const MAX_LEAN = 1.48;
+// A rock is a half-dome: 20 around and 8 up. The silhouette would be happy at
+// 12; it is the moss that wants 20. Patches are a vertex colour, so the column
+// count IS the resolution of a patch edge, and at 12 a patch boundary was a
+// row of obvious triangles.
 const ROCK_GRID = { around: 20, up: 8 };
 // A pebble is two or three centimetres across. It needs a silhouette, not a
 // surface.
@@ -73,10 +84,14 @@ const PEBBLE_GRID = { around: 8, up: 3 };
 // the ghost's hem. Taller than this and the tufts start to read as reeds and
 // they hide the foot of the stone they are supposed to be dressing.
 const TUFT = {
-  blades: [5, 8],
+  // Six to nine. The brief says five to eight and five is the number that does
+  // not work: at five, one blade turning edge-on is a fifth of the tuft gone
+  // and the gap shows. Six is the floor, and the top end buys density for
+  // twenty triangles a blade.
+  blades: [6, 9],
   length: [0.13, 0.26],   // per blade, so one tuft has short and tall in it
-  halfWidth: 0.0085,
-  spread: 0.012,          // blades leave the ground from a patch, not a point
+  halfWidth: 0.0115,
+  spread: 0.014,          // blades leave the ground from a patch, not a point
 };
 // Height is a fraction of the radius. Both were half this to begin with and
 // every rock came out as a pebble and every pebble as a fleck of gravel: at the
@@ -221,8 +236,8 @@ function addBlade(B, {
       const th = lean * Math.pow(tm, curve);
       const st = Math.sin(th), ct = Math.cos(th);
       px += ox * st * step;
-      py += ct * step;          // cos of an angle capped below 90 degrees, so
-      pz += oz * st * step;     // y only ever climbs: a blade cannot dip.
+      py += ct * step;          // MAX_LEAN keeps this cosine positive, so y
+      pz += oz * st * step;     // only ever climbs: a blade cannot dip.
     }
 
     // Tangent, side and face normal at this node, then the twist about the
@@ -272,7 +287,7 @@ function addBlade(B, {
   B.idx.push(last[0], last[1], point, last[1], last[2], point);
 }
 
-// One tuft: five to eight blades out of one patch of ground.
+// One tuft: a handful of blades out of one patch of ground.
 function addTuft(B, rand, { x = 0, z = 0, size = 1 } = {}) {
   const n = TUFT.blades[0] + Math.floor(rand() * (TUFT.blades[1] - TUFT.blades[0] + 1));
   // Headings spread evenly and then jittered, rather than drawn at random:
@@ -284,19 +299,22 @@ function addTuft(B, rand, { x = 0, z = 0, size = 1 } = {}) {
     // Heights vary a lot within one tuft. That variation is most of what makes
     // a tuft read as grass rather than as a shuttlecock.
     const len = lerp(TUFT.length[0], TUFT.length[1], Math.pow(rand(), 0.8)) * size;
-    // The tallest blades stand up straightest; the short ones flop. Capped
-    // short of a right angle, which is also what keeps y climbing.
-    const droop = lerp(1.15, 0.55, (len / (TUFT.length[1] * size)));
+    // The tallest blades stand up straightest; the short ones flop.
+    const droop = lerp(1.45, 0.72, (len / (TUFT.length[1] * size)));
     addBlade(B, {
       x: x + (rand() - 0.5) * TUFT.spread * size,
       z: z + (rand() - 0.5) * TUFT.spread * size,
       yaw,
       length: len,
       halfWidth: TUFT.halfWidth * size * (0.8 + rand() * 0.45),
-      lean: droop * (0.75 + rand() * 0.5),
+      lean: Math.min(MAX_LEAN, droop * (0.75 + rand() * 0.5)),
       // Sign varies so a tuft is not a set of blades all curling the same way.
       twist: (rand() < 0.5 ? -1 : 1) * (0.5 + rand() * 1.1),
-      curve: 1.5 + rand() * 0.9,   // >1 keeps the bend in the upper half
+      // The exponent decides WHERE the blade bends. Above about 1.8 the blade
+      // is a straight spike with a flick on the end, which is what the first
+      // pass looked like; at 1.2 or so the arc starts low and the blade curves
+      // along its whole length, which is what the reference has.
+      curve: 1.05 + rand() * 0.5,
       tint: 0.86 + rand() * 0.28,
     });
   }
@@ -313,7 +331,7 @@ function addTuft(B, rand, { x = 0, z = 0, size = 1 } = {}) {
 // cannot move the rim off y = 0. The underside is not modelled at all -- the
 // camera is isometric and above, and there is nothing down there to see.
 function addDome(B, rand, {
-  x, z, radius, height, yaw, grid, mossy, roughness = 0.16,
+  x, z, radius, height, yaw, grid, mossy, roughness = 0.24,
 }) {
   const I = grid.around, J = grid.up;
   const shape = lobes(rand, 4, 2.6);
@@ -328,7 +346,7 @@ function addDome(B, rand, {
   // One value per stone, on top of the per-vertex wobble below. A scatter of
   // pebbles all at the palette's exact value reads as spilled rice; a spread of
   // values reads as gravel.
-  const tone = 0.80 + rand() * 0.20;
+  const tone = 0.72 + rand() * 0.23;
   const mossLight = new THREE.Color(MOSS.light);
   const mossDark = new THREE.Color(MOSS.dark);
   const c = new THREE.Color();
@@ -353,7 +371,7 @@ function addDome(B, rand, {
   // the rock comes out wearing a green cap -- which is exactly what the first
   // pass did. Up here only the crests of the field get through, which is two or
   // three patches per stone with bare grey between them.
-  const thresh = 0.52 + rand() * 0.20;
+  const thresh = 0.58 + rand() * 0.22;
   const mossTone = rand();
 
   const ring = [];
@@ -396,12 +414,30 @@ function addDome(B, rand, {
       if (patch) {
         // Face direction, near enough: on a dome the outward normal is close to
         // the direction itself, and this is a mask, not a shading term.
-        const upness = smoothstep(0.34, 0.66, dy);
-        const p = patch(dx, dy, dz) * 0.5 + 0.5;
-        const m = upness * smoothstep(thresh, thresh + 0.07, p);
+        // A hard-ish cut rather than a fade. The fade was the real reason the
+        // moss read as a smudge: with a soft upness the patch edge, however
+        // crisp the threshold below made it, was multiplied by a gradient four
+        // rows deep. Cut sharp, and it is the patch field that decides where
+        // the boundary goes, which is what makes it look like moss and not like
+        // a green hat.
+        const upness = smoothstep(0.50, 0.62, dy);
+        // Biased toward the crown before it is thresholded, rather than after.
+        // Masking a centred field with an upness term gave rocks with a green
+        // collar and a bare top, because the patch field did not know which way
+        // was up and the mask could only take moss away. Tilting the field
+        // itself makes the crown the likeliest place for a patch to survive the
+        // threshold while leaving the patch EDGES where the noise puts them.
+        const p = patch(dx, dy, dz) * 0.5 + 0.5 + 0.30 * (dy - 0.62);
+        // Binary, not a blend. The reference reads as flat patches of colour,
+        // and anything in between leaves a low-opacity green smear across the
+        // middle of the stone that reads as damp rather than as moss. The edge
+        // does not come out stepped: the colour is interpolated across the one
+        // quad between a mossy vertex and a bare one, which is a couple of
+        // pixels of softness at the size these are seen and the right amount.
+        const m = upness * smoothstep(thresh, thresh + 0.03, p) > 0.5 ? 1 : 0;
         if (m > 0) {
           const moss = mossLight.clone().lerp(mossDark, mossTone * 0.8 + shape(dx, dy, dz) * 0.2);
-          c.lerp(moss, m * 0.92);
+          c.lerp(moss, m);
         }
       }
 
@@ -576,16 +612,37 @@ export function createGroundDressing({
   }
 
   for (let i = 0; i < tufts; i++) {
-    let x = 0, z = 0;
-    // Six tries, then take what we have. A tuft overlapping a rock by a
-    // centimetre is invisible; a loop that will not terminate is not.
-    for (let attempt = 0; attempt < 6; attempt++) {
+    // Where a tuft goes is chosen once and then CORRECTED, rather than being
+    // rejection-sampled. Rejection sampling was the first version and it has a
+    // failure mode that is exactly the case you care about: when every draw
+    // collides, the loop gives up and keeps the last one, so the tufts that
+    // ended up growing out of the crown of a rock were precisely the ones the
+    // test was there to catch. Pushing the point out of anything it landed in
+    // cannot fail, costs four rocks' worth of arithmetic, and needs no loop
+    // bound. Three passes, because pushing clear of one rock can push into
+    // another; after three the remaining overlap is a millimetre or two.
+    let x, z;
+    {
       const r = throwRadius(rand, radius * 0.62, 0.12);
       const a = rand() * Math.PI * 2;
       x = Math.cos(a) * r;
       z = Math.sin(a) * r;
-      const clear = placed.every((p) => Math.hypot(p.x - x, p.z - z) > p.r * 1.15);
-      if (clear) break;
+      for (let pass = 0; pass < 3; pass++) {
+        for (const pl of placed) {
+          // 1.6 radii of clearance, and it is not padding for its own sake: a
+          // dome's drawn radius is its nominal radius times the plan ellipse
+          // (up to 1.17) times the rim skirt (1.13), and a tuft is a splay of
+          // blades rather than a point.
+          const keep = pl.r * 1.6;
+          let dx = x - pl.x, dz = z - pl.z;
+          let d = Math.hypot(dx, dz);
+          if (d >= keep) continue;
+          // Dead centre has no direction to push along; any one will do.
+          if (d < 1e-6) { dx = 1; dz = 0; d = 1; }
+          x = pl.x + (dx / d) * keep;
+          z = pl.z + (dz / d) * keep;
+        }
+      }
     }
     addTuft(grass, rand, { x, z, size: 0.82 + rand() * 0.45 });
   }

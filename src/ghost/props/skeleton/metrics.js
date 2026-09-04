@@ -120,7 +120,16 @@ export const M = {
     // conflict. Believe M.y first; these lengths follow from it.
     femur: f(0.232),
     tibia: f(0.230),
-    foot: f(0.100),
+    // Foot length. f(0.100) came off the photo and was too short: it built a
+    // foot barely wider than the ankle that read as a stump with a fringe of
+    // toes. A real foot is about 0.15 of standing height and the photo was
+    // almost certainly foreshortening it, since the figure stands square to
+    // camera. Stylised feet can run small, but not by a third.
+    foot: f(0.142),
+    footWidth: f(0.060),
+    // Toes splay outward from the walking line, which is most of what stops a
+    // foot reading as a rectangle stuck on an ankle.
+    toeOut: 0.14,
     hipSeparation: f(0.100),
     bow: 0.035,                  // outward bow at mid-shaft, as a fraction of length
   },
