@@ -368,11 +368,11 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // purpose. Measured off the reference the upper teeth bite about 40% of the
   // way down; past a half and the channel of light behind them closes, which is
   // what turned the first grin into five separate boxes.
-  const TOOTH_X = 0.122, TOOTH_HW = 0.035, TOOTH_DEPTH = 0.036, TOOTH_RAMP = 0.16;
+  const TOOTH_X = 0.122, TOOTH_HW = 0.046, TOOTH_DEPTH = 0.042, TOOTH_RAMP = 0.16;
   // The lower tooth is a dome five times wider than it is tall, not the tall
   // block it was. Root rather than parabola so the top is broad and the flanks
   // land softly on the lower edge instead of cutting two square notches in it.
-  const LOW_HW = 0.098, DOME_H = 0.0415, LOW_ROUND = 0.55;
+  const LOW_HW = 0.098, DOME_H = 0.060, LOW_ROUND = 0.55;
   // Nothing may eat more than this much of the band, so the channel survives
   // whatever the numbers above are nudged to.
   const CLEAR = 0.22;
@@ -391,10 +391,13 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     const top1 = M_TOP + g;
     const bot1 = M_BOT - g;
     const tip1 = M_TIP + g;
-    const depth = TOOTH_DEPTH - g;
-    const domeH = DOME_H - g;
-    const thw = TOOTH_HW - g * 0.7;
-    const lhw = LOW_HW - g * 0.7;
+    // Half the outline's bleed, not all of it: a full inset here shaved the
+    // whole bleed off every tooth's tip and flanks, and the teeth rendered a
+    // third shorter and a quarter narrower than they are cut.
+    const depth = TOOTH_DEPTH - g * 0.45;
+    const domeH = DOME_H - g * 0.45;
+    const thw = TOOTH_HW - g * 0.40;
+    const lhw = LOW_HW - g * 0.40;
     return (u, v) => {
       const x = -mw + 2 * mw * u;
       const q = Math.abs(x) / mw;

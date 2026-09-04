@@ -36,15 +36,18 @@ const BONE = {
 // were then nudged where the render disagreed with the photo. The figure is
 // about 5.9 heads tall: that is a toy proportion, not a human one, and shrinking
 // the skull toward anatomical was tried and immediately lost the character.
+// Landmarks, all of them checked against the photo by pinning both figures to
+// their own total height and comparing fractions. Where a number moved in the
+// second pass the reference fraction is written next to it.
 const Y = {
-  ankle: 0.125,
-  knee: 0.700,
-  hip: 1.250,     // root, the femoral head line
+  ankle: 0.125,   // 0.946 of height down from the crown; photo 0.946
+  knee: 0.700,    // 0.720; photo 0.716
+  hip: 1.250,     // root, the femoral head line. 0.500; photo 0.495
   waist: 1.420,   // spineLower, sitting on top of the sacrum
   chest: 1.570,   // spineUpper, at the bottom of the ribcage
   neck: 1.945,
   head: 2.116,    // the atlas; the crown lands at exactly 2.5 from here
-  shoulder: 1.906,
+  shoulder: 1.930, // 0.228; photo 0.225
 };
 const X = { hip: 0.175, knee: 0.203, ankle: 0.235, shoulder: 0.255 };
 
@@ -321,11 +324,11 @@ function plateGeometry(outline, holes, { depth = 0.04, bevel = 0.012, samples = 
 // maxilla push fixes the second.
 const SKULL = {
   cy: 0.206, cz: -0.018,     // centre, relative to the atlas at Y.head
-  rx: 0.184, ry: 0.178, rz: 0.178,
+  rx: 0.178, ry: 0.178, rz: 0.178,   // width 0.142 of height; photo 0.141
   eyeX: 0.077, eyeY: 0.158,  // socket centres, measured off the reference
   eyeA: 0.057, eyeB: 0.058,  // half-extents of the oval before the slant trims it
   noseY: 0.100,
-  toothY: 0.044,             // the alveolar arch the upper teeth hang from
+  toothY: 0.058,             // the alveolar arch the upper teeth hang from
 };
 
 // The base shape, with no features cut into it. Split out because the tooth
@@ -337,7 +340,9 @@ function skullBase(u, v, out) {
   // Rounder at the crown, flatter underneath, which is what keeps the jaw line
   // wide enough for a row of teeth. A plain ellipsoid pinches to a point here
   // and the mouth ends up half the width it should be.
-  const n = 2.05 + 0.95 * smoothstep(0.25, -0.35, h);
+  // 2.30 at the crown rather than 2.05: the photo's cranium has a flatter top
+  // than a plain ellipsoid gives, and at 2.05 ours read as a balloon.
+  const n = 2.30 + 0.75 * smoothstep(0.25, -0.35, h);
   const ring = Math.pow(Math.max(0, 1 - Math.pow(Math.abs(h), n)), 1 / n);
 
   let y = S.cy + S.ry * h;
@@ -356,8 +361,12 @@ function skullBase(u, v, out) {
   const fr = Math.max(0, front);
   z += Math.pow(fr, 1.4) * clamp01(ring / 0.55) *
     (0.055 * smoothstep(0.160, 0.030, y) + 0.012 * smoothstep(0.265, 0.130, y));
-  // The occiput hangs back and down behind the ear.
-  z -= 0.020 * Math.pow(Math.max(0, -front), 1.6) * smoothstep(0.310, 0.100, y);
+  // The occiput hangs back and down behind the ear, but the back of the crown
+  // above it is flattened: on the photo the rear of the skull is a plane, not a
+  // continuation of the dome.
+  const back = Math.max(0, -front);
+  z -= 0.020 * Math.pow(back, 1.6) * smoothstep(0.310, 0.100, y);
+  z += 0.020 * back * back * smoothstep(0.130, 0.330, y);
 
   // Cheekbones. Small, but without them the face below the sockets is a
   // featureless sheet and the whole head goes soft.
@@ -411,8 +420,8 @@ function buildSkullGeometry() {
 
     // Brow ridge, riding just above the slant. The two sides meet in a V over
     // the nose bridge; that V is what the reference's scowl actually is.
-    d += 0.013 *
-      Math.exp(-Math.pow((by - (slantTop + 0.45)) / 0.55, 2)) *
+    d += 0.018 *
+      Math.exp(-Math.pow((by - (slantTop + 0.44)) / 0.50, 2)) *
       clamp01((1.25 - Math.abs(ax)) / 0.40) * gate;
 
     // Nose: a rounded triangle, apex up, its base notched into a shallow heart
@@ -688,7 +697,7 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   const UPPER_TEETH = 11;
   const upperArch = [];
   for (let i = 0; i < UPPER_TEETH; i++) {
-    const u = -0.88 + (1.76 * i) / (UPPER_TEETH - 1);
+    const u = -0.82 + (1.64 * i) / (UPPER_TEETH - 1);
     skullBase(u, toothV, probe);
     const dx = probe.x;
     const dz = probe.z - SKULL.cz;
@@ -697,16 +706,16 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     const z = probe.z - (dz / len) * 0.005;
     const yaw = Math.atan2(dx, dz);
     upperArch.push([x, z, yaw]);
-    const t = mesh(nubGeometry(0.0092, 0.016, 0.0070), head, matTooth);
-    t.position.set(x, 0.030, z);
+    const t = mesh(nubGeometry(0.0090, 0.0155, 0.0070), head, matTooth);
+    t.position.set(x, 0.0429, z);
     t.rotation.y = yaw;
   }
 
   // The dark behind the teeth. A shallow blob rather than a hollowed skull: the
   // gap between the rows is a couple of millimetres and all it needs is
   // something dark sitting just behind it.
-  const cavity = mesh(ballGeometry(1, 0.066, 0.032, 0.062), head, matHollow);
-  cavity.position.set(0, 0.004, 0.080);
+  const cavity = mesh(ballGeometry(1, 0.064, 0.030, 0.058), head, matHollow);
+  cavity.position.set(0, 0.018, 0.076);
   cavity.castShadow = false;
 
   // Jaw. Hinged at the condyles, separate geometry, so it can drop.
@@ -721,24 +730,30 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   jaw.userData.openSign = 1;
   joints.jaw = jaw;
 
-  const JW = 0.106;    // half-width of the mandible at the angle of the jaw
+  // The mandible is a thin, deep bar and not the slab the first pass made it.
+  // Measured off the photo, the whole mouth from the alveolar arch to the point
+  // of the chin is 0.037 of standing height, and the upper crowns, the gap and
+  // the lower crowns account for all but 0.008 of it. Deepening the jaw to make
+  // it read from the game's high camera pushed the head 11% over the
+  // reference's, which is the single thing that made the figure look wrong.
+  const JW = 0.102;    // half-width of the mandible at the angle of the jaw
   const jawBody = curveThrough([
-    [-JW, -0.112, 0.040],
-    [-0.102, -0.118, 0.106],
-    [-0.080, -0.122, 0.160],
-    [-0.042, -0.124, 0.186],
-    [0, -0.125, 0.194],
-    [0.042, -0.124, 0.186],
-    [0.080, -0.122, 0.160],
-    [0.102, -0.118, 0.106],
-    [JW, -0.112, 0.040],
+    [-JW, -0.0930, 0.043],
+    [-0.098, -0.0962, 0.113],
+    [-0.077, -0.0982, 0.171],
+    [-0.040, -0.0992, 0.199],
+    [0, -0.0996, 0.2075],
+    [0.040, -0.0992, 0.199],
+    [0.077, -0.0982, 0.171],
+    [0.098, -0.0962, 0.113],
+    [JW, -0.0930, 0.043],
   ]);
   mesh(
     sweepTube(jawBody, (t) => {
       // Deeper through the chin, shallower at the back, and taller than it is
       // deep everywhere: a round tube here reads as a wire coat hanger.
       const front = Math.sin(Math.PI * t);
-      return [0.015 + 0.010 * front, 0.026 + 0.007 * front];
+      return [0.013 + 0.008 * front, 0.0105 + 0.004 * front];
     }, { along: 56, around: 18, up: [0, 1, 0] }),
     jaw,
   );
@@ -748,26 +763,26 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     mesh(
       sweepTube(
         curveThrough([
-          [side * JW, -0.116, 0.038],
-          [side * 0.111, -0.072, 0.004],
-          [side * 0.115, -0.026, -0.012],
-          [side * 0.114, 0.000, -0.006],
+          [side * JW, -0.096, 0.041],
+          [side * 0.107, -0.062, 0.008],
+          [side * 0.111, -0.024, -0.010],
+          [side * 0.110, 0.000, -0.006],
         ]),
-        shaftProfile(0.019, { endA: 1.20, endB: 1.20, waist: 0.10 }),
+        shaftProfile(0.016, { endA: 1.22, endB: 1.28, waist: 0.10 }),
         { along: 26, around: 16 },
       ),
       jaw,
     );
     const condyle = mesh(ballGeometry(0.023, 1.15, 1, 1), jaw);
-    condyle.position.set(side * 0.114, 0, -0.002);
+    condyle.position.set(side * 0.110, 0, -0.002);
   }
 
   // Lower row, riding the same arch pulled in a little.
   const LOWER_TEETH = 9;
   for (let i = 0; i < LOWER_TEETH; i++) {
     const [ux, uz, ua] = upperArch[Math.round((i / (LOWER_TEETH - 1)) * (UPPER_TEETH - 1))];
-    const t = mesh(nubGeometry(0.0094, 0.013, 0.0070), jaw, matTooth);
-    t.position.set(ux * 0.93, -0.094, (uz - SKULL.cz) * 0.93 + SKULL.cz + 0.050);
+    const t = mesh(nubGeometry(0.0092, 0.0175, 0.0070), jaw, matTooth);
+    t.position.set(ux * 0.93, -0.0748, (uz - SKULL.cz) * 0.93 + SKULL.cz + 0.050);
     t.rotation.y = ua;
   }
 
