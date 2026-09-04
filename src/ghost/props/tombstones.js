@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from './style.js';
+import { PALETTE, SEGMENTS, toyMaterial } from './style.js';
 
 // Carved headstones for the graveyard set.
 //
@@ -543,43 +543,16 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
 
   // --- ground contact -------------------------------------------------------
   //
-  // The plinth footprint is two and a half times wider than it is deep, and a
-  // single stretched patch under it is an ellipse: it pulls away from the long
-  // sides and leaves clean floor at all four corners, which is exactly where
-  // the eye checks whether a thing is standing on the ground. Worse, one patch
-  // has to choose between hugging the base and spreading far enough to give the
-  // stone any weight.
+  // Nothing here on purpose. A painted contact patch was tried -- a row of three
+  // round patches paving the plinth's footprint plus one broad soft pool under
+  // them -- and rejected. A patch laid flat on the floor is the same on every
+  // side of the stone, so it ringed each one with a dark halo that was there on
+  // the side facing the key light too, which no shadow does; it read as a stain
+  // in the dirt rather than as a shadow. The key light already casts a real one,
+  // and that is the only shadow these stones should have. Do not add it back.
   //
-  // So it is built in two layers. A row of round patches, each about as wide as
-  // the plinth is deep, paves the footprint: overlapped, their union is a
-  // stadium, which is as close to a rectangle as a radial gradient gets. Under
-  // them, one broad very soft patch is the ambient pool the stone sits in.
-  const contacts = [];
-  const patch = (hx, hz, x, opacity, softness) => {
-    const c = contactShadow({ radius: 0.5, opacity, softness });
-    // The plane is laid flat by a -90 degree turn about X, so its local y is
-    // the world depth axis.
-    c.scale.set(hx / 0.5, hz / 0.5, 1);
-    c.position.x = x;
-    group.add(c);
-    contacts.push(c);
-  };
-
-  // Core. contactShadow's gradient is opaque out to (1 - softness) of the
-  // patch's half-extent and fades over the rest, so dividing by (1 - softness)
-  // is what puts the end of the opaque part where you want it: here, a
-  // centimetre or so past the plinth, so the floor is still fully dark at the
-  // joint and only starts to lift beyond it. Sized the other way round -- patch
-  // barely bigger than the plinth -- the fade begins underneath the stone and
-  // the joint goes bright again, which is the gap this is here to close.
-  const soft = 0.5;
-  const reach = 0.06; // how far past the plinth the opaque part of the patch runs
-  const core = (pD / 2 + reach) / (1 - soft);
-  const span = pW - pD / 2; // outer centres, so their opaque discs reach the corners
-  for (const t of [-1, 0, 1]) patch(core, core, t * span, 0.68, soft);
-  // Pool: soft and wide, the ambient dish the stone sits in. Low opacity
-  // because it stacks on top of the three above.
-  patch(pW + 0.5, pD / 2 + 0.44, 0, 0.26, 0.9);
+  // If the joint ever looks weak, the fix is in the light -- shadow map
+  // resolution, bias, radius -- not a decal under the prop.
 
   group.scale.setScalar(scale);
 
@@ -594,7 +567,6 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
         tex.map.dispose();
         tex.normalMap.dispose();
       }
-      for (const c of contacts) c.userData.dispose();
     },
   };
 }
