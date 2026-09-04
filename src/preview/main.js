@@ -161,6 +161,31 @@ const PROPS = {
     };
   },
 
+  fountain: async () => {
+    const m = await import('../ghost/props/fountain/index.js');
+    const group = new THREE.Group();
+    const parts = [];
+    const put = (part, x = 0, z = 0) => {
+      part.group.position.set(x, 0, z);
+      group.add(part.group);
+      parts.push(part);
+      return part;
+    };
+    put(m.createFountain({ seed: 1 }));
+    // The rubble is placed by the scene rather than welded into the prop, so
+    // the turntable has to place it too. ?rubble=0 to judge the stone alone.
+    if (params.get('rubble') !== '0') {
+      put(m.createBrokenColumn({ seed: 2 }), -0.62, 0.86);
+      put(m.createFallenDrum({ seed: 3 }), 0.42, 0.94);
+      put(m.createMarbleChips({ seed: 4, count: 34, radius: 1.25, inner: 0.62 }));
+    }
+    return {
+      group,
+      update: (time, dt) => parts.forEach((p) => p.update?.(time, dt)),
+      dispose: () => parts.forEach((p) => p.dispose?.()),
+    };
+  },
+
   shed: async () => {
     const m = await import('../ghost/props/shed/index.js');
     const shed = m.createShed({ seed: 3 });
