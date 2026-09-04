@@ -28,10 +28,18 @@ import { shaft, straightShaft, jointBall } from './bone.js';
 //    hole at every size this prop is ever seen at, which is the same trade
 //    pumpkin.js makes for its carved face.
 //
-// The single thing that makes this head read as the reference and not as a
-// generic skull is the glare: the top edge of each orbit runs on a diagonal
-// that dives toward the nose (M.skull.socket.slant), with the brow ridge
-// riding that same diagonal above it. Everything else is supporting cast.
+// The expression is DELIBERATELY NEUTRAL. An earlier pass followed the
+// reference photo's face, which scowls: the top edge of each orbit ran on a
+// hard diagonal diving toward the nose and the brow ridge rode that diagonal
+// into a V over the bridge. It worked, and the user saw it in the whole figure
+// and asked for a friendlier head. So the sockets are near-level rounded
+// openings and the brow is a soft shelf over them, which is what a plain
+// anatomical skull looks like anyway. Keep the reference for the SHAPE of the
+// head and ignore its face.
+//
+// The line between neutral and blank is the orbits still reading as deep dark
+// holes with a real rim, and the nasal aperture and the tooth row still being
+// there. Neutral is a skull with no expression, not a skull with no face.
 
 // --- where the skull sits relative to its own origin -----------------------
 // metrics.js does not name the atlas height directly, but it is pinned by the
@@ -99,8 +107,13 @@ const HINGE_Y = 0.096 * M.skull.height;
 const HINGE_Z = -0.080 * M.skull.depth;
 const FORAMEN_Z = -0.150 * M.skull.depth;
 
-// --- the glare -------------------------------------------------------------
-const SLANT = M.skull.socket.slant;
+// --- the eye openings ------------------------------------------------------
+// metrics.js still carries M.skull.socket.slant = 0.60, which is the angry
+// diagonal. This overrides it down to a hint of a slant, enough that the
+// sockets are not perfectly level and dead-symmetrical but nowhere near enough
+// to read as a frown. metrics.js is not this file's to edit: the number there
+// wants changing to match, and until it is this is the one place they differ.
+const SLANT = 0.12;
 // metrics gives the socket as a width and a height, which is its bounding box.
 // Rotating an ellipse by s takes semi-axes (A, B) to a box of
 //   halfW^2 = A^2 cos^2 s + B^2 sin^2 s,  halfH^2 = A^2 sin^2 s + B^2 cos^2 s,
@@ -264,21 +277,33 @@ const EDGE = 0.0050;
 const AO_REACH = 0.011;
 
 // --- the socket ------------------------------------------------------------
-// The almond, in the frame the slant rotates into. kx runs -1 (medial, down by
-// the nose) to +1 (lateral, up by the temple). The medial end is shallower and
-// the top edge is straighter than the bottom -- that straight upper edge, tilted,
-// IS the glare.
+// A wide soft oval that fills most of the box metrics gives it. kx runs -1
+// (medial, by the nose) to +1 (lateral, by the temple).
+//
+// What is NOT here any more: a medial taper that dropped the socket to 0.6 of
+// its height by the nose, and a top exponent of 3 that straightened the upper
+// edge into a hard lid. Together with the old slant those made the almond that
+// scowled. The taper that is left is slight, and it is the real thing -- an
+// anatomical orbit is a touch shallower at its medial corner -- rather than an
+// expression.
+//
+// The exponents sit a little above 2 so the opening is a rounded rectangle
+// rather than a pure ellipse. A true ellipse read as a cartoon eye; the
+// straight-ish stretches along the top and bottom are what keep it a skull.
+const SOCKET_TAPER_LO = 0.88;
+const SOCKET_PX = 2.35;
+function socketTaper(kx) {
+  return SOCKET_TAPER_LO + (1 - SOCKET_TAPER_LO) * smoothstep(-1, 0.35, kx);
+}
 function socketShape(kx, ky) {
-  const taper = 0.60 + 0.40 * smoothstep(-1, 0.30, kx);
-  const k = ky / taper;
-  const e = ky > 0 ? 3.0 : 2.05;
-  return Math.pow(Math.abs(kx), 2.5) + Math.pow(Math.abs(k), e);
+  const k = ky / socketTaper(kx);
+  const e = ky > 0 ? 2.5 : 2.2;
+  return Math.pow(Math.abs(kx), SOCKET_PX) + Math.pow(Math.abs(k), e);
 }
 // The top edge of the socket, in the same frame, at a given kx.
 function socketTop(kx) {
-  const taper = 0.60 + 0.40 * smoothstep(-1, 0.30, kx);
-  const rem = 1 - Math.pow(Math.abs(kx), 2.5);
-  return rem <= 0 ? 0 : taper * Math.pow(rem, 1 / 3.0);
+  const rem = 1 - Math.pow(Math.abs(kx), SOCKET_PX);
+  return rem <= 0 ? 0 : socketTaper(kx) * Math.pow(rem, 1 / 2.5);
 }
 // Face-space (u across, v up) coordinates of a point in the socket's own frame.
 function socketToFace(side, q, w) {
@@ -375,20 +400,23 @@ export function buildSkull({ material }) {
   );
   const base = (x, y, z) => smin(vault(x, y, z), maxilla(x, y, z), 0.055);
 
-  // The brow ridges, laid along the top edge of each socket and standing a
-  // little proud of it. This is the other half of the glare: the socket alone
-  // is a dark hole, the socket with a ridge hanging over it is a scowl.
+  // The supraorbital shelves, laid along the top edge of each socket and
+  // standing slightly proud of it. Every number here has come down: a ridge
+  // this size is the difference between a brow and a scowl, and the socket
+  // under it is level now, so all it has to do is give the opening a rim.
   //
-  // It hugs that edge and no more. Lifted 0.030 clear and fattened to 0.068 it
-  // stopped being a brow and became a wedge, the two ridges meeting over the
-  // nose in a raised triangle that read as a snout.
-  const BROW_LIFT = 0.016 * M.skull.height;
-  const BROW_R = 0.054 * M.skull.height;
-  const BROW_INSET = 0.024 * M.skull.height;
+  // Lifted 0.030 clear and fattened to 0.068 it met its opposite number over
+  // the nose in a raised triangle that read as a snout. At 0.054 with the old
+  // diagonal under it, it was the frown itself.
+  const BROW_LIFT = 0.012 * M.skull.height;
+  const BROW_R = 0.044 * M.skull.height;
+  const BROW_INSET = 0.026 * M.skull.height;
   const brows = [-1, 1].map((side) => {
     const pts = [];
     for (let i = 0; i <= 12; i++) {
-      const kx = -0.90 + (1.82 * i) / 12;
+      // Stops short of the medial corner. Carried all the way in, the two
+      // shelves converge over the bridge and rebuild the V by themselves.
+      const kx = -0.72 + (1.60 * i) / 12;
       const [u, v] = socketToFace(side, kx * SOCKET.a, socketTop(kx) * SOCKET.b + BROW_LIFT);
       const ang = u / FACE_R;
       const rho = surfaceRho(base, ang, v) - BROW_INSET;
@@ -454,8 +482,8 @@ export function buildSkull({ material }) {
 
   const field = (x, y, z) => {
     let d = base(x, y, z);
-    d = smin(d, brows[0](x, y, z), 0.013);
-    d = smin(d, brows[1](x, y, z), 0.013);
+    d = smin(d, brows[0](x, y, z), 0.020);
+    d = smin(d, brows[1](x, y, z), 0.020);
     d = smin(d, zygos[0](x, y, z), 0.017);
     d = smin(d, zygos[1](x, y, z), 0.017);
     d = smin(d, alveolar(x, y, z), 0.024);

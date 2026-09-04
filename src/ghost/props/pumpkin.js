@@ -16,14 +16,10 @@ import { toyMaterial, PALETTE, SEGMENTS } from './style.js';
 // the identical math, they follow the ribs instead of floating over them.
 
 // --- Shape constants -------------------------------------------------------
-// Authored against the ghost (1.6 tall, hem near 0.2): body ~0.39 tall and
-// ~0.80 across, stem on top, ~0.6 overall.
+// Authored against the ghost (1.6 tall, hem near 0.2): the classic body
+// measures 0.51 tall and 0.80 across, stem on top, 0.72 overall.
 const BODY_R = 0.40;   // equator radius before the ribs bite into it
 const BODY_H = 0.345;  // half-height of the un-dished profile
-// Nearer 2 is nearer a true ellipsoid. The earlier 2.5 squared off the
-// shoulders and flattened the poles, which is what read as not round enough.
-const SQUASH = 2.08;
-const DIP = 0.26;      // how hard the TOP pole is pulled back in, making the stem dish
 const RIB_SHARP = 1.5; // >1 narrows the groove and widens the lobe crest
 
 // The underside is not the stem dish mirrored, and used to be. Mirrored, the
@@ -49,8 +45,13 @@ const RIB_SHARP = 1.5; // >1 narrows the groove and widens the lobe crest
 // At 0.11 that is under a hundredth of a unit, which measures as 1.2% of the
 // prop's height where the old dish measured 5.0% and is what actually reads as
 // touching. Much shorter and the base turns into a rim you can see as a rim.
-const BASE_TURN = 0.69;
-const BASE_FLAT = 0.80;
+//
+// Where the turn STARTS is per-variant (a squat one sits on a broad foot, a
+// gourd on a small one under a round bulb) but the 0.11 fillet is not, and that
+// is deliberate: the leftover height works out as 0.22 * fillet * bodyH and the
+// prop's own height as 1.49 * bodyH, so a fixed fillet is a fixed 1.2% on every
+// body. Scaling it with the variant would make the tiny one hover. Every
+// variant's `base` pair below is therefore turn, turn + 0.11.
 // A hair of concavity across the disc, so the prop rests on the disc's rim and
 // not on its whole face. Real pumpkins are dished there anyway, and a quarter
 // of a unit of geometry lying exactly coplanar with the floor is asking for
@@ -60,6 +61,207 @@ const BASE_CUP = 0.02;
 // The face looks along +x+z so it meets the preview/game camera square-on at
 // spin 0; the lobe crest sits at the same angle so the face lands on a bulge.
 const FACE_YAW = Math.PI / 4;
+
+
+// --- Body shapes -----------------------------------------------------------
+// Six of them, transcribed from a reference photo of a row of carved pumpkins.
+// See .ref/PUMPKIN-SHAPES.md: the photo itself did not survive, and the faces
+// in it were angry slit-eyed ones we are explicitly NOT copying. What was
+// wanted from it is the range of BODIES, so the carving below is the same
+// carving on all six, only refitted.
+//
+// `classic` is the shape this file spent its whole history on and it must come
+// out bit-for-bit unchanged, because three of it are already placed in the
+// scene and any drift moves them. Everything a variant can change is therefore
+// written so that classic's entry evaluates to the literal it replaced: the
+// exponents, the base pair and the shell thickness are the old constants, the
+// rib fade returns exactly 1, and the face warp is skipped entirely rather
+// than run with an identity transform. Multiplying by an exact 1.0 is exact in
+// IEEE; adding and subtracting a pivot is not, which is why the warp is a
+// missing step rather than a neutral one.
+
+// Half of a superellipse, as a radius over t = 0 at the widest ring to 1 at the
+// pole. n near 2 is an ellipse, higher squares off the shoulder and flattens
+// the pole, lower runs out toward a cone. Its slope at t = 0 is zero for any
+// n > 1, which is what lets the two halves meet at the widest ring with no
+// crease even when they use different exponents.
+const superHalf = (n) => (t) => Math.pow(Math.max(0, 1 - Math.pow(t, n)), 1 / n);
+
+// A butternut neck, for the gourd. No superellipse makes this shape: what is
+// wanted is a fast waist coming off the bulb, then a long near-parallel neck,
+// then a quick close at the top, and the superellipse family can do any two of
+// those but never the plateau in the middle. So it is built as the three
+// stretches it actually is.
+//
+// `swell` is how much of the half is spent narrowing out of the bulb, `waist`
+// the fraction of the full radius the neck then holds, and `tip` how much of
+// the top is spent closing. Smoothstep for the first and a quarter circle for
+// the last, so the slope is continuous at both joints and at t = 0 -- a kink at
+// the widest ring shows up as a hard ring of shading right where the eye is.
+const neckHalf = ({ waist, swell, tip }) => (t) => {
+  const u = Math.min(1, t / swell);
+  const r = waist + (1 - waist) * (1 - u * u * (3 - 2 * u));
+  if (t <= 1 - tip) return r;
+  const v = (t - (1 - tip)) / tip;
+  return r * Math.sqrt(Math.max(0, 1 - v * v));
+};
+
+export const PUMPKIN_VARIANTS = ['classic', 'gourd', 'squat', 'tall', 'pear', 'tiny'];
+
+// The face is authored once, in face space, against the classic body. A variant
+// moves and resizes it rather than re-authoring it, and the transform is
+// applied to the shape samplers -- so the hole in the shell, the wall in the
+// hole, the emissive plate and the lamp's gobo all follow from one change
+// instead of four sets of numbers being kept in agreement.
+//
+// The scaling pivot is the base of the nose, because it is a real landmark near
+// the middle of the carving rather than an arbitrary height: `lift` then reads
+// as "where the nose sits" and `zy` as "how tall the face is", independently.
+const FACE_PIVOT = 0.3264;   // = NOSE_BASE, see the carving section below
+
+// Two facts make the face numbers below possible to reason about at all, and
+// both fall out of facePoint dividing by FACE_SX = bodyR/BODY_R and
+// FACE_SY = bodyH/BODY_H before it touches the body:
+//
+//   * the ring a face point lands on is s = Y / BODY_H - baseDeep, which does
+//     not depend on how big the body is. So `lift` and `zy` place the carving
+//     on the profile in the same units whatever the variant's proportions.
+//   * its half-width on the body is X * zx * bodyR / BODY_R, with the local
+//     profile radius cancelling out. So `zx` is a plain width multiplier.
+//
+// Which means the face keeps the aspect ratio it was drawn at when
+// zx/zy = (bodyH/BODY_H) / (bodyR/BODY_R). The narrow variants are held a
+// little under that on purpose -- a grin that wraps much past 40 degrees a side
+// starts curving away from the camera at the ends and stops reading as a grin.
+
+const VARIANTS = {
+  // 1. Classic large. Wide, round, clearly ribbed, flattened top and bottom.
+  // Every number here is the constant it replaced.
+  classic: {
+    bodyR: BODY_R, bodyH: BODY_H,
+    // Nearer 2 is nearer a true ellipsoid. The earlier 2.5 squared off the
+    // shoulders and flattened the poles, which is what read as not round enough.
+    eq: 0, top: superHalf(2.08), botN: 2.08,
+    dip: 0.26,          // how hard the TOP pole is pulled in, making the stem dish
+    base: [0.69, 0.80],
+    lobes: [9, 3],      // 9..11
+    // Shallower grooves: deep ones cut the round silhouette into a gear.
+    rib: [0.085, 0.025], ribTop: 1, ribFrom: 0,
+    shellT: 0.028,
+    face: { zx: 1, zy: 1, lift: 0 },
+    flameY: 1.25,
+    stem: { girth: 1, length: 1 },
+  },
+
+  // 2. Tall gourd. A butternut: narrow shoulders swelling into a heavy rounded
+  // base, about 1.5 tall to 1 wide. Ribs shallow, almost smooth on the neck.
+  //
+  // This is the variant the face has to be told about. Left where classic wears
+  // it the eyes land near s = 0.68, which on this profile is a third of the way
+  // up the neck, and the carving comes out on the stalk with the bulb blank
+  // underneath. The whole face is dropped onto the bulb instead and squashed to
+  // fit between the base turn and the waist: s -0.55 up to about 0.0, which is
+  // 0.60 of the range classic uses.
+  gourd: {
+    bodyR: 0.240, bodyH: 0.440,
+    eq: -0.36,          // widest ring low down, where the bulb is
+    top: neckHalf({ waist: 0.42, swell: 0.55, tip: 0.22 }), botN: 2.20,
+    dip: 0.10,          // a neck ends in a small round top, not in a dish
+    base: [0.80, 0.91],
+    lobes: [9, 3],
+    rib: [0.055, 0.020], ribTop: 0.22, ribFrom: -0.30,
+    shellT: 0.0168,     // 7% of its own body radius, as classic's is
+    face: { zx: 1.15, zy: 0.60, lift: -0.162 },
+    flameY: 0.548,
+    stem: { girth: 0.80, length: 1.9 },
+  },
+
+  // 3. Squat wide. Lower and wider than the classic, strongly ribbed, the ribs
+  // deep enough to scallop the silhouette.
+  //
+  // The transcription says 0.62 tall to 1 wide, and that is the one number in
+  // it that cannot be taken at face value: the classic already measures 0.657,
+  // so 0.62 would be a 5% difference described as "lower and wider". The
+  // relationship is the reliable half of the description, so this goes to 0.54
+  // where the difference is legible standing next to the classic.
+  squat: {
+    bodyR: 0.450, bodyH: 0.324,
+    eq: 0, top: superHalf(2.40), botN: 2.40,   // squarer shoulders read as squashed
+    dip: 0.30,
+    base: [0.66, 0.77],   // broad foot; it is the one that looks planted
+    lobes: [10, 3],
+    rib: [0.140, 0.035], ribTop: 1, ribFrom: 0,
+    shellT: 0.0315,
+    face: { zx: 1, zy: 0.98, lift: 0 },
+    flameY: 1.302,
+    stem: { girth: 1.10, length: 0.95 },
+  },
+
+  // 4. Tall round. Nearly spherical, a touch taller than wide, ribs moderate --
+  // a big heavy specimen rather than a squashed one.
+  tall: {
+    bodyR: 0.335, bodyH: 0.470,
+    eq: 0.02,           // the mass a hair above centre, which is what "heavy" is not
+    top: superHalf(2.00), botN: 2.05,
+    dip: 0.24,
+    base: [0.74, 0.85],
+    lobes: [10, 3],
+    rib: [0.080, 0.025], ribTop: 1, ribFrom: 0,
+    shellT: 0.0235,
+    // Its s range is classic's, but its bodyH is a third larger, so the face
+    // has to be shortened or it comes out stretched down the belly.
+    face: { zx: 1, zy: 0.86, lift: 0.015 },
+    flameY: 1.225,
+    stem: { girth: 1.05, length: 1.05 },
+  },
+
+  // 5. Pear. Narrow at the top, widest well below the middle, soft shoulder.
+  // Taller than wide but nowhere near the gourd. No neck: the top is a plain
+  // low-exponent superellipse, which runs out toward a cone and is exactly the
+  // soft shoulder wanted.
+  pear: {
+    bodyR: 0.270, bodyH: 0.400,
+    eq: -0.26,
+    top: superHalf(1.45), botN: 2.20,
+    dip: 0.14,
+    base: [0.78, 0.89],
+    lobes: [9, 3],
+    rib: [0.070, 0.020], ribTop: 0.55, ribFrom: -0.05,
+    shellT: 0.0189,
+    face: { zx: 1.08, zy: 0.76, lift: -0.075 },
+    flameY: 0.859,
+    stem: { girth: 0.85, length: 1.6 },
+  },
+
+  // 6. Tiny. A small squat one, proportionally deeper ribs and a proportionally
+  // fatter stem, about a third the height of the classic.
+  //
+  // The two numbers that are not just classic scaled down are the face and the
+  // shell. Everything in this file is scale-invariant -- the grid cell, the
+  // skirt and the wall are all in face space or in fractions of bodyR -- so a
+  // pure shrink would work geometrically and still fail, because at scene scale
+  // this thing is about thirty pixels tall and a proportional face is three
+  // pixels of it. So the carving is blown up to 1.3 in both axes, taking it to
+  // most of the front of the body, and the shell is thinned to 5.5% of the body
+  // radius rather than 7% so the grin's band is 5.7 wall-thicknesses tall
+  // instead of classic's 3.1 and survives being seen from three quarters.
+  //
+  // The upper teeth also go: see TOOTH_X. Fewer, bigger features is the whole
+  // trade here, and a lost tooth is cheaper than a mouth that mushes shut.
+  tiny: {
+    bodyR: 0.155, bodyH: 0.125,
+    eq: 0, top: superHalf(2.30), botN: 2.30,
+    dip: 0.28,
+    base: [0.66, 0.77],
+    lobes: [8, 2],      // 8..9: fewer lobes, so each one is a bigger event
+    rib: [0.150, 0.035], ribTop: 1, ribFrom: 0,
+    shellT: 0.0085,
+    face: { zx: 1.30, zy: 1.30, lift: 0 },
+    upperTeeth: false,
+    flameY: 1.302,
+    stem: { girth: 1.55, length: 0.95 },
+  },
+};
 
 // Tessellation. SEGMENTS is sized for plain round surfaces; a lobed one needs
 // several times that many steps around, or the grooves stair-step, so the
@@ -134,16 +336,22 @@ function makeNoise(seed) {
   };
 }
 
-export function createPumpkin({ seed = 1, scale = 1 } = {}) {
+export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {}) {
+  const V = VARIANTS[variant] || VARIANTS.classic;
   const rand = makeRng(seed);
   const noise = makeNoise(seed);
 
   // Per-seed variation, kept small: these are the same toy, not different ones.
-  const lobes = 9 + Math.floor(rand() * 3);          // 9..11
-  // Shallower grooves: deep ones cut the round silhouette into a gear.
-  const ribDepth = 0.085 + rand() * 0.025;
-  const bodyR = BODY_R * (0.96 + rand() * 0.08);
-  const bodyH = BODY_H * (0.96 + rand() * 0.08);
+  // The draws are made in the same order and from the same ranges whatever the
+  // variant, so a seed picks out the same point in each family's spread.
+  const lobes = V.lobes[0] + Math.floor(rand() * V.lobes[1]);
+  const ribDepth = V.rib[0] + rand() * V.rib[1];
+  const bodyR = V.bodyR * (0.96 + rand() * 0.08);
+  const bodyH = V.bodyH * (0.96 + rand() * 0.08);
+  // How big this variant is beside the classic, taken from the variant's own
+  // nominal radius rather than the seeded one, so it is exactly 1 for classic.
+  // The lamp's reach and the stem's build are hung off it.
+  const sizeK = V.bodyR / BODY_R;
   // The stem leans relative to the *face*, not to world axes, so the bend reads
   // from the angle the face is being seen from.
   const side = rand() < 0.5 ? -1 : 1;
@@ -154,12 +362,22 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // s runs -1 (bottom pole) .. +1 (top pole); a is the angle around, measured
   // from the middle of the front lobe.
 
-  // Superellipse profile: full through the middle, flat-shouldered at the poles.
-  const profileR = (s) => Math.pow(Math.max(0, 1 - Math.pow(Math.abs(s), SQUASH)), 1 / SQUASH);
+  // The profile is two halves meeting at the widest ring, which for most of the
+  // family sits at s = 0 but on the gourd and the pear is pushed well down. Each
+  // half is measured in its own t: 0 at that ring, 1 at its pole. Both halves
+  // have zero slope at t = 0, so they meet smoothly however different they are.
+  // With EQ = 0 and both halves the same superellipse this is the plain
+  // symmetric profile the classic body has always had, term for term.
+  const EQ = V.eq;
+  const botHalf = superHalf(V.botN);
+  const profileR = (s) => (s >= EQ ? V.top((s - EQ) / (1 - EQ)) : botHalf((EQ - s) / (1 + EQ)));
 
   // Top: pull the last stretch of the pole back toward the centre so the stem
   // sits in a shallow dish, the way a pumpkin does. Bottom: see BASE_TURN --
   // it turns over onto a flat disc instead.
+  const DIP = V.dip;
+  const BASE_TURN = V.base[0];
+  const BASE_FLAT = V.base[1];
   const BASE_L = BASE_FLAT - BASE_TURN;
   const BASE_DEEP = BASE_TURN + BASE_L * 0.5;   // where the disc lands, in bodyH
   const profileY = (s) => {
@@ -181,9 +399,22 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     return -bodyH * (BASE_TURN + BASE_L * (t - t * t * t + 0.5 * t * t * t * t));
   };
 
+  // How much of the groove survives at a given height. Flat 1 on the round
+  // bodies, which is the shape this has always been; the gourd and the pear
+  // fade theirs out toward the top, because a butternut's neck is smooth and
+  // ribs run up a pear's shoulder only faintly. It multiplies the depth rather
+  // than the radius so the crest stays put and only the groove shallows out --
+  // fading the radius instead swells the whole neck as the ribs go.
+  const ribAt = V.ribTop === 1
+    ? () => 1
+    : (s) => {
+      const u = Math.min(1, Math.max(0, (s - V.ribFrom) / (1 - V.ribFrom)));
+      return 1 + (V.ribTop - 1) * u * u * (3 - 2 * u);
+    };
+
   // Grooves, deepest at a = ±pi/lobes, zero at the crest so the front lobe is a
   // clean bulge for the face to sit on.
-  const rib = (a) => 1 - ribDepth * Math.pow(0.5 - 0.5 * Math.cos(lobes * a), RIB_SHARP);
+  const rib = (a, s) => 1 - ribDepth * ribAt(s) * Math.pow(0.5 - 0.5 * Math.cos(lobes * a), RIB_SHARP);
 
   // The lowest point of the shell is the base disc's rim, not the pole -- the
   // disc is cupped. Find it numerically and stand the prop on it, so y = 0 is
@@ -193,7 +424,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   const yBase = -lowest;
 
   const surface = (a, s, target) => {
-    const r = bodyR * profileR(s) * rib(a);
+    const r = bodyR * profileR(s) * rib(a, s);
     const u = a + FACE_YAW;
     return target.set(r * Math.sin(u), profileY(s) + yBase, r * Math.cos(u));
   };
@@ -220,7 +451,14 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // S_HI runs well past the widest part of the body on purpose: the reference's
   // eyes sit high enough that their apexes land near s = 0.67, and a table that
   // stopped at the shoulder would clamp them onto the crown.
-  const S_LO = -0.78, S_HI = 0.86, S_N = 512;
+  // S_HI also has to stay below the crown, where the dish turns the profile
+  // back down and the table stops being monotonic (the binary search below
+  // needs it to be). The dish's turning point is at 0.55 + 0.10125 / DIP, which
+  // for classic's 0.26 is 0.94 and never binds; a deeper dish would, and this
+  // is what stops a variant quietly getting a face solved against a table that
+  // runs backwards at its top end.
+  const S_LO = -0.78, S_N = 512;
+  const S_HI = Math.min(0.86, 0.53 + 0.10125 / DIP);
   const yTable = new Float32Array(S_N + 1);
   for (let i = 0; i <= S_N; i++) yTable[i] = profileY(S_LO + ((S_HI - S_LO) * i) / S_N) + yBase;
   const sOfY = (y) => {
@@ -244,19 +482,27 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // seen from three quarters the near lip occluded more than the whole band and
   // the mouth broke into fragments. This is as thick as the thinnest feature on
   // the face can carry.
-  const SHELL_T = 0.028;
+  //
+  // Every variant keeps that 7% of its own radius except `tiny`, which is at
+  // 5.5% -- see its entry. The rest of the wall's numbers were solved against
+  // 0.028 and are held in proportion to it by WALL_K rather than re-solved: the
+  // lip, the taper and the collar are all fractions of the wall's depth, and
+  // an absolute collar deeper than a thin shell would put the plug's roof out
+  // through the front of the pumpkin. WALL_K is exactly 1 for classic.
+  const SHELL_T = V.shellT;
+  const WALL_K = SHELL_T / 0.028;
   // A hair below the bottom of the wall rather than exactly level with it.
   // Level, the plate and the wall's inner ring are coplanar and their shared
   // edge speckles.
-  const PLATE = SHELL_T + 0.0012;
-  const WALL_TAPER = 0.005; // how much narrower the cut is at its bottom
+  const PLATE = SHELL_T + 0.0012 * WALL_K;
+  const WALL_TAPER = 0.005 * WALL_K; // how much narrower the cut is at its bottom
   // The wall's top ring laps this far back over the skin, a hair proud of it,
   // rather than meeting the hole edge exactly. Meeting exactly is correct and
   // fragile: at three quarters the far eye, seen nearly edge on, opened a crack
   // of daylight at its sharpest corner. Lapping the joint shuts that for good,
   // and the sliver of darker wall it leaves on the skin reads as the lip of the
   // cut, which the reference has anyway.
-  const WALL_LIP = 0.007, WALL_PROUD = 0.0006;
+  const WALL_LIP = 0.007 * WALL_K, WALL_PROUD = 0.0006 * WALL_K;
   // The seed rescales the shell a few percent in each axis, so the face has to
   // ride that scale instead of sitting at fixed heights. Authored absolutely,
   // the eyes -- which sit high on the shoulder -- ran off the crown of a
@@ -278,8 +524,13 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // Where the flame sits inside the shell. The lamp further down is parked at
   // this same point, so what the openings show and what the floor is lit by are
   // one flame rather than two sources that happen to agree.
+  // Its height is a multiple of yBase, one per variant, and each was picked so
+  // the lamp sits a hair below the middle of that variant's carving -- which on
+  // classic is what 1.25 already worked out to. It cannot just be a fixed
+  // multiple: the gourd's face is dropped onto the bulb, and a lamp left at
+  // 1.25 there would be parked up inside the neck with the carving below it.
   const faceDir = new THREE.Vector3(Math.sin(FACE_YAW), 0, Math.cos(FACE_YAW));
-  const FLAME_AT = new THREE.Vector3(faceDir.x * bodyR * 0.50, yBase * 1.25, faceDir.z * bodyR * 0.50);
+  const FLAME_AT = new THREE.Vector3(faceDir.x * bodyR * 0.50, yBase * V.flameY, faceDir.z * bodyR * 0.50);
 
   // How much of the flame reaches the plate at a point on it.
   //
@@ -348,6 +599,25 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     (bly + (bry - bly) * u) * (1 - v) + ay * v,
   ];
 
+  // Refits the carving onto this variant's body: widen or narrow it about the
+  // face's own axis, shorten or stretch it about the nose, then slide it up or
+  // down the profile. Applied to the samplers and nowhere else, because every
+  // other piece of face machinery in this file -- the hole cut in the shell,
+  // the wall in the hole, the emissive plate, the lamp's gobo -- is walked off
+  // those same samplers, so warping them warps all four in step.
+  //
+  // Classic gets the samplers back untouched rather than run through an
+  // identity transform. `pivot + (Y - pivot)` is not exactly Y in floating
+  // point, and a face that lands a few ulps off the one this file was tuned
+  // against is a face whose quads can fall on the other side of a cut test.
+  const FW = V.face;
+  const refit = (FW.zx === 1 && FW.zy === 1 && FW.lift === 0)
+    ? (sampler) => sampler
+    : (sampler) => (u, v) => {
+      const q = sampler(u, v);
+      return [q[0] * FW.zx, FACE_PIVOT + (q[1] - FACE_PIVOT) * FW.zy + FW.lift];
+    };
+
   // --- The carved face -------------------------------------------------------
   // These numbers are solved off .ref/ref-pumpkin.png, not eyeballed. Each
   // landmark in the photo was measured in pixels, both pumpkins were pinned to
@@ -384,6 +654,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // dropped from the first solve: on the reference the gap from its base to the
   // top of the grin measures about three quarters of what we had, so the nose
   // hangs closer to the mouth than to the eyes.
+  // NOSE_BASE is also FACE_PIVOT, the height a variant's refit scales about.
   const NOSE_W = 0.0400, NOSE_TIP = 0.3895, NOSE_BASE = 0.3264;
   const nose = triSampler(0, NOSE_TIP, -NOSE_W, NOSE_BASE, NOSE_W, NOSE_BASE);
 
@@ -432,6 +703,13 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // way down; past a half and the channel of light behind them closes, which is
   // what turned the first grin into five separate boxes.
   const TOOTH_X = 0.122, TOOTH_HW = 0.046, TOOTH_DEPTH = 0.042, TOOTH_RAMP = 0.16;
+  // Which of them are actually cut. Every variant has both except `tiny`, whose
+  // whole grin is about eight pixels tall at scene scale: three teeth in that
+  // reads as noise on the edge of the band, and the two upper ones are the pair
+  // that goes, because it is the broad lower dome that gives the grin its two
+  // lobes and its shape at a glance. Tried the other way round first and the
+  // small one came out as a plain slot with a nick in the top of it.
+  const UPPER_TEETH = V.upperTeeth === false ? [] : [-TOOTH_X, TOOTH_X];
   // The lower tooth is a dome five times wider than it is tall, not the tall
   // block it was. Root rather than parabola so the top is broad and the flanks
   // land softly on the lower edge instead of cutting two square notches in it.
@@ -449,7 +727,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     const gap = top0 - bot0;
     // Two teeth hang down from the upper edge, just inside the eyes.
     let bite = 0;
-    for (const tx of [-TOOTH_X, TOOTH_X]) {
+    for (const tx of UPPER_TEETH) {
       bite += TOOTH_DEPTH * block(Math.abs(x - tx) / TOOTH_HW, TOOTH_RAMP);
     }
     // One broad tooth rises from the lower edge in the middle.
@@ -465,10 +743,10 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // single column and its shoulders came out as a staircase. 240 puts two or
   // three columns in the flank, which is enough for the smoothstep to read.
   const FACE_SHAPES = [
-    { nx: 14, ny: 14, sampler: eye(-1) },
-    { nx: 14, ny: 14, sampler: eye(1) },
-    { nx: 10, ny: 10, sampler: nose },
-    { nx: 240, ny: 10, sampler: mouth },
+    { nx: 14, ny: 14, sampler: refit(eye(-1)) },
+    { nx: 14, ny: 14, sampler: refit(eye(1)) },
+    { nx: 10, ny: 10, sampler: refit(nose) },
+    { nx: 240, ny: 10, sampler: refit(mouth) },
   ];
 
 
@@ -870,8 +1148,16 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
     const pos = Array.from(g.getAttribute('position').array);
     const idx = Array.from(g.getIndex().array);
     const p = new THREE.Vector3();
+    // The skirt is in face space and needs to be wider than a grid cell, and a
+    // cell in face space is (2*pi/radial) * BODY_R across by BODY_H * pi/RINGS
+    // up -- the body's own size cancels out of both. So this one number is
+    // right for every variant and is deliberately not scaled.
     const SKIRT = 0.030;
-    const COLLAR_TOP = 0.011;   // deep enough that the collar never grazes the skin
+    // The collar's height is a lift, so it IS in world units and does have to
+    // follow the shell: on `tiny` an absolute 0.011 would stand a third of a
+    // millimetre proud of a 0.0085 shell and put the plug's roof outside the
+    // pumpkin. Deep enough that the collar never grazes the skin.
+    const COLLAR_TOP = 0.011 * WALL_K;
     const put = (X, Y, lift) => {
       facePoint(X, Y, lift === undefined ? -PLATE : lift, p);
       pos.push(p.x, p.y, p.z);
@@ -986,19 +1272,28 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // A swept tube with its own radius profile rather than a CylinderGeometry:
   // it has to bend, taper, flare where it meets the shell and round off at the
   // tip, and none of that is a primitive.
+  // The whole stem is the classic one scaled: sizeK carries it down onto a
+  // smaller body, and the variant's own pair then says how it differs from a
+  // scaled classic. Girth and length are separate because that is exactly what
+  // the reference varies -- the gourd and the pear carry a stem that is longer
+  // and thinner than a scaled one (0.80 girth at 1.9 length), the tiny one's is
+  // shorter and much fatter (1.55 at 0.95), and the two round ones are a scaled
+  // classic with a little more of both.
   const stemTop = profileY(1) + yBase;
+  const stemK = sizeK * V.stem.girth;
+  const stemL = sizeK * V.stem.length;
   const lean = new THREE.Vector2(Math.sin(aStem + FACE_YAW), Math.cos(aStem + FACE_YAW));
   // The control points lean progressively rather than all at once, so the stem
   // bends along its length instead of kinking at one joint.
   const stemCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, stemTop - 0.035, 0),
-    new THREE.Vector3(lean.x * 0.006, stemTop + 0.045, lean.y * 0.006),
-    new THREE.Vector3(lean.x * 0.042, stemTop + 0.105, lean.y * 0.042),
-    new THREE.Vector3(lean.x * 0.105, stemTop + 0.150, lean.y * 0.105),
-    new THREE.Vector3(lean.x * 0.170, stemTop + 0.172, lean.y * 0.170),
+    new THREE.Vector3(0, stemTop - 0.035 * stemL, 0),
+    new THREE.Vector3(lean.x * 0.006 * stemL, stemTop + 0.045 * stemL, lean.y * 0.006 * stemL),
+    new THREE.Vector3(lean.x * 0.042 * stemL, stemTop + 0.105 * stemL, lean.y * 0.042 * stemL),
+    new THREE.Vector3(lean.x * 0.105 * stemL, stemTop + 0.150 * stemL, lean.y * 0.105 * stemL),
+    new THREE.Vector3(lean.x * 0.170 * stemL, stemTop + 0.172 * stemL, lean.y * 0.170 * stemL),
   ]);
   const stemRadius = (t) => {
-    const taper = 0.052 * (1 - 0.42 * Math.pow(t, 1.2));
+    const taper = 0.052 * stemK * (1 - 0.42 * Math.pow(t, 1.2));
     const flare = 1 + 1.05 * Math.exp(-t / 0.11);     // spreads where it meets the dish
     // A hemispherical roll-off rather than a flat disc: the tip of a toy stem
     // is a soft nub, and a truncated cone reads as a cut-off pencil.
@@ -1034,7 +1329,16 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // measured from), and the cone is narrow enough that the floor within the
   // base is behind it rather than under it. The pool now starts a little clear
   // of the pumpkin and washes forward, which is what was wanted anyway.
-  const LIGHT_DISTANCE = 3.2;
+  //
+  // All three of the lamp's lengths ride sizeK, so a smaller pumpkin throws a
+  // smaller pool rather than the same one. Its intensity rides sizeK^0.9 with
+  // it, and that exponent is the light's own decay: illuminance goes as
+  // I / d^0.9, so scaling I by the same power as d holds the pool's brightness
+  // steady while its size follows the prop. Left at full strength the tiny one
+  // lit a patch of ground as bright as the classic's from a third the distance
+  // and read as a torch rather than a candle.
+  const LIGHT_DISTANCE = 3.2 * sizeK;
+  const LAMP_GAIN = Math.pow(sizeK, 0.9);
   const CONE_ANGLE = 0.52;  // half-cone: the lower edge clears the base disc by a few centimetres
 
   // --- What the light throws -------------------------------------------------
@@ -1165,7 +1469,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
 
   const light = new THREE.SpotLight(
     new THREE.Color(PALETTE.glow),
-    (LAMP.min + LAMP.max) / 2,
+    ((LAMP.min + LAMP.max) / 2) * LAMP_GAIN,
     LIGHT_DISTANCE * scale,
     CONE_ANGLE,
     // Penumbra. This used to be 0.92 -- nearly all edge -- because the cone's
@@ -1196,8 +1500,8 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
   // Aimed low and long rather than steeply down: with the cone this narrow, a
   // steep aim put the whole pool in one puddle a foot from the pumpkin and it
   // read as a spotlight. Flatter, it runs out to a couple of units and fades.
-  lightTarget.position.copy(faceDir).multiplyScalar(1.9);
-  lightTarget.position.y = -0.42;
+  lightTarget.position.copy(faceDir).multiplyScalar(1.9 * sizeK);
+  lightTarget.position.y = -0.42 * sizeK;
   light.target = lightTarget;
 
   const group = new THREE.Group();
@@ -1246,7 +1550,7 @@ export function createPumpkin({ seed = 1, scale = 1 } = {}) {
       const level = Math.min(1, Math.max(0, 0.90 + flutter - dip)); // 0 = guttering, 1 = flaring
 
       const at = (range) => range.min + (range.max - range.min) * level;
-      light.intensity = at(LAMP);
+      light.intensity = at(LAMP) * LAMP_GAIN;
       // Lamp, carving and bloom all come off the one value: that is the whole
       // trick. The carving's range is shallower because a real cut-out stays
       // near saturation even as the spill on the ground drops away.
