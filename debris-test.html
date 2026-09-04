@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Debris Test</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #b9bec7; }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<!--
+  A bench for the debris solver in src/ghost/props/skeleton/motion.js, and for
+  nothing else. Development only: it is deliberately not listed in
+  vite.config.js, so it runs under `vite dev` and never reaches a build.
+
+  Motion is judged by watching it, so this drops bone-shaped capsules and chips
+  of board from various heights and spins, on the real scene's floor and
+  lighting, and stitches the frames into one contact strip that can be looked at
+  in one go. Driven from capture/debris-test.mjs.
+-->
+<canvas id="view"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { createGround } from '/src/ghost/ground.js';
+import { createDebris } from '/src/ghost/props/skeleton/motion.js';
+
+const canvas = document.getElementById('view');
+const params = new URLSearchParams(location.search);
+
+// preserveDrawingBuffer, because the strip is composited from the canvas well
+// after the draw call rather than inside a rAF.
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const BACKDROP = new THREE.Color('#b9bec7').convertSRGBToLinear();
+const scene = new THREE.Scene();
+scene.background = BACKDROP;
+
+// Two cameras for two different questions. `side` is nearly a ground-level
+// elevation, which is the only view that answers "is it resting on the floor or
+// sunk into it". `iso` is the shipping camera, which answers "does this read
+// right in the actual scene".
+const CAMS = {
+  side: { dir: new THREE.Vector3(0.12, 0.16, 1).normalize(), target: new THREE.Vector3(0.35, 0.48, 0), view: 1.2 },
+  iso: { dir: new THREE.Vector3(1, 0.78, 1).normalize(), target: new THREE.Vector3(0.35, 0.5, 0), view: 1.5 },
+  // Almost on the deck, and tight. The only view that can tell resting on the
+  // floor from hovering a centimetre above it or sunk a centimetre into it.
+  // Tight on where the long bone comes to rest, for looking at the last second
+  // of the settle rather than at the whole drop.
+  bone: { dir: new THREE.Vector3(0.2, 0.1, 1).normalize(), target: new THREE.Vector3(-1.45, 0.12, 0), view: 0.42 },
+  floor: { dir: new THREE.Vector3(0.25, 0.045, 1).normalize(), target: new THREE.Vector3(0.55, 0.09, 0), view: 0.78 },
+};
+const cam = CAMS[params.get('cam')] || CAMS.side;
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+
+function resize(w, h) {
+  const aspect = w / h;
+  camera.left = -cam.view * aspect;
+  camera.right = cam.view * aspect;
+  camera.top = cam.view;
+  camera.bottom = -cam.view;
+  camera.updateProjectionMatrix();
+  camera.position.copy(cam.target).addScaledVector(cam.dir, 20);
+  camera.lookAt(cam.target);
+  renderer.setSize(w, h, false);
+}
+
+scene.add(new THREE.HemisphereLight(0xdfe6f5, 0x6f7480, 1.15));
+const key = new THREE.DirectionalLight(0xfff4e6, 2.1);
+key.position.set(3.2, 6.0, 2.4);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near = 0.5;
+key.shadow.camera.far = 30;
+key.shadow.camera.left = -4;
+key.shadow.camera.right = 4;
+key.shadow.camera.top = 4;
+key.shadow.camera.bottom = -4;
+key.shadow.bias = -0.0012;
+key.shadow.normalBias = 0.006;
+key.shadow.radius = 3;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xc4d4ff, 0.55);
+rim.position.set(-4, 2.5, -3);
+scene.add(rim);
+
+scene.add(createGround());
+
+const boneMat = new THREE.MeshStandardMaterial({ color: '#e9e2d2', roughness: 0.72, metalness: 0.0 });
+const chipMat = new THREE.MeshStandardMaterial({ color: '#d8cfba', roughness: 0.8, metalness: 0.0 });
+
+// Everything spawns as a child of this, never of the scene, and the group is
+// both moved and turned. If the reparent in spawn() is wrong by so much as a
+// rotation, every bone jumps on its first frame and attachError says so.
+const rig = new THREE.Group();
+rig.position.set(0.15, 1.05, -0.2);
+rig.rotation.set(0.25, 0.9, -0.4);
+rig.scale.setScalar(1.0);
+scene.add(rig);
+
+const debris = createDebris({ scene, gravity: -9.8, bounce: 0.35 });
+
+// A spread of shapes and throws rather than six of the same drop: a long bone
+// tumbling end over end, one falling almost dead, chips of flat board, and a
+// knuckle thrown hard enough to skip. Local offsets are chosen so that under
+// the rig's transform they end up spread across the frame.
+function bone(len, radius) {
+  const g = new THREE.CapsuleGeometry(radius, len, 6, 14);
+  const m = new THREE.Mesh(g, boneMat);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
+function chip(x, y, z) {
+  const g = new THREE.BoxGeometry(x, y, z, 1, 1, 1);
+  const m = new THREE.Mesh(g, chipMat);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  return m;
+}
+
+const DROPS = [
+  { make: () => bone(0.40, 0.05), at: [-1.30, 0.95, 0], vel: [-0.25, 1.1, 0], spin: [0, 0.6, -9.0] },
+  { make: () => bone(0.34, 0.055), at: [-0.70, 0.10, 0], vel: [0.05, 0.1, 0], spin: [0.3, 0, 0.4] },
+  { make: () => chip(0.26, 0.055, 0.14), at: [-0.10, 0.55, 0], vel: [0.1, 0.4, 0], spin: [5.0, 2.0, 1.5] },
+  { make: () => chip(0.09, 0.09, 0.09), at: [0.55, 1.35, 0], vel: [1.35, 0.2, 0], spin: [0, 0, -3.0] },
+  { make: () => bone(0.30, 0.045), at: [1.05, -0.15, 0], vel: [1.9, 1.3, 0], spin: [0, 0, -14.0] },
+  { make: () => chip(0.20, 0.03, 0.20), at: [1.55, 0.75, 0], vel: [-0.15, 0.5, 0], spin: [1.0, 8.0, 0.6] },
+];
+
+const tracked = [];
+let attachError = 0;
+
+function build() {
+  const before = new THREE.Vector3();
+  const after = new THREE.Vector3();
+  for (const d of DROPS) {
+    const mesh = d.make();
+    // Local placement is deliberately fed through the rig's own transform, so
+    // the drop heights below are world heights.
+    rig.add(mesh);
+    rig.updateWorldMatrix(true, true);
+    mesh.position.copy(rig.worldToLocal(new THREE.Vector3(d.at[0], d.at[1] + 1.05, d.at[2])));
+    mesh.rotation.set(0.4, -0.3, 0.9);
+    rig.updateWorldMatrix(true, true);
+    mesh.getWorldPosition(before);
+
+    debris.spawn(mesh, { velocity: d.vel, spin: d.spin });
+
+    mesh.updateWorldMatrix(true, false);
+    mesh.getWorldPosition(after);
+    attachError = Math.max(attachError, before.distanceTo(after));
+    tracked.push(mesh);
+  }
+}
+
+// --- contact strip -----------------------------------------------------------
+
+const strip = document.createElement('canvas');
+const sctx = strip.getContext('2d');
+let cols = 3;
+let tileW = 480;
+let tileH = 320;
+let slot = 0;
+
+function resetStrip(n, w, h, c) {
+  cols = c;
+  tileW = w;
+  tileH = h;
+  slot = 0;
+  strip.width = cols * tileW;
+  strip.height = Math.ceil(n / cols) * tileH;
+  sctx.fillStyle = '#20232a';
+  sctx.fillRect(0, 0, strip.width, strip.height);
+}
+
+function snap(label) {
+  const x = (slot % cols) * tileW;
+  const y = Math.floor(slot / cols) * tileH;
+  sctx.drawImage(canvas, x, y, tileW, tileH);
+  sctx.font = 'bold 20px monospace';
+  sctx.fillStyle = 'rgba(0,0,0,0.75)';
+  sctx.fillRect(x + 8, y + 8, 12 * label.length + 12, 28);
+  sctx.fillStyle = '#fff';
+  sctx.fillText(label, x + 14, y + 29);
+  sctx.strokeStyle = '#20232a';
+  sctx.lineWidth = 2;
+  sctx.strokeRect(x + 1, y + 1, tileW - 2, tileH - 2);
+  slot++;
+}
+
+// --- driver ------------------------------------------------------------------
+
+let time = 0;
+
+window.__debrisTest = {
+  setSize(w, h) {
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    resize(w, h);
+  },
+  reset() {
+    debris.clear();
+    tracked.length = 0;
+    attachError = 0;
+    time = 0;
+    build();
+    renderer.render(scene, camera);
+  },
+  step(dt = 1 / 60) {
+    time += dt;
+    debris.update(dt);
+    renderer.render(scene, camera);
+    return time;
+  },
+  resetStrip,
+  snap,
+  strip: () => strip.toDataURL('image/png'),
+  // Lowest world extent per object, measured independently of the solver's own
+  // hull so a bug in that hull cannot hide behind itself. Anything below zero
+  // is a bone sunk into the floor.
+  report() {
+    const box = new THREE.Box3();
+    return {
+      time: +time.toFixed(3),
+      attachError: +attachError.toFixed(6),
+      ...debris.stats(),
+      objects: tracked.map((o) => {
+        box.setFromObject(o);
+        return {
+          y: +box.min.y.toFixed(4),
+          h: +(box.max.y - box.min.y).toFixed(4),
+          pos: [+o.position.x.toFixed(3), +o.position.y.toFixed(3), +o.position.z.toFixed(3)],
+        };
+      }),
+    };
+  },
+  // Runs a whole drop inside the page and hands back the lowest world point of
+  // every object on every frame. Watching the strip says whether the bounce
+  // looks like bone; this says how high it actually went, which is the part
+  // that is easy to fool yourself about at 12 frames.
+  trace(frames = 180, dt = 1 / 60) {
+    this.reset();
+    const box = new THREE.Box3();
+    const rows = tracked.map(() => []);
+    for (let f = 0; f < frames; f++) {
+      time += dt;
+      debris.update(dt);
+      tracked.forEach((o, i) => {
+        box.setFromObject(o);
+        rows[i].push(box.min.y);
+      });
+    }
+    // An apex is a local maximum that follows a touch of the floor, so this is
+    // the list of hops each object made after it first arrived.
+    return rows.map((ys) => {
+      const hops = [];
+      let touched = false;
+      let rising = false;
+      let apex = 0;
+      for (let f = 1; f < ys.length; f++) {
+        if (ys[f] < 2e-3) { touched = true; if (rising) { hops.push(+apex.toFixed(4)); rising = false; apex = 0; } }
+        else if (touched) { rising = true; apex = Math.max(apex, ys[f]); }
+      }
+      if (rising) hops.push(+apex.toFixed(4));
+      let quiet = ys.length - 1;
+      while (quiet > 0 && Math.abs(ys[quiet] - ys[quiet - 1]) < 1e-6) quiet--;
+      return {
+        touchAt: ys.findIndex((y) => y < 2e-3),
+        hops,
+        stillAt: quiet,
+        rest: +ys[ys.length - 1].toFixed(5),
+      };
+    });
+  },
+
+  // Deliberate abuse, in the order a real teardown would hit it: one bone is
+  // yanked out of the scene by someone else, the geometry is disposed under the
+  // rest while they are still in the air, then clear runs twice and the loop
+  // keeps stepping. None of that may throw.
+  disposeMidFlight() {
+    const steps = [];
+    scene.remove(tracked[0]);
+    debris.update(1 / 60);
+    steps.push({ ...debris.stats() });
+
+    // Respawning something already in flight must not double-simulate it.
+    debris.spawn(tracked[1], { velocity: [0, 1, 0] });
+    debris.update(1 / 60);
+    steps.push({ ...debris.stats() });
+
+    for (const o of tracked) o.geometry.dispose();
+    debris.clear();
+    debris.clear();
+    debris.update(1 / 60);
+    debris.update(1 / 20);
+    steps.push({ ...debris.stats() });
+    return steps;
+  },
+};
+
+resize(canvas.clientWidth || 900, canvas.clientHeight || 600);
+build();
+renderer.render(scene, camera);
+window.__debrisReady = true;
+</script>
+</body>
+</html>

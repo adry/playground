@@ -6,3 +6,9 @@ out/
 
 # Reference photography used while modelling the props. Not ours to publish.
 .ref/
+
+# Throwaway probes. Working on these props means constantly writing a script to
+# measure one thing off a render and then throwing it away; they are named so
+# they are easy to spot and never worth committing.
+/.*.mjs
+/capture/_*.mjs

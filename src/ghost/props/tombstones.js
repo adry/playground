@@ -160,57 +160,108 @@ function inkCross(ctx, cx, cy, h) {
   ctx.fill();
 }
 
-function inkBat(ctx, cx, cy, s) {
-  // Body, head and ears first, then a wing on each side. Each piece is filled
-  // separately so overlapping subpaths union instead of cancelling.
-  ctx.beginPath();
-  ctx.ellipse(cx, cy + 0.02 * s, 0.10 * s, 0.21 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(cx, cy - 0.20 * s, 0.105 * s, 0.095 * s, 0, 0, Math.PI * 2);
-  ctx.fill();
-  for (const dir of [-1, 1]) {
-    ctx.beginPath();
-    ctx.moveTo(cx + dir * 0.02 * s, cy - 0.24 * s);
-    ctx.quadraticCurveTo(cx + dir * 0.11 * s, cy - 0.42 * s, cx + dir * 0.13 * s, cy - 0.23 * s);
-    ctx.closePath();
-    ctx.fill();
+// The Batman silhouette, as one closed outline rather than a body with wings
+// stuck on. The earlier version built it out of two ellipses and a sagging
+// three-finger membrane per side: at the size this is actually seen it read as
+// a moth, and nothing about it said Batman.
+//
+// Only the right half is authored, from the notch between the ears round to the
+// point of the tail; the left half is the same segments walked backwards with x
+// negated, which is the only way the two ears and the two wingtips are
+// guaranteed to match.
+//
+// Units are half-spans in x. In y they are half-spans times Y, so the logo can
+// be squashed to its very wide aspect without every number being rewritten.
+// Each entry is one cubic: two control points then the end point. A segment
+// whose controls sit on the chord is a straight line, which is what the ears
+// want.
+const BAT_TOP = [0, -0.06]; // notch between the ears, on the mirror line
+const BAT_HALF = [
+  [0.045, -0.06, 0.09, -0.27, 0.115, -0.34], // top of the head, curving up into the ear point
+  // Down past the head to the shoulder. The head is deliberately small: a pass
+  // with ears half again this tall turned the logo into a pair of horns.
+  [0.145, -0.28, 0.18, -0.14, 0.21, -0.05],
+  // Upper wing edge: it sags to about level with the shoulder halfway out, then
+  // sweeps up to the tip. That thin waist with flared tips is the signature of
+  // the logo; a wing of even thickness kills it.
+  [0.52, 0.10, 0.86, -0.06, 1.0, -0.34],
+  // Lower edge of the wingtip. It leaves the tip almost antiparallel to the
+  // upper edge arriving there, which keeps the tip a point -- but only just:
+  // pushed any further the outer third of the wing became a thin crescent.
+  [1.02, -0.02, 0.92, 0.16, 0.78, 0.24],
+  [0.70, 0.08, 0.58, 0.12, 0.48, 0.34], // scallop: membrane arcs up, cusps hang down
+  [0.38, 0.14, 0.29, 0.13, 0.21, 0.28], // second scallop, in to where the body starts
+  [0.18, 0.38, 0.12, 0.44, 0.0, 0.52], // side of the body down to the tail point
+];
 
-    ctx.beginPath();
-    ctx.moveTo(cx + dir * 0.08 * s, cy - 0.15 * s);
-    // leading edge, shoulder out to the tip
-    ctx.bezierCurveTo(cx + dir * 0.40 * s, cy - 0.52 * s, cx + dir * 0.76 * s, cy - 0.50 * s, cx + dir * 1.0 * s, cy - 0.36 * s);
-    // trailing edge: membranes sagging between three finger tips, which is what
-    // separates a bat from a moth at this size
-    ctx.quadraticCurveTo(cx + dir * 0.86 * s, cy + 0.02 * s, cx + dir * 0.66 * s, cy - 0.10 * s);
-    ctx.quadraticCurveTo(cx + dir * 0.56 * s, cy + 0.20 * s, cx + dir * 0.38 * s, cy + 0.01 * s);
-    ctx.quadraticCurveTo(cx + dir * 0.30 * s, cy + 0.26 * s, cx + dir * 0.08 * s, cy + 0.14 * s);
-    ctx.closePath();
-    ctx.fill();
+function inkBat(ctx, cx, cy, halfSpan, Y = 0.82) {
+  const px = (x) => cx + x * halfSpan;
+  const py = (y) => cy + y * halfSpan * Y;
+  ctx.beginPath();
+  ctx.moveTo(px(BAT_TOP[0]), py(BAT_TOP[1]));
+  for (const s of BAT_HALF) ctx.bezierCurveTo(px(s[0]), py(s[1]), px(s[2]), py(s[3]), px(s[4]), py(s[5]));
+  // Back up the left side: same segments in reverse, control points swapped so
+  // the curve is traversed the other way, and every x mirrored.
+  for (let i = BAT_HALF.length - 1; i >= 0; i--) {
+    const s = BAT_HALF[i];
+    const prev = i > 0 ? BAT_HALF[i - 1] : null;
+    const ex = prev ? prev[4] : BAT_TOP[0];
+    const ey = prev ? prev[5] : BAT_TOP[1];
+    ctx.bezierCurveTo(px(-s[2]), py(s[3]), px(-s[0]), py(s[1]), px(-ex), py(ey));
   }
+  ctx.closePath();
+  ctx.fill();
 }
 
-// Marks for one variant, drawn black on white into its own canvas. Black on
-// white so it can simply be multiplied into both the colour and the height map
-// at different strengths.
+// Marks for one variant, opaque black on a transparent canvas. Transparent
+// rather than white-backed because every consumer wants a mask: multiplied over
+// a colour or a height, a transparent pixel leaves the destination alone, and
+// destination-out against a shifted copy of the same canvas gives the groove's
+// upper and lower lips for free.
 function drawInscription(variant, w, h) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, w, h);
   ctx.fillStyle = '#000000';
 
   if (variant === 'fred') {
+    // Three lines centred on the middle of the face, a shade above it. Font
+    // metrics are not involved: inkText centres each line on its own ink, so
+    // the block's centre really is the middle line's centre.
     const lines = ['HERE', 'LIES', 'FRED'];
-    const size = h * 0.14;
-    lines.forEach((line, i) => inkText(ctx, line, w / 2, h * (0.465 + i * 0.175), size, size * 0.05));
+    const size = h * 0.15;
+    lines.forEach((line, i) => inkText(ctx, line, w / 2, h * (0.47 + (i - 1) * 0.175), size, size * 0.05));
+  } else if (variant === 'bat') {
+    // No lettering under the bat. The reference stone carries the mark alone,
+    // and an R.I.P. below it only crowded a symbol that wants the whole face.
+    // Span is 0.68 of the face, not more: the outer eighth of the face is the
+    // slab's rounded edge, and wingtips that reach it get bent round the corner.
+    inkBat(ctx, w / 2, h * 0.47, w * 0.37);
   } else {
-    if (variant === 'bat') inkBat(ctx, w / 2, h * 0.26, w * 0.35);
-    else inkCross(ctx, w / 2, h * 0.27, h * 0.30);
-    inkText(ctx, 'R.I.P.', w / 2, h * 0.63, h * 0.145, h * 0.012);
+    inkCross(ctx, w / 2, h * 0.28, h * 0.22);
+    inkText(ctx, 'R.I.P.', w / 2, h * 0.55, h * 0.135, h * 0.011);
   }
+  return c;
+}
+
+// The band of the mark that lies just inside one of its edges, as an opaque
+// mask: the mark, minus a copy of itself shifted off that edge. Used to paint
+// the two walls of the groove -- the one under the top edge faces down and away
+// from the key light, the one above the bottom edge faces up into it.
+function lipMask(marks, dx, dy, colour) {
+  const c = document.createElement('canvas');
+  c.width = marks.width;
+  c.height = marks.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(marks, 0, 0);
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.drawImage(marks, dx, dy);
+  // The lit lip has to be drawn in white to survive a screen blend, so the
+  // mask keeps its alpha and swaps its colour.
+  ctx.globalCompositeOperation = 'source-in';
+  ctx.fillStyle = colour;
+  ctx.fillRect(0, 0, c.width, c.height);
   return c;
 }
 
@@ -316,37 +367,81 @@ function buildTextures(variant, faceAspect, rng) {
   const hc = height.getContext('2d');
   hc.fillStyle = '#808080';
   hc.fillRect(0, 0, w, FH);
-  mottle(hc, w, FH, mulberry32(1), '96,96,96', '176,176,176', 0.13, false);
+  // Halved from 0.13 because the normal strength below doubled: this mottling
+  // is meant to be a slow swell across the face, and at the new strength the
+  // old amplitude turned the stone into hammered metal.
+  mottle(hc, w, FH, mulberry32(1), '96,96,96', '176,176,176', 0.065, false);
 
   const marks = drawInscription(variant, FW, FH);
-  // 0.4 of black through multiply lands the letters on PALETTE.stoneEngrave,
-  // and lets the mottling show through the groove instead of flat-filling it.
-  cc.globalCompositeOperation = 'multiply';
-  cc.globalAlpha = 0.4;
-  cc.drawImage(marks, 0, 0);
-  cc.globalAlpha = 1;
-  cc.globalCompositeOperation = 'source-over';
 
-  // Blurred so the groove has walls that ramp instead of a printed-on step --
-  // dark is low, which is what makes the light read the letters as cut in.
-  hc.globalCompositeOperation = 'multiply';
-  hc.filter = 'blur(4px)';
-  hc.drawImage(marks, 0, 0);
-  hc.filter = 'none';
-  hc.globalCompositeOperation = 'source-over';
+  // --- the groove -----------------------------------------------------------
+  //
+  // What was here before was a normal map off a 4px blur plus a 40% dark fill,
+  // and it read as printed rather than cut. Two reasons. The wall was about
+  // eight texture pixels wide, and this face is a thousand pixels mapped onto
+  // maybe a hundred and fifty on screen, so the whole wall landed inside one
+  // pixel and mipped away to nothing. And a groove that is uniformly dark has
+  // no interior: real carving is dark under its top edge and bright along its
+  // bottom lip, because that lip is the one surface in the cut that faces the
+  // sky.
+  //
+  // So the wall is now ~11px of blur, wide enough to survive at scene scale,
+  // and the two lips are painted into the colour map as well. That second part
+  // is what holds up when distance filters the normal map away.
+  const WALL = Math.max(6, Math.round(FH * 0.011));
+  const LIP = Math.max(3, Math.round(FH * 0.006));
+  const topLip = lipMask(marks, 0, LIP, '#000000'); // inside the mark's upper edge
+  const bottomLip = lipMask(marks, 0, -LIP, '#ffffff'); // inside its lower edge
+
+  const stamp = (ctx, img, alpha, op = 'multiply', blur = 0) => {
+    ctx.globalCompositeOperation = op;
+    ctx.globalAlpha = alpha;
+    if (blur) ctx.filter = `blur(${blur}px)`;
+    ctx.drawImage(img, 0, 0);
+    ctx.filter = 'none';
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  };
+
+  // A wide, weak smudge first: the ambient light that never reaches into a cut,
+  // spilling a little past its edges the way a real occlusion does.
+  stamp(cc, marks, 0.16, 'multiply', WALL * 1.6);
+  // Then the body of the recess. Deeper than the old 0.4 -- with the lips
+  // carrying the shape, a dark floor no longer flattens the letter.
+  stamp(cc, marks, 0.44);
+  // Shaded upper-inner wall, and the catch-light on the lower one.
+  stamp(cc, topLip, 0.4, 'multiply', 1.5);
+  stamp(cc, bottomLip, 0.42, 'screen', 1.5);
+
+  // Height: dark is low. Blurred once for a wall that ramps rather than steps,
+  // then a second, tighter pass so thin strokes still reach the bottom of the
+  // cut instead of being rounded off into a scratch by the blur alone.
+  stamp(hc, marks, 1, 'multiply', WALL);
+  stamp(hc, marks, 1, 'multiply', Math.round(WALL * 0.35));
 
   const map = new THREE.CanvasTexture(colour);
   map.colorSpace = THREE.SRGBColorSpace;
   map.anisotropy = 8;
-  return { map, normalMap: heightToNormalMap(height, 7), frontFrac: FW / w, stripFrac: STRIP / w };
+  return { map, normalMap: heightToNormalMap(height, 14), frontFrac: FW / w, stripFrac: STRIP / w };
 }
 
 // ---------------------------------------------------------------------------
 
+// Sized against the ghost as it actually measures on screen, which is about
+// 1.78 -- hoverHeight 1.34 plus headRadius 0.42 -- and not against the 1.6 in
+// SCENE_SCALE, which is a rounder number for the body alone. The two big stones
+// come up to a bit over four fifths of that and the short one to about two
+// thirds of them. The previous set topped out at 1.04 and read as a row of
+// markers on a lawn rather than headstones somebody stands among.
+//
+// Width is held near two thirds of height for the tall pair, which is what the
+// reference measures, and nearer three quarters for the squat ones. These are
+// chunky slabs -- an earlier attempt at taller-and-no-wider gave thin flagstones
+// that the arch made look like doors.
 const SHAPES = {
-  cross: { halfWidth: 0.31, height: 0.88, depth: 0.19, plinth: 0.11 },
-  bat: { halfWidth: 0.33, height: 0.92, depth: 0.20, plinth: 0.12 },
-  fred: { halfWidth: 0.25, height: 0.64, depth: 0.17, plinth: 0.09 },
+  cross: { halfWidth: 0.435, height: 1.30, depth: 0.28, plinth: 0.18 }, // 1.48
+  bat: { halfWidth: 0.47, height: 1.26, depth: 0.30, plinth: 0.185 }, // 1.445, wide enough for the wings
+  fred: { halfWidth: 0.35, height: 0.90, depth: 0.23, plinth: 0.14 }, // 1.04, still clearly the little one
 };
 
 export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {}) {
@@ -362,7 +457,10 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
   const W = shape.halfWidth;
   const H = shape.height;
   const plinthH = shape.plinth;
-  const edge = 0.05;
+  // The rounded edge is a fixed radius, not a fraction of the stone, so it grew
+  // with the slab: at 0.05 on a slab half again as wide the corner rounding had
+  // become a hairline and the piece stopped reading as vinyl.
+  const edge = 0.062;
 
   const hasDOM = typeof document !== 'undefined';
   const tex = hasDOM ? buildTextures(variant, (2 * W) / H, rng) : null;
@@ -389,22 +487,25 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
     height: H,
     depth: shape.depth,
     edge,
-    bottomRadius: 0.075,
+    bottomRadius: 0.09,
     topRadius: W, // arch: a true half-round, tangent to the sides
     uv: slabUV,
   });
   const slab = new THREE.Mesh(slabGeo, material);
   slab.position.y = plinthH;
 
+  // Reference plinths overhang by about a sixth of the stone's half-width and
+  // are properly deep -- they are the part that says the stone was set, not
+  // pushed into the ground.
   const pW = W + 0.075;
-  const pD = shape.depth + 0.10;
+  const pD = shape.depth + 0.13;
   const plinthGeo = buildSlabGeometry({
     halfWidth: pW,
     height: plinthH,
     depth: pD,
-    edge: 0.042,
-    bottomRadius: 0.048,
-    topRadius: 0.048,
+    edge: 0.05,
+    bottomRadius: 0.056,
+    topRadius: 0.056,
     uv: (x, y) => stripUV(x, y, pW, plinthH, GRIME),
   });
   const plinth = new THREE.Mesh(plinthGeo, material);
@@ -421,11 +522,47 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
   body.rotation.x = -0.012 - rng() * 0.02;
   body.position.y = -0.012;
 
-  // The plinth footprint is a rectangle, so the occlusion patch is stretched to
-  // match it rather than left as a disc floating around a wider stone.
-  const contact = contactShadow({ radius: 0.5, opacity: 0.55, softness: 0.5 });
-  contact.scale.set((pW + 0.26) / 0.5, (pD / 2 + 0.24) / 0.5, 1);
-  group.add(contact);
+  // --- ground contact -------------------------------------------------------
+  //
+  // The plinth footprint is two and a half times wider than it is deep, and a
+  // single stretched patch under it is an ellipse: it pulls away from the long
+  // sides and leaves clean floor at all four corners, which is exactly where
+  // the eye checks whether a thing is standing on the ground. Worse, one patch
+  // has to choose between hugging the base and spreading far enough to give the
+  // stone any weight.
+  //
+  // So it is built in two layers. A row of round patches whose diameter is the
+  // plinth's depth paves the footprint: overlapped, their union is a stadium,
+  // which is as close to a rectangle as a radial gradient gets, and each one is
+  // tight enough that the darkness is still at full strength where the plinth
+  // actually touches. Under them, one broad very soft patch is the ambient pool
+  // the stone sits in.
+  const contacts = [];
+  const patch = (hx, hz, x, opacity, softness) => {
+    const c = contactShadow({ radius: 0.5, opacity, softness });
+    // The plane is laid flat by a -90 degree turn about X, so its local y is
+    // the world depth axis.
+    c.scale.set(hx / 0.5, hz / 0.5, 1);
+    c.position.x = x;
+    group.add(c);
+    contacts.push(c);
+  };
+
+  // Core. contactShadow's gradient is opaque out to (1 - softness) of the
+  // patch's half-extent and fades over the rest, so sizing the patch at
+  // halfDepth / (1 - softness) puts the end of the opaque part exactly on the
+  // plinth's edge: full darkness everywhere the stone covers, and the falloff
+  // begins where the floor becomes visible. Sized the other way round -- patch
+  // barely bigger than the plinth -- the fade started underneath the stone and
+  // the joint went bright again, which is the gap this is here to close.
+  const soft = 0.5;
+  const reach = 0.06; // how far past the plinth the opaque part of the patch runs
+  const core = (pD / 2 + reach) / (1 - soft);
+  const span = pW - pD / 2; // outer centres, so their opaque discs reach the corners
+  for (const t of [-1, 0, 1]) patch(core, core, t * span, 0.68, soft);
+  // Pool: soft and wide, the ambient dish the stone sits in. Low opacity
+  // because it stacks on top of the three above.
+  patch(pW + 0.5, pD / 2 + 0.44, 0, 0.26, 0.9);
 
   group.scale.setScalar(scale);
 
@@ -440,7 +577,7 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
         tex.map.dispose();
         tex.normalMap.dispose();
       }
-      contact.userData.dispose();
+      for (const c of contacts) c.userData.dispose();
     },
   };
 }
