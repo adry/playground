@@ -7,6 +7,8 @@ import { createTombstone } from './props/tombstones.js';
 import { createFencePanel } from './props/fence/panel.js';
 import { createBrokenPanel } from './props/fence/broken.js';
 import { createDebrisPile, createChipScatter } from './props/fence/debris.js';
+import { createGate, GATE_LAYOUT } from './props/fence/gate.js';
+import { createSwing } from './props/fence/swing.js';
 import { createSkeletonRig } from './props/skeleton/model.js';
 
 const canvas = document.getElementById('view');
@@ -188,6 +190,9 @@ scene.add(ghost.mesh);
 // forking it, so the public page never drifts away from what is being tested.
 const SCENE = document.body.dataset.scene === 'minimal' ? 'minimal' : 'full';
 const props = [];
+// Scene-level updaters that are not props in their own right, such as the one
+// driving the gate from the ghost's motion.
+const gateProps = [];
 
 function addProp(prop, x, z, yaw = Math.PI / 4) {
   prop.group.position.set(x, 0, z);
@@ -253,6 +258,7 @@ if (SCENE === 'full') {
   // across the screen and one turned 3*PI/4 runs up it, and a plot laid out in
   // screen units comes out as a rectangle on screen rather than a lozenge.
   const PANEL = 2.0;
+  const FENCE_UP_PLOT = 0.6;
   const ACROSS = Math.PI / 4;
   const UPWARD = (3 * Math.PI) / 4;
 
@@ -283,8 +289,53 @@ if (SCENE === 'full') {
 
   // Two sections with a path up the middle and a path across the front. The
   // left plot is kept, the right one has lost a stretch of its back fence.
-  fencePlot({ right: -7.0, up: 0.6, w: 3, h: 2, seed: 4, gates: { front: 1 } });
-  fencePlot({ right: 1.0, up: 0.6, w: 3, h: 2, seed: 40, gates: { front: 1 }, broken: { back: 1, right: 0 } });
+  fencePlot({ right: -7.0, up: FENCE_UP_PLOT, w: 3, h: 2, seed: 4, gates: { front: 1 } });
+
+  // A gate standing in the gap that plot leaves in its front fence. The
+  // geometry is a real double-acting gate and the physics is a real pendulum,
+  // so the two are wired with the options each half asked for: no framed stop,
+  // and damping 2.0 rather than the module's default, because with nothing to
+  // strike there is no other loss in the system and at 0.6 the leaf rings above
+  // two degrees for fifteen seconds like a metronome.
+  const gate = createGate({ seed: 6, hingeSide: 'left' });
+  const swing = createSwing({
+    stop: 'none',
+    damping: 2.0,
+    latchAngle: GATE_LAYOUT.latchAngle,
+    length: 0.5,
+  });
+  {
+    const [gx, gz] = atScreen(-7.0 + 1.5 * PANEL, FENCE_UP_PLOT);
+    addProp(gate, gx, gz, ACROSS);
+  }
+
+  // The ghost shoves the gate by walking through it. The impulse is his speed
+  // ACROSS the gate's closed plane, so brushing it sideways barely moves it and
+  // running straight through throws it wide, and the sign decides which way it
+  // swings. A cooldown stops a ghost loitering in the gap from pumping the leaf
+  // every frame, which is a pendulum driven at its own frequency and goes over
+  // the top given a few seconds.
+  const gateAt = new THREE.Vector3();
+  const gatePlane = new THREE.Vector3(Math.sin(ACROSS + Math.PI / 2), 0, Math.cos(ACROSS + Math.PI / 2));
+  const toGhost = new THREE.Vector3();
+  let gateCooldown = 0;
+  gateProps.push({
+    update(dt) {
+      gate.hinge.getWorldPosition(gateAt);
+      toGhost.subVectors(ghost.pos, gateAt).setY(0);
+      gateCooldown = Math.max(0, gateCooldown - dt);
+      if (toGhost.length() < PANEL * 0.7 && gateCooldown === 0) {
+        const through = ghost.vel.dot(gatePlane);
+        if (Math.abs(through) > 0.4) {
+          swing.push(through * 5.5);
+          gateCooldown = 0.5;
+        }
+      }
+      swing.update(dt);
+      gate.hinge.rotation.y = swing.angle;
+    },
+  });
+  fencePlot({ right: 1.0, up: FENCE_UP_PLOT, w: 3, h: 2, seed: 40, gates: { front: 1 }, broken: { back: 1, right: 0 } });
 
   // The skeleton, standing in its rest pose so it can be judged before anyone
   // rigs it. Out on the path between the two plots, turned a little off square
@@ -335,6 +386,7 @@ function step(dt, axis) {
   // The pumpkin's lamp flickers, so props advance with the scene clock rather
   // than a wall clock -- a scripted capture then reproduces the same flame.
   for (const prop of props) prop.update?.(sceneTime, dt);
+  for (const g of gateProps) g.update(dt);
   follow(dt);
   renderer.render(scene, camera);
 }
