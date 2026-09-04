@@ -100,7 +100,10 @@ const lab = await openLab({
   width,
   height,
   entry: '/lab/',
-  query: `test=1&scene=${sceneMode}&view=${view}`,
+  // play=1 because /lab/ is the asset lineup now; the graveyard lives behind
+  // that flag. Without it this waits on __ghostReady on a page that never sets
+  // it and times out.
+  query: `play=1&test=1&scene=${sceneMode}&view=${view}`,
   readyFlag: '__ghostReady',
   verbose: !!args.verbose,
 });

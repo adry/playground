@@ -126,6 +126,45 @@ import { shaft } from './bone.js';
 // would sit where the reference does. Not changed: bone.js is not mine and the
 // whole figure shares the colour.
 
+// ROUND EIGHT: THE MAXILLA AND THE VAULT, AND NOTHING ELSE.
+//
+// The user named two faults and this pass fixed those two. The brow, the
+// orbits, the temporal line, the mandible, the bone colour and the feature
+// sizes are all as the previous pass left them.
+//
+// THE MAXILLA WAS A SLAB, and the pass before this one said so in its own
+// report and did not fix it. It was one superellipsoid at exponent 3, which is
+// a rounded box, so the mid-face had a flat front, a flat side and a corner
+// between, no canine fossa, no zygomaticomaxillary step, and a front that
+// leaned BACKWARDS from the brow to the teeth. Measured down a line through the
+// canine it moved 0.0018 of the head's height between v 0.594 and v 0.723. It
+// is now two blobs whose smin rakes the face plane down and forward, a canine
+// eminence and a canine fossa cut as field offsets in the manner of the
+// temporal fossa, and an anterior nasal spine; the same line now moves 0.031,
+// seventeen times as much, and it moves the right way. See THE MAXILLA,
+// REBUILT, in buildSkull, and `maxillaRelief` above it.
+//
+// THE VAULT WAS ROUND IN TWO SECTIONS AND SQUARE BETWEEN THEM. The profile and
+// the plan outlines were both close to arcs, and the head still read as a
+// rounded box, because a superellipse of exponent p is round at 0 and at 90
+// degrees whatever p is and only the DIAGONAL moves. Three things were putting
+// weight on the diagonals and all three are gone: a plan exponent of 2.28 to
+// 2.44 through the braincase (VAULT_PLAN), a front taper of 0.60 that pinched
+// the front quarter into a flat panel (PLAN_FRONT), and a pair of parietal
+// blobs carrying the last 0.024 of the half-breadth through a fillet a third
+// of the head wide (EMINENCE, which replaces them). The two midsagittal
+// outlines each had a kink in them as well and both are refitted. Measured
+// per height as the worst departure from the section's own best-fit ellipse,
+// the braincase went from 6.7 / 7.5 / 7.8 / 6.2 / 9.3 / 11.9 / 16.2 / 17.2
+// percent at v 0.04 through 0.30 to 4.8 / 4.8 / 4.4 / 6.0 / 14.5 / 12.7 /
+// 12.2 / 6.1. What is left above 10% is all on the FRONT quarter and all of it
+// is the brow swelling's fillet, which is off this pass's list.
+//
+// ONE THING OUTSIDE THE TWO FAULTS MOVED, AND THE MAXILLA FORCED IT: the upper
+// tooth row went forward 0.013 of the head's height, because the rebuilt
+// alveolar process would otherwise have stood a pixel in front of the crowns
+// it carries. The mandible did not move. See UPPER_ARCH.
+//
 // --- the reference, measured ------------------------------------------------
 //
 // Everything below is in one frame, and it is the frame the photograph was
@@ -242,17 +281,42 @@ function curveThrough(rows) {
 // because the supraorbital swelling (`browSwell`, in the field) carries the
 // front-most point of the cranium out from there, exactly as a real brow ridge
 // does.
+//
+// ROUND EIGHT MOVED BOTH OF THESE, AND THE REASON IS CURVATURE RATHER THAN
+// POSITION. Neither outline was in the wrong place; both had a KINK in it, and
+// a kink is what stops a round outline reading as a dome.
+//
+//   * THE OCCIPUT ARRIVED TOO EARLY. The old back rows fell zn 0.043 to 0.011
+//     between v 0.203 and v 0.264, a slope of -0.52, and then 0.011 to 0.002
+//     between v 0.264 and v 0.350, a slope of -0.10. The curvature drops by a
+//     factor of five across one interval, which is a CORNER at the top rear of
+//     the head: above it the back of the skull runs down and back at 27
+//     degrees, below it it runs straight down. The back rows are now a p = 2.2
+//     superellipse between the crown and the widest level, fitted through the
+//     old v 0.102 row so the upper occiput does not move at all, and the
+//     slope now falls smoothly from -0.72 to 0 instead of stepping.
+//   * THE FRONTAL WAS FLAT. Against the same p = 2.2 curve the old front rows
+//     ran up to 0.017 of the head's height BEHIND it through v 0.20 to v 0.40,
+//     then jumped forward to meet the measured glabella: a shallow flat on the
+//     forehead with a lip at the bottom of it, which is the ghost of the cap
+//     brim the last pass deleted the bar for. The rows now sit about 60% of the
+//     way from the measurement to the superellipse.
+//
+// The head does not get bigger from either change. Glabella and opisthocranion
+// are untouched, so the length is what it was; the back moved forward more than
+// the front did, so at v 0.264 the vault is 0.008 of the head's height SHORTER
+// than before. It is rounder, not larger.
 const VAULT_FRONT = curveThrough([
-  [0.000, 0.416], [0.020, 0.570], [0.041, 0.629], [0.061, 0.677],
-  [0.102, 0.760], [0.163, 0.808], [0.203, 0.833], [0.264, 0.860],
-  [0.310, 0.872], [0.352, 0.882], [0.400, 0.894], [0.442, 0.905],
+  [0.000, 0.416], [0.020, 0.578], [0.041, 0.639], [0.061, 0.685],
+  [0.102, 0.766], [0.163, 0.812], [0.203, 0.839], [0.264, 0.868],
+  [0.310, 0.882], [0.352, 0.891], [0.400, 0.900], [0.442, 0.905],
   [0.500, 0.892], [0.560, 0.868], [0.620, 0.828], [0.700, 0.775],
   [0.780, 0.726], [0.860, 0.686],
 ]);
 const VAULT_BACK = curveThrough([
-  [0.000, 0.416], [0.020, 0.266], [0.041, 0.213], [0.061, 0.181],
-  [0.102, 0.128], [0.163, 0.069], [0.203, 0.043], [0.264, 0.011],
-  [0.350, 0.002], [0.442, 0.000], [0.510, 0.008], [0.560, 0.030],
+  [0.000, 0.416], [0.020, 0.272], [0.041, 0.219], [0.061, 0.187],
+  [0.102, 0.130], [0.163, 0.077], [0.203, 0.053], [0.264, 0.027],
+  [0.350, 0.006], [0.442, 0.000], [0.510, 0.008], [0.560, 0.030],
   [0.620, 0.068], [0.700, 0.148], [0.780, 0.205], [0.870, 0.268],
 ]);
 // Half-breadth at each height, from the front view, scaled so the maximum is
@@ -283,27 +347,74 @@ const VAULT_BACK = curveThrough([
 // skull. Compare with the trim note that used to be here, which pulled these
 // same rows DOWN to compensate for the parietal blend, and made the crest
 // worse.)
+//
+// The ellipse's coefficient went 0.326 to 0.336 in round eight, and the rows
+// below the eminence went with it, +3% throughout. Nothing about the head's
+// breadth changed: the parietal blobs below were carrying the last 0.024 of the
+// half-breadth on their own and were drawing a corner doing it (see
+// `parietal`), so the smooth profile takes that width back and the blobs are
+// shrunk by the same amount. Maximum half-breadth measured on the finished mesh
+// is 0.350 of the head's height before and after.
 const VAULT_HALFW = curveThrough([
-  [0.000, 0.000], [0.008, 0.076], [0.020, 0.119], [0.041, 0.167],
-  [0.070, 0.212], [0.102, 0.248], [0.140, 0.278], [0.180, 0.301],
-  [0.235, 0.320], [0.292, 0.326], [0.347, 0.322], [0.402, 0.314],
-  [0.456, 0.308], [0.511, 0.300], [0.566, 0.284], [0.620, 0.258],
-  [0.700, 0.220], [0.780, 0.172], [0.860, 0.118],
+  [0.000, 0.000], [0.008, 0.078], [0.020, 0.123], [0.041, 0.172],
+  [0.070, 0.218], [0.102, 0.255], [0.140, 0.287], [0.180, 0.310],
+  [0.235, 0.330], [0.292, 0.336], [0.347, 0.332], [0.402, 0.323],
+  [0.456, 0.317], [0.511, 0.309], [0.566, 0.292], [0.620, 0.265],
+  [0.700, 0.226], [0.780, 0.177], [0.860, 0.121],
 ]);
-// How square the plan section is. Round at the crown, squarer below, which is
-// what gives the side of the head a near-flat temporal wall for the fossa to be
-// scooped out of and the arch to stand off.
+// How square the plan section is.
+//
+// THIS IS WHERE THE VAULT WAS SQUARE, AND IT IS THE FAULT THE OUTLINES COULD
+// NOT SHOW. A superellipse of exponent p is round at 0 and 90 degrees whatever
+// p is; p only moves the DIAGONAL. At p = 2.28 the 45 degree radius is 4%
+// past the ellipse's and every extra percent lands on the four corners of the
+// section, so a braincase that measures perfectly round in profile and in plan
+// still has a soft edge running down each rear quarter of it and a facet
+// between. Measured on the finished mesh the old plan section at v 0.34 stood
+// 12.7% outside its own best-fit ellipse at 144 degrees and 3.2% inside it at
+// 79 degrees: not a dome, a rounded box seen corner-on.
+//
+// The exponent was high because a much older build claimed the temporal fossa
+// as a side effect of it. It does not any more -- FOSSA_CUT subtracts a real
+// scoop from the half-breadth -- so nothing above the ear needs the section
+// squared, and the braincase proper is now within 0.1 of a true ellipse. It
+// still squares up below v 0.5, where the cranial base is genuinely boxy and
+// where the arch wants a flat wall to stand off.
 const VAULT_PLAN = curveThrough([
-  [0.000, 2.05], [0.180, 2.12], [0.330, 2.28], [0.520, 2.44], [0.860, 2.40],
+  [0.000, 2.02], [0.180, 2.05], [0.330, 2.10], [0.470, 2.22],
+  [0.620, 2.38], [0.860, 2.40],
 ]);
 // The section narrows toward its front: the frontal is a good deal narrower
 // than the parietal region behind it. `s` is the signed position through the
 // section's depth, -1 at the back and +1 at the front.
+//
+// The front factor used to be a single ramp, 0.60 at the top of the head to
+// 0.86 at the bottom, and that is the other half of the square vault. At 0.60
+// the section loses 20% of its half-breadth at 45 degrees off the midline,
+// which measured as a genuine HOLLOW on the finished mesh: 14.4% inside the
+// best-fit ellipse at 34 degrees at v 0.10, that is, a flat panel running down
+// each side of the forehead with a crease at both of its edges. A real frontal
+// is narrower than the parietal behind it, but it is narrower by being a
+// smaller round section, not by being pinched.
+//
+// It is a TABLE now rather than a ramp, because a ramp gets the crown wrong
+// whichever end you pin it at. A skull's plan is at its most ovoid through the
+// forehead, where the temporal lines converge; at the vertex the section is a
+// small near-circle and wants no taper at all, and below the ear it opens out
+// again. The dip through v 0.18 to 0.36 is also what holds the brow swelling's
+// fillet in: measured with a flat 0.79 taper the front quarter of the section
+// stood 9% PROUD of its ellipse right across the brow's level, which is the
+// soft line up the forehead the brow's own comment warns about.
+//
+// The back goes 0.90 to 0.94, for the roundness of the occiput.
+const PLAN_FRONT = curveThrough([
+  [0.000, 0.97], [0.100, 0.90], [0.220, 0.83], [0.360, 0.85],
+  [0.520, 0.90], [0.860, 0.92],
+]);
 const planTaper = (v, s) => {
-  const front = mix(0.60, 0.86, smoothstep(0.10, 0.52, v));
-  const back = 0.90;
+  const back = 0.94;
   return s >= 0
-    ? 1 - (1 - front) * s * s
+    ? 1 - (1 - PLAN_FRONT(v)) * s * s
     : 1 - (1 - back) * s * s;
 };
 
@@ -332,6 +443,99 @@ const FOSSA_CUT = 0.062;                // of the head's height, uniform
 const fossaWindow = (v, zn) => smoothstep(0.24, 0.44, v) * (1 - smoothstep(0.56, 0.74, v))
   * smoothstep(0.02, 0.30, zn) * (1 - smoothstep(0.56, 0.86, zn));
 
+// --- the parietal eminences -------------------------------------------------
+// THE SAME TRICK WITH THE SIGN REVERSED, and it replaces a pair of blobs that
+// were the single least round thing on the head.
+//
+// They used to be two superellipsoids smin'd into the vault with k = 0.055, and
+// the reason they had to go is arithmetic rather than taste. The vault's own
+// profile reached 0.326 of the head's height at the eminence and the head is
+// 0.350 half-broad, so the blobs were carrying the last 0.024 by themselves,
+// which they could only do through a fillet 0.132 of the head's height wide.
+// A fillet that size does not add width at a point, it adds it across a whole
+// quadrant: measured per height on the finished mesh, the plan section stood
+// 15 to 17% outside its own best-fit ellipse at 135 to 150 degrees all the way
+// from v 0.18 to v 0.30, against 1 to 5% everywhere else. That is a soft
+// vertical edge down each rear quarter of the braincase with a flat between it
+// and the midline, and it is what "the back of the head runs to a corner"
+// looks like from behind.
+//
+// Adding to the half-breadth instead cannot do that. The section stays the one
+// superellipse it was, so the swelling is spread over the section by the same
+// curve that draws the rest of it, and the eminence is the profile's own
+// maximum rather than a lump riding on it. The old blobs' stated job was to
+// make the widest point a POINT rather than a horizontal band; VAULT_HALFW has
+// had a rounded maximum at v 0.292 since the half-ellipse rewrite, so that job
+// is already done and the window only has to say where along the head's length
+// it happens.
+// 0.022 rather than the 0.014 that would close the gap between VAULT_HALFW's
+// 0.336 and the head's 0.350 half-breadth on paper: the temporal fossa's window
+// still has a fifth of its depth open at v 0.30 and takes 0.013 back there.
+// Measured on the finished mesh the maximum half-breadth is 0.353 of the head's
+// height, against 0.351 for the pair of blobs this replaces.
+const EMINENCE = 0.022;                 // of the head's height, added to the half-breadth
+const eminenceWindow = (v, zn) => {
+  const a = (v - 0.300) / 0.170;
+  const b = (zn - 0.380) / 0.260;
+  const t = a * a + b * b;
+  return t >= 1 ? 0 : (1 - t) * (1 - t);
+};
+
+// --- the mid-face's relief --------------------------------------------------
+// THE CANINE EMINENCE AND THE CANINE FOSSA, and they are an OFFSET TO THE FIELD
+// rather than a blob smin'd on and an ellipsoid smax'd off. Same technique as
+// the temporal fossa above and chosen for the same two reasons, which are
+// written out at FOSSA_CUT and are worth repeating because this is where they
+// bite hardest:
+//
+//   * A large ellipsoid subtracted with smax has a depth that is the difference
+//     of two big numbers, so it falls away as the square of the distance from
+//     its own centre: a hollow measuring 0.020 deep in the middle measures
+//     0.003 at its edge, which is nothing, and the canine fossa is ALL edge --
+//     what makes it read is the rim it shares with the canine eminence.
+//   * An smax against a field that already has a hard window in it puts extra
+//     zero crossings on the sampling rays. The temple came out in horizontal
+//     stripes the time that was tried, and the mid-face has three cut openings
+//     within 0.1 of the head's height of here.
+//
+// An offset inside a smooth window has neither problem, and its depth is the
+// number written here rather than the difference of two large ones. Positive
+// moves the surface IN (the fossa), negative moves it OUT (the eminence).
+//
+// SIZE. The windows are drawn wide on purpose. A field offset of A over a
+// window of width W tilts the surface by about A/W, and the offset stops being
+// a dent in a surface and becomes a fold in one once that reaches 1. Worst case
+// here, all three of the fossa's edges at once, is 0.79. That is the whole
+// reason the cut is 0.020 of the head's height and not the 0.030 the
+// photograph's shadow suggests.
+const CANINE_CUT = 0.020;               // of the head's height, the fossa's depth
+const JUGUM_RISE = 0.017;               // of the head's height, over the canine root
+// 1 at the middle, 0 at radius 1, flat at both ends. A swelling wants a bump
+// and not a window: a window has a plateau, and a plateau on the front of a
+// face is the slab this whole block exists to get rid of.
+const bump = (t2) => (t2 >= 1 ? 0 : (1 - t2) * (1 - t2));
+
+function maxillaRelief(x, y, z) {
+  const zn = z / HS + Z_BASION;
+  // Shut behind the face. Nothing this does can reach the temple, the back of
+  // the cheekbone or the inside of the orbit.
+  const facing = smoothstep(0.830, 0.900, zn);
+  if (facing <= 0) return 0;
+  const v = (Y_CROWN - y) / HS;
+  const ax = Math.abs(x) / HS;
+  // The fossa: lateral to the canine eminence, below the infraorbital margin,
+  // shutting again where the cheekbone starts to come forward. Its lateral
+  // edge IS the zygomaticomaxillary step -- the two are the same fact seen
+  // from either side, which is why there is one window and not two.
+  const fossa = smoothstep(0.100, 0.160, ax) * (1 - smoothstep(0.190, 0.245, ax))
+    * smoothstep(0.540, 0.610, v) * (1 - smoothstep(0.715, 0.785, v));
+  // The eminence over the canine's root. It runs down and out, following the
+  // root, so the bump is measured in a frame that leans with it.
+  const jx = (ax - 0.105 - 0.10 * (v - 0.700)) / 0.072;
+  const jv = (v - 0.700) / 0.110;
+  return facing * (CANINE_CUT * fossa - JUGUM_RISE * bump(jx * jx + jv * jv)) * HS;
+}
+
 const V_BASE = 0.870;                   // where the braincase's surface closes
 
 // The braincase, as a field. Negative inside.
@@ -347,6 +551,7 @@ function vaultField(x, y, z) {
   const s = (zn - c) / hd;
   if (Math.abs(s) > 3) return Math.abs(s) * 0.02;
   const w = VAULT_HALFW(v) * planTaper(v, Math.max(-1, Math.min(1, s)))
+    + EMINENCE * eminenceWindow(v, zn)
     - FOSSA_CUT * fossaWindow(v, zn);
   if (w <= 1e-4) return 0.05;
   const p = VAULT_PLAN(v);
@@ -408,11 +613,22 @@ const SOCKET = (() => {
 // Width goes up with the orbits and for the same reason: the front view's 24 px
 // is 0.115 of the head, which is eight pixels at scene scale and reads as a
 // scratch. Height is held (it is the one facial opening that was already big
-// enough) and the whole aperture drops 0.015, which keeps its apex clear of the
-// enlarged sockets and lengthens the face.
+// enough).
+//
+// THE CENTRE COMES BACK UP 0.012, which is most of the 0.015 an earlier pass
+// dropped it by, and the maxilla is why. With the floor at v 0.7375 there were
+// 0.052 of the head's height between the aperture and the tooth crowns: at
+// seventy pixels that is THREE AND A HALF PIXELS of subnasal bone, so the nose
+// hole and the tooth row touched and the two strongest marks on the lower face
+// merged into one. At v 0.7255 it is 0.065, near five pixels, and the alveolar
+// process has somewhere to be. The apex rises with it, from v 0.5225 to v
+// 0.5105, and that costs nothing: the aperture is a point at its apex (see
+// `nasalShape`) and it runs up BETWEEN the orbits, whose own floors are at v
+// 0.5195 and whose medial edges are 0.0715 off the midline against the
+// aperture's 0.014 at that height.
 const NASAL_W = 0.128 * HS;
 const NASAL_H = 0.215 * HS;
-const NASAL_V = LY(0.630);
+const NASAL_V = LY(0.618);
 
 // Where the face is unwrapped from, and at what radius. u is arc length round
 // the vertical axis through P0 measured at FACE_R, v is world height; the
@@ -795,7 +1011,16 @@ function toothGeometry(w, h, d) {
 // spaced instead of bunching at the front where the parabola is flat. The curve
 // describes the OUTER face of the row; everything else in the mouth is that
 // curve inset, which is what keeps bone from creeping in front of the crowns.
-const UPPER_ARCH = { halfW: 0.173 * HS, front: LZ(0.945), back: LZ(0.700) };
+// The upper row moved forward 0.013 of the head's height in round eight and it
+// is the one thing outside the maxilla that the maxilla forced. With the
+// alveolar process built out to zn 0.962 the old row's crowns, whose outer
+// faces sat at zn 0.947, were a pixel BEHIND the bone above them and the tooth
+// row stopped being one of the four marks that reach the viewer. They are
+// flush now. The lower row does not move (it is the mandible's, and it is not
+// this pass's), so the overjet goes from 0.013 to 0.026 of the head's height,
+// which is under two pixels and is the direction the photograph's specimen
+// errs in anyway: its upper incisors overhang its lower ones plainly.
+const UPPER_ARCH = { halfW: 0.173 * HS, front: LZ(0.958), back: LZ(0.700) };
 const LOWER_ARCH = { halfW: 0.152 * HS, front: LZ(0.932), back: LZ(0.690) };
 const TOOTH_H = 0.062 * HS;
 const TOOTH_D = 0.040 * HS;
@@ -915,13 +1140,56 @@ export function buildSkull({ material }) {
   // ================================================================ the field
   // Only what is genuinely one continuous surface goes in here.
 
-  // The maxilla. Its own mass, not a bulge on the vault: it is flat underneath,
-  // because the tooth row has to have bone over it, and rounded in plan, so the
-  // face plane does not meet the side of the head at a corner.
-  const maxilla = blob(
-    [0, LY(0.668), LZ(0.812)],
-    [0.186 * HS, 0.1225 * HS, 0.150 * HS],
-    3.0, 3.4,
+  // ===================================================== THE MAXILLA, REBUILT
+  //
+  // WHAT IT USED TO BE: one superellipsoid, [0.186, 0.1225, 0.150] of the head's
+  // height at exponent 3.0 by 3.4, centred at v 0.668 and zn 0.812. A
+  // superellipsoid at exponent 3 is a rounded BOX. Measured on the finished
+  // mesh that box gave a mid-face with no relief in it in either direction:
+  //
+  //   * DOWN a line through the canine, |x| 0.085 to 0.115 of the head's
+  //     height, the surface ran zn 0.9540 at v 0.594, 0.9556 at v 0.623, 0.9555
+  //     at v 0.680, 0.9537 at v 0.723. Eighteen ten-thousandths of the head's
+  //     height of relief across a third of the face: a vertical wall, and one
+  //     that then FELL BACK to zn 0.917 at the alveolar margin, so the front of
+  //     the face leaned backwards from the brow to the teeth.
+  //   * ACROSS it at v 0.62 the surface fell from zn 0.961 at the midline to
+  //     0.847 at |x| 0.275 without a single reversal. A real mid-face has three
+  //     across that line: out over the canine root, back into the canine fossa,
+  //     out again onto the cheekbone.
+  //
+  // It is four things now, and each of them answers one of those.
+  //
+  // 1. THE MASS, AS TWO BLOBS RATHER THAN ONE, because the mid-face PROJECTS AS
+  //    IT DESCENDS and one superellipsoid has a vertical front face at every
+  //    height it covers. The upper is the infraorbital plate under the orbits;
+  //    the lower is the alveolar process that carries the teeth, and it sits
+  //    0.046 of the head's height further forward and 0.130 lower. Their smin
+  //    is the face plane's downward-forward rake. The exponents come down from
+  //    3.0/3.4 to 2.7/2.9 and 2.8/3.1 as well: a flat front panel is the other
+  //    half of why the old one read as a slab, and the alveolar process keeps
+  //    the flatter of the two because it does have to be flat underneath, where
+  //    the tooth row hangs off it.
+  const maxBody = blob(
+    [0, LY(0.596), LZ(0.792)],
+    [0.180 * HS, 0.092 * HS, 0.146 * HS], 2.7, 2.9,
+  );
+  const maxAlveolar = blob(
+    [0, LY(0.722), LZ(0.826)],
+    [0.172 * HS, 0.082 * HS, 0.120 * HS], 2.8, 3.1,
+  );
+  const maxilla = (x, y, z) => smin(maxBody(x, y, z), maxAlveolar(x, y, z), 0.020);
+
+  // 2. THE ANTERIOR NASAL SPINE, at the midline on the aperture's floor. Tiny,
+  //    and it is not here to be seen at seventy pixels: it is here because the
+  //    lower rim of the nasal aperture is a CUT through the field, and a cut is
+  //    only as sharp as the surface it is cut in is convex. With a spine under
+  //    it the floor of the aperture leaves the face at an angle and the rim
+  //    reads as an edge; without one it leaves flat and the rim reads as a
+  //    line drawn on a wall.
+  const nasalSpine = blob(
+    [0, NASAL_V - NASAL_H * 0.44, LZ(0.945)],
+    [0.026 * HS, 0.028 * HS, 0.030 * HS], 2.2, 2.6,
   );
 
   // The cranial base. Anatomically the occipital condyles sit at 0.65 of
@@ -937,25 +1205,16 @@ export function buildSkull({ material }) {
   const base = (x, y, z) => {
     let d = smin(vaultField(x, y, z), maxilla(x, y, z), 0.040);
     d = smin(d, cranialBase(x, y, z), 0.050);
-    return d;
+    d = smin(d, nasalSpine(x, y, z), 0.012);
+    // 3 and 4: the canine eminence and the canine fossa, as an offset. It goes
+    // on HERE, before the cheekbone and the orbital rim are unioned in, so that
+    // the fossa is a hollow in the maxilla with the zygomatic standing at the
+    // far side of it rather than a dent pressed into both.
+    return d + maxillaRelief(x, y, z);
   };
 
-  // The parietal eminences: the pair of low broad swellings that ARE the widest
-  // part of a real braincase. Left to the width profile alone this cannot work,
-  // because a profile varies with height and so the widest point it produces is
-  // a whole horizontal BAND; whichever ridge rides on that band then wins the
-  // measurement. Two thirds up the vault and a third forward of the occiput is
-  // a POINT, so it is a blob. Held under half the breadth because the smin that
-  // blends it in carries the surface out past the blob's own radius.
-  // Pulled in and dropped a little from [0.150 HS, 0.230 HS] at v 0.300. With
-  // VAULT_HALFW now carrying a full dome above them, a pair of blobs this large
-  // that high up stopped being eminences and became the top rear of the head:
-  // the vault peaked behind and above the ears and fell away in front of them,
-  // which is the "pointed egg" the crop showed, half of it. The remaining half
-  // was the width profile. Both had to go.
-  const parietal = (side) => blob(
-    [side * (0.440 * SKULL_W - 0.100 * SKULL_W), LY(0.330), LZ(0.330)],
-    [0.100 * SKULL_W, 0.125 * HS, 0.195 * HS], 2);
+  // The parietal eminences are no longer built here. See EMINENCE, above the
+  // field: they are a swelling of the vault's own half-breadth now.
 
   // The nasal bones. Small, and there for the PROFILE: with the glabella above
   // and the aperture's apex below, the midline strip between the orbits is
@@ -1000,7 +1259,6 @@ export function buildSkull({ material }) {
   const malarL = malar(-1), malarR = malar(1);
   const rimL = orbitalRim(-1), rimR = orbitalRim(1);
   const rootL = zygRoot(-1), rootR = zygRoot(1);
-  const parietalL = parietal(-1), parietalR = parietal(1);
 
   // THE BROW, AND IT IS NOW ONLY THIS.
   //
@@ -1035,9 +1293,13 @@ export function buildSkull({ material }) {
   // Bone directly above every upper tooth, all the way to the back of the row.
   // Without it the maxilla's corners lift away from the outer teeth and they
   // hang in air.
+  // The inset went from 0.8 of the radius to 1.05 when the arch moved forward:
+  // the tube's own front face was then standing 0.005 of the head's height
+  // ahead of the crowns it is supposed to sit on top of, and bone in front of
+  // a tooth is the one thing this tube must never do.
   const ALV_R = 0.034 * HS;
   const alveolar = tube(
-    archCurve(UPPER_ARCH, Y_BITE + AJAR + TOOTH_H + 0.020 * HS, { inset: ALV_R * 0.8 })
+    archCurve(UPPER_ARCH, Y_BITE + AJAR + TOOTH_H + 0.020 * HS, { inset: ALV_R * 1.05 })
       .getSpacedPoints(20),
     ALV_R,
   );
@@ -1046,16 +1308,20 @@ export function buildSkull({ material }) {
   // are laid on this surface, so they need a surface to be laid on.
   const solid = (x, y, z) => {
     let d = base(x, y, z);
-    d = smin(d, parietalL(x, y, z), 0.055);
-    d = smin(d, parietalR(x, y, z), 0.055);
     // A fillet wider than the tube's own radius: this is what stops the brow
     // emerging from the forehead along a line. Nothing else on the head is
     // blended this softly.
     d = smin(d, browSwell[0](x, y, z), 0.042);
     d = smin(d, browSwell[1](x, y, z), 0.042);
     d = smin(d, nasalBone(x, y, z), 0.016);
-    d = smin(d, malarL(x, y, z), 0.034);
-    d = smin(d, malarR(x, y, z), 0.034);
+    // 0.034 before. THE CHEEKBONE NEEDS AN EDGE ON ITS MEDIAL SIDE: a fillet
+    // of 0.034 is 0.081 of the head's height wide, which is most of the run
+    // between the canine fossa's floor and the zygomatic's prominence, so the
+    // step the mid-face is supposed to make there was being rounded off as
+    // fast as the fossa cut it. At 0.024 the junction is a crease that catches
+    // the key lamp, which is what gives a face its width in a photograph.
+    d = smin(d, malarL(x, y, z), 0.024);
+    d = smin(d, malarR(x, y, z), 0.024);
     d = smin(d, rimL(x, y, z), 0.024);
     d = smin(d, rimR(x, y, z), 0.024);
     d = smin(d, rootL(x, y, z), 0.026);
