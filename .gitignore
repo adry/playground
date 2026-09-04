@@ -12,3 +12,17 @@ out/
 # they are easy to spot and never worth committing.
 /.*.mjs
 /capture/_*.mjs
+
+# Scratch harnesses. Playwright resolves node_modules from the repo root, so a
+# throwaway preview page or capture script has to live here rather than in a
+# tidy subdirectory. These are working files an agent writes to look at what it
+# is building and deletes afterwards; they are never part of the project.
+# Anchored to the root on purpose, so capture/ghost-shot.mjs and its siblings
+# are untouched.
+/*-lab.html
+/*-lab.js
+/*-shot.mjs
+/*-check.mjs
+/*-smoke.mjs
+/dbg.mjs
+/legs.html
