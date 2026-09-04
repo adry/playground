@@ -335,7 +335,7 @@ function buildTextures(rng) {
 // levels are this file's own: there is one light here doing every job the
 // pumpkin splits between a gobo spot and an omni glow.
 const LAMP = { min: 0.40, max: 0.86 };     // the one PointLight
-const FLAME_EM = { min: 1.95, max: 4.20 }; // the visible tongue of flame
+const FLAME_EM = { min: 0.90, max: 2.05 }; // the visible tongue of flame
 // The interior, and it is held well under the flame on purpose. Taken up until
 // the chamber reads as a lightbox, the tongue of flame in front of it goes to a
 // dark smudge: the one thing in the frame that is actually on fire has to be
@@ -694,7 +694,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
     // corner, which paints the interior black everywhere except right under the
     // candle. Flattened to about 2:1 the chamber still has a gradient across
     // it, the corners still fall away, and nothing is crushed.
-    return (0.16 + 0.84 * lambert) * (0.055 / (0.055 + d2));
+    return (0.26 + 0.74 * lambert) * (0.055 / (0.055 + d2));
   };
   {
     const c = new THREE.Vector3();
@@ -865,7 +865,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   // in a box.
   {
     const cy0 = HEAD.y0 + HEAD.t;
-    const prof = roundedBlock(0.038, 0.035, cy0, cy0 + 0.056, 0.015, 5);
+    const prof = roundedBlock(0.031, 0.029, cy0, cy0 + 0.050, 0.013, 5);
     const base = box.pos.length / 3;
     const radial = 24;
     const secs = [];
@@ -1000,7 +1000,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   boxMesh.receiveShadow = false;
 
   const flame = new THREE.Mesh(flameGeo, flameMat);
-  flame.position.set(0, HEAD.y0 + HEAD.t + 0.050, 0);
+  flame.position.set(0, HEAD.y0 + HEAD.t + 0.044, 0);
   flame.castShadow = false;
   flame.receiveShadow = false;
 
