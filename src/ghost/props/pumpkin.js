@@ -1518,131 +1518,166 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // A point light was wrong here. Three does not occlude lights without a
   // shadow map, so an omnidirectional lamp inside an opaque shell lit the
   // ground evenly all the way round -- including behind the pumpkin, where no
-  // light can actually get out. Turning shadows on does not fix it either: the
-  // shell has no real holes, so it would block everything.
+  // light can actually get out.
   //
-  // What the light physically does is leave through the cuts, so it is a cone
-  // aimed out of the face and tilted down at the floor.
+  // What the light physically does is leave through the three cuts and through
+  // nothing else, so the lamp is a spotlight whose projected texture IS the
+  // carving as the flame sees it. Every other number here falls out of that:
+  // where the cone points, how wide it is, and how soft its edges are, are all
+  // solved from the outlines rather than dialled in.
   //
-  // Where the cone starts turned out to matter more than how wide it is. Parked
-  // at the middle of the shell it was a quarter of a unit above the floor, and
-  // the ring of floor the pumpkin actually stands on sat four degrees off the
-  // cone's axis at a range of 0.39 -- which, falling off as d^1.5, lit that ring
-  // to near white. That was the reported bug: a bright collar between the
-  // pumpkin and its own shadow, with the contact patch and the key light's cast
-  // shadow both drowned underneath it. Nothing about the shadow maps was wrong.
+  // Real shadow casting is still off. It would give the same answer -- the
+  // shell is a real hollow mesh with real holes now -- for the price of six
+  // more shadow maps in a scene that already renders one per frame, and the
+  // projection below is exact where a 512px shadow map from 20cm away is not.
+
+  // Where the candle stands, which is NOT where FLAME_AT is, and the
+  // difference is the whole reason a single projected texture can work.
   //
-  // So the lamp is parked where the light really leaves, just inside the carved
-  // face at mouth height (FLAME_AT, the same point the plate's falloff is
-  // measured from), and the cone is narrow enough that the floor within the
-  // base is behind it rather than under it. The pool now starts a little clear
-  // of the pumpkin and washes forward, which is what was wanted anyway.
+  // FLAME_AT sits half a body radius forward, tucked up behind the openings.
+  // It stays there: it is the point the emissive plate's per-vertex falloff is
+  // measured from and that falloff was tuned against it. But a PROJECTOR there
+  // sees the carving fill better than 130 degrees -- the outer corner of an eye
+  // measures 67 degrees off the axis on the classic -- and no planar gobo holds
+  // a field that wide; the corners come apart in the perspective divide. That
+  // is the wall the previous pass hit, and it answered it by giving up on
+  // projecting and laying the face into the cone in face space instead, which
+  // is what made the pools on the floor shapeless: a stencil that is not a
+  // projection of anything does not land on anything.
   //
-  // All three of the lamp's lengths ride sizeK, so a smaller pumpkin throws a
-  // smaller pool rather than the same one. Its intensity rides sizeK^0.9 with
-  // it, and that exponent is the light's own decay: illuminance goes as
-  // I / d^0.9, so scaling I by the same power as d holds the pool's brightness
-  // steady while its size follows the prop. Left at full strength the tiny one
-  // lit a patch of ground as bright as the classic's from a third the distance
-  // and read as a torch rather than a candle.
-  const LIGHT_DISTANCE = 3.2 * sizeK;
-  const LAMP_GAIN = Math.pow(sizeK, 0.9);
-  const CONE_ANGLE = 0.52;  // half-cone: the lower edge clears the base disc by a few centimetres
+  // A candle does not stand pressed against the inside of the face. It stands
+  // on the floor of the cavity, on the axis. From there the same carving
+  // measures 40 degrees, a 90 degree field holds it with room to spare, and
+  // the projection can be the true one.
+  const LAMP_AT = new THREE.Vector3(0, FLAME_AT.y, 0);
+  // Near plane shared by the light's own projection and the rasteriser below.
+  const GOBO_NEAR = 0.02;
+
+  // The bundle that actually escapes: every point of every cut outline, as a
+  // direction from the lamp. Its mean is where the cone has to point, its
+  // spread is how wide the cone has to be, and its mean range is the lever arm
+  // the flame's own width works on. Solved per variant, so a face carved high
+  // on a gourd's neck aims its own light without anyone editing a number.
+  const escape = (() => {
+    const dirs = [];
+    const p = new THREE.Vector3();
+    let reach = 0;
+    for (const cut of CUTS) {
+      for (const q of cut.pts) {
+        facePoint(q[0], q[1], 0, p).sub(LAMP_AT);
+        reach += p.length();
+        dirs.push(p.clone().normalize());
+      }
+    }
+    const axis = new THREE.Vector3();
+    for (const d of dirs) axis.add(d);
+    axis.normalize();
+    let half = 0;
+    for (const d of dirs) half = Math.max(half, Math.acos(Math.min(1, d.dot(axis))));
+    return { axis, half, reach: reach / Math.max(1, dirs.length) };
+  })();
+
+  // The cone has to finish OUTSIDE the widest escaping ray, because its rim is
+  // a smoothstep and not a wall: a shape that reaches the rim comes out dimmed
+  // by the cone rather than shaped by the carving.
+  //
+  // The floor under that is what carries the shell's own glow. A carved
+  // pumpkin is not only three beams: the flesh is a couple of centimetres
+  // thick and it transmits, so the whole lit front of the shell is a dull
+  // orange lamp in its own right, throwing a soft wash over everything in
+  // front of it whether or not that thing happens to be standing in a beam.
+  // That wash is the GOBO_GLOW layer below, and it needs somewhere to go, so
+  // the cone opens to a full 57 degrees even on a face that would fit in 40.
+  // Wider than this and the shapes start losing texels for no gain; narrower
+  // and the wash is a spotlight rather than a glow.
+  const CONE_ANGLE = Math.min(1.20, Math.max(1.00, escape.half + 0.20));
+  // Low, and for the opposite reason it used to be high. The rim used to be
+  // the only thing keeping the pool from reading as a stain; now the gobo is
+  // black everywhere but the three holes, so all a wide penumbra can do is eat
+  // the edges of the beams.
+  const CONE_PENUMBRA = 0.10;
+
+  // Falloff. A flame is a small source in open air, so the honest exponent is
+  // 2, and that is what this is now. It was 0.9, and 0.9 is what you reach for
+  // when the lamp is jammed against the inside of the face: from two
+  // centimetres away inverse-square puts a hundredfold between the near lip of
+  // a cut and the floor just past it, and the near field blows out. From the
+  // axis the nearest thing the lamp lights is a cut wall a third of a unit
+  // away and the beams do not reach the floor for a unit or more, so there is
+  // no near field left to blow out and no reason to fake the exponent.
+  const LIGHT_DECAY = 2;
+  // Where three clips the light off completely. Physically there is no such
+  // distance: this is a budget. It sits well past the far end of the grin's
+  // beam, because three squares a (1 - (d/D)^4) window into the falloff and
+  // the last third of D is already visibly fading -- put D at the end of the
+  // beam and the beam ends in a line drawn across the floor.
+  const LIGHT_DISTANCE = 5.0 * sizeK;
+  // A smaller lantern holds a smaller flame. This is NOT the old sizeK^0.9,
+  // which was there to hold the pool's brightness steady while the cone's
+  // REACH scaled with the prop. The throw is angular now, so every variant
+  // throws the same pattern by construction and only the lamp's height off the
+  // floor decides how far along the ground the beams run, which is exactly how
+  // a real one behaves.
+  const LAMP_GAIN = sizeK;
 
   // --- What the light throws -------------------------------------------------
-  // A bare cone puts a smooth featureless ellipse on the floor, and a lit
-  // pumpkin does not do that. The light leaves through three carved openings,
-  // so what lands in front of it carries their shape, and that shape is one of
-  // the most recognisable things about the object.
-  //
   // three projects a texture through a spotlight's cone if you hand it
   // light.map, and it refreshes the light's matrix whenever a map is present
   // whether or not the light casts shadows -- WebGLLights calls
-  // shadow.updateMatrices() off light.map alone. That is what makes this
-  // usable here, because the shell has no holes as far as a shadow map is
-  // concerned and turning shadows on would block the light rather than shape
-  // it.
+  // shadow.updateMatrices() off light.map alone. So the mask below is not a
+  // decoration painted into the cone: it is rasterised through the very camera
+  // three will use to look the mask back up, which is what makes a beam land
+  // on the floor, on the ghost, and on anything else standing in it, in the
+  // right place and at the right stretch, with no per-receiver work at all.
   //
-  // The mask is rasterised from CUTS, the same outlines the shell was cut with,
-  // so the projection follows the carving by construction. A freehand face
-  // painted into a canvas would drift the first time anyone moves an eye.
+  // The outlines are CUTS, the same curves the shell was cut with, so the
+  // projection follows the carving by construction.
+  const GOBO_SIZE = 512;
+  // What the lantern throws that is not a beam, in two layers, because the two
+  // are different things happening at different scales and one blur cannot be
+  // both. Widths are in texels of GOBO_SIZE.
   //
-  // It is laid out in face space (X across the surface, Y up it) rather than
-  // projected from the lamp's own viewpoint. Projecting properly was tried
-  // first and cannot work: the lamp sits a couple of centimetres behind the
-  // face, so from where it stands the openings fill better than 120 degrees,
-  // the eyes are almost square beside the cone's axis and fall apart in the
-  // perspective divide, and the cone is 60 degrees wide in the first place.
-  // The three cuts also sit at different heights on a curved shell, which no
-  // single planar gobo holds anyway. So this is the carving's own stencil,
-  // framed into the cone: the shapes, their spacing and the curve of the grin
-  // are the outlines', the overall scale is chosen.
-  const GOBO_SIZE = 256;
-  // How much of the texture's width the face fills, and how hard it is squashed
-  // along the cone's axis. The squash is not a taste call. The cone meets the
-  // floor at a glancing 24 degrees, so a ray one degree higher lands a long way
-  // further out than a ray one degree lower does nearer, and the whole face
-  // comes out as a smear whose far half is three or four times the scale of its
-  // near half. Squashing the mask keeps the face inside the band of the cone
-  // where that stretch is roughly even: at 0.32 it lands about 0.75 across and
-  // 0.44 deep, a little wider than the pumpkin itself, and the grin's teeth are
-  // still countable in it. 0.45 was tried and the far eye ran away.
-  const GOBO_SPAN = 0.82, GOBO_SQUASH = 0.32;
-  // The openings are not pinholes and the shell is SHELL_T thick, so the edges
-  // are already soft by the time the light is outside the pumpkin. A crisp
-  // stencil reads as a decal lying on the floor.
-  const GOBO_BLUR = 3;
-  // The wash the pool needs is the same shapes again, blurred until they are
-  // only a glow, rather than a flat level across the whole texture. Flat was
-  // tried first and is what kept the face reading as a smudge: the cone is 60
-  // degrees wide and aimed nearly flat, so a level wash runs a good two units
-  // past the face and drowns it in featureless light. A halo that hugs the
-  // carving keeps the pool the size of the thing throwing it, and it is also
-  // the truer picture -- light out of three holes does not fill a hemisphere.
-  const GOBO_HALO = 26;   // blur, in texels, of the glow around the shapes
-  const GOBO_WASH = 0.55; // how much of the mask is that glow rather than shape
+  //   HALO  the flesh immediately around a cut, which is where the wall has
+  //         been carved down to nothing and is at its most translucent, plus
+  //         the light bouncing about inside the cavity and leaving through the
+  //         same hole off-axis. Hugs the carving.
+  //   GLOW  the whole lit front of the shell working as one dull lamp. Nearly
+  //         featureless and nearly as wide as the cone, and it is what a ghost
+  //         standing anywhere in front of the pumpkin actually stands in.
+  //
+  // Their weights are what is left after the shapes, and they are deliberately
+  // small: at anything like the old 0.55 the wash is a fog that hides the very
+  // beams this pass exists to produce.
+  const GOBO_HALO = 40, GOBO_HALO_W = 0.17;
+  const GOBO_GLOW = 150, GOBO_GLOW_W = 0.12;
 
-  // TEMP DIAG
-  if (globalThis.__PUMPKIN_DIAG) {
-    
-    let minY=Infinity,maxY=-Infinity,minX=Infinity,maxX=-Infinity;
-    for (const c of CUTS){minY=Math.min(minY,c.minY);maxY=Math.max(maxY,c.maxY);minX=Math.min(minX,c.minX);maxX=Math.max(maxX,c.maxX);}
-    const pp=new THREE.Vector3();
-    const worldOfCut=[];
-    for (const c of CUTS){
-      const ys=[],xs=[],zs=[];
-      for(const q of c.pts){facePoint(q[0],q[1],0,pp);ys.push(pp.y);xs.push(pp.x);zs.push(pp.z);}
-      worldOfCut.push({y:[Math.min(...ys),Math.max(...ys)],x:[Math.min(...xs),Math.max(...xs)],z:[Math.min(...zs),Math.max(...zs)]});
-    }
-    globalThis.__PUMPKIN_DIAG.push({variant, sizeK, yBase, FACE_SX, FACE_SY, SHELL_T,
-      flame: FLAME_AT.toArray(), faceSpace:{minX,maxX,minY,maxY}, cuts: worldOfCut});
-  }
   const goboMap = (() => {
     // Props are built head-less in tests; with no canvas there is no mask and
     // the lamp falls back to its plain cone.
     if (typeof document === 'undefined') return null;
 
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const cut of CUTS) {
-      minX = Math.min(minX, cut.minX); maxX = Math.max(maxX, cut.maxX);
-      minY = Math.min(minY, cut.minY); maxY = Math.max(maxY, cut.maxY);
-    }
-    const k = (GOBO_SPAN * GOBO_SIZE) / Math.max(1e-6, maxX - minX);
-    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-    // Canvas y runs down and the texture is uploaded flipped, so subtracting
-    // puts face-up at the top of the cone. That is the right way up and not the
-    // obvious one: the flame is BEHIND the openings, so there is no pinhole
-    // inversion, and a cut high on the shell throws its light high -- which,
-    // on a floor, means furthest away. So the eyes land at the far end of the
-    // pool and the grin nearest the pumpkin, and from a camera on the far side
-    // of the pool the face therefore reads bottom-up. Checked in the renders;
-    // it is what a real one does and there is no honest way round it.
-    // Face +X runs the opposite way round the body from the cone's own +x, so
-    // that one is subtracted too and the grin is not thrown mirrored.
-    const toPx = (X, Y) => [
-      GOBO_SIZE / 2 - (X - cx) * k,
-      GOBO_SIZE / 2 - (Y - cy) * k * GOBO_SQUASH,
-    ];
+    // The same camera three builds for this light. SpotLightShadow sets
+    // fov = 2 * angle in degrees, aspect 1 and far = light.distance, and the
+    // coordinate it samples the map at is that camera's NDC mapped to 0..1.
+    // Matching it here to the digit is the whole trick.
+    const cam = new THREE.PerspectiveCamera(
+      THREE.MathUtils.radToDeg(2 * CONE_ANGLE), 1, GOBO_NEAR, LIGHT_DISTANCE,
+    );
+    cam.position.copy(LAMP_AT);
+    cam.lookAt(LAMP_AT.clone().add(escape.axis));
+    cam.updateMatrixWorld(true);
+    const toClip = new THREE.Matrix4()
+      .multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+
+    const p = new THREE.Vector3();
+    // Canvas y runs down and CanvasTexture uploads flipped, so the canvas's top
+    // row is v = 1, which is NDC +1: up. No hand-chosen mirroring anywhere in
+    // here, and that is the point -- which way round the grin lands is now the
+    // geometry's answer rather than a sign someone had to guess.
+    const project = (X, Y) => {
+      facePoint(X, Y, 0, p).applyMatrix4(toClip);
+      return [(0.5 + p.x * 0.5) * GOBO_SIZE, (0.5 - p.y * 0.5) * GOBO_SIZE];
+    };
 
     const shapes = document.createElement('canvas');
     shapes.width = shapes.height = GOBO_SIZE;
@@ -1651,36 +1686,100 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
     for (const cut of CUTS) {
       sc.beginPath();
       for (let i = 0; i < cut.pts.length; i++) {
-        const [px, py] = toPx(cut.pts[i][0], cut.pts[i][1]);
+        const [px, py] = project(cut.pts[i][0], cut.pts[i][1]);
         if (i) sc.lineTo(px, py); else sc.moveTo(px, py);
       }
       sc.closePath();
       sc.fill();
     }
 
+    // How soft a beam's edge is, measured rather than picked. A flame is not a
+    // point: an aperture at range a from a source of width S throws a penumbra
+    // subtending S / a AS SEEN FROM THE LAMP, whatever is standing in the beam
+    // and however far away it is. So the softening is a constant ANGLE, it
+    // belongs in the gobo rather than at the receiver, and a beam that has run
+    // three units across the floor is softer in world units than one that has
+    // run half a unit -- for free, and correctly.
+    //
+    // FLAME_W is the luminous core of a candle at this scale. The props are
+    // built so a classic pumpkin is about 25cm across, which puts a unit at
+    // 31cm, so 0.018 is a shade under 6mm.
+    const FLAME_W = 0.018;
+    // Radians, then texels: the texture spans 2 * tan(CONE_ANGLE) of tangent
+    // across GOBO_SIZE, and near the axis d(tan)/d(theta) is 1. Divided by
+    // 2.5 because a Gaussian of sigma s spans roughly 2.5 s of transition.
+    const softTexels = ((FLAME_W / escape.reach) / (2 * Math.tan(CONE_ANGLE))) * GOBO_SIZE;
+    const GOBO_BLUR = Math.min(20, Math.max(1.2, softTexels / 2.5));
+
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = GOBO_SIZE;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, GOBO_SIZE, GOBO_SIZE);
-    ctx.globalCompositeOperation = 'lighter';
-    for (const [blur, weight] of [[GOBO_HALO, GOBO_WASH], [GOBO_BLUR, 1 - GOBO_WASH]]) {
+
+    // Each layer is normalised to its OWN peak before it is weighted, and each
+    // is blurred out of the one before it rather than out of the shapes again.
+    // Both of those are needed and neither is tidiness.
+    //
+    // Normalising: a 150-texel blur spreads the same ink over forty times the
+    // area, so composited raw it arrives at four per cent of the weight it was
+    // given and the numbers above mean nothing.
+    //
+    // Chaining: an 8-bit canvas holding a 150-texel blur of a small shape has
+    // a peak around 18, so normalising it multiplies the quantisation by
+    // fourteen and the wash comes out as concentric rings. Blurring the
+    // already-normalised previous layer keeps every stage using the full range.
+    // It is also the truer picture, light scattering out of light that has
+    // already scattered.
+    const layer = new Float32Array(GOBO_SIZE * GOBO_SIZE);
+    const acc = new Float32Array(GOBO_SIZE * GOBO_SIZE);
+    const stage = document.createElement('canvas');
+    stage.width = stage.height = GOBO_SIZE;
+    const stx = stage.getContext('2d');
+    let src = shapes;
+    for (const [blur, weight] of [
+      [GOBO_BLUR, 1 - GOBO_HALO_W - GOBO_GLOW_W],
+      [GOBO_HALO, GOBO_HALO_W],
+      [GOBO_GLOW, GOBO_GLOW_W],
+    ]) {
+      ctx.globalCompositeOperation = 'copy';
       ctx.filter = `blur(${blur}px)`;
-      ctx.globalAlpha = weight;
-      ctx.drawImage(shapes, 0, 0);
+      ctx.drawImage(src, 0, 0);
+      const d = ctx.getImageData(0, 0, GOBO_SIZE, GOBO_SIZE).data;
+      let peak = 1;
+      for (let i = 0, k = 0; i < d.length; i += 4, k++) {
+        // The blur leaves the spread in alpha as well as in luma.
+        layer[k] = d[i] * (d[i + 3] / 255);
+        if (layer[k] > peak) peak = layer[k];
+      }
+      const norm = new ImageData(GOBO_SIZE, GOBO_SIZE);
+      for (let k = 0, i = 0; k < layer.length; k++, i += 4) {
+        const v = (layer[k] / peak) * 255;
+        acc[k] += (layer[k] / peak) * weight;
+        norm.data[i] = norm.data[i + 1] = norm.data[i + 2] = v;
+        norm.data[i + 3] = 255;
+      }
+      stx.putImageData(norm, 0, 0);
+      // A copy, because the next pass reads this one while writing its own.
+      src = stage.cloneNode ? (() => {
+        const c = document.createElement('canvas');
+        c.width = c.height = GOBO_SIZE;
+        c.getContext('2d').drawImage(stage, 0, 0);
+        return c;
+      })() : stage;
     }
-    // Normalised to a peak of 1, so LAMP on its own says how bright the pumpkin
-    // throws and the two blurs above only say what shape it throws. Without
-    // this, nudging the halo's width silently changes the brightness as well.
-    const px = ctx.getImageData(0, 0, GOBO_SIZE, GOBO_SIZE);
-    let peak = 1;
-    for (let i = 0; i < px.data.length; i += 4) if (px.data[i] > peak) peak = px.data[i];
-    const gain = 255 / peak;
-    for (let i = 0; i < px.data.length; i += 4) {
-      const v = Math.min(255, px.data[i] * gain);
-      px.data[i] = px.data[i + 1] = px.data[i + 2] = v;
+
+    // And once more over the sum, so LAMP on its own says how bright the
+    // pumpkin throws and everything above only says what shape it throws.
+    let peak = 1e-6;
+    for (let k = 0; k < acc.length; k++) if (acc[k] > peak) peak = acc[k];
+    const out = ctx.createImageData(GOBO_SIZE, GOBO_SIZE);
+    for (let k = 0, i = 0; k < acc.length; k++, i += 4) {
+      const v = Math.min(255, Math.round((acc[k] / peak) * 255));
+      out.data[i] = out.data[i + 1] = out.data[i + 2] = v;
+      out.data[i + 3] = 255;
     }
-    ctx.putImageData(px, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.filter = 'none';
+    ctx.putImageData(out, 0, 0);
 
     const tex = new THREE.CanvasTexture(canvas);
     // Left raw on purpose: three multiplies the light's colour by this sample
@@ -1695,37 +1794,75 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
     ((LAMP.min + LAMP.max) / 2) * LAMP_GAIN,
     LIGHT_DISTANCE * scale,
     CONE_ANGLE,
-    // Penumbra. This used to be 0.92 -- nearly all edge -- because the cone's
-    // rim was the only thing keeping the pool from reading as a stain. The gobo
-    // does that job now, and it does it better, since its halo fades to nothing
-    // well inside the rim. Left at 0.92 the falloff starts almost at the axis
-    // and had the grin's own ends down at 40% before they had gone anywhere.
-    0.25,
-    // Gentler than inverse-square. Three openings scattering light is a soft
-    // source, and a steep decay is exactly what made the near field explode.
-    0.9,
+    CONE_PENUMBRA,
+    LIGHT_DECAY,
   );
-  light.position.copy(FLAME_AT);
+  light.position.copy(LAMP_AT);
   light.castShadow = false;
   light.map = goboMap;
   // three tests the projected coordinate against the shadow camera's whole
-  // frustum and leaves anything outside it UNMASKED, depth included. The
-  // default near plane is 0.5 and the near edge of the pool lands 0.40 from the
-  // lamp, so without this the nearest slice of floor comes back unmasked and
-  // the mask ends in a hard arc across it.
-  light.shadow.camera.near = 0.02;
+  // frustum and leaves anything outside it UNMASKED, depth included, so the
+  // near plane has to sit closer than the nearest thing the cone can reach or
+  // the mask ends in a hard arc across it. The wall inside a cut is a third of
+  // a unit from the lamp; this is well inside that, and the same value is fed
+  // to the camera the mask is rasterised through so the two agree exactly.
+  light.shadow.camera.near = GOBO_NEAR;
   light.shadow.camera.updateProjectionMatrix();
 
   // The target is parented to the group, so the cone turns with the pumpkin
-  // instead of staying pinned to a world direction.
+  // instead of staying pinned to a world direction. Local units: the group is
+  // scaled below, so these must not be pre-scaled.
+  //
+  // Aimed straight down the escaping bundle rather than at a patch of floor.
+  // That is a real change of intent: the old aim tipped the cone 21 degrees
+  // into the ground so that the whole of it landed in a pool, which is also
+  // why nothing above ankle height ever saw this light. The bundle points very
+  // nearly level, because that is where the holes are relative to the flame,
+  // and it sorts itself out on the way: the grin sits below the flame so its
+  // beam runs down and lands long, the eyes and the nose sit above it so
+  // theirs climb and land on whatever is standing in front of the pumpkin.
   const lightTarget = new THREE.Object3D();
-  // Local units: the group is scaled below, so these must not be pre-scaled.
-  // Aimed low and long rather than steeply down: with the cone this narrow, a
-  // steep aim put the whole pool in one puddle a foot from the pumpkin and it
-  // read as a spotlight. Flatter, it runs out to a couple of units and fades.
-  lightTarget.position.copy(faceDir).multiplyScalar(1.9 * sizeK);
-  lightTarget.position.y = -0.42 * sizeK;
+  lightTarget.position.copy(LAMP_AT).addScaledVector(escape.axis, 2.0 * sizeK);
   light.target = lightTarget;
+
+  // --- The lantern itself ----------------------------------------------------
+  // The spot above is only half of what a lit pumpkin does. It is the light
+  // that leaves through the holes. The other half is the shell: two
+  // centimetres of wet flesh is translucent, the flame is directly against the
+  // inside of all of it, and the whole thing sits there as a dull orange lamp
+  // in its own right. That is why a jack-o'-lantern warms the ground it stands
+  // on and everything within a stride of it, in every direction, and not only
+  // whatever it happens to be pointing at.
+  //
+  // Modelled as a point light because from more than a body radius away a
+  // glowing shell IS a point source, and because the alternative -- widening
+  // the spot until its wash covers the neighbourhood -- cannot cover the sides
+  // or the back at all and blows the projection up as the cone approaches a
+  // hemisphere.
+  //
+  // This is not the omnidirectional lamp the file used to warn about. That one
+  // was carrying the whole effect and lighting the floor behind the pumpkin as
+  // brightly as the floor in front of it, which is nonsense for light coming
+  // out of three holes. This one carries only what genuinely does come out in
+  // every direction, it is a fraction of the spot's strength, and it dies
+  // inside a couple of body-lengths.
+  // Same 2.15:1 swing the rest of the flicker is tuned to. The absolute level
+  // is a stylistic call and worth naming as one: a real candle behind two
+  // centimetres of flesh is far dimmer than this against a floor lit like
+  // noon, and at anything like a truthful ratio to the hemisphere and key in
+  // main.js nothing this pumpkin does can be seen at all. This is what makes
+  // the lantern read as a lantern in THIS scene's light.
+  const GLOW_LAMP = { min: 0.95, max: 2.05 };   // rides the same flicker
+  const glowLamp = new THREE.PointLight(
+    new THREE.Color(PALETTE.glow), 0,
+    // Far enough out that the cutoff window is not what ends the glow.
+    // Inverse-square already has it down to a twentieth by two body-lengths;
+    // clip it much nearer than this and the glow stops rather than fades.
+    3.6 * sizeK * scale,
+    2,
+  );
+  glowLamp.position.set(0, yBase, 0);
+  glowLamp.castShadow = false;
 
   const group = new THREE.Group();
   // No painted contact patch under this prop any more. It was here to stand in
@@ -1735,7 +1872,7 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // silhouette on its own, and the patch was doing what the tombstones' did:
   // painting an even dark ring on every side, including the lit one, where a
   // real shadow only lies on one. Checked by looking, patch on and patch off.
-  group.add(shell, wall, face, stem, light, lightTarget);
+  group.add(shell, wall, face, stem, light, lightTarget, glowLamp);
   group.scale.setScalar(scale);
 
   const lightHome = light.position.clone();
@@ -1838,6 +1975,11 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
 
       const at = (range) => range.min + (range.max - range.min) * level;
       light.intensity = at(LAMP) * LAMP_GAIN;
+      // The shell glows off the same flame, so it rides the same level and the
+      // same colour. Scaled with the prop rather than with the prop squared:
+      // it stands in for an area source whose area goes as sizeK^2 seen from a
+      // distance that goes as sizeK, and those two mostly cancel.
+      glowLamp.intensity = at(GLOW_LAMP) * sizeK;
       // Lamp, carving and bloom all come off the one value: that is the whole
       // trick. The carving's range is shallower because a real cut-out stays
       // near saturation even as the spill on the ground drops away.
@@ -1857,6 +1999,7 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
       // and a flare the whole way up to flame.
       const hue = Math.min(1, Math.max(0, HUE_MID + (level - HUE_MID) * HUE_GAIN));
       light.color.copy(EMBER).lerp(FLAME, hue);
+      glowLamp.color.copy(light.color);
       faceMat.emissive.copy(PLATE_EMBER).lerp(PLATE_FLAME, hue);
 
       // The flame is an object and it moves, and this is the half of the effect
