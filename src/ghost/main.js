@@ -426,6 +426,10 @@ function tick(now) {
 // input, so cloth behaviour can be checked without a human at the keyboard.
 
 window.__ghost = {
+  // TEMP DIAGNOSTIC
+  __scene: scene,
+  __ghostObj: ghost,
+  __props: props,
   // Shadow coverage is invisible until something stops casting, and then it is
   // hard to tell a frustum miss from a lighting bug. This reports the fitted
   // box and whether a given world point would land inside it.

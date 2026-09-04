@@ -26,3 +26,7 @@ out/
 /*-smoke.mjs
 /dbg.mjs
 /legs.html
+
+# Agents' working directory for measurement probes. Same idea as the dotted
+# scripts above: written to look at something once, never part of the project.
+/.scratch/

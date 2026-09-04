@@ -1602,6 +1602,21 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   const GOBO_HALO = 26;   // blur, in texels, of the glow around the shapes
   const GOBO_WASH = 0.55; // how much of the mask is that glow rather than shape
 
+  // TEMP DIAG
+  if (globalThis.__PUMPKIN_DIAG) {
+    
+    let minY=Infinity,maxY=-Infinity,minX=Infinity,maxX=-Infinity;
+    for (const c of CUTS){minY=Math.min(minY,c.minY);maxY=Math.max(maxY,c.maxY);minX=Math.min(minX,c.minX);maxX=Math.max(maxX,c.maxX);}
+    const pp=new THREE.Vector3();
+    const worldOfCut=[];
+    for (const c of CUTS){
+      const ys=[],xs=[],zs=[];
+      for(const q of c.pts){facePoint(q[0],q[1],0,pp);ys.push(pp.y);xs.push(pp.x);zs.push(pp.z);}
+      worldOfCut.push({y:[Math.min(...ys),Math.max(...ys)],x:[Math.min(...xs),Math.max(...xs)],z:[Math.min(...zs),Math.max(...zs)]});
+    }
+    globalThis.__PUMPKIN_DIAG.push({variant, sizeK, yBase, FACE_SX, FACE_SY, SHELL_T,
+      flame: FLAME_AT.toArray(), faceSpace:{minX,maxX,minY,maxY}, cuts: worldOfCut});
+  }
   const goboMap = (() => {
     // Props are built head-less in tests; with no canvas there is no mask and
     // the lamp falls back to its plain cone.

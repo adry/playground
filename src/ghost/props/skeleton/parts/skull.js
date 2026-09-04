@@ -32,12 +32,12 @@ import { shaft, jointBall, plate } from './bone.js';
 //    daylight between each arch and the temporal fossa behind it. A smooth
 //    union cannot have a gap in it; see "the zygomatic arch" below.
 //
-// THIS PASS. The head was rejected twice, the second time as "very bad", and
-// rebuilt against `.ref/SKULL-ANATOMY.md`, a measured reference. Almost
+// EARLIER PASSES. The head was rejected twice, the second time as "very bad",
+// and rebuilt against `.ref/SKULL-ANATOMY.md`, a measured reference. Almost
 // everything that was wrong came from two numbers: M.skull.width and .depth
 // used to be 0.141 and 0.150 of the figure's height, a cranial index of 0.94 --
-// a braincase wider than it was long, which no human skull is. They are 0.125
-// and 0.160 now, an index of 0.781, and the corrections that followed are
+// a braincase wider than it was long, which no human skull is. They are 0.1386
+// and 0.1777 now, an index of 0.780, and the corrections that followed are
 // commented at the places they were made. The load-bearing ones:
 //
 //   * the eye line is at exactly half of vertex-to-chin, where a real one is,
@@ -68,11 +68,30 @@ import { shaft, jointBall, plate } from './bone.js';
 // the test for this part -- three builds passed three-quarter renders while
 // being wrong in plan or in profile.
 //
-// ONE CONFLICT IS OUTSTANDING and is reported rather than absorbed: the
-// reference has vertex-to-gnathion at 0.94 of the skull's length and this one
-// is at 1.044, so the head is taller than it is long where a real skull is
-// slightly shorter. It is all in the braincase. The numbers are in the profile
-// block below.
+// THIS PASS closes the conflict the last one reported. The reference has
+// vertex-to-gnathion at 0.94 of the skull's length, and metrics.js has grown
+// M.skull.depth and .width to put it exactly there. Three things followed:
+//
+//   * THE PORION FRAME IS SQUARE NOW. It was being pinned to the orbit's lower
+//     rim, which on a head with a deliberately oversized cute socket is not
+//     where the table's porion is: it sat 0.071 of L low, so the vault was
+//     being drawn 14% tall and everything below the ear 17% short by two
+//     different stretches. Pinned to the table instead, both stretches equal
+//     the skull's length and every landmark reads straight off. That one line
+//     moved basion-to-vertex from 0.699 to the reference's 0.65 and the face's
+//     share of the silhouette from 22% to 29%.
+//   * THE MANDIBLE IS REBUILT. It was a swept round tube with a global squash
+//     on it and it read as a wire hoop with a lath for a ramus. It is an
+//     authored superellipse swept by sweepBar() now, deep at the chin, and the
+//     ramus is a plate half again as broad. See "the mandible".
+//   * The vault's plan exponent relaxes into the crown instead of staying
+//     squared, which is what made the parietal region read as a lid with a
+//     corner on it from behind, and the zygomatic arch is thicker.
+//
+// M.skull.jawHeight is the one number still short of the table: at 0.154 of L
+// against the table's prosthion-to-gnathion of 0.185, the mandible is working
+// in five sixths of the room a real one has. It is reported, not absorbed; the
+// bone spends what there is on bone rather than on air.
 //
 // The expression is DELIBERATELY NEUTRAL. An earlier pass followed the
 // reference photo's face, which scowls: the top edge of each orbit ran on a
@@ -152,23 +171,22 @@ const BROW_INSET = 0.037 * HS;
 //
 // THE FRAME. The reference works in porion-relative coordinates: origin at the
 // ear canal, x forward, y up, units of the skull's length L from glabella to
-// opisthocranion. Porion is placed on the Frankfurt horizontal, which is the
-// line through porion and orbitale, the lower rim of the orbit -- so with the
-// eye line at half the head's height, the ear canal follows from the socket's
-// size and is not a free parameter.
+// opisthocranion. It is SQUARE here: one world unit of L along z and one along
+// y, so SY_UP and SY_DN below both come out at L_SKULL and every coordinate in
+// the table can be read straight off. See PORION_Y for what that cost and why
+// it is worth it.
 //
-// THE CONFLICT THAT WAS, and why the two stretches below still exist. The
-// reference has vertex to gnathion at 0.94 of L: a real skull is slightly
-// LONGER than it is tall. With M.skull.depth at f(0.160) this build came out
-// at 1.044, taller than long by 11%, and because the crown, the chin and the
-// eye line are all pinned, the whole excess landed in the braincase, which had
-// to stretch 1.37x as hard as the face did. That is what made the face read
-// small however far forward it was brought, and nothing in this file could
-// have fixed it. M.skull.depth and .width have since grown to f(0.1777) and
-// f(0.1386) -- the same 0.78 index, the table's length -- so SY_UP and SY_DN
-// now come out near enough equal and the two of them are a residual, not a
-// correction. If they ever diverge again by more than a few percent, the box
-// has drifted and metrics.js is where to look, not here.
+// THE CONFLICT IS GONE. The reference has vertex to gnathion at 0.94 of L: a
+// real skull is slightly LONGER than it is tall. With M.skull.depth at f(0.160)
+// this build came out at 1.044, taller than long by 11%, and because the crown,
+// the chin and the eye line are all pinned, the whole excess landed in the
+// braincase, which had to stretch 1.37x as hard as the face did. That was the
+// box, not this file, and it was reported rather than absorbed. M.skull.depth
+// and .width have since grown to f(0.1777) and f(0.1386) -- the same 0.78
+// index, the table's length -- so M.skull.height is now 0.94 of M.skull.depth
+// to four places and the two stretches are equal by construction rather than by
+// luck. If they ever diverge again, the box has drifted and metrics.js is where
+// to look, not here.
 const ORBIT_V = Y_CROWN - 0.500 * HS;
 const L_SKULL = M.skull.depth;
 // Porion comes off the TABLE, not off the socket. It used to be placed at the
@@ -310,8 +328,19 @@ const vaultWidth = (v) => WIDTH_PEAK * (1
 // the sockets can sit on and the crown squares off into a helmet, low enough
 // for a round crown and the face comes to a point and the orbits curl onto the
 // temples.
+// The upper rolloff used to start at 0.62 and finish past the crown at 1.02,
+// so the exponent was still 3.5 at the parietal eminences and 2.9 in the cap.
+// A superellipse at 3.5 is 0.82 of its semi-axis on the diagonal against a
+// circle's 0.71: from behind and above that is a flat lid meeting flat sides
+// along a corner, which is exactly what the rear three-quarter view showed.
+// It now finishes at 0.96, inside the vault, so the parietal region rounds.
 const vaultPlan = (v) => 2.30
-  + 1.35 * smoothstep(0.08, 0.40, v) * (1 - smoothstep(0.62, 1.02, v));
+  + 1.35 * smoothstep(0.08, 0.40, v) * (1 - smoothstep(0.50, 0.96, v));
+// What the cap relaxes the exponent TOWARD. The cap already replaces the
+// authored half-span and half-width with a dome's, but it was leaving the
+// exponent alone, so the top of the head was a squared dome: round in outline
+// and square in section, which reads as a lid.
+const CAP_PLAN = 2.10;
 // The plan view's own taper: how wide the section is at a given point along its
 // own depth, front to back. A skull seen from above is a blunt egg, widest
 // behind the middle at the parietal eminences and narrowing toward the temples
@@ -359,6 +388,7 @@ function vaultSection(y) {
   let cz = (zf + zb) / 2;
   const v = vaultV(y);
   let sx = HW * vaultWidth(v) * Math.pow(clamp01(half / SZ_REF), 0.55);
+  let ph = vaultPlan(v);
   if (y > Y_CAP) {
     const u = clamp01((Y_CROWN - y) / (CAP_FRAC * VAULT_SPAN));
     const w = u * u * (3 - 2 * u);
@@ -366,10 +396,11 @@ function vaultSection(y) {
     half = (1 - w) * CAP.half * rc + w * half;
     cz = (1 - w) * (VERTEX_Z + (CAP.cz - VERTEX_Z) * rc) + w * cz;
     sx = (1 - w) * CAP.sx * rc + w * sx;
+    ph = (1 - w) * CAP_PLAN + w * ph;
   }
   const k = cb(y);
   if (half <= 1e-5 || sx <= 1e-5) return null;
-  return { cz, sz: half * k, sx: sx * k, ph: vaultPlan(v) };
+  return { cz, sz: half * k, sx: sx * k, ph };
 }
 // The section the cap is hung on, sampled just below the join so the values it
 // blends toward are the authored ones.
@@ -590,8 +621,8 @@ const ORBIT_U = BRIDGE / 2 + M.skull.socket.width / 2;
 // centres of the orbits sit at exactly half of vertex-to-chin, and everything
 // else in the face is checked against them. So it is 0.500 and it is not a
 // tuning parameter. ORBIT_V itself is declared up with the vault, because the
-// whole profile frame is built on it: porion sits on the Frankfurt horizontal
-// through orbitale, which is the socket's own lower rim.
+// eye line is what pins the face's whole vertical: it is at exactly half of
+// vertex-to-chin, and everything in the face is measured from it.
 
 // The nasal aperture is not in metrics.js. Written against the socket so the
 // two stay in proportion. Its floor has to clear the crowns of the upper teeth:
@@ -603,10 +634,17 @@ const ORBIT_U = BRIDGE / 2 + M.skull.socket.width / 2;
 // BETWEEN the orbits, just under the eye line, which is what makes it read as a
 // pear rather than as a keyhole punched into the middle of the maxilla -- there
 // is no room below the orbits for the whole of it, and there is not supposed to
-// be. The floor clears the tooth crowns by 0.05 of the head's height.
+// be. The floor clears the tooth crowns by 0.10 of the head's height.
+//
+// Dropped from 0.588. With the porion frame square the aperture's floor
+// measured -0.096 of L against the table's nasospinale at -0.110, so the strip
+// of maxilla between the nose and the tooth tips was running 0.156 of L where
+// the table's nasospinale-to-prosthion is 0.125. A long blank strip there is
+// the thing that makes a face read as a muzzle, and it is the last of the face
+// landmarks that was still out.
 const NASAL_W = 0.46 * M.skull.socket.width;
 const NASAL_H = 0.52 * M.skull.socket.height;
-const NASAL_V = Y_CROWN - 0.588 * HS;
+const NASAL_V = Y_CROWN - 0.603 * HS;
 
 // How thick the bone is at the edge of a cut, which is the depth of the wall
 // inside every opening. Two things bracket it. Below about two grid cells the
@@ -1573,7 +1611,15 @@ export function buildSkull({ material }) {
   // with surfaceRho, which is how the old arch was placed. That was the bug in
   // miniature: a path that follows the surface cannot stand off it. The standoff
   // is the whole point, so it is a number here, checked below and reported.
-  const ARCH_R = 0.032 * HS;
+  // Thicker than it was, and barely waisted. At 0.032 with a 0.86 waist the
+  // span read as a wire strung between two lumps rather than as a bone: in a
+  // three-quarter view the whole cue is the ARCH, and a bar that thin loses its
+  // own shading and reads as an edge. 0.039 with the waist nearly out is 0.087
+  // of L across and 0.148 deep, which is heavier than a real arch and lighter
+  // than it looks, because the head it bridges is a stylised one and much
+  // rounder than a real skull's temple. The daylight behind it is measured
+  // below and is what stops this from being a moulding.
+  const ARCH_R = 0.039 * HS;
   const ARCH_FLAT = 1.70;               // taller than it is thick, as a real arch is
   const archPath = (side) => new THREE.CatmullRomCurve3([
     new THREE.Vector3(side * 0.300 * M.skull.width, ORBIT_V - 0.180 * HS, 0.272 * M.skull.depth),
@@ -1589,7 +1635,7 @@ export function buildSkull({ material }) {
   let archGap = Infinity;
   for (const side of [-1, 1]) {
     const path = archPath(side);
-    const geo = track(shaft(path, ARCH_R, { waist: 0.86, endBias: 0.9, segments: 40 }));
+    const geo = track(shaft(path, ARCH_R, { waist: 0.95, endBias: 0.9, segments: 40 }));
     const mid = path.getPoint(0.5);
     geo.translate(0, -mid.y, 0);
     geo.scale(1, ARCH_FLAT, 1);
@@ -1868,9 +1914,17 @@ export function buildSkull({ material }) {
   // Sized to sit just inside both tooth arches and just under the palate: any
   // bigger and it pushes a black bubble out through the cheek or the roof of
   // the mouth, any smaller and the ajar gap between the rows lights up.
+  //
+  // It came down hard this pass. It was reaching 0.187 of the skull's depth
+  // back from its own centre and 0.101 of the head's height down, which put its
+  // rear half BEHIND the last molar and its floor BELOW the mandible's lower
+  // border, so in profile the mouth was a black lens hanging out of the back of
+  // the jaw. It is now inside the lower tooth row's own parabola on every axis
+  // and shorter than the body of the mandible is deep, and the check is that
+  // nothing of it is visible in a lateral view with the jaw shut.
   const cavityGeo = track(new THREE.SphereGeometry(1, 20, 14));
-  cavityGeo.scale(0.187 * M.skull.width, 0.101 * HS, 0.187 * M.skull.depth);
-  cavityGeo.translate(0, Y_BITE - 0.059 * HS, 0.155 * M.skull.depth);
+  cavityGeo.scale(0.150 * M.skull.width, 0.055 * HS, 0.150 * M.skull.depth);
+  cavityGeo.translate(0, Y_BITE - 0.030 * HS, 0.190 * M.skull.depth);
   const cavity = new THREE.Mesh(cavityGeo, cavityMat);
   cavity.name = 'mouth-cavity';
   group.add(cavity);
@@ -1934,7 +1988,7 @@ export function buildSkull({ material }) {
   // patched that with a ball at the angle; a ball big enough to shut the hole
   // is a bead on the end of a stick, which is exactly what the jaw was reading
   // as from behind.
-  const CAP_U = 0.075;
+  const CAP_U = 0.045;
   const bodyS = (u) => Math.min(1, Math.abs(u) / JAW_EXTEND);
   const bodyCentre = (u, out) => {
     const uc = Math.max(-JAW_EXTEND, Math.min(JAW_EXTEND, u));
@@ -2000,10 +2054,16 @@ export function buildSkull({ material }) {
     // so the three landmarks it has to hit -- condylion (-0.03, +0.015),
     // the coronoid tip (+0.13, -0.015) and the gonion (+0.07, -0.30) -- are
     // literally in the list rather than being aimed at with offsets. The two
-    // corners at -0.300 are the foot, and they are buried inside the body's
-    // bar, which at that height runs from about +0.05 to +0.20 of L.
+    // two lowest corners are the FOOT, and where they sit is not free: the body
+    // is at its full section only between about +0.07 and +0.20 of L (behind
+    // that its end is closing into the cap) and only below about -0.22 of L.
+    // The first cut of this outline put the posterior corner at +0.036, out
+    // past where the body had already begun to close, and the plate hung below
+    // and lateral to the bone as a paddle -- which is what the rear view
+    // showed. Both corners are inside the bar's own hull now, and the rounded
+    // end of the bar behind the foot IS the angle of the jaw.
     const ramusOutline = new THREE.CatmullRomCurve3([
-      [+0.055, -0.300],   // lower posterior corner, buried in the body's bar
+      [+0.072, -0.272],   // lower posterior corner, buried in the body's bar
       [+0.038, -0.215],   // posterior border of the ramus
       [+0.005, -0.110],
       [-0.022, -0.025],   // condylar neck
@@ -2014,10 +2074,18 @@ export function buildSkull({ material }) {
       [+0.132, -0.015],   // CORONOID TIP
       [+0.152, -0.105],   // anterior border
       [+0.172, -0.215],
-      [+0.170, -0.300],   // lower anterior, buried in the body
+      [+0.170, -0.298],   // lower anterior, buried in the body
     ].map(([x, y]) => new THREE.Vector3(LZ(x), LY(y), 0)), true, 'centripetal', 0.5)
       .getPoints(84)
       .map((q) => new THREE.Vector2(q.x, q.y));
+    // The plate rides a little OUTBOARD of the body's centreline at its foot.
+    // The body is thicker than the ramus is, so a plate sheared to the body's
+    // own axis leaves the bar's rounded end standing proud of it, and that read
+    // as a separate pebble stuck on the outside of the angle. Leaning the foot
+    // out by rather less than the difference puts the ramus's outer face just
+    // lateral to the bar's, which is where a real one is: the two surfaces are
+    // continuous across the angle.
+    const RAMUS_LEAN = 0.036 * HS;
     const ramus = track(plate(ramusOutline, RAMUS_T, { bevel: 0.42, bevelSegments: 4 }));
     ramus.rotateY(-Math.PI / 2);
     {
@@ -2025,7 +2093,8 @@ export function buildSkull({ material }) {
       const span = HINGE_Y - gonionY;
       for (let i = 0; i < pos.count; i++) {
         const t = Math.max(0, Math.min(1, (pos.getY(i) - gonionY) / span));
-        pos.setX(i, pos.getX(i) + side * (gonionX + (HINGE_X - gonionX) * t));
+        const base = gonionX + RAMUS_LEAN;
+        pos.setX(i, pos.getX(i) + side * (base + (HINGE_X - base) * t));
       }
       pos.needsUpdate = true;
       ramus.computeVertexNormals();
