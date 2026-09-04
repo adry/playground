@@ -825,7 +825,7 @@ export function createWater({ strands, pools, drops = [] }) {
     // one because the fake sky is a flat gradient rather than a real
     // environment, so the reflection has no bright spots of its own to find and
     // needs the help to register at all against pale marble.
-    uRimGain: { value: 1.45 },
+    uRimGain: { value: 1.60 },
     uGlint: { value: 1.30 },
     uShine: { value: 190.0 },
   };
@@ -858,7 +858,7 @@ export function createWater({ strands, pools, drops = [] }) {
     uDropSpan: { value: 0.46 },
     uDropGirth: { value: 1.34 },
     uDropStretch: { value: 0.16 },
-    uBodyA: { value: 0.88 },
+    uBodyA: { value: 1.55 },
     // Rings die back quickly on purpose. Nine ring trains crossing a pool is
     // what really happens and it looked like crumpled foil: the eye reads
     // interference as noise, not as water. Damped, each strand keeps its own
@@ -885,7 +885,7 @@ export function createWater({ strands, pools, drops = [] }) {
     // Extinction per unit depth. The bowls are three centimetres deep, so this
     // is small by construction and the pools are nearly clear, which is what a
     // fountain bowl looks like.
-    uAbsorb: { value: 7.0 },
+    uAbsorb: { value: 9.0 },
     ...optics,
   };
 
