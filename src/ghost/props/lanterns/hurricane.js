@@ -40,18 +40,21 @@ import { Profile, createSink, sinkToGeometry, latheInto, transformRange } from '
 // one gets from its shape. A vertical pane seen from a camera 29 degrees up
 // reflects the FLOOR, whatever way it faces, so the ground lantern had to belly
 // its panes and the pillar had to crown them just to drag the reflected ray up
-// to the horizon. This chimney swells from 0.056 to 0.084 and back over 150mm:
-// its surface tilts through about 55 degrees between the waist and the neck, so
-// the reflection sweeps from well above the horizon at the bottom of the bulge
-// to deep floor at the top, in one pass, on the shape the object already has.
-// That gradient down the glass is the whole difference between glazing and a
-// hole, and here it cost nothing.
+// to the horizon. This chimney swells from 0.054 at its foot to 0.084 at the
+// waist and back to 0.048 at the neck over 156mm: its surface tilts 26 degrees
+// UP below the waist and 19 down above it, so the reflected ray sweeps 45
+// degrees over the height of the glass and crosses the horizon on the way. The
+// pale band lands above the waist and the floor's grey below it, in one pass,
+// on the shape the object already has. That gradient down the glass is the
+// whole difference between glazing and a hole, and here it cost nothing.
 //
 // ONE POINT LIGHT, NO SHADOW. Six pumpkins and five lanterns are already in
 // every fragment shader's light loop. The flame gets one unshadowed PointLight
 // and it sits at the flame's TIP: three has no sphere light, so a point source
 // down at the wick sits in an inverse-square singularity that burns the burner
-// plate white before the ground sees anything at all.
+// plate white before the ground sees anything at all. The other half of that
+// same fight is fought in the BRASS rather than in the light: see the note on
+// the deflector's soot, which is what finally let the lamp keep its pool.
 
 // ---------------------------------------------------------------------------
 // metrics
@@ -941,9 +944,10 @@ varying float vGT;`)
   const lamp = new THREE.PointLight(FLAME.clone(), 0, 2.6 * scale, 2);
   // At the flame's TIP, not its foot. three has no sphere light, so a point
   // source down in the wick sits in an inverse-square singularity: it burns the
-  // burner plate 10mm away to flat white long before the ground 150mm away sees
+  // deflector 45mm away to flat white long before the ground 180mm away sees
   // anything. Lifting it to the tip is the cheapest stand-in for a source with
-  // a radius, and it changes the pool on the floor by about two per cent.
+  // a radius: it more than halves the irradiance on the deflector and changes
+  // the pool on the floor by about two per cent.
   lamp.position.set(0, M.flameY + 0.046, 0);
   lamp.castShadow = false;
 
@@ -970,20 +974,24 @@ varying float vGT;`)
   // the origin lifts one side of the standing rim by rim * sin(settle) exactly
   // as it buries the other. So the whole body drops by that full lift plus a
   // hair: the raised edge of the rim finishes level with the floor and the
-  // buried one goes about five millimetres under, which on 380 of prop is one
-  // part in seventy and reads as pressed into earth rather than as balanced on
-  // it. Measured after the fact with the harness's lowest(), which walks every
-  // vertex under its own world matrix -- NOT Box3.setFromObject, which
-  // transforms the corners of the local box and so grows it by the rotation and
-  // always reports a prop deeper than it is.
+  // buried one goes two to five millimetres under depending on the seed, which
+  // on 380 of prop is at most one part in seventy-five: it reads as pressed
+  // into earth rather than as balanced on it, and nothing anywhere on the rim
+  // hangs in the air. Checked after the fact with the harness's lowest(), which
+  // walks every vertex under its own world matrix, and NOT with
+  // Box3.setFromObject, which transforms the corners of the LOCAL box and so
+  // grows it by the rotation: on a tilted prop that always reports a lowest
+  // point deeper than the prop has.
   body.rotation.x = Math.cos(settleDir) * settle;
   body.rotation.z = Math.sin(settleDir) * settle;
   body.position.y = -M.fount.rim * Math.sin(settle) - 0.0008;
 
   group.scale.setScalar(scale);
   // PointLight.distance is in world units and three does not scale it by the
-  // object's matrix, and intensity is candela against a distance that grows
-  // with the prop, so both are corrected here.
+  // object's matrix, so it is set from `scale` where the light is built; and
+  // its intensity is candela against a distance that grows with the prop, so it
+  // is corrected by the square of the scale every frame in update(). Without
+  // both, a lamp at scale 2 lights a quarter as much ground as one at scale 1.
   const lightGain = scale * scale;
 
   // Read by the lab harness to plot the flicker without a screenshot. Nothing

@@ -81,11 +81,11 @@ const SHAPE = { halfWidth: 0.40, height: 1.38, depth: 0.33, plinth: 0.18 };
 // reads and the one that decides how much face is left for the lettering.
 const CLOTH = {
   thick: 0.032, // a chunky vinyl cloth; below about 0.030 it reads as paper
-  gapMin: 0.0035, // clearance at the hem: the shadow line under the roll
+  gapMin: 0.0090, // clearance at the hem: the shadow line under the roll
   gapMax: 0.0130, // and further in, where nothing can see it, enough to keep
   // the cloth's shadow off the stone it is lying on
   roll: 0.055, // how much material the rolled hem takes, in material units
-  bead: 0.34, // and how far it swells past its own thickness just inside it
+  bead: 0.42, // and how far it swells past its own thickness just inside it
 
   endOver: 0.070, // hang down the ENDS of the stone, below the shoulder roll
   fallMid: 0.345, // hang down the front, at the middle

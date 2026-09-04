@@ -393,12 +393,8 @@ export function createKerbRun({ seed = 1, points, scale = 1 } = {}) {
     // Yaw so +X follows the chord, then the two tilts in the stone's own frame:
     // roll tips it sideways across the run, tip rocks it along the run. Euler
     // order YXZ is R = Ry * Rx * Rz, so both happen before the yaw is applied.
-    e.set(
-      (rng() * 2 - 1) * VARY.roll,
-      Math.atan2(-dz, dx) + (rng() * 2 - 1) * VARY.yaw,
-      (rng() * 2 - 1) * VARY.tip,
-      'YXZ',
-    );
+    const yaw = Math.atan2(-dz, dx) + (rng() * 2 - 1) * VARY.yaw;
+    e.set((rng() * 2 - 1) * VARY.roll, yaw, (rng() * 2 - 1) * VARY.tip, 'YXZ');
     q.setFromEuler(e);
     // The perpendicular of the chord in XZ, for the wander off the line.
     p.set(cx + lat * -dz, baseY, cz + lat * dx);
@@ -406,19 +402,28 @@ export function createKerbRun({ seed = 1, points, scale = 1 } = {}) {
 
     parts.push(geo);
 
-    // The contact stain, flat on the ground and carrying the stone's yaw but
-    // none of its tilt.
+    // The contact stain, flat on the ground, carrying the stone's yaw but none
+    // of its tilt. rotateX first so the plane lies down with its width along
+    // the stone; then the yaw and the position, in that order.
     if (hasDOM) {
       const stain = new THREE.PlaneGeometry(length * CONTACT.long, width * CONTACT.across);
       stain.rotateX(-Math.PI / 2);
+      stain.rotateY(yaw);
       stain.translate(p.x, 0.004, p.z);
-      stain.rotateY(0); // no-op, kept explicit: the yaw is applied below
       stains.push(stain);
     }
 
     s += pitch;
   }
 
+  // One geometry, one material, one draw call for the whole run. Merging rather
+  // than instancing because every stone is a genuinely different block: an
+  // InstancedMesh would have to make the length, width and height variation out
+  // of a non-uniform scale on one base block, which scales the corner radii with
+  // it, and a rounding that changes size stone to stone is the one thing this
+  // house style cannot afford. Merged, each stone carries its own absolute
+  // radii, and its UVs are baked in world units so the grime lands at the right
+  // height on a stone that has settled.
   const merged = mergeGeometries(parts, false);
   for (const g of parts) g.dispose();
 
@@ -427,13 +432,36 @@ export function createKerbRun({ seed = 1, points, scale = 1 } = {}) {
   mesh.receiveShadow = true;
   group.add(mesh);
 
+  let stainGeo = null;
+  let stainMat = null;
+  let stainTex = null;
+  if (stains.length) {
+    stainGeo = mergeGeometries(stains, false);
+    for (const g of stains) g.dispose();
+    stainTex = contactTexture();
+    stainMat = new THREE.MeshBasicMaterial({
+      map: stainTex,
+      transparent: true,
+      opacity: CONTACT.opacity,
+      depthWrite: false,      // never occlude anything, it is only a stain
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+    });
+    const stainMesh = new THREE.Mesh(stainGeo, stainMat);
+    stainMesh.renderOrder = -1;
+    group.add(stainMesh);
+  }
+
   return {
     group,
+    // Nothing here moves: a kerb is laid once and then it is furniture. The
+    // signature is kept so a scene can drive every prop the same way.
     update() {},
     dispose() {
       merged.dispose();
       material.dispose();
       if (tex) { tex.map.dispose(); tex.normalMap.dispose(); }
+      if (stainGeo) { stainGeo.dispose(); stainMat.dispose(); stainTex.dispose(); }
       group.clear();
     },
   };

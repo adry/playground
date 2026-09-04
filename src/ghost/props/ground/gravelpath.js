@@ -64,12 +64,12 @@ const OFFSET_UNITS = -4;
 // 60 cm half width. Below about two the ribbon flattens into a stain at this
 // camera angle; above about four it starts to read as a mound of spoil rather
 // than as a path somebody laid and rolled.
-const CROWN = 0.030;
+const CROWN = 0.034;
 // Where the gentle camber stops and the shoulder starts, as a fraction of the
 // half width. The last tenth is the shoulder, and it is what makes the edge
 // crisp: a path that feathers out over a third of its width is a track worn by
 // feet, not a path with a kerb line.
-const SHOULDER_AT = 0.90;
+const SHOULDER_AT = 0.92;
 // How much of the crown is left by the time the shoulder starts.
 const SHOULDER_TOP = 0.72;
 
@@ -85,7 +85,7 @@ function profileY(u) {
   // therefore meets the floor close to vertical, which is the whole point, and
   // rolls over softly at the top, which is what keeps it a clay toy rather
   // than a chamfered box.
-  return CROWN * SHOULDER_TOP * Math.pow(1 - t, 0.75);
+  return CROWN * SHOULDER_TOP * Math.pow(1 - t, 0.65);
 }
 
 // Stations across the ribbon, from the centreline out to one rim. Clustered
@@ -282,8 +282,8 @@ function gravelTextures(seed) {
       const t = who < 0 ? 0.5 : tint[who];
       // Each chip gets one colour off the ramp, so a chip reads as one stone.
       c.copy(base);
-      if (t < 0.45) c.lerp(dark, ((0.45 - t) / 0.45) * 0.80);
-      else c.lerp(pale, ((t - 0.45) / 0.55) * 0.70);
+      if (t < 0.45) c.lerp(dark, ((0.45 - t) / 0.45) * 0.65);
+      else c.lerp(pale, ((t - 0.45) / 0.55) * 0.55);
       // Then the crevices go down. This is contact occlusion baked in, and it
       // is doing most of the work: at a glancing angle the key light barely
       // separates one chip from the next, and without a dark line between them
@@ -618,7 +618,7 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
   // though they were kicked off, and a scattering sits on the crown so the top
   // surface is not perfectly smooth against the sky at the far end of the path.
   const length = (N - 1) * STEP;
-  const chipCount = Math.max(20, Math.round(length * 34));
+  const chipCount = Math.max(20, Math.round(length * 26));
 
   const unit = new THREE.SphereGeometry(1, 10, 7);
   {
@@ -678,9 +678,13 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
       // Three quarters live at the rim, which is the only place a real pebble
       // changes the silhouette. The rest are on the crown, keeping the top from
       // reading as a moulded surface where it catches the key.
+      // Mostly ON the shoulder rather than off it. The first pass threw a
+      // fringe of chips out onto the floor and the path stopped reading as
+      // laid: a spill of scree is what an UNMADE path does, and the sand path
+      // in the same frame is the one that should be doing it.
       let u;
-      if (rand() < 0.74) u = side * (0.90 + Math.pow(rand(), 1.5) * 0.15);
-      else u = side * Math.pow(rand(), 0.8) * 0.82;
+      if (rand() < 0.70) u = side * (0.84 + Math.pow(rand(), 1.5) * 0.22);
+      else u = side * Math.pow(rand(), 0.8) * 0.80;
 
       const r = 0.014 + Math.pow(rand(), 1.7) * 0.017;
       sc.set(r * (0.85 + rand() * 0.5), r * CHIP_FLAT * (0.8 + rand() * 0.6), r * (0.85 + rand() * 0.5));

@@ -172,33 +172,67 @@ function placed(geo, { pos, scale, euler }) {
   return geo;
 }
 
-// The paint. Every vertex is coloured by which way it faces and how deep in the
-// heap it sits, and this is half of why the piece reads: it runs the same way
-// the light does, so a clod's crown and the crevice beside it are separated
-// twice over.
-function paint(geo, { rng, height, crevice = 0, tone = 1 }) {
+// The paint, and this is the other half of why the piece reads.
+//
+// Two terms, and neither of them is the renderer's.
+//
+// FACING. Up-facing facets go to a light warm tan, sideways ones to a mid
+// brown, under-facing ones down into the crevice colour. This runs the same way
+// the light does, so a clod's crown and the gap beside it are separated twice
+// over, and it is what lifts the heap clear of the floor's grey.
+//
+// OCCLUSION, baked here rather than hoped for. The scene has one shadow-casting
+// light and it cannot put a shadow in the gap between two clods that are two
+// centimetres apart; without that the heap comes out as a tray of pale pebbles,
+// which is what the render said before this existed. So every vertex is tested
+// against every other clod: an occluder in front of the surface, close to it,
+// darkens it, falling off with distance and with the angle off the normal.
+// About a million distance tests at build time and nothing at all per frame.
+const OCC_REACH = 2.3;   // occluder radii; past this a clod does not shade you
+const OCC_DEPTH = 0.60;  // how black a full crevice goes
+
+function occlusionAt(v, n, clods, skip) {
+  let occ = 0;
+  for (let j = 0; j < clods.length; j++) {
+    if (j === skip) continue;
+    const o = clods[j];
+    const dx = o.x - v.x, dy = o.y - v.y, dz = o.z - v.z;
+    const reach = o.r * OCC_REACH;
+    const d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > reach * reach) continue;
+    const d = Math.sqrt(d2) || 1e-6;
+    // Only what sits in front of the surface shades it. Without this the
+    // underside of every clod is shaded by the clod it is sitting on, which is
+    // right, and the TOP of every clod is shaded by it too, which is not.
+    const facing = (dx * n.x + dy * n.y + dz * n.z) / d;
+    if (facing <= 0) continue;
+    occ += facing * (1 - d / reach);
+  }
+  return clamp01(occ * 0.85);
+}
+
+function paint(geo, { rng, height, clods, skip = -1, crevice = 0, tone = 1 }) {
   const p = geo.attributes.position;
   const n = geo.attributes.normal;
   const col = new Float32Array(p.count * 3);
   const c = new THREE.Color();
+  const v = new THREE.Vector3();
+  const nv = new THREE.Vector3();
   const ph = rng() * 6.283;
   for (let i = 0; i < p.count; i++) {
-    const ny = n.getY(i);
-    const y = p.getY(i);
-    const x = p.getX(i), z = p.getZ(i);
-    // Up-facing to the light tan, sideways to the mid brown, under-facing all
-    // the way down into the crevice colour.
+    v.fromBufferAttribute(p, i);
+    nv.fromBufferAttribute(n, i);
+    const ny = nv.y;
     if (ny >= 0) c.copy(EARTH.side).lerp(EARTH.top, smoothstep(0.05, 0.85, ny));
     else c.copy(EARTH.side).lerp(EARTH.crevice, smoothstep(0.0, -0.6, ny));
-    // Everything low in the heap loses a little: a fake occlusion that keeps
-    // the foot from competing with the crest.
-    const deep = 1 - 0.34 * (1 - smoothstep(0.02, height * 0.75, y));
-    // ...and the core is pushed further down still, so where it shows between
-    // two clods it reads as the gap between them.
+    // Everything low in the heap loses a little: the foot must not compete
+    // with the crest for the eye.
+    const deep = 1 - 0.30 * (1 - smoothstep(0.02, height * 0.75, v.y));
+    const occ = clods ? occlusionAt(v, nv, clods, skip) : 0;
     // Mottling: a coherent wave through the surface rather than per-vertex
     // white noise, which on a smooth-shaded lump comes out as static.
-    const mott = 1 + 0.055 * Math.sin(11 * x + ph) * Math.sin(9 * z - ph) + 0.04 * Math.sin(17 * y + ph);
-    const k = deep * (1 - crevice) * tone * mott;
+    const mott = 1 + 0.055 * Math.sin(11 * v.x + ph) * Math.sin(9 * v.z - ph) + 0.04 * Math.sin(17 * v.y + ph);
+    const k = deep * (1 - crevice) * (1 - OCC_DEPTH * occ) * tone * mott;
     c.multiplyScalar(k);
     col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
   }
