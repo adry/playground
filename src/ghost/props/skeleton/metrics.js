@@ -79,8 +79,19 @@ export const M = {
 
   // The sacrum belongs to the axial part and the hip plates belong to the legs
   // part, so its extent has to be published rather than each side guessing.
-  // These are the values the axial build settled on.
-  sacrum: { top: f(0.570), bottom: f(0.499), width: f(0.116), depth: f(0.058) },
+  //
+  // These went in wrong the first time: the axial build reported them in world
+  // units and they were wrapped in f() again, which put the sacrum at 69% of
+  // the whole pelvis's width. Everything here is a fraction of standing height,
+  // always, and a number arriving from a report has to be divided by HEIGHT
+  // before it goes through f(). Nothing had read the bad values yet.
+  sacrum: {
+    top: f(0.5802),
+    bottom: f(0.5277),      // the blade's apex
+    coccyxTip: f(0.5047),
+    width: f(0.0421),
+    depth: f(0.0080),
+  },
 
   arm: {
     humerus: f(0.154),

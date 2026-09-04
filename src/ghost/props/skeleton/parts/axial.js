@@ -382,37 +382,40 @@ export function buildAxial({ material }) {
   // makes it unreadable for a robustness nobody is going to exercise.
   // Everything that decides where a bone SITS is a fraction.
   const SACRUM_RIM = [
-    [0, 0.054], [0.040, 0.054], [0.038, 0.029], [0.033, 0.004],
-    [0.028, -0.021], [0.017, -0.042], [0.007, -0.054], [0, -0.056],
-    [-0.007, -0.054], [-0.017, -0.042], [-0.028, -0.021],
-    [-0.033, 0.004], [-0.038, 0.029], [-0.040, 0.054],
+    [0, 0.054], [0.040, 0.054], [0.039, 0.030], [0.037, 0.006],
+    [0.032, -0.018], [0.024, -0.038], [0.012, -0.052], [0, -0.056],
+    [-0.012, -0.052], [-0.024, -0.038], [-0.032, -0.018],
+    [-0.037, 0.006], [-0.039, 0.030], [-0.040, 0.054],
   ];
 
-  // Four pairs, converging downward the way a real sacrum's do: x, height, and
-  // the radius of the opening. Two constraints squeeze these, and both were
-  // found by rendering rather than by thinking:
+  // Four pairs, converging downward the way a real sacrum's do: x, height along
+  // the blade, and the radius of the opening. Two constraints put them all in
+  // the bottom half, and both were found by rendering and then by raycasting
+  // the geometry, rather than by reasoning:
   //
-  //   * Set them low on the blade, not centred on it. L5's body overhangs the
-  //     promontory, so anything in the top f(0.010) is simply not visible.
-  //   * Keep every one of them at least SAC_RIM clear of the rim rod's
-  //     centreline. The rod is a solid tube THROUGH the blade's thickness, so a
-  //     hole within its radius is plugged by it: the first two attempts cut all
-  //     eight holes correctly (the vertex count says so) and only rendered the
-  //     top two pairs, because the bottom two were sitting inside the rod.
+  //   * L5's body is a f(0.0288) drum sitting on top of the promontory, and the
+  //     camera looks DOWN at the figure. Everything on the blade above about
+  //     u = 0 disappears behind that drum. The first pass at these was centred
+  //     on the blade and half of them were never on screen at all -- the holes
+  //     were cut correctly the whole time, which is why staring at the render
+  //     was so misleading.
+  //   * Keep each one at least SAC_RIM clear of the rim rod's centreline. The
+  //     rod is a solid tube THROUGH the blade's thickness, so a hole inside its
+  //     radius is plugged by it.
   //
-  // Between them those are why the blade is as thin as it is. At the first
-  // thickness the rim rod was f(0.0052) fat and there was no room on a bone
-  // this size for four rows that clear it.
+  // Between them those are why the blade is as thin as it is and why it does
+  // not taper as hard as a real sacrum does: at the first thickness the rim rod
+  // was f(0.0052) fat and there was no room left on a bone this size.
   const FORAMINA = [
-    [0.017, 0.028, f(0.0032)],
-    [0.014, 0.010, f(0.0032)],
-    [0.011, -0.008, f(0.0032)],
-    [0.008, -0.024, f(0.0032)],
+    [0.014, -0.004, f(0.0022)],
+    [0.012, -0.018, f(0.0020)],
+    [0.009, -0.032, f(0.0017)],
+    [0.005, -0.045, f(0.0011)],
   ];
   const ring = (cx, cy, r) => {
     const pts = [];
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2;
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 20) * Math.PI * 2;
       pts.push(new THREE.Vector2(cx + r * Math.cos(a), cy + r * Math.sin(a)));
     }
     return pts;
@@ -420,11 +423,14 @@ export function buildAxial({ material }) {
   const holes = [];
   for (const [x, y, r] of FORAMINA) {
     holes.push(ring(x, y, r));
+    holes.push(ring(-x, y, r));
   }
 
-  // bevel 0.06 rather than the vocabulary's 0.4: it is only there to take the
-  // wire edge off the holes, and every bit of it comes straight off their
-  // radius at the face. The blade's own edge is the rim rod's job.
+  // No bevel at all, which is not the vocabulary's default and is worth writing
+  // down: three grows the outer contour and SHRINKS every hole by bevelSize at
+  // each face, so on a bone this small any bevel worth having eats the foramina,
+  // and a large one tears the triangulation outright. The blade's own edge is
+  // the rim rod's job, and a hole four pixels across does not need a lip.
   mesh(
     plate(smoothOutline(SACRUM_RIM, 72), SAC_THICK, { bevel: 0, holes }),
     sacrum,
@@ -461,15 +467,16 @@ export function buildAxial({ material }) {
   // The top one is the S1 tubercle and it is the biggest, because it is the one
   // that has to reach back far enough to meet L5's spinous knuckle. Below the
   // apex the chain becomes the coccyx and curls forward again.
-  // The four on the blade are narrower than they want to be for the back view,
-  // because a wide bulb on the midline sits directly behind a foramen and fills
-  // it: a hole with bone behind it at the same depth is not a hole any more.
-  // The connecting rod carries the chain where the bulbs no longer touch.
+  // The four standoffs on the blade are not free: each is set so the bulb's
+  // front surface lands f(0.0016) inside the blade's back face. That is deep
+  // enough to hold the crest onto the blade and shallow enough that a foramen
+  // in front of it is still an f(0.0064) pit rather than a dimple with bone
+  // just under the surface.
   const CREST = [
     [0.048, f(0.0076), f(0.0092)],
-    [0.020, f(0.0044), f(0.0060)],
-    [-0.006, f(0.0034), f(0.0050)],
-    [-0.032, f(0.0026), f(0.0042)],
+    [0.020, f(0.0054), f(0.0070)],
+    [-0.006, f(0.0042), f(0.0058)],
+    [-0.032, f(0.0032), f(0.0048)],
     [-0.070, f(-0.0012), f(0.0054)],   // coccyx, first segment
     [-0.094, f(-0.0044), f(0.0046)],
     [-0.115, f(-0.0076), f(0.0038)],
