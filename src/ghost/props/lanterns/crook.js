@@ -673,16 +673,20 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
   // The cross axis is given a four per cent longer effective length, and that
   // is a deliberate small lie worth naming. Two oscillators with EXACTLY equal
   // periods trace a fixed ellipse forever, so the lantern would swing along one
-  // unchanging line or round one unchanging oval for as long as anyone watched,
-  // which is the same "authored" tell as a looping flame. Four per cent puts a
-  // beat of about twenty-seven seconds between them, so the plane of the swing
-  // creeps round and the motion never repeats. A real lantern's ring and bail
-  // are not isotropic either, so this is not even much of a lie.
+  // unchanging line, or round one unchanging oval, for as long as anyone
+  // watched: the same "authored" tell as a looping flame. Four per cent of
+  // length is two per cent of frequency, which beats over about fifty-five
+  // seconds, so the plane of the swing creeps round and the motion never
+  // repeats. A real lantern's ring and bail are not isotropic either, so this
+  // is not much of a lie.
   //
-  // The effective length is the compound-pendulum one, I/(m*d), not the
-  // distance to the centre of mass. For a body 0.31 tall hanging 0.26 below the
-  // ring that is about a centimetre longer than d, which is three per cent on
-  // the period: small, and free, since it is one line of arithmetic done once.
+  // The effective length is the compound-pendulum one, I/(m*d), and not the
+  // distance to the centre of mass, which is the thing that is easy to reach
+  // for and wrong. This body is 0.32 tall with its centre of mass 0.239 below
+  // the ring, and its own moment of inertia adds 0.040 to that: 17% on the
+  // length and 8% on the period, which is a tenth of a second and is plainly
+  // visible next to a second lantern built the other way. One line of
+  // arithmetic, done once, at build time.
   const bodyTop = roofTop;
   const bodyBottom = baseTop - BASE_H;
   const comY = (bodyTop + bodyBottom) * 0.5 + 0.012;   // the roof is the heavy end
@@ -845,12 +849,14 @@ export function createCrookLantern({ seed = 1, scale = 1, wind = 1 } = {}) {
       optics.uInner.value = INNER.min + (INNER.max - INNER.min) * level;
       optics.uInnerCol.value.copy(flameCol);
 
-      // The flame is an object and it moves, and this is the half of the effect
+      // The flame is an object and it MOVES, and this is the half of the effect
       // that modulating intensity cannot reach. Brightening in place only pumps
-      // the pool; moving the source slides the shadows of the four cage bars
-      // round the inside of the glass. Small, because the flame is inside a box
-      // six centimetres across and a flame that wanders further than that is
-      // outside its own lantern.
+      // the pool; taking the source a few millimetres sideways changes which
+      // face of each cage bar is lit and rolls the highlight along the underside
+      // of the roof, which is what makes the inside of the lantern look like it
+      // has something burning in it rather than a bulb being dimmed. Small
+      // numbers, because the glass is fourteen centimetres across and a flame
+      // that wanders further than a centimetre is outside its own lantern.
       const across = 0.007 * (0.55 * swing(0.83, 5.5) + 0.45 * wobble(5.9, 0.5, 71.6));
       const into = 0.006 * swing(0.61, 2.7);
       const rise = 0.004 * swing(1.3, 8.1) + 0.014 * flare - 0.011 * dip;

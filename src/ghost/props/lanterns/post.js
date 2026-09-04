@@ -187,6 +187,8 @@ const HEAD = { r: 0.256, y0: 0.700, y1: 1.032, rv: 0.060, t: 0.048 };
 // not a joke at the set's expense so much as the cheapest way to say the two
 // things came from the same yard.
 const WIN = { half: 0.088, y0: 0.776, y1: 0.952, rBot: 0.026 };
+// The other two faces get a small round moon instead. See FACE_CUTS for why.
+const MOON_HOLE = { y: 0.880, r: 0.047 };
 // How far the lip rolls over before the wall goes straight. Nearly half the
 // thickness, so both ends of the wall are round and the little straight run in
 // the middle is all that is left of the flat.
@@ -476,11 +478,12 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
     return outP;
   };
 
-  // Face space. The head has four faces and one window, repeated; a vertex
-  // belongs to the face whose centre it is nearest, and x is its offset across
-  // that face measured at the head's full width, so a window is one outline in
-  // (x, y) rather than four sets of numbers agreeing with each other.
+  // Face space. The head has four faces, a vertex belongs to the one it is
+  // nearest, and x is its offset across that face measured at the head's full
+  // width. An opening is then one outline in (x, y) rather than four sets of
+  // numbers agreeing with each other.
   const faceOffset = (a) => a - Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
+  const faceIndex = (a) => ((Math.round(a / (Math.PI / 2)) % 4) + 4) % 4;
   const faceX = (da) => HEAD.r * section(da).z;
   // and back again, by bisection: faceX is monotonic across a face.
   const faceA = (x) => {
@@ -493,18 +496,12 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
     return (lo + hi) / 2;
   };
 
-  // The window outline, walked counter-clockwise off four corner arcs, which is
-  // the headstones' own construction: a rounded foot, straight sides and a true
-  // half-round arch tangent to them.
-  const WIN_OUTLINE = (() => {
+  // An outline walked counter-clockwise off a list of corner arcs, and its
+  // bounding box. Four arcs give the arch: a rounded foot, straight sides and a
+  // true half-round top tangent to them, which is the headstones' own
+  // construction at a hand's size. One arc gives the moon.
+  const outlineOf = (corners) => {
     const pts = [];
-    const rT = WIN.half;
-    const corners = [
-      { cx: WIN.half - WIN.rBot, cy: WIN.y0 + WIN.rBot, r: WIN.rBot, a0: -Math.PI / 2, a1: 0, seg: 7 },
-      { cx: WIN.half - rT, cy: WIN.y1 - rT, r: rT, a0: 0, a1: Math.PI / 2, seg: 16 },
-      { cx: -(WIN.half - rT), cy: WIN.y1 - rT, r: rT, a0: Math.PI / 2, a1: Math.PI, seg: 16 },
-      { cx: -(WIN.half - WIN.rBot), cy: WIN.y0 + WIN.rBot, r: WIN.rBot, a0: Math.PI, a1: Math.PI * 1.5, seg: 7 },
-    ];
     for (const c of corners) {
       for (let i = 0; i <= c.seg; i++) {
         const t = c.a0 + (c.a1 - c.a0) * (i / c.seg);
@@ -519,18 +516,33 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
       const l = pts[pts.length - 1];
       if (Math.abs(f[0] - l[0]) + Math.abs(f[1] - l[1]) < 1e-7) pts.pop(); else break;
     }
-    return pts;
-  })();
+    return pts.reduce((b, q) => ({
+      minX: Math.min(b.minX, q[0]), maxX: Math.max(b.maxX, q[0]),
+      minY: Math.min(b.minY, q[1]), maxY: Math.max(b.maxY, q[1]), pts,
+    }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, pts });
+  };
 
-  const WIN_BOX = WIN_OUTLINE.reduce((b, p) => ({
-    minX: Math.min(b.minX, p[0]), maxX: Math.max(b.maxX, p[0]),
-    minY: Math.min(b.minY, p[1]), maxY: Math.max(b.maxY, p[1]),
-  }), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+  const ARCH = outlineOf([
+    { cx: WIN.half - WIN.rBot, cy: WIN.y0 + WIN.rBot, r: WIN.rBot, a0: -Math.PI / 2, a1: 0, seg: 7 },
+    { cx: 0, cy: WIN.y1 - WIN.half, r: WIN.half, a0: 0, a1: Math.PI / 2, seg: 16 },
+    { cx: 0, cy: WIN.y1 - WIN.half, r: WIN.half, a0: Math.PI / 2, a1: Math.PI, seg: 16 },
+    { cx: -(WIN.half - WIN.rBot), cy: WIN.y0 + WIN.rBot, r: WIN.rBot, a0: Math.PI, a1: Math.PI * 1.5, seg: 7 },
+  ]);
+  const MOON = outlineOf([{ cx: 0, cy: MOON_HOLE.y, r: MOON_HOLE.r, a0: 0, a1: Math.PI * 2, seg: 30 }]);
+
+  // Two arches and two moons, and which face gets which is the whole reason the
+  // moons exist. Four identical arches means every arch has another arch
+  // directly behind it, so at any camera angle the eye looks clean through the
+  // head and out the far side, and what should be a lit chamber is a slot with
+  // the sky in it. Opposite faces carry different openings instead: behind
+  // every arch is a lit wall with a small round moon in it, which is a thing to
+  // look at rather than a hole, and the two moons still let the flame out.
+  const FACE_CUTS = [ARCH, ARCH, MOON, MOON];
 
   // Crossing count, bounding box first.
-  const inWindow = (x, y) => {
-    if (x < WIN_BOX.minX || x > WIN_BOX.maxX || y < WIN_BOX.minY || y > WIN_BOX.maxY) return false;
-    const pts = WIN_OUTLINE;
+  const inCut = (cut, x, y) => {
+    if (x < cut.minX || x > cut.maxX || y < cut.minY || y > cut.maxY) return false;
+    const pts = cut.pts;
     let hit = false;
     for (let i = 0, k = pts.length - 1; i < pts.length; k = i++) {
       const yi = pts[i][1];
@@ -544,8 +556,8 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   // pointing into the opening. That normal is what the wall is built against,
   // so no loop tracing is needed: every rim vertex carries its own direction
   // into the cut.
-  const snapTo = (x, y) => {
-    const pts = WIN_OUTLINE;
+  const snapTo = (cut, x, y) => {
+    const pts = cut.pts;
     let best = null;
     let bestD = Infinity;
     for (let i = 0; i < pts.length; i++) {
@@ -612,7 +624,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
     for (let i = 0; i < HR; i++) {
       const a = (gA[at(j, i)] + gA[at(j, i + 1)]) / 2;
       const y = (gY[at(j, i)] + gY[at(j + 1, i)]) / 2;
-      if (inWindow(faceX(faceOffset(a)), y)) dropped[qAt(j, i)] = 1;
+      if (inCut(FACE_CUTS[faceIndex(a)], faceX(faceOffset(a)), y)) dropped[qAt(j, i)] = 1;
     }
   }
 
@@ -632,7 +644,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
         if (!around.some(Boolean) || around.every(Boolean)) continue;
         const k = at(j, i);
         const da = faceOffset(gA[k]);
-        const hit = snapTo(faceX(da), gY[k]);
+        const hit = snapTo(FACE_CUTS[faceIndex(gA[k])], faceX(da), gY[k]);
         if (!hit) continue;
         const cellY = Math.max(
           j > 0 ? gY[k] - gY[at(j - 1, i)] : 0,
@@ -922,18 +934,24 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
     toneMapped: true,
   });
 
-  // The flame itself: a teardrop with a rounded tip, emissive, unlit.
+  // The flame itself: a small teardrop, unlit, carrying its own gradient.
+  //
+  // Emissive on a lit material was the obvious way to build this and it came
+  // out as a pale blob: one flat value over the whole tongue, clipped white at
+  // any brightness that read as fire. A flame is not one value. It is dim and
+  // sullen at the wick, white in the throat and orange at the tip, and that
+  // gradient is most of what the eye recognises. So the shape carries it per
+  // vertex and the material is unlit, which also keeps it out of the way of a
+  // scene light that has no business shading a flame.
+  const FLAME_H = 0.098;
+  const FLAME_W = 0.021;
   const flameGeo = (() => {
-    const seg = 16;
+    const seg = 18;
     const p = makeProfile();
-    const H = 0.102;
-    const W = 0.022;
-    // A tall bell: widest a third of the way up, drawn to a soft point.
     for (let i = 0; i <= seg; i++) {
       const t = i / seg;
-      const r = W * Math.pow(Math.sin(Math.PI * Math.pow(t, 0.62)), 0.75);
-      const y = t * H;
-      p.pts.push({ r: Math.max(1e-4, r), y, tr: 0, ty: 1 });
+      const r = FLAME_W * Math.pow(Math.sin(Math.PI * Math.pow(t, 0.62)), 0.75);
+      p.pts.push({ r: Math.max(1e-4, r), y: t * FLAME_H, tr: 0, ty: 1, t });
     }
     // Tangents from the samples, so the tip shades round instead of spiking.
     for (let i = 0; i < p.pts.length; i++) {
@@ -946,21 +964,27 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
       p.pts[i].ty = dy / L;
     }
     const target = { pos: [], nor: [], uv: [], idx: [] };
-    emitLathe(target, p.pts, 20, W);
+    emitLathe(target, p.pts, 20, FLAME_W);
+    // Bright through the throat, falling away at both ends.
+    const col = [];
+    const radial = 21;
+    for (const q of p.pts) {
+      const t = q.t;
+      const v = 0.30 + 1.15 * Math.pow(Math.sin(Math.PI * Math.pow(t, 0.75)), 1.3) * (1 - 0.45 * t);
+      for (let i = 0; i < radial; i++) col.push(v, v, v);
+    }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(target.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(target.nor, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.setIndex(target.idx);
     g.computeBoundingSphere();
     return g;
   })();
 
-  const flameMat = new THREE.MeshStandardMaterial({
-    color: 0x000000,
-    emissive: new THREE.Color(PLATE_FLAME),
-    emissiveIntensity: FLAME_EM.max,
-    roughness: 1,
-    metalness: 0,
+  const flameMat = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(PLATE_FLAME),
+    vertexColors: true,
   });
 
   const stoneMesh = new THREE.Mesh(stoneGeo, stoneMat);
@@ -1015,6 +1039,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   const lampHome = lamp.position.clone();
   const flameHome = flame.position.clone();
   const boxTint = new THREE.Color();
+  const flameCol = new THREE.Color();
 
   return {
     group,
@@ -1063,7 +1088,6 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
 
       const to = (range) => range.min + (range.max - range.min) * level;
       lamp.intensity = to(LAMP);
-      flameMat.emissiveIntensity = to(FLAME_EM);
 
       // A guttering flame reddens and a flaring one goes whiter, so the colour
       // rides the same value. Levered about the level's own mean rather than
@@ -1072,7 +1096,7 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
       // lives.
       const hue = Math.min(1, Math.max(0, HUE_MID + (level - HUE_MID) * HUE_GAIN));
       lamp.color.copy(EMBER).lerp(FLAME, hue);
-      flameMat.emissive.copy(PLATE_EMBER).lerp(PLATE_FLAME, hue);
+      flameMat.color.copy(flameCol.copy(PLATE_EMBER).lerp(PLATE_FLAME, hue)).multiplyScalar(to(FLAME_EM));
       boxTint.copy(BOX_EMBER).lerp(BOX_FLAME, hue);
       boxMat.color.copy(boxTint).multiplyScalar(to(BOX));
 

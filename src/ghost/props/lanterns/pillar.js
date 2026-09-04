@@ -23,7 +23,7 @@ import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from '../style.js';
 //
 //   stone height      0.940     (fence post 0.86, gate post 0.92)
 //   footprint         0.36      (fence post 0.155, gate post 0.186)
-//   overall height    1.495     with the lantern, cap and finial on top
+//   overall height    1.527     with the lantern, cap and finial on top
 //
 // So it is 9% taller than the gate post in stone and 1.94 times its section.
 // The 0.36 footprint is deliberately most of a grid cell: a gate pillar is the
@@ -40,24 +40,27 @@ import { PALETTE, SEGMENTS, toyMaterial, contactShadow } from '../style.js';
 //
 // What p means as a radius: a superellipse pulls its diagonal in by
 // sqrt(2)(1 - 2^(-p/2)) of the half-width, and a true circular fillet of radius
-// rho pulls it in by 0.414 rho, so rho/halfWidth is about 1.1 p. Measured off
-// renders rather than trusted: the numbers below are the ones the range was
-// found at, in millimetres on the real 0.30 shaft.
+// rho pulls it in by 0.414 rho, so rho is about 1.12 p half-widths. Below, on
+// the real 0.30 shaft, and every one of them rendered side by side at the
+// diorama's own camera rather than argued for here:
 //
-//   p = 0.14   rho ~ 23mm   CAD. Reads as a chamfer on a hard edge, and the
-//              specular runs as a hard line down the arris.
-//   p = 0.22   rho ~ 36mm   still crisp, right for pressed metal
-//   p = 0.34   rho ~ 56mm   the stone. Square in silhouette, soft in the
-//              highlight, which is exactly the fence post's own 0.34.
-//   p = 0.48   rho ~ 79mm   the top of the range. Still square from the front,
-//              visibly barrel-y on the diagonal.
-//   p = 0.62   rho ~ 102mm  gone. From the diorama's 45-degree camera the shaft
-//              is a cylinder with a flat spot.
+//   p = 0.14   rho 24mm   CAD. A hard arris runs the height of the shaft and
+//              the key light breaks along it as a line, not a roll.
+//   p = 0.22   rho 38mm   crisp, and right for folded metal. Still an edge.
+//   p = 0.34   rho 57mm   the stone. Unmistakably square in silhouette, and
+//              the corner is a soft roll rather than a break. It is also the
+//              fence post's own 0.34, which is not a coincidence worth
+//              breaking: the two stand next to each other.
+//   p = 0.48   rho 79mm   the top of the range. Square from the front and
+//              visibly barrelled on the diagonal.
+//   p = 0.62   rho 99mm   gone. The near corner has no corner left in it, the
+//              flats have shrunk to a band down the middle of each face, and
+//              the plinth and cornice have rounded off into cushions.
 //
-// So the usable window is p = 0.20 to 0.50 and the piece sits at 0.34 for the
-// stone and 0.22 for the metal. That split is itself the point: stone is
-// weathered and metal is folded, and giving them the same radius made the
-// lantern look like it had been cast in one lump with the pillar.
+// So the window is p = 0.20 to 0.50, and the piece sits at 0.34 for the stone
+// and 0.22 for the metal. That split is itself the point: stone is weathered
+// and metal is folded, and giving both the same radius made the lantern look
+// cast in one lump with the pillar rather than bolted onto it.
 const P_STONE = 0.34;
 const P_METAL = 0.22;
 
@@ -75,13 +78,13 @@ const TOP_FILLET = 0.026;    // the ovolo on the cornice's top rim
 const BOT_FILLET = 0.020;
 
 // The flat the metal lands on, after the top rim has been rounded away.
-const CAP_FLAT = CORNICE_R - TOP_FILLET;   // 0.148
+const CAP_FLAT = CORNICE_R - TOP_FILLET;   // 0.154
 
 // --- the joint ---------------------------------------------------------------
 // A metal box set down on a stone pillar looks like two models intersecting
 // unless four things happen at once, and all four are here:
 //
-//   1. the stone reaches UP. The cornice flares from 0.1405 back out to 0.174
+//   1. the stone reaches UP. The cornice flares from 0.1405 back out to 0.180
 //      over the last 95mm, so the masonry is coming to meet the lantern rather
 //      than being sawn off under it.
 //   2. the metal reaches DOWN AND OUT. The flange is a stepped plate, wide at
@@ -123,7 +126,7 @@ const CAP_H = 0.132;
 const FINIAL_NECK = 0.022;
 const FINIAL_R = 0.031;
 
-const TOTAL_H = CAP_Y + CAP_H + FINIAL_NECK + 2 * FINIAL_R;   // 1.495
+const TOTAL_H = CAP_Y + CAP_H + FINIAL_NECK + 2 * FINIAL_R;   // 1.527
 
 // -----------------------------------------------------------------------------
 // materials
@@ -1060,7 +1063,10 @@ export const PILLAR = {
   height: TOTAL_H,
   stoneHeight: STONE_H,
   footprint: PLINTH_R * 2,
-  lightAt: BOX_Y + 0.055,
+  // The flat on top of the cornice, in case anything ever wants to set
+  // something else there.
+  capFlat: CAP_FLAT * 2,
+  lightAt: BOX_Y + 0.155,
 };
 
 export default createPillarLantern;

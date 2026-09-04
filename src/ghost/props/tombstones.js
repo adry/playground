@@ -285,7 +285,7 @@ function inkBat(ctx, cx, cy, halfSpan, Y = 1) {
 // a colour or a height, a transparent pixel leaves the destination alone, and
 // destination-out against a shifted copy of the same canvas gives the groove's
 // upper and lower lips for free.
-function drawInscription(variant, w, h) {
+function drawInscription(variant, w, h, rng) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
@@ -294,7 +294,12 @@ function drawInscription(variant, w, h) {
 
   const reg = REGISTRY.get(variant);
   if (reg) {
-    reg.draw?.(ctx, w, h);
+    // The stone's own rng, so two instances of a registered stone can differ in
+    // their FACE and not only in their silhouette. The cracked stone found
+    // this: extras() gets an rng, so its lean and its broken corner vary per
+    // seed, but its crack and its worn letters were pixel-identical between
+    // instances, which two of them standing side by side makes obvious.
+    reg.draw?.(ctx, w, h, rng);
     return c;
   }
 
@@ -447,7 +452,7 @@ function buildTextures(variant, faceAspect, rng) {
   // old amplitude turned the stone into hammered metal.
   mottle(hc, w, FH, mulberry32(1), '96,96,96', '176,176,176', 0.065, false);
 
-  const marks = drawInscription(variant, FW, FH);
+  const marks = drawInscription(variant, FW, FH, rng);
 
   // --- the groove -----------------------------------------------------------
   //

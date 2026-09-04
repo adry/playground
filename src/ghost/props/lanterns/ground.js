@@ -571,6 +571,8 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
     metalness: 0.0,
   });
   const ironMesh = new THREE.Mesh(ironGeo, ironMat);
+  ironMesh.castShadow = true;
+  ironMesh.receiveShadow = true;
 
   // --- candle --------------------------------------------------------------
   // A stub with a rounded shoulder and a dished top, standing in its own small
@@ -613,6 +615,11 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
     emissiveIntensity: 0.18,
   });
   const candle = new THREE.Mesh(candleGeo, candleMat);
+  // No caster: it stands inside a closed box, so its shadow falls on the foot
+  // it is sitting on and nowhere else, and that is a whole shadow pass for a
+  // millimetre of darkness nobody can see.
+  candle.castShadow = false;
+  candle.receiveShadow = true;
 
   // --- flame ---------------------------------------------------------------
   // A teardrop, widest a third of the way up. Two shells: a core bright enough
@@ -645,6 +652,7 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
   // Ahead of the glazing in the transparent pass, so the pane always composites
   // over the flame and never the other way about.
   halo.renderOrder = 1;
+  for (const m of [core, halo]) { m.castShadow = false; m.receiveShadow = false; }
 
   // The wick. Two millimetres of dark, and it matters: without it the flame
   // floats a hair above the wax and the whole thing goes to plastic.
@@ -653,6 +661,8 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
   const wick = new THREE.Mesh(wickGeo, wickMat);
   wick.position.set(0, flameBase + 0.002, 0);
   wick.rotation.z = 0.18;
+  wick.castShadow = false;
+  wick.receiveShadow = false;
 
   // --- glazing -------------------------------------------------------------
   const glassProfile = new Profile()
@@ -698,9 +708,27 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
     uSunCol: { value: new THREE.Color('#fff6ea').convertSRGBToLinear() },
     uInnerCol: { value: new THREE.Color(PALETTE.glow).convertSRGBToLinear() },
     uInner: { value: 1.2 },
-    // How much of the fresnel to believe. Physically 1.0; over one because the
-    // fake sky is a flat gradient with no bright spots of its own to find, so
-    // the reflection needs the help to register at all.
+    // How much of the fresnel to believe. Physically 1.0, and this is nine,
+    // which wants explaining because it is the number that decides whether the
+    // glazing exists at all.
+    //
+    // A vertical pane, seen from a camera thirty degrees up, reflects the
+    // GROUND. The reflected ray's height is minus the view ray's, whatever way
+    // the pane faces, so it lands in the bottom band of the fake sky and never
+    // in the bright one, and the barrel below is what drags the lower half of
+    // each pane far enough round to reach the horizon at all. On top of that
+    // Schlick gives glass four per cent face on, which is correct and which is
+    // exactly why a real photograph of a lantern is lit with a big soft source
+    // that the panes can reflect. This scene has no such source and no
+    // environment at all, so the gain stands in for the whole missing
+    // surround: it is not "more fresnel", it is "there is something bright out
+    // there".
+    //
+    // Swept and looked at, at 2.6, 5, 6, 8, 9, 11 and 16 (out/ground/c7, c8).
+    // Under about 5 the panes are not there and the prop reads as an open cage.
+    // Past about 12 they go milky and swallow the candle. Nine keeps the pale
+    // sheen and the cool-to-warm gradient across each pane while the flame
+    // still shows through.
     uRimGain: { value: 9.0 },
     uGlint: { value: 1.7 },
     uShine: { value: 42.0 },
@@ -736,6 +764,12 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
 
   const glass = new THREE.Mesh(glassGeo, glassMat);
   glass.renderOrder = 2;
+  // Never a caster. A shadow map has no idea the pane is transparent, so a
+  // glazed box that casts is a solid black box on the ground, which is the
+  // exact opposite of what the whole prop is for. It does receive, so the cap's
+  // own shadow still crosses the top of the panes.
+  glass.castShadow = false;
+  glass.receiveShadow = true;
 
   // --- the one light -------------------------------------------------------
   // A point light and nothing else. Six pumpkins already put six point lights

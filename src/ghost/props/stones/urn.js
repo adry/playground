@@ -21,9 +21,11 @@ import { Profile, createSink, sinkToGeometry, latheInto, roundedBoxInto, transfo
 // ---------------------------------------------------------------------------
 // the vessel
 //
-// Numbers are urn-local, y up from the underside of the foot. The whole piece
-// is 0.545 tall and 0.166 at the belly, so it reads as a vessel a person could
-// carry, standing on a pedestal twice its height.
+// Numbers are urn-local, y up from the underside of the foot, and the finished
+// vessel is URN_SCALE times them: 0.64 tall and 0.20 at the belly, on a
+// pedestal a little over twice its height. Authoring at unit size and scaling
+// once at the end leaves a single knob for how much of the stone the urn takes,
+// which is the number that got turned the most.
 
 function urnProfile() {
   const P = new Profile();
@@ -62,6 +64,7 @@ function urnProfile() {
   return P.build();
 }
 
+// How much of the stone's height the vessel takes.
 const URN_SCALE = 1.18;
 
 // ---------------------------------------------------------------------------
@@ -220,10 +223,11 @@ function drapeDisplacer(profile, centre) {
 // ---------------------------------------------------------------------------
 
 registerStone('urn', {
-  // Narrower than any slab in the set (0.54 wide against fred's 0.74) and
-  // deeper than it is wide is not the point: 0.54 by 0.32 is squarish enough to
-  // read as a pedestal rather than a plate. Pedestal plus cornice plus urn comes
-  // to 1.51, which puts it with the tall pair rather than with fred.
+  // 0.54 wide by 0.34 deep: narrower than any slab in the set, fred's is 0.74,
+  // and close enough to square in plan to read as a pedestal rather than as a
+  // plate turned edge-on. Short for the same reason, because the urn has to have
+  // somewhere to stand: plinth, pedestal, cornice and urn come to 1.55, which
+  // puts the whole piece with cross at 1.56 rather than with fred at 1.10.
   shape: { halfWidth: 0.27, height: 0.70, depth: 0.34, plinth: 0.16 },
   // Just above the slab's own edge radius, so the top squares off into a
   // pedestal instead of arching.
@@ -235,7 +239,7 @@ registerStone('urn', {
   // to stack it.
   draw(ctx, w, h) {
     const lines = ['REST', 'IN', 'PEACE'];
-    const size = h * 0.145;
+    const size = h * 0.152;
     lines.forEach((line, i) => inkText(ctx, line, w / 2, h * (0.40 + (i - 1) * 0.152), size, size * 0.05));
   },
 

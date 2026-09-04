@@ -75,6 +75,28 @@ function lowestVertex(geometry, matrix) {
   return min;
 }
 
+function drawLedgerCross(ctx, w, h) {
+  // Measured, not guessed: this comes out at 9.3% of the face against 3.6, 6.3
+  // and 9.1 for the approved cross, FRED and bat. Top of the set's band and no
+  // further, which is where a mark seen at 37 degrees rather than head on
+  // belongs, and a long way under the 12 to 19 that got the last set rejected.
+  const T = h * 0.110; // stroke, 0.097 in world: fat enough to survive being
+  const L = w * 0.60; // seen at half height and squashed by the tone map
+  const B = h * 0.55;
+  const r = T * 0.34; // even the engraved marks get rounded ends
+  const cx = w * 0.5;
+  const cy = h * 0.5;
+  ctx.beginPath();
+  ctx.roundRect(cx - L / 2, cy - T / 2, L, T, r);
+  ctx.fill();
+  // Crossbar a quarter of the way down from the head, and the head is the
+  // raised end: the busiest part of the mark sits on the part of the slab
+  // that is highest, best lit and furthest from the earth.
+  ctx.beginPath();
+  ctx.roundRect(cx + L / 2 - L * 0.26 - T / 2, cy - B / 2, T, B, r);
+  ctx.fill();
+}
+
 registerStone('ledger', {
   shape: { halfWidth: HALF_WIDTH, height: LENGTH_Y, depth: THICK, plinth: PLINTH },
   // Lying down, "top" and "bottom" are just the far and near long edges, so both
@@ -90,25 +112,8 @@ registerStone('ledger', {
   // one closed figure on clean stone is the whole read, and a second element
   // would only fill the face up.
   draw: drawLedgerCross,
-  __unused(ctx, w, h) {
-    const T = h * 0.115; // stroke, ~0.097 in world: fat enough to survive being
-    const L = w * 0.62; // seen at half height and squashed by the tone map
-    const B = h * 0.56;
-    const r = T * 0.34; // even the engraved marks get rounded ends
-    const cx = w * 0.5;
-    const cy = h * 0.5;
-    ctx.beginPath();
-    ctx.roundRect(cx - L / 2, cy - T / 2, L, T, r);
-    ctx.fill();
-    // Crossbar a quarter of the way down from the head, and the head is the
-    // raised end: the busiest part of the mark sits on the part of the slab
-    // that is highest, best lit and furthest from the earth.
-    ctx.beginPath();
-    ctx.roundRect(cx + L / 2 - L * 0.26 - T / 2, cy - B / 2, T, B, r);
-    ctx.fill();
-  },
 
-  extras({ body, plinthH, halfWidth, height }) {
+  extras({ body, rng, plinthH, halfWidth, height }) {
     const meshes = body.children.filter((o) => o.isMesh);
     // The registry lifts the slab onto the plinth and leaves the plinth at the
     // origin, so the two are told apart by where they sit rather than by the
@@ -120,8 +125,13 @@ registerStone('ledger', {
     // top of the inscription away from the camera, which is how a ledger is
     // read: from its foot. The dip is applied in the parent's frame afterwards
     // so it tips one END of the slab down rather than one long edge.
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + TILT, 0, 0));
-    q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), DIP));
+    // Jittered per seed, and every knob only in the direction that cannot hurt:
+    // the tilt never falls below what the mark needs, the dip never goes flat.
+    // Two of these in one graveyard should not be the same casting.
+    const tilt = TILT * (1 + rng() * 0.22);
+    const dip = DIP * (0.9 + rng() * 0.35);
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + tilt, 0, 0));
+    q.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), dip));
     slab.quaternion.copy(q);
 
     // Centre the slab on the plot: its own middle is half way up the face.
@@ -132,7 +142,7 @@ registerStone('ledger', {
     // transform is affine, so the mid-line of the face is linear in x and one
     // sample of it is the whole answer.
     const faceMid = (x) => new THREE.Vector3(x, height / 2, THICK / 2).applyQuaternion(q).add(slab.position);
-    slab.position.y -= faceMid(WATERLINE * halfWidth).y;
+    slab.position.y -= faceMid((WATERLINE + (rng() - 0.5) * 0.14) * halfWidth).y;
     slab.updateMatrix();
 
     // Now check rather than trust. The deepest point of a rotated slab is not
