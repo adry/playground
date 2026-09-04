@@ -3,9 +3,17 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Cloth Ghost</title>
-<meta name="description" content="A bedsheet ghost you can push around an isometric floor. Every fold is simulated cloth." />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%91%BB%3C/text%3E%3C/svg%3E" />
+<title>Kilde Studios</title>
+<meta name="description" content="Kilde Studios is an AI creative playground. An index of small interactive experiments you can open and push around in the browser." />
+<!-- A mark rather than a glyph: a favicon drawn with <text> renders in whatever
+     font the platform picks, so the same file looks different on every tab.
+     Strokes look the same everywhere. White plate behind it because a black
+     mark on transparent disappears against dark browser chrome. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='white'/%3E%3Cg stroke='black' stroke-width='3.2' stroke-linecap='round'%3E%3Cpath d='M16 7v18M8.2 11.5l15.6 9M8.2 20.5l15.6-9'/%3E%3C/g%3E%3C/svg%3E" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" />
 
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-SS5R0SLVFV"></script>
@@ -17,36 +25,159 @@
   gtag('config', 'G-SS5R0SLVFV');
 </script>
 <style>
-  /* One committed visual world: a lit studio floor. The scene's clear colour is
-     a fixed light grey, so a dark variant would put the page and the canvas in
-     two different rooms. The ground is painted explicitly so the page holds on
-     either host background. */
-  :root { --ground: #b9bec7; }
+  /* Arial standing in for Lato while the webfont loads. Lato's x-height is a
+     little smaller than Arial's, so unadjusted Arial sets visibly larger and
+     the whole page steps down when the real font lands. size-adjust matches
+     the two x-heights and takes most of that jump out. Only the x-height is
+     matched, not the advance widths, so a long line can still rewrap; nothing
+     here is long enough for that to show. */
+  @font-face {
+    font-family: 'Lato fallback';
+    src: local('Arial'), local('Helvetica Neue'), local('Liberation Sans');
+    size-adjust: 97.7%;
+    ascent-override: 101%;
+    descent-override: 22%;
+    line-gap-override: 0%;
+  }
+
+  :root {
+    --ink: #000;
+    --paper: #fff;
+    /* The only non-black, non-white value on the page. Row rules want to read
+       as structure, not as a second colour, so they sit just above the point
+       where they stop being visible. */
+    --rule: #dcdcdc;
+    --font: 'Lato', 'Lato fallback', 'Helvetica Neue', Arial, sans-serif;
+  }
 
   * { box-sizing: border-box; }
 
-  html, body {
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
     margin: 0;
-    height: 100%;
-    overflow: hidden;
-    background: var(--ground);
+    /* svh, not vh: on mobile Safari the toolbar makes vh taller than what you
+       can actually see, which pushes a centred column off the bottom on load. */
+    min-height: 100svh;
+    /* Grid rather than flex for the centring: an overflowing grid child stays
+       reachable when the list outgrows the viewport, a centred flex child gets
+       clipped off the top. */
+    display: grid;
+    align-content: center;
+    padding: clamp(2.5rem, 9vw, 6rem) clamp(1.5rem, 7vw, 6rem);
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font);
+    font-weight: 400;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
   }
 
-  #view {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    display: block;
-    touch-action: none;
-    cursor: grab;
+  main { width: 100%; max-width: 46rem; margin-inline: auto; }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(2.75rem, 11vw, 6rem);
+    font-weight: 700;
+    /* Lato is loose by default at display sizes. Pulling the tracking in is
+       what makes the wordmark read as one shape instead of nine letters. */
+    letter-spacing: -0.03em;
+    line-height: 0.95;
+    text-wrap: balance;
   }
-  #view:active { cursor: grabbing; }
-  #view:focus-visible { outline: 2px solid #5566b8; outline-offset: -4px; }
+
+  .tagline {
+    margin: clamp(0.85rem, 2.5vw, 1.35rem) 0 0;
+    font-size: clamp(1.0625rem, 3.6vw, 1.5rem);
+    font-weight: 400;
+    letter-spacing: -0.005em;
+    line-height: 1.35;
+    text-wrap: pretty;
+  }
+
+  /* The gap between the title block and the index carries the hierarchy on its
+     own, so the list needs no heading of its own to look separate. There is
+     one anyway, for screen readers. */
+  .index { margin: clamp(3.25rem, 11vh, 6rem) 0 0; }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px; height: 1px;
+    margin: -1px; padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* A rule per row, plus one closing the list. Built as a list from the start
+     because entries keep arriving: a second and third row need no new CSS. */
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-bottom: 1px solid var(--rule);
+  }
+  li { border-top: 1px solid var(--rule); }
+
+  li a {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1.5rem;
+    padding: clamp(0.95rem, 2.6vw, 1.3rem) 0;
+    color: inherit;
+    font-size: clamp(1.0625rem, 3.4vw, 1.375rem);
+    letter-spacing: -0.005em;
+    text-decoration: none;
+  }
+
+  /* Underline on hover only: the rules and the arrows already say these are
+     links, and eight permanently underlined rows would be a lot of texture on
+     a page that is meant to be quiet. */
+  li a .name {
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-decoration-color: transparent;
+    text-underline-offset: 0.2em;
+    transition: text-decoration-color 140ms ease;
+  }
+  li a:hover .name,
+  li a:focus-visible .name { text-decoration-color: currentColor; }
+
+  li a .arrow {
+    flex: none;
+    transition: transform 140ms ease;
+  }
+  li a:hover .arrow,
+  li a:focus-visible .arrow { transform: translateX(0.3em); }
+
+  li a:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 4px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; }
+  }
 </style>
 </head>
 <body>
-  <canvas id="view" tabindex="0" aria-label="Interactive scene: a cloth ghost on an isometric floor. Drag to lead it around, tap to make it hop. Arrow keys and space also work."></canvas>
-  <script type="module" src="/src/ghost/main.js"></script>
+  <main>
+    <h1>Kilde Studios</h1>
+    <p class="tagline">An AI creative playground</p>
+
+    <nav class="index" aria-labelledby="index-heading">
+      <h2 id="index-heading" class="visually-hidden">Projects</h2>
+      <ul>
+        <li>
+          <a href="/ghostly/">
+            <span class="name">Ghostly the friendly ghost</span>
+            <span class="arrow" aria-hidden="true">&#8594;</span>
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </main>
 </body>
 </html>
