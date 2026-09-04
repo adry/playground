@@ -19,13 +19,14 @@ import { PALETTE, SEGMENTS, toyMaterial } from '../style.js';
 // difference in material between this and a headstone is a bug.
 //
 // The openings. They are real holes: the head is a parametric surface over
-// (angle, height), the four arched windows are outlines in the surface's own
-// face space, and a window is cut by dropping the quads whose centres fall
-// inside it, snapping the vertices left on the rim onto the true curve, and
-// running a ribbon from that rim through the thickness of the stone to a second
-// shell inside. That is pumpkin.js's technique. What is different here is that
-// the wall rolls over at both ends instead of meeting the skin at an edge: this
-// is vinyl, and a 5cm slab of toy stone has a fat radius on every lip.
+// (angle, height), each opening is an outline in the surface's own face space,
+// and it is cut by dropping the quads whose centres fall inside it, snapping
+// the vertices left on the rim onto the true curve, and running a ribbon from
+// that rim through the thickness of the stone to a second shell inside. That is
+// pumpkin.js's technique. Two things here are not: the wall rolls over at both
+// ends instead of meeting the skin at an edge, because this is vinyl and a 5cm
+// slab of toy stone has a fat radius on every lip; and the four faces do not
+// all carry the same opening, for the reason set out at FACE_CUTS.
 
 // ---------------------------------------------------------------------------
 // Deterministic noise.
@@ -446,8 +447,9 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   {
     const seg = 12;
     const ball = makeProfile();
-    ball.line(0, FINIAL.y - FINIAL.r * 0.62, FINIAL.r * 0.5, FINIAL.y - FINIAL.r * 0.62);
-    ball.arc(0, FINIAL.y, FINIAL.r, -Math.asin(0.62), Math.PI / 2, seg);
+    const cut = Math.asin(0.62); // where the ball is buried in the roof's cap
+    ball.line(0, FINIAL.y - FINIAL.r * 0.62, FINIAL.r * Math.cos(cut), FINIAL.y - FINIAL.r * 0.62);
+    ball.arc(0, FINIAL.y, FINIAL.r, -cut, Math.PI / 2, seg);
     emitLathe(stone, ball.pts, RADIAL, FINIAL.r);
   }
 
@@ -489,7 +491,9 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   const faceA = (x) => {
     let lo = -Math.PI / 4;
     let hi = Math.PI / 4;
-    for (let i = 0; i < 24; i++) {
+    // 18 halvings of a 90 degree span lands inside a hundredth of a millimetre
+    // on a head this size, which is far finer than the grid it is correcting.
+    for (let i = 0; i < 18; i++) {
       const mid = (lo + hi) / 2;
       if (faceX(mid) < x) lo = mid; else hi = mid;
     }
@@ -792,7 +796,6 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
 
   const wallOf = new Map(); // rim vertex -> its column of wall vertices
   {
-    const p0 = new THREE.Vector3();
     const n0 = new THREE.Vector3();
     const pa = new THREE.Vector3();
     const pb = new THREE.Vector3();
@@ -808,6 +811,12 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
       const y = gY[k];
       const nx = rimNX[k];
       const ny = rimNY[k];
+      // The two probe angles the wall normal is taken between do not depend on
+      // how deep into the stone the ring is, so they are solved once rather
+      // than once per ring: faceA is a bisection and this loop is most of the
+      // cost of building the prop.
+      const aPlus = gA[k] - da + faceA(x + nx * EPS);
+      const aMinus = gA[k] - da + faceA(x - nx * EPS);
       for (const ring of WALL_RINGS) {
         const fx = x + nx * ring.e;
         const fy = y + ny * ring.e;
@@ -815,15 +824,17 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
         headPoint(a, fy, -ring.d, P, N);
         stone.pos.push(P.x, P.y, P.z);
         // The direction "into the opening" in three dimensions, taken off the
-        // surface itself rather than assumed flat.
-        headPoint(gA[k] - da + faceA(x + nx * EPS), y + ny * EPS, -ring.d, pa, n0);
-        headPoint(gA[k] - da + faceA(x - nx * EPS), y - ny * EPS, -ring.d, pb, n0);
+        // surface itself rather than assumed flat. The wall's normal is then
+        // the surface normal swung round to it through the roll, which is what
+        // makes neighbouring ribbon quads that share a rim vertex agree: it
+        // comes off the outline rather than off the quad.
+        headPoint(aPlus, y + ny * EPS, -ring.d, pa, n0);
+        headPoint(aMinus, y - ny * EPS, -ring.d, pb, n0);
         F.copy(pa).sub(pb).normalize();
-        headPoint(a, fy, -ring.d, p0, n0);
-        nn.copy(n0).multiplyScalar(ring.nn).addScaledVector(F, ring.nf).normalize();
+        nn.copy(N).multiplyScalar(ring.nn).addScaledVector(F, ring.nf).normalize();
         stone.nor.push(nn.x, nn.y, nn.z);
         stone.uv.push(
-          (((gA[k] - SEAM) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2)) * HEAD.r / TEX_U,
+          (((a - SEAM) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2)) * HEAD.r / TEX_U,
           fy / TEX_V,
         );
       }
