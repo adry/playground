@@ -47,13 +47,20 @@ import { GATE_LAYOUT } from './gate.js';
 //      push = -leafSign * (ghost.vel . axisZ) * gain
 //
 // and the minus sign is the whole bug. Measured on the shipped gate (leafSign
-// +1, yaw PI/4, ghost walking at 2 m/s along the normal, i.e. `through` =
-// +2.000): the old `push(+through)` moved the free edge -0.185 along the
-// normal against the ghost's +1.000, a dot of -1.000, the leaf coming at him.
-// With the sign above it moves +0.185, a dot of +1.000. Same numbers mirrored
-// for a ghost arriving from the other side and for a right-hung gate, which is
-// the point of carrying `leafSign` rather than a hardcoded direction: this gate
-// is double-acting and must open whichever way it was pushed.
+// +1, yaw PI/4, damping 2.0), one frame of 1/60s from rest with the ghost
+// walking through at 2 m/s, so `through` = +2.000 and the impulse is 7.0:
+//
+//     wiring                      angle       free edge along his heading
+//     push(+through * 3.5)        +6.128 deg  -0.184 m   dot -0.999
+//     push(-leafSign*through*3.5) -6.128 deg  +0.184 m   dot +0.999
+//
+// The first row is what shipped and it is the user's complaint exactly: the
+// leaf comes AT him, and not gently, since 0.184 m in a sixtieth of a second is
+// an edge doing 11 m/s against his 2 m/s of walk. Over twelve frames the two
+// rows are -1.122 m and +1.122 m along his heading. Mirrored
+// numbers for a ghost arriving from the other side and for a right-hung gate,
+// which is the point of carrying `leafSign` rather than a hardcoded direction:
+// this gate is double-acting and has to open whichever way it was pushed.
 // ---------------------------------------------------------------------------
 
 // Contact radius of the ghost's body at picket height. His dome is 0.42 and the
@@ -213,9 +220,12 @@ export function createGateController({
       while (at - a > Math.PI) at -= TAU;
       while (at - a < -Math.PI) at += TAU;
 
-      const leaf = (gate?.sweepRadius ?? GATE_LAYOUT.sweepRadius) * scale;
-      // The bar's own half thickness goes into the contact radius, because the
-      // segment test treats the leaf as a line and the leaf is a board.
+      // The leaf as the segment test wants it: its CENTRELINE, from the pivot
+      // to the far edge, with its own half thickness folded into the contact
+      // radius instead. A board is a segment plus a thickness, and putting the
+      // thickness in the radius is what makes the ends of the leaf round rather
+      // than square, which is exactly right for a corner sweeping past a body.
+      const leaf = GATE_LAYOUT.leaf.length * scale;
       const r = ghostRadius + GATE_LAYOUT.leaf.half * scale;
 
       // A ghost whose centre is inside the contact radius of the PIVOT is
@@ -233,7 +243,8 @@ export function createGateController({
       cooldown = Math.max(0, cooldown - dt);
       const mx = ghost.pos.x - openMid.x;
       const mz = ghost.pos.z - openMid.z;
-      const near = range ?? leaf;
+      // Reach, not leaf length: the distance at which he can be touched at all.
+      const near = range ?? (gate?.sweepRadius ?? GATE_LAYOUT.sweepRadius) * scale;
       if (Math.hypot(mx, mz) < near && cooldown === 0) {
         // His speed ACROSS the closed leaf, which is the leaf's own normal. An
         // earlier version used local +X, which runs ALONG the leaf, so the gate
@@ -257,15 +268,6 @@ export function createGateController({
     // The ground the swing needs. A property rather than a call, since it is
     // fixed once the gate is placed, and the same object gateKeepOut returns.
     get keepOut() { place(); return gateKeepOut(gate); },
-
-    // For tests and for anyone debugging the sign: the world direction the
-    // leaf's free edge is travelling in right now, per unit of angular rate.
-    edgeVelocityDir() {
-      const a = swing.angle;
-      const ex = -sign * (Math.sin(a) * axisX.x + Math.cos(a) * axisZ.x);
-      const ez = -sign * (Math.sin(a) * axisX.z + Math.cos(a) * axisZ.z);
-      return { x: ex, z: ez };
-    },
   };
 }
 

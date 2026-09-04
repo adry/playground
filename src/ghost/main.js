@@ -9,6 +9,7 @@ import { createBrokenPanel } from './props/fence/broken.js';
 import { createDebrisPile, createChipScatter } from './props/fence/debris.js';
 import { createGate, GATE_LAYOUT } from './props/fence/gate.js';
 import { createSwing } from './props/fence/swing.js';
+import { createGateController } from './props/fence/gate-controller.js';
 import { createSkeletonRig } from './props/skeleton/model.js';
 
 const canvas = document.getElementById('view');
@@ -211,6 +212,38 @@ function atScreen(right, up) {
   return [(right - up) * k, (-up - right) * k];
 }
 
+// Fence layout, hoisted above the prop lists because the gate's keep-out is
+// needed while props are being placed and the fence itself is built further
+// down. Panels run along their own local X, and this camera maps world (1,0,-1)
+// to screen-right, so a panel turned PI/4 runs across the screen.
+const PANEL = 2.0;
+const FENCE_UP_PLOT = 0.6;
+// The gate's origin is its HINGE POST, at the START of the missing panel.
+const GATE_AT = -7.0 + 1.0 * PANEL;
+
+// Nothing stands where the gate swings. The leaf sweeps a half disc on each
+// side of the fence line and this gate is double-acting, so the forbidden
+// region is the FULL disc about the hinge, not a half moon, and props sit on
+// both sides of the line anyway.
+//
+// Blocked props are pushed radially clear rather than dropped, so the authored
+// composition survives: the position in the list stays the intent and this only
+// takes back the overlap. atScreen is an isometry, so the whole thing can be
+// solved in screen units and converted once.
+const GATE_CLEAR = GATE_LAYOUT.sweepRadius + 0.55;   // + the widest prop's radius
+function clearOfGate(right, up) {
+  let dr = right - GATE_AT;
+  let du = up - FENCE_UP_PLOT;
+  const d = Math.hypot(dr, du);
+  if (d >= GATE_CLEAR) return [right, up];
+  // A prop authored exactly on the hinge has no direction to be pushed along,
+  // so it gets one. Down-screen, which is toward the camera and away from the
+  // fence run behind the gate.
+  if (d < 1e-6) { dr = 0; du = -1; }
+  const k = GATE_CLEAR / (d < 1e-6 ? 1 : d);
+  return [GATE_AT + dr * k, FENCE_UP_PLOT + du * k];
+}
+
 // A small graveyard rather than a test rig: stones set back along the top of
 // the frame, pumpkins down front, and the middle two thirds left empty so the
 // ghost always has somewhere to drift. Every prop is turned near PI/4 -- enough
@@ -224,13 +257,17 @@ const GRAVES = [
   { variant: 'fred', right: -1.9, up: 1.9, yaw: Math.PI / 4 + 0.52 },
   { variant: 'bat', right: 1.5, up: 2.5, yaw: Math.PI / 4 - 0.18 },
   { variant: 'cross', right: 3.1, up: 1.7, yaw: Math.PI / 4 + 0.66 },
-  { variant: 'fred', right: -4.4, up: 1.2, yaw: Math.PI / 4 - 0.88 },
+  // Authored clear of the gate's swing rather than relying on clearOfGate to
+  // push it: shoved radially it landed beside the other FRED stone, and two
+  // identical inscriptions side by side read as a repeated asset. The keeper
+  // stays as a safety net for anything placed carelessly later.
+  { variant: 'cross', right: -6.6, up: 2.6, yaw: Math.PI / 4 - 0.88 },
   { variant: 'bat', right: 4.4, up: 3.0, yaw: Math.PI / 4 - 0.60 },
 ];
 
 if (SCENE === 'full') {
   for (const [i, g] of GRAVES.entries()) {
-    const [x, z] = atScreen(g.right, g.up);
+    const [x, z] = atScreen(...clearOfGate(g.right, g.up));
     addProp(createTombstone({ variant: g.variant, seed: 11 + i * 13 }), x, z, g.yaw);
   }
 }
@@ -246,7 +283,7 @@ const PUMPKINS = [
 
 if (SCENE === 'full') {
   for (const [i, spot] of PUMPKINS.entries()) {
-    const [x, z] = atScreen(spot.right, spot.up);
+    const [x, z] = atScreen(...clearOfGate(spot.right, spot.up));
     addProp(createPumpkin({ variant: spot.variant, seed: 3 + i * 7 }), x, z, spot.yaw);
   }
 
@@ -258,8 +295,6 @@ if (SCENE === 'full') {
   // screen-right and world (-1,0,-1) to screen-up. So a panel turned PI/4 runs
   // across the screen and one turned 3*PI/4 runs up it, and a plot laid out in
   // screen units comes out as a rectangle on screen rather than a lozenge.
-  const PANEL = 2.0;
-  const FENCE_UP_PLOT = 0.6;
   const ACROSS = Math.PI / 4;
   const UPWARD = (3 * Math.PI) / 4;
 
@@ -299,11 +334,10 @@ if (SCENE === 'full') {
   // strike there is no other loss in the system and at 0.6 the leaf rings above
   // two degrees for fifteen seconds like a metronome.
   //
-  // The gate's origin is its HINGE POST, not the middle of its span, so it goes
-  // at the START of the missing panel's step and not at that panel's centre.
-  // Placed at the centre it stood half a panel to the right of its own gap and
-  // overlapped the next panel along.
-  const GATE_AT = -7.0 + 1.0 * PANEL;
+  // GATE_AT is hoisted to module scope, next to the keep-out that needs it. It
+  // is the START of the missing panel's step and not that panel's centre: the
+  // gate's origin is its hinge post, and placed at the centre it stood half a
+  // panel to the right of its own gap and overlapped the next panel along.
   const gate = createGate({ seed: 6, hingeSide: 'left' });
   const swing = createSwing({
     stop: 'none',
@@ -316,46 +350,28 @@ if (SCENE === 'full') {
     addProp(gate, gx, gz, ACROSS);
   }
 
-  // The ghost shoves the gate by walking through it.
-  //
-  // The impulse is his speed ACROSS the closed leaf, which is the leaf's own
-  // normal: local +Z turned by the gate's yaw, so (sin yaw, 0, cos yaw). The
-  // first version used local +X by mistake, which runs ALONG the leaf, so the
-  // gate answered to a ghost sliding past the fence and ignored one walking
-  // straight through it.
+  // The ghost shoves the gate by walking through it, and the leaf is stopped by
+  // his body if he stands in its way. Neither belongs in a scene file, so both
+  // now live in the gate's own controller, together with the sign convention
+  // that decides which way "open" is. That convention was the bug: rotation.y
+  // carries local +X toward local -Z and the leaf runs along +X, so a positive
+  // angle moves the free edge along MINUS leafSign times the gateway normal,
+  // and pushing with the plain dot product opened it into the ghost rather
+  // than away from him. Derived rather than guessed, at the top of
+  // gate-controller.js, and carried as a sign so the gate stays double-acting.
   //
   // Proximity is measured from the middle of the OPENING, not from the hinge
   // post at one end of it, or half the gateway is out of range.
-  const openMid = new THREE.Vector3();
-  {
-    const [cx, cz] = atScreen(GATE_AT + 0.5 * PANEL, FENCE_UP_PLOT);
-    openMid.set(cx, 0, cz);
-  }
-  const gateNormal = new THREE.Vector3(Math.sin(ACROSS), 0, Math.cos(ACROSS));
-  const toGhost = new THREE.Vector3();
-  let gateCooldown = 0;
-  gateAngle = () => swing.angle;
-  gateProps.push({
-    update(dt) {
-      toGhost.subVectors(ghost.pos, openMid).setY(0);
-      gateCooldown = Math.max(0, gateCooldown - dt);
-      if (toGhost.length() < PANEL * 0.85 && gateCooldown === 0) {
-        const through = ghost.vel.dot(gateNormal);
-        if (Math.abs(through) > 0.25) {
-          // Gain chosen against the swing's own response rather than by feel:
-          // at 7.0 a full-speed pass drove the leaf to 89.9 degrees, which is
-          // the hard stop, so every brisk walk-through looked identical and
-          // ended in a clunk. At 3.5 a drift gives 37 degrees, a normal walk
-          // 56 and a sprint 70, so how hard he went through is legible and the
-          // stop stays somewhere it can be earned rather than hit every time.
-          swing.push(through * 3.5);
-          gateCooldown = 0.5;
-        }
-      }
-      swing.update(dt);
-      gate.hinge.rotation.y = swing.angle;
-    },
+  const [gateMidX, gateMidZ] = atScreen(GATE_AT + 0.5 * PANEL, FENCE_UP_PLOT);
+  const gateCtl = createGateController({
+    gate,
+    swing,
+    hinge: gate.hinge,
+    openMid: { x: gateMidX, z: gateMidZ },
+    yaw: ACROSS,
   });
+  gateAngle = () => swing.angle;
+  gateProps.push({ update(dt) { gateCtl.update(dt, ghost); } });
 
   fencePlot({ right: 1.0, up: FENCE_UP_PLOT, w: 3, h: 2, seed: 40, gates: { front: 1 }, broken: { back: 1, right: 0 } });
 

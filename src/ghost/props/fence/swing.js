@@ -81,6 +81,13 @@
 // The choice changes only where the surfaces are. The integrator, the damping,
 // the settle and the far stops are the same code either way.
 //
+// There is a third kind of surface and it is not a mode, because it can turn up
+// on either of these gates: `block`, a stop that MOVES, for something standing
+// in the leaf's way that the gate was not built with. A double-acting gate
+// needs it especially, since it has no frame of its own and would otherwise
+// sweep straight through whatever is in the gateway. See the long note by
+// `blocking`.
+//
 // Everything is expressed as two hard limits, `lo` and `hi`, and one settle
 // point between or on them. That is what the first version got wrong: it
 // carried a signed "openness" and a `dir` through every test, which read fine
@@ -303,7 +310,13 @@ export function createSwing({
   //   carrying the leaf out to the near edge at the speed that edge is
   //   travelling, so leaning on a shut gate shoves it open instead of snapping
   //   it open.
-  let obstacle = null;
+  //
+  // Three numbers rather than an object, because the caller re-sets this every
+  // frame and a per-frame allocation for two floats is exactly the sort of
+  // garbage a scene with fifty gates in it does not need.
+  let blocking = false;
+  let blockAt = 0;
+  let blockHalf = 0;
   // Which side of the interval the leaf is on. REMEMBERED rather than worked
   // out fresh each time, because for a leaf sitting exactly on the centre line
   // -- a body standing square in the closed plane, which is the case a player
@@ -315,8 +328,9 @@ export function createSwing({
 
   // The swept half. `prev` is the angle at the start of the substep.
   function resolveObstacle(prev) {
-    if (!obstacle) return;
-    const { at, half } = obstacle;
+    if (!blocking) return;
+    const at = blockAt;
+    const half = blockHalf;
     const g0 = prev - at;
     const side = g0 > 0 ? 1 : g0 < 0 ? -1 : obstacleSide;
     obstacleSide = side;
@@ -344,8 +358,9 @@ export function createSwing({
 
   // The other half, once per frame: the interval moved, not the leaf.
   function resolveDisplacement(dt) {
-    if (!obstacle) return;
-    const { at, half } = obstacle;
+    if (!blocking) return;
+    const at = blockAt;
+    const half = blockHalf;
     const g = angle - at;
     if (Math.abs(g) >= half) { obstacleSide = g >= 0 ? 1 : -1; return; }
     const side = g > 0 ? 1 : g < 0 ? -1 : obstacleSide;
@@ -487,20 +502,19 @@ export function createSwing({
     // `half`, in leaf angles, for a body standing in the leaf's way. Recompute
     // and re-set it every frame from wherever the body is; pass null (or a
     // non-positive half) to take it away again. See the long note by
-    // `obstacle`. `centre` must be given in the same continuous branch the
+    // `blocking`. `centre` must be given in the same continuous branch the
     // leaf's own angle lives in, i.e. within PI of `angle`, since this file
     // never wraps anything.
     block(centre, half) {
-      obstacle = centre !== null && Number.isFinite(centre) && Number.isFinite(half) && half > 0
-        ? { at: centre, half }
-        : null;
+      blocking = centre !== null && Number.isFinite(centre) && Number.isFinite(half) && half > 0;
+      if (blocking) { blockAt = centre; blockHalf = half; }
     },
 
     // Is there one, and is the leaf actually up against it? Reported for the
     // model and for tests; nothing in here reads them.
-    get blocked() { return !!obstacle; },
+    get blocked() { return blocking; },
     get onBlock() {
-      return !!obstacle && Math.abs(Math.abs(angle - obstacle.at) - obstacle.half) < 1e-9;
+      return blocking && Math.abs(Math.abs(angle - blockAt) - blockHalf) < 1e-9;
     },
 
     update(dt) {
@@ -553,7 +567,7 @@ export function createSwing({
       velocity = 0;
       still = 0;
       asleep = true;
-      obstacle = null;
+      blocking = false;
       obstacleSide = 1;
     },
   };
