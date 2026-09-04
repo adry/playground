@@ -66,8 +66,13 @@ key.shadow.camera.left = -8;
 key.shadow.camera.right = 8;
 key.shadow.camera.top = 8;
 key.shadow.camera.bottom = -8;
-key.shadow.bias = -0.0012;
-key.shadow.normalBias = 0.02;
+// Peter-panning: a large normalBias pushes the shadow away along the surface
+// normal, and on a prop whose sides are near-vertical where it meets the floor
+// that opens a bright gap between the prop and its own shadow. The shadow
+// camera is 16 units across at 2048, so a texel is ~8mm and 0.02 was two and a
+// half of them. Pulled down to just enough to stop the floor self-shadowing.
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.006;
 key.shadow.radius = 3;
 scene.add(key);
 scene.add(key.target);
