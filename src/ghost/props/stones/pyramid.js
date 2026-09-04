@@ -228,7 +228,7 @@ function pyramidGeometry({ uv }) {
 // That last number is the one to hold on to, because a quarter of this face is
 // never on show: the step wraps the bottom 0.11 of the block and the top 0.06
 // rolls over into the ledge, so the visible band is v 0.18 to 0.90 and the line
-// is centred on IT rather than on the canvas. Ink bounding box 70% of the face
+// is centred on IT rather than on the canvas. Ink bounding box 67% of the face
 // wide by 17% tall, which is the widest in the set on the widest face in it.
 //
 // Stroke holds up: texel density is 1024/H either way, so the treatment's

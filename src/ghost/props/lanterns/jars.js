@@ -76,11 +76,18 @@ const INNER_FILLET = 0.008;
 // votive, a jar that is simply a warm brick with a bright floor. Having all
 // three in one cluster is most of what stops the group reading as one object
 // stamped out three times.
+// The positions are laid out in SCREEN space and converted, not chosen in x and
+// z. The scene is shot from a fixed isometric-ish angle, so the ground's screen
+// right is (1, 0, -1) and its screen up is -(1, 0, 1): four jars picked as four
+// pleasant looking (x, z) pairs collapse into a line or a pile once projected,
+// which is what the first two passes did. `lie` is the direction the tipped
+// jar's mouth points, and it is set across the view rather than along it for
+// the same reason: a jar lying on its side pointing at the camera is a circle.
 const JARS = [
-  { x: -0.112, z:  0.062, rOut: 0.062, hgt: 0.100, roll: 0.0105, burn: 0.58, lit: true },
-  { x:  0.058, z:  0.104, rOut: 0.054, hgt: 0.084, roll: 0.0095, burn: 0.34, lit: true },
-  { x:  0.104, z: -0.052, rOut: 0.072, hgt: 0.118, roll: 0.0115, burn: 0.82, lit: true },
-  { x: -0.128, z: -0.118, rOut: 0.058, hgt: 0.092, roll: 0.0100, burn: 0.46, lit: false, tipped: true },
+  { x: -0.078, z:  0.056, rOut: 0.062, hgt: 0.100, roll: 0.0105, burn: 0.58, lit: true },
+  { x:  0.085, z:  0.035, rOut: 0.054, hgt: 0.084, roll: 0.0095, burn: 0.34, lit: true },
+  { x:  0.032, z: -0.109, rOut: 0.072, hgt: 0.118, roll: 0.0115, burn: 0.82, lit: true },
+  { x: -0.062, z:  0.175, rOut: 0.051, hgt: 0.086, roll: 0.0095, burn: 0.46, lit: false, tipped: true, lie: 2.10 },
 ];
 
 // Segments round a jar. SEGMENTS.radial is 48 and sized for props a good deal
@@ -410,7 +417,7 @@ export function createCandleJars({ seed = 1, scale = 1 } = {}) {
   // and baked into the merged buffers through this, and the flames read it back
   // at run time to place themselves.
   const placed = JARS.map((J, i) => {
-    const jitter = 0.020;
+    const jitter = 0.013;
     const x = J.x + (rand() - 0.5) * jitter;
     const z = J.z + (rand() - 0.5) * jitter;
     const spin = rand() * Math.PI * 2;
@@ -420,7 +427,7 @@ export function createCandleJars({ seed = 1, scale = 1 } = {}) {
       // On its side, resting on the barrel of its own wall, mouth pointing away
       // from the group. Rolled a little as well, so it is not lying on a seam
       // like something that was placed there rather than knocked over.
-      const away = Math.atan2(z, x) + (rand() - 0.5) * 0.7;
+      const away = J.lie + (rand() - 0.5) * 0.30;
       e.set(0, -away, Math.PI / 2 + (rand() - 0.5) * 0.16, 'YXZ');
       // Its axis is horizontal, so it rests at its own widest radius, and it is
       // pushed a hair into the ground because a jar in earth is not on a table.

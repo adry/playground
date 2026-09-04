@@ -84,7 +84,7 @@ const COAL_FLAME = new THREE.Color('#ffa84a');
 // 2.17 and 2.2) because an open fire in the wind is not a candle in a box.
 const LAMP = { min: 2.10, max: 5.30 };
 const CORE = { min: 1.60, max: 3.20 };   // the flame body, above 1 so it clips
-const TONGUE = { min: 0.52, max: 1.20 }; // the licks around it, additive
+const TONGUE = { min: 0.62, max: 1.45 }; // the licks around it, additive
 const HALO = { min: 0.11, max: 0.30 };   // the bloom, additive
 const COALS = { min: 0.80, max: 2.10 };  // emissive on the coal bed
 const POOL = { min: 0.16, max: 0.42 };   // the painted warm on the ground
@@ -578,7 +578,7 @@ export function createBrazier({ seed = 1, scale = 1 } = {}) {
     blending: THREE.AdditiveBlending,
     vertexColors: true,
     toneMapped: true,
-  }), 'brazier-tongue', 1.30);
+  }), 'brazier-tongue', 2.40);
   const tongues = [];
   for (let i = 0; i < 3; i++) {
     const t = new THREE.Mesh(tongueGeo, tongueMat);

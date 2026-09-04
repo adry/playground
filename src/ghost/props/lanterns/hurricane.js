@@ -94,7 +94,14 @@ const M = {
   hood: {
     seatY: 0.292,
     seatR: 0.058,
-    brim: 0.084,       // must stay inside the tube tops or the bail cannot fall
+    // The brim, and it is the number that decides where the handle ends up.
+    // A bail can only fall as far as the widest thing under its pivots, so the
+    // arc has to clear the brim by its own bar radius or it stops dead on it.
+    // At 0.084 the swing halted at 87 degrees, which is a handle LEANING; at
+    // 0.076, against a bail of 0.096, it carries on to 128 and lies down on the
+    // chimney's shoulder, which is a handle that has fallen. Still 28
+    // thousandths of overhang past the chimney's neck, so it is still a cap.
+    brim: 0.076,
     brimY: 0.311,
     crownY: 0.362,
     topY: 0.382,
@@ -103,10 +110,12 @@ const M = {
     radius: 0.0125,    // the side tubes and the bail: one section for both
     footR: 0.094,      // where they leave the fount's shoulder
     footY: 0.084,
-    bowR: 0.106,       // bowed out round the chimney, as the real ones are
-    bowY: 0.210,
-    topR: 0.092,
-    topY: 0.326,       // and the bail's pivot
+    bowR: 0.108,       // bowed out round the chimney, as the real ones are
+    bowY: 0.205,
+    waistR: 0.084,     // tucked back in against the cap's brim
+    waistY: 0.302,
+    topR: 0.096,       // and kicked out again to carry the bail's ear
+    topY: 0.326,
   },
   knob: {
     az: -0.62,         // which way the wick wheel points, before the seeded spin
@@ -323,9 +332,9 @@ function hoodProfile() {
     .lineTo(h.seatR, h.seatY, 3)
     // The brim, and this run is the one the louvres are cut into.
     .setTag('vent')
-    .curve([[0.074, h.seatY + 0.010], [h.brim, h.brimY]], 8)
+    .curve([[0.070, h.seatY + 0.010], [h.brim, h.brimY]], 8)
     .setTag('dome')
-    .curve([[h.brim - 0.002, h.brimY + 0.010], [0.070, 0.334], [0.044, 0.352], [0.030, h.crownY]], 12)
+    .curve([[h.brim - 0.002, h.brimY + 0.009], [0.064, 0.331], [0.042, 0.350], [0.030, h.crownY]], 12)
     .setTag('crown')
     .lineTo(0.027, 0.368, 2)
     .curve([[0.033, 0.371], [0.031, 0.376]], 4)
@@ -547,14 +556,19 @@ export function createHurricaneLamp({ seed = 1, scale = 1 } = {}) {
     // A side tube leaves the fount's shoulder, bows out round the widest part
     // of the chimney and comes back in under the cap. The bow is what stops the
     // pair reading as two straight sticks strapped on.
+    // The kink at the top is not decoration either: the tube comes back in to
+    // touch the cap, which is what joins the two, and then flares out again to
+    // put the bail's ear outboard of the brim, which is what lets the handle
+    // fall. Both are on the real object for exactly these two reasons.
     const sideCurve = (sx) => new THREE.CatmullRomCurve3([
-      new THREE.Vector3(sx * (t.footR - 0.010), t.footY - 0.014, 0),
+      new THREE.Vector3(sx * (t.footR - 0.012), t.footY - 0.016, 0),
       new THREE.Vector3(sx * t.footR, t.footY, 0),
       new THREE.Vector3(sx * t.bowR, t.bowY, 0),
+      new THREE.Vector3(sx * t.waistR, t.waistY, 0),
       new THREE.Vector3(sx * t.topR, t.topY, 0),
     ], false, 'centripetal', 0.5);
     for (const sx of [1, -1]) {
-      tubeParts.push(new THREE.TubeGeometry(sideCurve(sx), 20, t.radius, SEG.tube, false));
+      tubeParts.push(new THREE.TubeGeometry(sideCurve(sx), 26, t.radius, SEG.tube, false));
       // The pivot boss, which is also the cap on the open end of the tube.
       const boss = new THREE.SphereGeometry(t.radius * 1.32, 14, 10);
       boss.translate(sx * t.topR, t.topY, 0);

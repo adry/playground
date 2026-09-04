@@ -71,7 +71,7 @@ const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 // cloth's overhang can add its width back without the piece becoming the widest
 // thing in the yard. Plinth included it stands 1.48, between fred at 1.10 and
 // cross at 1.56.
-const SHAPE = { halfWidth: 0.43, height: 1.30, depth: 0.30, plinth: 0.18 };
+const SHAPE = { halfWidth: 0.40, height: 1.38, depth: 0.29, plinth: 0.18 };
 
 // ---------------------------------------------------------------------------
 // the cloth
@@ -80,7 +80,7 @@ const SHAPE = { halfWidth: 0.43, height: 1.30, depth: 0.30, plinth: 0.18 };
 // SHOULDER, not from the top of the stone, because that is the number the eye
 // reads and the one that decides how much face is left for the lettering.
 const CLOTH = {
-  thick: 0.048, // a chunky vinyl cloth; below about 0.035 it reads as paper
+  thick: 0.042, // a chunky vinyl cloth; below about 0.030 it reads as paper
   gapMin: 0.0035, // clearance at the hem: the shadow line under the roll
   gapMax: 0.0130, // and further in, where nothing can see it, enough to keep
   // the cloth's shadow off the stone it is lying on
@@ -97,24 +97,29 @@ const CLOTH = {
   // Fewer, deeper. Three ridges across an 0.86 face: at 300 px the stone's face
   // is ninety pixels and a fourth fold turns the drape into a lumpy hat.
   folds: [
-    { p: -0.255, w: 0.105, a: 1.00 },
-    { p: 0.015, w: 0.120, a: 0.86 },
-    { p: 0.275, w: 0.100, a: 0.98 },
+    { p: -0.240, w: 0.082, a: 1.00 },
+    { p: 0.010, w: 0.092, a: 0.86 },
+    { p: 0.255, w: 0.078, a: 0.98 },
   ],
-  foldDepth: 0.60, // ridge height as a fraction of the cloth's thickness
-  hemWave: 0.050, // and how much lower the hem hangs under a ridge
+  // Subtracted from the sum of the ridges, so the cloth between two folds is
+  // THINNER than the cloth in them and the gap reads as a crease rather than as
+  // flat sheet. Ridges alone, added to an even thickness, came out as three
+  // gentle swells that the light never found: the piece read as icing.
+  foldBias: 0.34,
+  foldDepth: 0.95, // ridge height as a fraction of the cloth's thickness
+  hemWave: 0.055, // and how much lower the hem hangs under a ridge
   // Folds gather where the cloth hangs free and die where it is pulled over the
   // shoulder. Measured in material distance past the edge of the top face, so
   // they start part way round the roll rather than below it: a drape whose
   // shoulder is glassy and whose skirt is folded reads as a fringe stuck on a
   // helmet.
-  foldFrom: 0.055,
-  foldTo: 0.240,
+  foldFrom: 0.020,
+  foldTo: 0.170,
 
   // The swag. Over the top the cloth is carried a little higher at the ends
   // than in the middle, so the ridge running across the top of the stone dips
   // between the two shoulders instead of lying dead flat.
-  topSwell: 0.34,
+  topSwell: 0.16,
 };
 
 // The rolled hem's cross-section, as a multiplier on thickness against distance
@@ -169,6 +174,7 @@ function buildDrape({ halfWidth: W, height: H, depth: D, edge: e, rng }) {
     const s = front ? 1 : -1;
     let v = 0;
     for (const f of jitter) v += f.a * Math.exp(-Math.pow((a - s * f.p - (front ? 0 : backShift)) / f.w, 2));
+    v -= CLOTH.foldBias;
     // Folds belong to the two big faces. Past the shoulder there is barely any
     // cloth hanging and a ridge there only thickens the end of the stone.
     return v * (1 - smooth((Math.abs(a) - (ax - 0.11)) / 0.17));

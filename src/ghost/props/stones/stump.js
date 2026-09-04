@@ -127,8 +127,11 @@ function trunkProfile() {
   // axis ends in a pole whose normal latheInto turns over against the ring
   // below it, and that is a black pinhole in the middle of the most visible
   // surface on the stone.
-  P.curve([[0.168, 1.2965], [0.088, 1.2995]], 5);
-  P.lineTo(0, TOP, 2);
+  // Sampled finely across the face, not because the profile needs it -- it is
+  // nearly a straight line -- but because the growth rings are a ripple in r
+  // and a ring the rows step over is a ring that aliases away to nothing.
+  P.curve([[0.168, 1.2965], [0.088, 1.2995]], 14);
+  P.lineTo(0, TOP, 4);
   return P.build();
 }
 

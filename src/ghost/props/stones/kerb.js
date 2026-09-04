@@ -73,10 +73,15 @@ const HEAD_H = 0.175;
 // the ground at the worst draw, and the near-far difference in how deep the
 // kerb sits reads as a century of settling.
 const SINK = 0.05;
-// How far the rails and the bed run into their neighbours. Two rounded bars
-// merely touching leave a crack of floor showing at the joint the moment the
-// lean tips them.
+// How far the rails run into their neighbours. Two rounded bars merely touching
+// leave a crack of floor showing at the joint the moment the lean tips them.
 const LAP = 0.035;
+// The bed laps further, and it has to: its own corners are rounded like
+// everything else here, and a corner radius wider than the lap leaves a wedge
+// of bare floor showing INSIDE the frame at each corner. So the lap is set
+// past the radius and the rounding is spent entirely under the kerb.
+const BED_LAP = 0.075;
+const BED_R = 0.055;
 
 const HEAD_Z = -0.21; // outer face of the head kerb, behind the tablet
 const FOOT_Z = HEAD_Z + PLOT_L;
@@ -196,21 +201,23 @@ registerStone('kerb', {
     disposables.push(bedMaterial);
     if (grain) disposables.push(grain);
 
-    const bedHalfW = PLOT_W / 2 - BAR_W + LAP;
-    const bedZ0 = HEAD_Z + HEAD_D - LAP;
-    const bedLen = FOOT_Z - BAR_W + LAP - bedZ0;
-    // One tile of chippings per 0.80 units. Set at 0.55 first, which put a chip
+    const bedHalfW = PLOT_W / 2 - BAR_W + BED_LAP;
+    const bedZ0 = HEAD_Z + HEAD_D - BED_LAP;
+    const bedLen = FOOT_Z - BAR_W + BED_LAP - bedZ0;
+    // One tile of chippings per 1.15 units. Set at 0.55 first, which put a chip
     // at a realistic 13 mm and, at the size this prop is actually seen, turned
-    // the bed into fine speckle: sandpaper, not stone. Chips here run 20 to
-    // 45 mm, larger than life in exactly the way the set's corner radii are.
+    // the bed into fine speckle: sandpaper, not stone. Chips here run 30 to
+    // 65 mm, larger than life in exactly the way the set's corner radii are,
+    // and at that size they are still chips rather than cobbles from across the
+    // graveyard while reading as loose stone with a shadow each in close-up.
     const TILE = 1.15;
     const bedGeo = buildSlabGeometry({
       halfWidth: bedHalfW,
       height: bedLen,
       depth: BED_H,
       edge: 0.024,
-      bottomRadius: 0.10,
-      topRadius: 0.10,
+      bottomRadius: BED_R,
+      topRadius: BED_R,
       uv: (x, y) => [(x + bedHalfW) / TILE, y / TILE],
     });
     disposables.push(bedGeo);

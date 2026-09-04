@@ -48,8 +48,8 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   // --- proportions ----------------------------------------------------------
   // Knee to waist and wider than tall, which is what an untrimmed yew does when
   // nobody has been round with the shears for a few years.
-  const H = 0.585 + rand() * 0.105;          // visible height above y = 0
-  const W = H * (1.40 + rand() * 0.28);      // widest point
+  const H = 0.575 + rand() * 0.100;          // visible height above y = 0
+  const W = H * (1.20 + rand() * 0.24);      // widest point
   const BURIED = H * 0.17;                   // how much of the dome is underground
 
   // --- the mass -------------------------------------------------------------
@@ -68,7 +68,9 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
     scaleY: 0.90,
     fit: { width: W, height: H, buried: BURIED },
   });
-  bakeFoliageTint(massGeo, { top: H, floor: 0.46, ceil: 1.06, down: 0.74, rand });
+  // The mass is only ever seen through the gaps between clumps, which are the
+  // deepest part of the bush, so it is darkened hard.
+  bakeFoliageTint(massGeo, { top: H, floor: 0.34, ceil: 0.86, down: 0.72, rand });
   bakeWind(massGeo, { top: H * 0.90, base: 0, power: 1.8, flutter: 0 });
   disposables.push(massGeo);
 
@@ -91,14 +93,23 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
   const spin = new THREE.Matrix4();
   for (let i = 0; i < clumps.length; i++) {
     const c = clumps[i];
-    const lobes = makeLobes(rand, { count: 4, amp: [0.14, 0.34], tight: [1.6, 3.4], yBias: 0 });
+    // A clump big enough to show its own outline gets the finer sphere; the
+    // small ones nestled between them are a dozen pixels across at the scale
+    // this prop is seen and would be paying four times the triangles for an
+    // outline nobody can resolve.
+    const detail = c.r > W * 0.070 ? 2 : 1;
+    const lobes = makeLobes(rand, { count: 5, amp: [0.16, 0.42], tight: [1.4, 3.0], yBias: 0.05 });
     // Stretched along its own y, which is then aimed down the surface normal:
-    // a tuft standing out of the mass rather than a pebble stuck onto it.
-    const pos = lumpPositions({ detail: 2, lobes, scaleY: 1.30 });
+    // a tuft standing out of the mass rather than a pebble stuck onto it. The
+    // two tangential axes are scaled unequally so no clump is a body of
+    // revolution, which is what made the first pass read as a bunch of grapes.
+    const kx = 0.72 + rand() * 0.34;
+    const kz = 0.72 + rand() * 0.34;
+    const pos = lumpPositions({ detail, lobes, scaleY: 1.24 + rand() * 0.30 });
     for (let j = 0; j < pos.length; j += 3) {
-      pos[j] *= c.r * 0.86;
+      pos[j] *= c.r * kx;
       pos[j + 1] *= c.r;
-      pos[j + 2] *= c.r * 0.86;
+      pos[j + 2] *= c.r * kz;
     }
     q.setFromUnitVectors(up, c.n);
     spin.makeRotationY(rand() * Math.PI * 2);
@@ -111,15 +122,16 @@ export function createBush({ seed = 1, scale = 1 } = {}) {
 
     clumpParts.push({
       positions: pos,
-      index: icosphere(2).index,
+      index: icosphere(detail).index,
       matrix: m.clone(),
       phase: rand(),
+      tint: rand(),
       flutter: stiffAtCentre,
     });
   }
 
   const clumpGeo = mergeLumps(clumpParts);
-  bakeFoliageTint(clumpGeo, { top: H, floor: 0.52, ceil: 1.16, down: 0.72, rand });
+  bakeFoliageTint(clumpGeo, { top: H, floor: 0.44, ceil: 1.14, down: 0.70, root: 0.46, spread: 0.26, rand });
   bakeWind(clumpGeo, { top: H * 0.90, base: 0, power: 1.8 });
   disposables.push(clumpGeo);
 
@@ -187,37 +199,48 @@ function clumpPlacements(geo, { rand, W, H }) {
     const t = order[i]; order[i] = order[j]; order[j] = t;
   }
 
-  const minGap = W * 0.148;
+  // Two sizes of clump, mixed, and the spacing test is written in terms of the
+  // two radii rather than as one fixed gap. That is what lets a small clump
+  // settle into the notch between two big ones instead of being pushed out to
+  // arm's length, and detail at two scales is most of what separates "fluffy"
+  // from "bumpy". GAP below 1 means neighbours overlap and their crevice is a
+  // slot rather than a valley.
+  const GAP = 0.56;
   const out = [];
   const p = new THREE.Vector3();
   const nv = new THREE.Vector3();
 
-  for (let k = 0; k < n && out.length < 52; k++) {
+  for (let k = 0; k < n && out.length < 124; k++) {
     const i = order[k];
     p.fromBufferAttribute(pos, i);
     // Nothing below ankle height: clumps down there are buried in the floor and
-    // only cost triangles. Thinned further over the lower third so the bush is
+    // only cost triangles. Thinned over the lower third so the bush is
     // shaggiest at the crown, which is where the light is.
-    if (p.y < H * 0.10) continue;
-    if (p.y < H * 0.42 && rand() < 0.45) continue;
+    if (p.y < H * 0.11) continue;
+    if (p.y < H * 0.40 && rand() < 0.40) continue;
     nv.fromBufferAttribute(nor, i);
     // Skip anything facing more than slightly downward: a clump on the underside
-    // is invisible from an elevated camera and still casts into the shadow map.
-    if (nv.y < -0.42) continue;
+    // is invisible from an elevated camera and still costs a shadow pass.
+    if (nv.y < -0.40) continue;
+
+    // A third of them large, the rest small, and the large ones kept off the
+    // skirt: a big clump low down sticks out past the footprint and the bush
+    // grows a bustle.
+    const big = rand() < 0.34 && p.y > H * 0.34;
+    const r = big ? W * (0.076 + rand() * 0.030) : W * (0.042 + rand() * 0.024);
 
     let ok = true;
     for (let j = 0; j < out.length; j++) {
-      if (out[j].p.distanceTo(p) < minGap) { ok = false; break; }
+      if (out[j].p.distanceTo(p) < (out[j].r + r) * GAP) { ok = false; break; }
     }
     if (!ok) continue;
 
-    const r = W * (0.085 + rand() * 0.055);
     // Aimed a little more upright than the surface it sits on: foliage grows
     // toward the light, and clumps aimed exactly along the normal made the
     // flanks read as spines sticking out sideways.
-    nv.y += 0.30;
+    nv.y += 0.34;
     nv.normalize();
-    out.push({ p: p.clone().addScaledVector(nv, r * 0.30), n: nv.clone(), r });
+    out.push({ p: p.clone().addScaledVector(nv, r * 0.24), n: nv.clone(), r });
   }
   return out;
 }
