@@ -171,7 +171,30 @@ const BROW_INSET = 0.037 * HS;
 // has drifted and metrics.js is where to look, not here.
 const ORBIT_V = Y_CROWN - 0.500 * HS;
 const L_SKULL = M.skull.depth;
-const PORION_Y = ORBIT_V - M.skull.socket.height / 2;   // orbitale, so y = 0
+// Porion comes off the TABLE, not off the socket. It used to be placed at the
+// orbit's lower rim, ORBIT_V - socket.height / 2, on the reasoning that the
+// Frankfurt horizontal runs through porion and orbitale. That is true of a real
+// skull and it was the wrong thing to build from, because this skull's orbit is
+// a cute one: M.skull.socket.height is 0.242 of L where a real orbit is about
+// 0.19, and with the eye line pinned at half the head's height an oversized
+// socket pushes its own floor, and therefore the ear canal, DOWN. Measured, it
+// put porion 0.071 of L below where the table wants it, which is what made the
+// two stretches below disagree by 37% -- the whole vault ran 14% tall and
+// everything below the ear ran 17% short. That is the real reason the mandible
+// came out as a wire hoop: the ramus outline and the body's height are authored
+// in this frame, so they were being squashed by a sixth before they were drawn.
+// The vertex is at +0.52 of L above porion and gnathion at -0.42, they sum to
+// the table's 0.94, and M.skull.height is now exactly 0.94 of M.skull.depth --
+// so pinning porion to either end pins it to both, and the frame comes out
+// ISOTROPIC: SY_UP and SY_DN both equal L_SKULL to four places. Every landmark
+// in the table is then reachable at its own coordinates rather than through two
+// different stretches, which is the point of having a table at all.
+//
+// What it costs: orbitale now sits 0.071 of L below porion instead of level
+// with it, so the Frankfurt horizontal tilts by that much. Of the two, an
+// out-of-square measuring convention is much cheaper than a face and a vault
+// that are scaled differently, and the socket's size is metrics.js's to change.
+const PORION_Y = Y_CROWN - 0.52 * L_SKULL;
 const PORION_Z = Z_BACK + 0.40 * L_SKULL;               // opisthocranion at x = -0.40
 const SY_UP = (Y_CROWN - PORION_Y) / 0.52;              // vertex at y = +0.52
 const SY_DN = (PORION_Y - Y_CHIN) / 0.42;               // gnathion at y = -0.42
@@ -420,11 +443,41 @@ const TOOTH_D = 0.042 * HS;
 const AJAR = 0.015 * HS;
 
 // --- the mandible ----------------------------------------------------------
-// A thin deep bar: thin side to side, deep top to bottom, and no deeper than
-// M.skull.jawHeight allows. A round swept tube cannot be thin one way and deep
-// the other, so the body is swept round and then squashed.
-const JAW_R = 0.043 * HS;                     // half the bar's side-to-side wall
-const RAMUS_R = 0.062 * HS;
+// A bone, not a hoop. This is the third attempt and the first two failed the
+// same way, so the method matters more than the numbers.
+//
+// The body used to be shaft(): ONE swept radius, squashed vertically
+// afterwards. A single radius plus a single global squash gives the chin and
+// the angle of the jaw the same section, and a mandible's whole character is
+// that they are not the same -- the symphysis is a deep block with a squared
+// bottom-front corner, the body behind it is a thinner blade, and the angle
+// swells again where the masseter lands. What it produced was a bar of even
+// thinness that read as wire, with the lower border almost flat, so the jaw was
+// a hoop slung under the head. The note above shaft() about a round tube not
+// being able to be thin one way and deep the other was right as far as it went;
+// it just did not go far enough, because the section also has to CHANGE.
+//
+// So the body is swept by sweepBar() below, which carries an authored
+// superellipse: half-height, half-thickness and squareness are each a function
+// of the distance from the chin. Nothing is squashed afterwards.
+//
+// The heights come off the table and the metric, in that order. M.skull.
+// jawHeight is the bite line to the chin and it is 0.154 of L, where the
+// table's prosthion-to-gnathion is 0.185: the bone is working in about five
+// sixths of the room a real one has, and that is the box, not this file. What
+// this file can do with what is left is spend it on bone rather than on air,
+// which is what these three numbers are for.
+const HH_CHIN = 0.049 * HS;                   // half thickness, front to back at the chin
+const HH_MID = 0.039 * HS;                    // and side to side along the body
+const HH_ANGLE = 0.050 * HS;                  // swelling again at the angle
+// How square the section is: a real symphysis is nearly a rounded rectangle
+// and it is the only way gnathion, the BOTTOM of the chin, reaches +0.50 of L
+// forward. A circular section's bottom-front corner curves away and measured
+// +0.44 there, which is the single miss the previous pass could not shift.
+const SEC_P_CHIN = 3.6;
+const SEC_P_MID = 2.7;
+const SEC_P_ANGLE = 3.1;
+const RAMUS_R = 0.062 * HS;                   // only the condyle's ball now
 // How far past the last molar the body runs, and how far it swings OUT on the
 // way. The flare is the fix for a jaw with no visible angle: at extend 1.62 and
 // no flare the gonion sat at 0.56 of the skull's half-width, tucked inside the
@@ -463,6 +516,41 @@ const HINGE_Z = PORION_Z - 0.03 * L_SKULL;
 // notch nobody can see is not a notch.
 const HINGE_X = 0.63 * (M.skull.width / 2);
 const FORAMEN_Z = -0.150 * M.skull.depth;
+
+// The body's two borders, as functions of s, the distance from the chin along
+// the sweep with 1 at the angle. A mandible is not a bar of constant depth:
+// its lower border climbs from gnathion to the gonion and its upper border,
+// the alveolar margin, stays level under the teeth and then climbs much
+// harder past the last molar into the ramus. Authoring the two borders and
+// deriving the section from them, rather than authoring a centreline and a
+// thickness, is what keeps the tooth-bearing part level while the angle rises.
+//
+// BODY_TOP buries the bottom quarter of each lower crown. On a dry skull the
+// crowns stand entirely clear of the bone, and building it that way is what
+// left the teeth perched on a rail with the body a sliver under them: of the
+// 0.154 of L between the bite line and the chin the crowns were taking a third
+// and the bone got the rest. A slightly high alveolar margin reads as a jaw
+// with teeth in it and costs nothing that can be seen.
+const BODY_TOP = Y_BITE - 0.72 * TOOTH_H;
+// The gonion. The table puts it at -0.30 of L, 0.12 above gnathion; at that
+// height, with this jawHeight, the body would have to close to nothing before
+// it got there. -0.315 is as much rise as the box affords and it still reads
+// as a lower border that climbs, which is the point of it.
+const GONION_Y = LY(-0.315);
+// And how far the alveolar margin climbs past the last molar. This is the
+// retromolar rise, and it is most of what turns the back of the jaw from a
+// rod into the foot of a ramus.
+const ANGLE_TOP = BODY_TOP + 0.109 * HS;
+const jawTop = (s) => BODY_TOP + (ANGLE_TOP - BODY_TOP) * smoothstep(0.55, 1.0, s);
+const jawBot = (s) => Y_CHIN + (GONION_Y - Y_CHIN) * s * s * s;
+const jawHV = (s) => (jawTop(s) - jawBot(s)) / 2;
+const jawCY = (s) => (jawTop(s) + jawBot(s)) / 2;
+const jawHH = (s) => HH_CHIN
+  + (HH_MID - HH_CHIN) * smoothstep(0.00, 0.50, s)
+  + (HH_ANGLE - HH_MID) * smoothstep(0.60, 1.00, s);
+const jawSecP = (s) => SEC_P_CHIN
+  + (SEC_P_MID - SEC_P_CHIN) * smoothstep(0.00, 0.50, s)
+  + (SEC_P_ANGLE - SEC_P_MID) * smoothstep(0.60, 1.00, s);
 
 // --- the openings ----------------------------------------------------------
 // How far the top edge of each orbit cuts down toward the nose. Small: enough
@@ -854,6 +942,71 @@ function archCurve({ halfW, front, back }, y, { inset = 0, extend = 1, rise = 0,
     ));
   }
   return new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5);
+}
+
+// A swept bar carrying an AUTHORED cross-section.
+//
+// `centre(u)` gives the section's centre for a parameter u, and `section(u)`
+// gives {hv, hh, p}: half-height, half-thickness and the superellipse exponent
+// there. The section's own axes are world up flattened into the ring's plane,
+// and the horizontal perpendicular to the sweep, so "half-height" always means
+// up and down however the bar turns -- which is what a jaw needs and what a
+// Frenet frame will not give you, since a Frenet frame rolls.
+//
+// This exists because shaft() cannot: it sweeps one radius, and squashing the
+// result afterwards applies the same squash to every station. See the mandible
+// block above for the two builds that cost.
+//
+// The seam column is NOT duplicated, for the same reason the cranium's is not:
+// two coincident columns get separately averaged normals and draw a crease.
+function sweepBar(centre, section, uMin, uMax, nU, nR = 24) {
+  const verts = new Float32Array((nU + 1) * nR * 3);
+  const idx = [];
+  const c = new THREE.Vector3();
+  const T = new THREE.Vector3();
+  const side = new THREE.Vector3();
+  const vup = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const du = (uMax - uMin) / nU;
+  for (let i = 0; i <= nU; i++) {
+    const u = uMin + du * i;
+    centre(u, c);
+    centre(u + du * 0.02, a);
+    centre(u - du * 0.02, b);
+    T.subVectors(a, b).normalize();
+    side.crossVectors(T, up);
+    if (side.lengthSq() < 1e-12) side.set(1, 0, 0);
+    side.normalize();
+    vup.crossVectors(side, T).normalize();
+    const { hv, hh, p } = section(u);
+    for (let j = 0; j < nR; j++) {
+      const th = (2 * Math.PI * j) / nR;
+      const ct = Math.cos(th), st = Math.sin(th);
+      const r = Math.pow(
+        Math.pow(Math.abs(ct) / hh, p) + Math.pow(Math.abs(st) / hv, p),
+        -1 / p,
+      );
+      const k = (i * nR + j) * 3;
+      verts[k] = c.x + side.x * r * ct + vup.x * r * st;
+      verts[k + 1] = c.y + side.y * r * ct + vup.y * r * st;
+      verts[k + 2] = c.z + side.z * r * ct + vup.z * r * st;
+    }
+  }
+  for (let i = 0; i < nU; i++) {
+    for (let j = 0; j < nR; j++) {
+      const j2 = (j + 1) % nR;
+      const a0 = i * nR + j, b0 = i * nR + j2;
+      const a1 = (i + 1) * nR + j, b1 = (i + 1) * nR + j2;
+      idx.push(a0, a1, b1, a0, b1, b0);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
 }
 
 export function buildSkull({ material }) {
@@ -1759,80 +1912,59 @@ export function buildSkull({ material }) {
   jawRoot.position.set(0, -HINGE_Y, -HINGE_Z);
   jaw.add(jawRoot);
 
-  // The body: the lower arch pushed out a little and carried back past the
-  // last molar to the angle of the jaw. Swept round at y = 0 and then squashed,
-  // because the bar has to be thin side to side and deep top to bottom, and a
-  // round tube is neither.
-  const bodyTop = Y_BITE - TOOTH_H + 0.006 * HS;
-  const JAW_SQUASH = ((bodyTop - Y_CHIN) / 2) / JAW_R;
-  // Same parabola as the lower tooth row, pushed out by the bar's own half
-  // thickness and a little further, so the bar's outer wall stands lateral to
-  // the crowns the way a real mandible's does; at 1.01 it was exactly flush and
-  // the jaw came to a narrow point under the chin. Giving the body
-  // its own shallower curve was tried: it left the back of the row standing
-  // over nothing and needed a separate gum bar to patch, and that bar read as
-  // a brace clipped over the front teeth.
-  const bodyCurve = archCurve(
-    { halfW: LOWER_ARCH.halfW * 1.06, front: LOWER_ARCH.front, back: LOWER_ARCH.back },
-    0,
-    { inset: JAW_R, extend: JAW_EXTEND, rise: JAW_R * 0.10, flare: JAW_FLARE },
-  );
-  // No waist at all: shaft() thins the middle of a bone, and the middle of this
-  // one is the chin. At 0.93 the chin sat 0.6% of the head's height short of
-  // M.y.chin, which is small but it is the wrong direction on the one dimension
-  // an early build got wrong.
-  const BODY_SEGS = 48;
-  const bodyGeo = track(shaft(bodyCurve, JAW_R, { waist: 1, endBias: 0.85, segments: BODY_SEGS }));
-  // The body's cross-section is squared off into a rounded rectangle before the
-  // squash. shaft() sweeps a CIRCLE, and a circular bar's front-most point is
-  // at its vertical centre, so its bottom-front corner curves away: measured,
-  // that put gnathion at +0.40 of L where the reference wants +0.50, with
-  // pogonion correct at +0.53. A chin was first bolted on as a separate rounded
-  // block to fill the corner and it read, head-on, as a plate stuck on the jaw.
-  // Reshaping the section fixes the same landmark with no new part, and a real
-  // mandibular body is a rounded rectangle in section rather than a rod anyway.
-  {
-    const pos = bodyGeo.attributes.position;
-    const ring = pos.count / (BODY_SEGS + 1);
-    const c = new THREE.Vector3();
-    const d = new THREE.Vector3();
-    const SEC_P = 3.0;
-    for (let i = 0; i <= BODY_SEGS; i++) {
-      bodyCurve.getPointAt(i / BODY_SEGS, c);
-      for (let j = 0; j < ring; j++) {
-        const k = i * ring + j;
-        if (k >= pos.count) break;
-        d.set(pos.getX(k) - c.x, pos.getY(k) - c.y, pos.getZ(k) - c.z);
-        const r = d.length();
-        if (r < 1e-9) continue;
-        // The section's own axes: vertical, and horizontal across the sweep.
-        const uy = Math.abs(d.y / r), uh = Math.abs(Math.hypot(d.x, d.z) / r);
-        const g = Math.pow(Math.pow(uh, SEC_P) + Math.pow(uy, SEC_P), 1 / SEC_P);
-        d.multiplyScalar(1 / Math.max(1e-6, g));
-        pos.setXYZ(k, c.x + d.x, c.y + d.y, c.z + d.z);
-      }
-    }
-    pos.needsUpdate = true;
-  }
-  bodyGeo.scale(1, JAW_SQUASH, 1);
-  bodyGeo.translate(0, (bodyTop + Y_CHIN) / 2, 0);
-  jawRoot.add(add(bodyGeo, material, 'jaw-body'));
+  // The body. A single swept bar from one angle of the jaw, round the chin, to
+  // the other, carrying the authored section from the mandible block above.
+  //
+  // Its path is the lower tooth row's own parabola pushed out by the section's
+  // own half thickness, so the bar's OUTER wall stands lateral to the crowns
+  // the way a real one does, and carried past the last molar by JAW_EXTEND
+  // with JAW_FLARE swinging the last of it outward to the gonion. Giving the
+  // body a shallower curve of its own was tried two passes ago: it left the
+  // back of the row standing over nothing and needed a separate gum bar to
+  // patch, and the bar read as a brace clipped over the front teeth.
+  //
+  // The vertical is NOT in this path in the old sense. The curve carries the
+  // section's centre height, which is the mean of the two authored borders, so
+  // the lower border climbs to the gonion while the alveolar margin stays level
+  // under the teeth. A single `rise` on the whole curve cannot do that: it
+  // moves both borders together and lifts the tooth row with them.
+  const BODY_HALF_W = LOWER_ARCH.halfW * 1.06;
+  // The last few per cent of the sweep closes the bar off as a dome, so the
+  // tube has no open end. bone.js's tubes have no caps and the previous build
+  // patched that with a ball at the angle; a ball big enough to shut the hole
+  // is a bead on the end of a stick, which is exactly what the jaw was reading
+  // as from behind.
+  const CAP_U = 0.075;
+  const bodyS = (u) => Math.min(1, Math.abs(u) / JAW_EXTEND);
+  const bodyCentre = (u, out) => {
+    const uc = Math.max(-JAW_EXTEND, Math.min(JAW_EXTEND, u));
+    const s = bodyS(uc);
+    const flare = 1 + JAW_FLARE * Math.max(0, Math.abs(uc) - 1);
+    const hh = jawHH(s);
+    return out.set(
+      (BODY_HALF_W - hh) * uc * flare,
+      jawCY(s),
+      (LOWER_ARCH.front - hh) - (LOWER_ARCH.front - LOWER_ARCH.back) * uc * uc,
+    );
+  };
+  const bodySection = (u) => {
+    const s = bodyS(u);
+    const over = Math.max(0, Math.abs(u) - JAW_EXTEND) / CAP_U;
+    const cap = over > 0 ? Math.sqrt(Math.max(0, 1 - over * over)) : 1;
+    return { hv: jawHV(s) * cap, hh: jawHH(s) * cap, p: jawSecP(s) };
+  };
+  jawRoot.add(add(
+    track(sweepBar(bodyCentre, bodySection,
+      -JAW_EXTEND - CAP_U, JAW_EXTEND + CAP_U, 96, 26)),
+    material, 'jaw-body',
+  ));
 
-  // Rami and condyles. The gonion is wherever the body curve ends, so the
+  // Rami and condyles. The gonion is wherever the body's sweep ends, so the
   // ramus always lands on the bone rather than near it.
-  const gonion = bodyCurve.getPoint(1);
+  const gonion = bodyCentre(JAW_EXTEND, new THREE.Vector3());
   const gonionX = Math.abs(gonion.x);
-  const gonionY = gonion.y * JAW_SQUASH + (bodyTop + Y_CHIN) / 2;
+  const gonionY = GONION_Y;
   for (const side of [-1, 1]) {
-    // The angle of the jaw. It caps the swept bar, which like every tube out of
-    // bone.js has no end cap of its own: uncapped, the bar's back end showed as
-    // a scoop out of the jaw from any three-quarter view. It also thickens the
-    // gonion, which is what a real one does anyway.
-    const cap = track(jointBall(JAW_R * 0.72, { squash: 1 }));
-    cap.scale(1, JAW_SQUASH * 0.80, 1);
-    cap.translate(side * gonionX, gonionY, gonion.z);
-    jawRoot.add(add(cap, material, 'jaw-gonion'));
-
     // The ramus. It used to be a swept round tube squeezed to half its width,
     // which in profile is a rod: no top edge, so no mandibular notch, so no
     // angle to the jaw at all and the whole mandible read as one sausage. It is
@@ -1849,31 +1981,44 @@ export function buildSkull({ material }) {
     // The old pre-stretch-and-squeeze trick did the same job for a swept tube
     // and does not generalise to an extrusion.
     // The outline is run through a CLOSED Catmull-Rom before it is extruded.
-    // plate() takes a THREE.Shape, and a Shape built straight from these eleven
-    // points is a polygon: the first attempt at this read as a flat card with
-    // corners stuck on the side of the jaw, because plate()'s bevel rounds the
-    // EDGE of an extrusion and does nothing at all to the corners of its
-    // outline. Resampling the loop as a spline is what makes it a bone.
-    const RAMUS_T = 0.038 * HS;
+    // plate() takes a THREE.Shape, and a Shape built straight from these points
+    // is a polygon: the first attempt at this read as a flat card with corners
+    // stuck on the side of the jaw, because plate()'s bevel rounds the EDGE of
+    // an extrusion and does nothing at all to the corners of its outline.
+    // Resampling the loop as a spline is what makes it a bone.
+    //
+    // WIDENED, and this is the change that matters. The outline used to span
+    // 0.07 to 0.09 of L between its two borders, against a height of 0.34: a
+    // plate three and a half times as tall as it is wide is a lath, and from
+    // behind the pair of them read as two sticks with the head balanced on
+    // them. A real ramus is about 0.17 of L across. This one is 0.13 to 0.15,
+    // which is what the table's own gonion at +0.07 and coronoid at +0.13 leave
+    // room for, and it is a plate rather than a stick at that width.
+    // It is also thicker: 0.046 of the head's height where it was 0.038.
+    const RAMUS_T = 0.046 * HS;
     // Authored in the reference's own porion frame, like the vault's profile,
     // so the three landmarks it has to hit -- condylion (-0.03, +0.015),
-    // the coronoid tip (+0.13, -0.02) and the gonion (+0.07, -0.30) -- are
-    // literally in the list rather than being aimed at with offsets.
+    // the coronoid tip (+0.13, -0.015) and the gonion (+0.07, -0.30) -- are
+    // literally in the list rather than being aimed at with offsets. The two
+    // corners at -0.300 are the foot, and they are buried inside the body's
+    // bar, which at that height runs from about +0.05 to +0.20 of L.
     const ramusOutline = new THREE.CatmullRomCurve3([
-      [+0.100, -0.325],   // lower posterior corner, buried in the body's bar
-      [+0.045, -0.200],   // posterior border of the ramus
-      [-0.020, -0.030],   // condylar neck
+      [+0.055, -0.300],   // lower posterior corner, buried in the body's bar
+      [+0.038, -0.215],   // posterior border of the ramus
+      [+0.005, -0.110],
+      [-0.022, -0.025],   // condylar neck
       [-0.030, +0.015],   // CONDYLION
-      [+0.020, -0.030],   // down into the mandibular notch
-      [+0.070, -0.055],   // the notch's floor
-      [+0.130, -0.020],   // CORONOID TIP
-      [+0.115, -0.100],   // anterior border
-      [+0.140, -0.240],
-      [+0.115, -0.335],   // lower anterior, buried in the body
+      [+0.012, -0.028],   // down into the mandibular notch
+      [+0.060, -0.070],   // the notch's floor
+      [+0.108, -0.048],
+      [+0.132, -0.015],   // CORONOID TIP
+      [+0.152, -0.105],   // anterior border
+      [+0.172, -0.215],
+      [+0.170, -0.300],   // lower anterior, buried in the body
     ].map(([x, y]) => new THREE.Vector3(LZ(x), LY(y), 0)), true, 'centripetal', 0.5)
-      .getPoints(72)
+      .getPoints(84)
       .map((q) => new THREE.Vector2(q.x, q.y));
-    const ramus = track(plate(ramusOutline, RAMUS_T, { bevel: 0.45, bevelSegments: 3 }));
+    const ramus = track(plate(ramusOutline, RAMUS_T, { bevel: 0.42, bevelSegments: 4 }));
     ramus.rotateY(-Math.PI / 2);
     {
       const pos = ramus.attributes.position;
@@ -1887,13 +2032,10 @@ export function buildSkull({ material }) {
     }
     jawRoot.add(add(ramus, material, 'jaw-ramus'));
     const ball = track(jointBall(RAMUS_R * 0.66));
+    ball.scale(1.25, 1, 0.85);
     ball.translate(side * HINGE_X, HINGE_Y, HINGE_Z);
     jawRoot.add(add(ball, material, 'jaw-condyle'));
   }
-
-  // There is no separate chin block any more. See the body's section pass
-  // above: squaring the bar off does the same job with no extra part and no
-  // outline of its own to read as a plate.
 
   // ------------------------------------------------------------- lower teeth
   const lowerRow = archCurve(LOWER_ARCH, Y_BITE - TOOTH_H / 2);
