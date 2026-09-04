@@ -23,6 +23,8 @@ import './wheel.js';      // 1.45, solid disc head
 import './stump.js';     // 1.33, a stone pretending to be a sawn trunk
 import './cracked.js';    // 1.32, the derelict one
 import './twin.js';       // 1.48 tall, 1.32 wide, the double
+import './wings.js';      // 1.54, the tall narrow one whose top is the widest
+import './draped.js';     // 1.56, a pall laid over the stone
 import './celtic.js';     // 1.62, ringed and pierced
 import './gothic.js';     // 1.70, tallest and narrowest
 import './obelisk.js';    // 1.85, the tallest thing in the graveyard

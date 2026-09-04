@@ -55,6 +55,17 @@ import * as THREE from 'three';
 // tie in the fragment stage where the tie actually lives. The mesh does not
 // cast shadows, so there is no second pass with an unbiased material to worry
 // about, which is the usual reason polygonOffset comes back to bite.
+//
+// One honest note, because it was measured rather than assumed. With the
+// cambered profile below, the only part of this mesh that is coplanar with the
+// floor is the rim ITSELF: the shoulder leaves y = 0 immediately, so the
+// contact is a LINE and not an area, and a line of tied fragments does not
+// shimmer. Rendered at a grazing angle with the bias switched off, the frame
+// comes out identical. So the bias here is not rescuing a broken surface, it
+// is a guarantee that the tie along that line and across the flat base of the
+// end caps always falls the same way, on any driver, at any depth precision,
+// for nothing. The reason a lift is still the wrong answer is unchanged: it
+// would buy the same guarantee and hand back a lip.
 const OFFSET_FACTOR = -1;
 const OFFSET_UNITS = -4;
 
@@ -359,6 +370,32 @@ function gravelTextures(seed) {
   return { map: make(albedo, true), normalMap: make(normal, false) };
 }
 
+// Two paths in one graveyard with the same seed are the same gravel, and the
+// tile costs about a seventh of a second to bake. Shared and reference counted,
+// so a scene that lays four of them pays once and a scene that disposes one of
+// them does not pull the texture out from under the other three.
+const TEXTURE_CACHE = new Map();
+
+function acquireTextures(seed) {
+  let entry = TEXTURE_CACHE.get(seed);
+  if (!entry) {
+    entry = { tex: gravelTextures(seed), refs: 0 };
+    TEXTURE_CACHE.set(seed, entry);
+  }
+  entry.refs++;
+  return entry.tex;
+}
+
+function releaseTextures(seed) {
+  const entry = TEXTURE_CACHE.get(seed);
+  if (!entry) return;
+  entry.refs--;
+  if (entry.refs > 0) return;
+  entry.tex.map.dispose();
+  entry.tex.normalMap.dispose();
+  TEXTURE_CACHE.delete(seed);
+}
+
 // --- the centreline --------------------------------------------------------
 
 // Accepts [x, z] pairs, {x, z}, THREE.Vector2 (x, y read as x, z) and
@@ -636,7 +673,7 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
   geometry.computeBoundingSphere();
 
   // DataTexture, not a canvas, so this works headless as well as in a page.
-  const tex = gravelTextures(seed);
+  const tex = acquireTextures(seed);
 
   const material = new THREE.MeshStandardMaterial({
     color: tex ? '#ffffff' : GRAVEL.base,
@@ -667,7 +704,9 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
   const length = (N - 1) * STEP;
   const chipCount = Math.max(20, Math.round(length * 26));
 
-  const unit = new THREE.SphereGeometry(1, 10, 7);
+  // Eight around and six up. These are drawn two to four pixels across; the
+  // segments past this buy nothing and there are a couple of hundred of them.
+  const unit = new THREE.SphereGeometry(1, 8, 6);
   {
     // Lumped, so a chip is a pebble rather than an egg. One shape for all of
     // them; the rotation and the three independent scales do the variety.
@@ -722,13 +761,15 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
       const nl = Math.hypot(ndx, ndz) || 1;
 
       const side = rand() < 0.5 ? 1 : -1;
-      // Three quarters live at the rim, which is the only place a real pebble
-      // changes the silhouette. The rest are on the crown, keeping the top from
+      // Seven in ten sit at the rim, which is the only place a real pebble
+      // changes the silhouette; the rest are on the crown, keeping the top from
       // reading as a moulded surface where it catches the key.
-      // Mostly ON the shoulder rather than off it. The first pass threw a
-      // fringe of chips out onto the floor and the path stopped reading as
-      // laid: a spill of scree is what an UNMADE path does, and the sand path
-      // in the same frame is the one that should be doing it.
+      //
+      // And they sit ON the shoulder rather than off it. An earlier pass threw
+      // a fringe of chips several centimetres out onto the floor and the path
+      // stopped reading as laid: a spill of scree is what an UNMADE path does,
+      // and the sand path in the same frame is the one that should be doing it.
+      // Only the last few centimetres of the draw land past the rim.
       let u;
       if (rand() < 0.70) u = side * (0.84 + Math.pow(rand(), 1.5) * 0.22);
       else u = side * Math.pow(rand(), 0.8) * 0.80;
@@ -769,19 +810,21 @@ export function createGravelPath({ seed = 1, width = 1.2, points, scale = 1 } = 
   group.add(mesh, chips);
   group.scale.setScalar(scale);
 
+  let disposed = false;
   return {
     group,
     // Gravel does not move. The signature is here because every prop on this
     // shelf has it and a scene should not have to know which ones are static.
     update() {},
     dispose() {
+      if (disposed) return;
+      disposed = true;
       geometry.dispose();
       material.dispose();
       unit.dispose();
       chipMat.dispose();
       chips.dispose();
-      tex?.map.dispose();
-      tex?.normalMap.dispose();
+      releaseTextures(seed);
       group.clear();
     },
   };

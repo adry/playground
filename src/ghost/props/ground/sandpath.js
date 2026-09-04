@@ -5,9 +5,23 @@ import { heightToNormalMap, mulberry32 } from '../tombstones.js';
 // An unmade sand-and-dirt track for the graveyard floor.
 //
 // You hand it a polyline in the XZ plane and it lays a ribbon along it, so a
-// scene routes a path between plots rather than placing tiles:
+// scene ROUTES a path between plots rather than placing tiles end to end:
 //
-//   createSandPath({ points: [[-5, 3], [0, 0.5], [4, -2]], width: 1.25 })
+//   const path = createSandPath({
+//     points: [[-5, 3], [0, 0.5], [4, -2]],  // the route, in the XZ plane
+//     width: 1.25,                           // metres across, 1.0 to 1.5 reads
+//     seed: 7,                               // every wobble and pebble hangs off this
+//     scale: 1,                              // applied to the whole group
+//   });
+//   scene.add(path.group);                   // { group, update(time, dt), dispose() }
+//
+// A point may be [x, z], { x, z }, a Vector2 (whose y is read as z) or a
+// Vector3. Two points give a straight run and any number of them a route; the
+// polyline is in the group's own space, so the group can still be moved and
+// turned afterwards. Corners are rounded for you, see filletPolyline below.
+// The ends are square and full width, so two paths butt together at a junction.
+// update() does nothing: the path is a static prop and only has one so that it
+// matches every other prop in the set.
 //
 // Two things drive every decision in here.
 //
@@ -268,12 +282,13 @@ export function createSandPath({ seed = 1, width = 1.2, points, scale = 1 } = {}
   // The cross-section. A road camber, not a dome: a broad near-flat crown with
   // the whole rise gathered into a rounded shoulder at each side.
   //
-  // The shape matters more than the height. Spread over the full width, a 26mm
-  // crown tilts the surface about one degree, which at this camera is nothing;
-  // gathered into a 0.24-of-half-width shoulder it is nearer six, which is a
-  // shading step the eye reads as an edge of a raised surface. Both ends of the
-  // curve have zero slope, so the shoulder meets the floor tangentially and the
-  // rim has no lip of its own.
+  // The shape matters more than the height. A 26mm crown spread evenly over the
+  // half width of a 1.25 path is a tilt of two degrees, which at this camera is
+  // nothing; gathered into a shoulder a quarter of the width across it is five,
+  // and five degrees is a shading step the eye reads as the edge of a raised
+  // surface. Both ends of the curve have zero slope, so the shoulder meets the
+  // floor tangentially and the rim has no lip of its own. SHOULDER is measured
+  // in u, which spans the whole width, so 0.24 is 30cm on a 1.25 path.
   const SHOULDER = 0.24;
   const crown = (u) => {
     const t = Math.min(1, Math.min(u, 1 - u) / SHOULDER);

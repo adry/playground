@@ -81,7 +81,7 @@ import { registerStone, buildArcSweepGeometry, inkText } from '../tombstones.js'
 // The cleft depth has its own arithmetic: two lobes of radius R whose centres
 // are STEP apart leave a cleft R - sqrt(R^2 - STEP^2/4) deep before the fillet
 // rounds it, and the fillet gives about a third of that back. At the numbers
-// below the scallops come out ~0.19 wide and ~0.045 deep, which survives at the
+// below the scallops come out 0.19 wide and 0.05 deep, which survives at the
 // ~230 px per unit a stone gets in the scene. Push STEP toward 2R and the lobes
 // separate into fingers; pull it in and the underside goes flat.
 
@@ -301,10 +301,12 @@ registerStone('wings', {
       edge, // the slab's rim radius: the two have to agree or the joint shows
       // The slab's own mapping, so the crown's front face carries the same
       // texture in the same place and the coincident faces shade identically.
-      // It clamps v, which is what everything standing above the face needs, and
-      // on this stone it is also what keeps the wings clean: they are entirely
-      // above the face, so they can only ever sample its top row, which is plain
-      // mottled stone whatever the inscription does.
+      // It clamps v, which is what everything standing above the face needs.
+      // Between the two of them the wings cannot pick up a letter however the
+      // inscription moves: every part of the crown that reaches BELOW the top of
+      // the face is outboard of the shaft, where u has already run off the face
+      // into the plain strip, and everything above it samples the face's top
+      // row, which is plain mottled stone.
       uv: slabUV,
     });
     const crown = new THREE.Mesh(geo, material);
