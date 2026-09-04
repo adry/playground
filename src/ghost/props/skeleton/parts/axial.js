@@ -29,11 +29,14 @@ import { shaft, straightShaft, jointBall, plate, drum } from './bone.js';
 //     union stays connected at literally any angle. That is a proof, not a
 //     tuning: the crack cannot open, rather than being unlikely to.
 //   * The spinous processes are a real chain of knuckles from the coccyx to the
-//     skull. Their bulbs are sized off the pitch of their own stack so that,
-//     projected from directly behind, consecutive ones overlap and the column
-//     reads as one continuous ridge.
+//     skull. Each bulb is sized off the gap to the vertebra BELOW it, so that
+//     projected from directly behind consecutive ones overlap whatever the
+//     local spacing is, and the column reads as one continuous ridge.
 //   * Every rib starts on its own vertebra's transverse process, sweeps BACK
 //     behind the vertebral body first, and only then goes round to the front.
+//   * Every open mouth in the mesh is closed. drum() is a lathe and shaft() is
+//     a tube, and neither caps its ends, so a vertebral body and a process are
+//     both open tubes until something is put over them. See endplate().
 //
 // Authored facing +Z, Y up. Every dimension below is a world height or a world
 // depth; the frames built inside buildAxial convert them into the local space
@@ -577,10 +580,9 @@ export function buildAxial({ material }) {
         // proud of the plate's face and reads as a rivet. Buried in the plate,
         // the tube's open mouth needs no cap at all.
         land = F_UPPER.at(side * (sternHalf(yS) - f(0.0040)), yS, STERNUM_Z);
+        // Thinner than the rib it continues, both because cartilage is and
+        // because its open mouth has to fit inside the plate's thickness.
         mesh(
-          // Thinner than the rib it continues, both because cartilage is, and
-          // because the tube's open mouth has to fit inside a plate that is
-          // only f(0.0104) thick.
           straightShaft(tip, land, rRib * 0.70, {
             bow: 0.10,
             bowAxis: new THREE.Vector3(0, 0, 1),   // cartilage bulges forward of the chord

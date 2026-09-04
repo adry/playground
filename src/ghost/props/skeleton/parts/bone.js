@@ -31,6 +31,8 @@ const RADIAL = 20;   // enough that a shaft's silhouette is smooth at prop size
 // `path` is a THREE.Curve. `r` is the end radius; the waist is M.shaftWaist of
 // it. `endBias` shifts where the fattening starts, so a femur can be more
 // swollen at the knee than at the hip the way a real one is.
+// NOTE: TubeGeometry has no end caps either, so a free end reads as a chip out
+// of the bone. Cap every free end with a bulb, or bury it inside the next one.
 export function shaft(path, r, { waist = M.shaftWaist, endBias = 0.5, segments = 28 } = {}) {
   const geo = new THREE.TubeGeometry(path, segments, 1, RADIAL, false);
   const pos = geo.attributes.position;
@@ -97,7 +99,10 @@ export function jointBall(r, { squash = 0.88, axis = null } = {}) {
 // `points` is an array of THREE.Vector2 tracing the outline once.
 // bevelOffset must stay 0: with a negative bevelSize three's extruder silently
 // stops cutting the shape's holes, which is a long afternoon to rediscover.
-export function plate(points, thickness, { bevel = 0.4, holes = [], curveSegments = 16 } = {}) {
+// bevelSegments is a parameter rather than a constant because 4 puts four
+// visible facet bands round the rim of a thick plate with a generous bevel.
+// Raise it for anything seen edge-on.
+export function plate(points, thickness, { bevel = 0.4, holes = [], curveSegments = 16, bevelSegments = 4 } = {}) {
   const shape = new THREE.Shape(points);
   for (const h of holes) shape.holes.push(new THREE.Path(h));
   const b = thickness * bevel;
@@ -107,7 +112,7 @@ export function plate(points, thickness, { bevel = 0.4, holes = [], curveSegment
     bevelThickness: b,
     bevelSize: b,
     bevelOffset: 0,
-    bevelSegments: 4,
+    bevelSegments,
     curveSegments,
   });
   geo.translate(0, 0, -(thickness - 2 * b) / 2);
@@ -115,9 +120,15 @@ export function plate(points, thickness, { bevel = 0.4, holes = [], curveSegment
   return geo;
 }
 
-// A vertebra drum. Waisted at both ends so consecutive ones interpenetrate
-// where the bone is thin: that is what lets the column read as segmented and
-// continuous at the same time, and it is why a bent spine does not crack open.
+// A vertebra drum: fattest at its two rims and waisted in the middle, which is
+// the real endplate profile. Consecutive drums then interpenetrate at the
+// waist, which is what lets the column read as segmented and continuous at the
+// same time, and why a bent spine does not crack open.
+//
+// This is a lathe, so it has NO END CAPS, and because a rim is wider than the
+// waist it overlaps, the annulus between them is a see-through hole. It showed
+// as a sawtooth down the lumbar column at full bend before anyone noticed.
+// Cap both rim planes, or bury them.
 export function drum(r, h, { waist = 0.74 } = {}) {
   const pts = [];
   const N = 12;

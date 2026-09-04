@@ -72,15 +72,15 @@ const Z_VAULT_FRONT = Z_BACK + 0.90 * M.skull.depth;
 // leaves the outer teeth hanging in air -- the exact fault the last build had.
 const MAX_TOP = 0.283 * M.skull.height;
 const MAX_BOTTOM = 0.091 * M.skull.height;    // the palate, just above the crowns
-const MAX_HALF_W = 0.282 * M.skull.width;
+const MAX_HALF_W = 0.298 * M.skull.width;
 const MAX_BACK = Z_FACE - 0.643 * M.skull.depth;
 
 // --- the tooth rows --------------------------------------------------------
 // Not in metrics.js: only the counts are. Sized off the photo, where the
 // visible tooth row is a shade under half the skull's width, and written as
 // fractions of the measurements that ARE there so a change of scale carries.
-const UPPER_ARCH = { halfW: 0.241 * M.skull.width, front: 0.400 * M.skull.depth, back: 0.208 * M.skull.depth };
-const LOWER_ARCH = { halfW: 0.204 * M.skull.width, front: 0.379 * M.skull.depth, back: 0.197 * M.skull.depth };
+const UPPER_ARCH = { halfW: 0.262 * M.skull.width, front: 0.400 * M.skull.depth, back: 0.208 * M.skull.depth };
+const LOWER_ARCH = { halfW: 0.222 * M.skull.width, front: 0.379 * M.skull.depth, back: 0.197 * M.skull.depth };
 const TOOTH_H = 0.066 * M.skull.height;
 const TOOTH_D = 0.045 * M.skull.height;
 // The rows do not meet. In the reference there is a dark line between them and
@@ -194,7 +194,14 @@ function blob(c, s, ph, pv = ph) {
 // A swept tube as a field: the brow ridges, the zygomatic arches and the
 // alveolar ridge are all this. Bounded, so a point nowhere near it costs six
 // comparisons rather than a walk down the polyline.
-function tube(points, r) {
+//
+// The polyline is resampled fine on the way in. A capsule chain is only C0 at
+// its joints, and at thirteen segments along a brow those joints came through
+// the socket pressed underneath them as a fan of streaks.
+function tube(rough, r) {
+  const points = rough.length > 2
+    ? new THREE.CatmullRomCurve3(rough, false, 'centripetal', 0.5).getSpacedPoints(44)
+    : rough;
   const n = points.length;
   const p = new Float32Array(n * 3);
   let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
@@ -255,8 +262,8 @@ function rim(f, x, y) {
 // How wide the painted edge of a hole is, and how far its outside shadow
 // reaches. EDGE has to be a little over one cell of the vault's grid or the
 // edge lands between rows and steps.
-const EDGE = 0.0042;
-const AO_REACH = 0.014;
+const EDGE = 0.0050;
+const AO_REACH = 0.011;
 
 // --- the socket ------------------------------------------------------------
 // The almond, in the frame the slant rotates into. kx runs -1 (medial, down by
@@ -572,8 +579,8 @@ export function buildSkull({ material }) {
       // sharp geometric rim with a soft gradient painted on it -- was tried
       // and reads as a bruise, not a hole.
       dent = Math.max(dent, ORBIT_DEPTH * (1 - smoothstep(-ORBIT_DEPTH * 0.5, EDGE, d)));
-      lum *= 1 - 0.945 * (1 - smoothstep(-EDGE, EDGE, d));
-      lum *= 1 - 0.24 * (1 - smoothstep(EDGE, EDGE + AO_REACH, d));
+      lum *= 1 - 0.962 * (1 - smoothstep(-EDGE, EDGE, d));
+      lum *= 1 - 0.17 * (1 - smoothstep(EDGE, EDGE + AO_REACH, d));
     }
 
     // --- the nasal aperture
@@ -584,7 +591,7 @@ export function buildSkull({ material }) {
       );
       dent = Math.max(dent, NASAL_DEPTH * (1 - smoothstep(-NASAL_DEPTH * 0.5, EDGE, d)));
       lum *= 1 - 0.945 * (1 - smoothstep(-EDGE, EDGE, d));
-      lum *= 1 - 0.20 * (1 - smoothstep(EDGE, EDGE + AO_REACH * 0.6, d));
+      lum *= 1 - 0.15 * (1 - smoothstep(EDGE, EDGE + AO_REACH * 0.6, d));
     }
 
     // --- the temporal fossa, the shallow hollow above the cheekbone. Almost
@@ -615,6 +622,42 @@ export function buildSkull({ material }) {
     color[j + 1] = lum * (1 - 0.02 * (1 - lum));
     color[j + 2] = lum * (1 + 0.10 * (1 - lum));
   }
+  // Blur the painted edges by one ring of vertices. The dark rim of a socket
+  // is a contour crossing the grid at whatever angle it likes, and a band only
+  // a cell and a half wide comes out of it fringed with one-cell spikes.
+  // Widening the band instead was tried and it costs the hole its edge, which
+  // is the one thing the paint is there for; this leaves the 50% contour
+  // exactly where it was and only takes the teeth off it.
+  {
+    const idx = craniumGeo.index.array;
+    const acc = new Float32Array(count * 3);
+    const hits = new Uint16Array(count);
+    for (let pass = 0; pass < 2; pass++) {
+      acc.fill(0);
+      hits.fill(0);
+      for (let t = 0; t < idx.length; t += 3) {
+        for (let e = 0; e < 3; e++) {
+          const a = idx[t + e];
+          const b = idx[t + ((e + 1) % 3)];
+          acc[a * 3] += color[b * 3];
+          acc[a * 3 + 1] += color[b * 3 + 1];
+          acc[a * 3 + 2] += color[b * 3 + 2];
+          hits[a]++;
+        }
+      }
+      for (let i = 0; i < count; i++) {
+        const n = hits[i];
+        if (!n) continue;
+        const w = 2;
+        for (let c = 0; c < 3; c++) {
+          const j = i * 3 + c;
+          color[j] = (color[j] * w + acc[j]) / (w + n);
+        }
+      }
+    }
+    craniumGeo.attributes.color.needsUpdate = true;
+  }
+
   craniumGeo.attributes.position.needsUpdate = true;
   craniumGeo.computeVertexNormals();
   group.add(add(craniumGeo, skin));
@@ -684,7 +727,7 @@ export function buildSkull({ material }) {
   const bodyCurve = archCurve(
     { halfW: LOWER_ARCH.halfW * 1.01, front: LOWER_ARCH.front, back: LOWER_ARCH.back },
     0,
-    { inset: JAW_R, extend: 1.62, rise: JAW_R * 0.22 },
+    { inset: JAW_R, extend: 1.62, rise: JAW_R * 0.38 },
   );
   // waist near 1: shaft() thins the middle of a bone, and the middle of this
   // one is the chin, which is the last place that should be thin.

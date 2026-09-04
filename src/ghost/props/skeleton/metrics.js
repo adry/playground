@@ -74,11 +74,19 @@ export const M = {
 
   pelvis: { width: f(0.168), height: f(0.116), depth: f(0.088) },
 
+  // The sacrum belongs to the axial part and the hip plates belong to the legs
+  // part, so its extent has to be published rather than each side guessing.
+  // These are the values the axial build settled on.
+  sacrum: { top: f(0.570), bottom: f(0.499), width: f(0.116), depth: f(0.058) },
+
   arm: {
     humerus: f(0.154),
     forearm: f(0.143),
     hand: f(0.090),
     shoulderSeparation: f(0.203),
+    // Glenoid depth. Separation and M.y.shoulder fix the other two axes; this
+    // one was being guessed at separately by the axial and arms builds.
+    glenoidZ: f(0.0016),
     // Radians the A-pose holds the arm out from vertical, as a length-weighted
     // mean over the whole limb. Measured off the photo at the scale that
     // reproduces shoulderSeparation to within 1%: the humerus leaves the

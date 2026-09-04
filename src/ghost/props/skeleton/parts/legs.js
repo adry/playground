@@ -55,7 +55,10 @@ const R = {
   // at 0.038 against a 0.070 plate.
   femurHead: frac(0.0176),      // 0.044
   femurNeck: frac(0.0092),      // 0.023. Thin enough that the angle shows.
-  trochanter: frac(0.0168),     // 0.042. Also the cap over the shaft's top ring.
+  trochanter: frac(0.0160),     // 0.040. Also the cap over the shaft's top ring.
+                                // Only a little wider than the tapered shaft it
+                                // caps: in the photo it is a swelling on the
+                                // femur, not a ball stuck on the end of one.
   patella: frac(0.0168),        // 0.042. Nearly as big as the condyle in the photo.
   tibia: frac(0.0180),          // 0.045 at the knee
   tibiaTaper: 0.72,             // 0.032 at the ankle
@@ -97,7 +100,7 @@ const RISE = M.y.ankle;                  // 0.075, ankle pivot down to the sole
 // off the floor, which is small enough to survive a render and large enough to
 // look like the figure is hovering.
 const FOOT_SQUASH = 0.86;
-const seat = (r) => -RISE + r * FOOT_SQUASH;
+const seat = (r, scaleY = 1) => -RISE + r * FOOT_SQUASH * scaleY;
 
 // A shaft that is fatter at one end than the other.
 //
@@ -328,11 +331,11 @@ function onPlate(map, s, x, y) {
 // bones with daylight between them, and that the heel, the arch and the ball
 // are one continuous sweep behind them rather than a ball stuck on a stick.
 const RAYS = [
-  { headX: -0.128, headZ: 0.384, shaftR: 0.056, headR: 0.078, toeR: 0.066, dirX: -0.30, phalanx: [0.096, 0.076] },
-  { headX: -0.056, headZ: 0.440, shaftR: 0.043, headR: 0.061, toeR: 0.052, dirX: -0.12, phalanx: [0.070, 0.046, 0.040] },
-  { headX: 0.016, headZ: 0.430, shaftR: 0.041, headR: 0.059, toeR: 0.050, dirX: 0.04, phalanx: [0.064, 0.044, 0.038] },
-  { headX: 0.084, headZ: 0.392, shaftR: 0.039, headR: 0.056, toeR: 0.048, dirX: 0.18, phalanx: [0.054, 0.038, 0.034] },
-  { headX: 0.152, headZ: 0.324, shaftR: 0.039, headR: 0.058, toeR: 0.046, dirX: 0.32, phalanx: [0.044, 0.030, 0.030] },
+  { headX: -0.128, headZ: 0.360, shaftR: 0.056, headR: 0.078, toeR: 0.066, dirX: -0.30, phalanx: [0.096, 0.076] },
+  { headX: -0.056, headZ: 0.410, shaftR: 0.043, headR: 0.061, toeR: 0.052, dirX: -0.12, phalanx: [0.070, 0.046, 0.040] },
+  { headX: 0.016, headZ: 0.402, shaftR: 0.041, headR: 0.059, toeR: 0.050, dirX: 0.04, phalanx: [0.064, 0.044, 0.038] },
+  { headX: 0.084, headZ: 0.368, shaftR: 0.039, headR: 0.056, toeR: 0.048, dirX: 0.18, phalanx: [0.054, 0.038, 0.034] },
+  { headX: 0.152, headZ: 0.306, shaftR: 0.039, headR: 0.058, toeR: 0.046, dirX: 0.32, phalanx: [0.044, 0.030, 0.030] },
 ];
 
 // The heel, the sweep and the tarsal block, all as fractions of FOOT.
@@ -343,14 +346,17 @@ const RAYS = [
 // Modelling a lifted sole instead puts the whole midfoot in the air, and then
 // the only thing touching the ground at the back is a ball, which is exactly
 // what made the rejected build's feet read as blobs from behind.
-const HEEL = { z: -0.190, r: 0.168 };
+// Stretched front to back rather than made bigger. A round heel the size the
+// silhouette wants is a beach ball from directly behind, which is the one view
+// the rejected build was never checked from.
+const HEEL = { z: -0.176, r: 0.150, scale: [1.0, 1.0, 1.30] };
 // Squashed hard in z rather than made small. A round tarsal block the width of
 // the forefoot swallows every metatarsal whole, and then the foot is a dome
 // with toes stuck on it, which is the blob the rejected build was rejected for.
 // Flattened front to back it is an instep instead, and the five rays get 40% of
 // their length back out in the open where they can be seen.
 const TARSAL = { z: 0.084, r: 0.168, scale: [1.05, 1.0, 0.72] };
-const SWEEP_R = 0.130;
+const SWEEP_R = 0.120;
 
 // A standing foot toes out a little. It is a rotation on a node BELOW the ankle
 // joint, not on the joint itself, so `ankleL.rotation` is still identity in the
@@ -435,8 +441,11 @@ export function buildLower({ material }) {
     // and the trochanter reaches 0.235, so it stands proud of the 0.210 edge of
     // the pelvis, which is what the photo shows and what makes the hip read as
     // a socket seen from outside rather than a ball on a spike.
-    const trochanter = V(s * frac(0.0312), -frac(0.0264), 0);
-    put(hip, straightShaft(V(0, 0, 0), V(s * frac(0.0288), -frac(0.0244), 0), R.femurNeck, { segments: 12, waist: 0.86 }));
+    // Level with the head, not below it, which is where a real greater
+    // trochanter sits and where the photo puts it. Hung lower it drags the top
+    // of the femur down and the hip stops looking like a hinge.
+    const trochanter = V(s * frac(0.0320), -frac(0.0112), 0);
+    put(hip, straightShaft(V(0, 0, 0), V(s * frac(0.0296), -frac(0.0104), 0), R.femurNeck, { segments: 12, waist: 0.86 }));
     const troch = put(hip, bulb(R.trochanter, { squash: 0.92 }), trochanter.x, trochanter.y, trochanter.z);
     troch.scale.set(1.14, 1.10, 0.94);
 
@@ -455,7 +464,7 @@ export function buildLower({ material }) {
     // Patella. Its own bone, its own ball, riding on the FEMUR rather than on
     // the knee joint: hang it off the joint instead and a hard knee bend swings
     // it round to the back of the shin. On the femur it stays in the crease.
-    put(hip, bulb(R.patella, { squash: 0.80 }),
+    put(hip, bulb(R.patella, { squash: 0.88 }),
       kneeLocal.x, kneeLocal.y + frac(0.0032), kneeLocal.z + frac(0.0192));
 
     // --- knee joint ---------------------------------------------------------
@@ -518,11 +527,13 @@ export function buildLower({ material }) {
     // millimetre.
     const heelR = HEEL.r * FOOT;
     const heelZ = HEEL.z * FOOT;
-    const soleY = seat(heelR);
-    put(foot, bulb(heelR, { squash: FOOT_SQUASH }), 0, soleY, heelZ);
+    const heelY = seat(heelR);
+    const heel = put(foot, bulb(heelR, { squash: FOOT_SQUASH }), 0, heelY, heelZ);
+    heel.scale.set(...HEEL.scale);
 
     const tarsalZ = TARSAL.z * FOOT;
     const tarsalR = TARSAL.r * FOOT;
+    const soleY = seat(tarsalR);
     // Widened in x only. The tube's radius is capped by how deep the tarsal
     // block can be without its underside going through the floor, and at that
     // radius the midfoot is narrower than the heel, so from behind the heel
@@ -530,14 +541,17 @@ export function buildLower({ material }) {
     // one direction with no constraint on it.
     const midfoot = put(foot, shaft(
       new THREE.CatmullRomCurve3([
-        V(0, soleY, heelZ),
-        V(0, soleY, (heelZ + tarsalZ) * 0.5),
+        V(0, heelY, heelZ),
+        V(0, (heelY + soleY) * 0.5, (heelZ + tarsalZ) * 0.5),
         V(0, soleY, tarsalZ),
       ]),
       SWEEP_R * FOOT,
       { waist: 0.86, segments: 16 },
     ));
-    midfoot.scale.set(1.28, 1.0, 1.0);
+        // Just under the heel's width. Wider than the heel and the tube's rim
+    // stands proud of it as a hard fin, which is the one thing bone.js warns
+    // about; narrower and the heel is a ball on a stick from directly behind.
+    midfoot.scale.set(1.15, 1.0, 1.0);
 
     // The remaining tarsals (navicular, cuboid, three cuneiforms) are one
     // rounded block. PARTS.md names the calcaneus and the talus for this part
