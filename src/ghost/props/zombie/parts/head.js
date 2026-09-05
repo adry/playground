@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import M from '../metrics.js';
-import { gridSurface, softBox, ball, limb, tube, put, v, smoothstep } from './skin.js';
+import { gridSurface, ribbon, softBox, ball, limb, tube, put, v, smoothstep } from './skin.js';
 
 // The head. A third of the whole figure, so it is the character: everything
 // else on this model is supporting cast.
@@ -611,6 +611,28 @@ export function buildHead({ materials }) {
     uAt: (i) => concentrate(i / U, U_FRONT, 0.55),
     vAt: (j) => vWarp(j / V, V_FACE, 0.45),
     point: (u, vv) => surfacePoint(u, vv),
+    // THE SOCKETS ARE REAL HOLES, and this is the fourth and last answer to
+    // "how do you make an eye socket black". The three before it all tried to
+    // lay a dark sheet INSIDE a dent, and all three failed the same way: the
+    // sheet is placed through frontUV, which inverts the base ellipsoid, while
+    // the shell is displaced by a brow, a cheek, a crown swell, a rim and
+    // three octaves of lumps on top of that. The two disagree by a fraction of
+    // a millimetre, and on a wall as steep as a socket's a fraction of a
+    // millimetre is a large fraction of the depth, so the sheet rips through
+    // the skin in a fan of dark rays. Chasing that mismatch term by term is a
+    // losing game: each fix removes one source and reveals the next.
+    //
+    // A hole has no such term. The shell simply is not there, a ribbon along
+    // the true outline covers the staircase the quad grid leaves and gives the
+    // orbit its rim, and the dark sits far enough behind that nothing can
+    // reach it. It is exactly the chest cavity's construction, which has
+    // worked from the first render.
+    keepQuad: (u, vv) => {
+      const p = surfacePoint(u, vv);
+      if (p.z <= 0) return true;
+      for (const side of [1, -1]) if (socketR(p.x, p.y, side) <= 0.92) return false;
+      return true;
+    },
   });
   put(group, shell.geometry, materials.skin);
 
@@ -625,28 +647,55 @@ export function buildHead({ materials }) {
   // taper, and the dent then takes another socket.depth out of it.
   for (const side of [1, -1]) {
     const phase = side > 0 ? 0.9 : 2.3;
-    // An ANNULUS of red-purple with a darker disc filling the middle. Two
-    // values inside one hole is what makes it look like a hole rather than a
-    // sticker, and they are laid side by side rather than stacked, because a
-    // second disc placed in front of the first is either invisible or fighting
-    // it for the same depth.
-    put(group, dentDisc({
-      cx: side * SOCK_X, cy: BROW_Y, hw: SOCK_HW, hh: SOCK_HH,
-      slant: M.socket.slant, side,
-      depth: M.socket.depth, depthOf: (p) => socketRecessAt(p.x, p.y, side), scale: 1.04,
-      wobble: M.socket.wobble, phase, sectors: 32, rings: 7,
-    }), materials.socket);
-    // A darker disc in the middle of the cup, set back and off centre. One
-    // flat colour across a socket is a disc of paint; two is a hollow with
-    // something behind it.
-    put(group, dentDisc({
-      cx: side * SOCK_X - side * SOCK_HW * 0.10, cy: BROW_Y - SOCK_HH * 0.12,
-      hw: SOCK_HW * 0.58, hh: SOCK_HH * 0.56,
-      slant: M.socket.slant, side,
-      depth: M.socket.depth, depthOf: (p) => socketRecessAt(p.x, p.y, side) - M.socket.depth * 0.05, scale: 1.02,
-      wobble: M.socket.wobble * 1.6, phase: phase + 1.1,
-      sectors: 24, rings: 3,
-    }), materials.socketDeep);
+
+    // The rim, swept along the socket's true outline. Proud of the skin on the
+    // outside, over a rolled crest, then diving back to the floor of the
+    // orbit. That roll is the lid: it is what the light catches above and
+    // below the eye, and it is what the dark is sunk behind.
+    const frames = [];
+    const N = 40;
+    const at = (th) => {
+      const k = lobes(th, M.socket.wobble, phase);
+      const x = side * SOCK_X + SOCK_HW * k * Math.cos(th);
+      const y = BROW_Y + SOCK_HH * k * Math.sin(th)
+        + M.socket.slant * side * (SOCK_HW * k * Math.cos(th));
+      const [u, vv] = frontUV(x, y);
+      return { p: surfacePoint(u, vv), n: baseNormal(u, vv) };
+    };
+    for (let i = 0; i < N; i++) {
+      const th = (i / N) * Math.PI * 2;
+      const a = at(th), b = at(th + 0.02);
+      const tangent = new THREE.Vector3().subVectors(b.p, a.p).normalize();
+      const out = new THREE.Vector3().crossVectors(tangent, a.n).normalize();
+      // point it AWAY from the socket's centre
+      const centre = at(th + Math.PI).p;
+      if (out.dot(new THREE.Vector3().subVectors(a.p, centre)) < 0) out.negate();
+      frames.push({ p: a.p, t: out, n: a.n });
+    }
+    const w = SOCK_HW * 0.34;
+    const d = M.socket.depth;
+    put(group, ribbon(frames, [
+      { t: w * 1.5, n: -d * 0.10 },     // tucked under the skin outside the cut
+      { t: w * 0.55, n: d * 0.30 },     // the crest of the lid
+      { t: -w * 0.10, n: -d * 0.25 },
+      { t: -w * 0.45, n: -d * 0.80 },
+      { t: -w * 0.75, n: -d * 1.25 },
+    ]), materials.skin);
+
+    // The dark. A plain squashed ball, set well back behind the rim's inner
+    // edge, so no camera angle can see its own silhouette: what the viewer
+    // sees is the hole, filled.
+    const [uc, vc] = frontUV(side * SOCK_X, BROW_Y);
+    const axis = baseNormal(uc, vc);
+    const floor = surfacePoint(uc, vc, { sockets: false, mouth: false })
+      .addScaledVector(axis, -d * 1.30);
+    put(group, ball(SOCK_HW * 1.45, SOCK_HH * 1.45, d * 1.10, 20), materials.socket,
+      { pos: floor });
+    put(group, ball(SOCK_HW * 0.72, SOCK_HH * 0.70, d * 0.85, 14), materials.socketDeep, {
+      pos: floor.clone()
+        .add(v(-side * SOCK_HW * 0.10, -SOCK_HH * 0.10, 0))
+        .addScaledVector(axis, d * 0.28),
+    });
   }
 
   // --- the nasal aperture's dark ------------------------------------------
