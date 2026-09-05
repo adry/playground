@@ -6,8 +6,8 @@
 // ============================================================================
 //
 // It takes a WORLD: anything that answers `bounds`, `spawn`, `wall`, `runs`,
-// `PATH_HALF`, and `barriers()`, `gates()`, `props()`, `graves()`,
-// `fireflies()`, `powerups()` and `paths()`. Both things that make levels
+// `PATH_HALF`, and `barriers()`, `gates()`, `props()`, `spawns()`,
+// `fireflies()` and `paths()`. Both things that make levels
 // already produce exactly that, so a generated level is
 //
 //     auditLevel(createWorld({ seed }), fail)
@@ -40,12 +40,13 @@
 // size aliases it in both directions; that lives in repair.js as findWedges,
 // and is rule 11 here.
 
-import { LEVEL_SIZE, PATH_HALF, GRAVES, POWERUPS, WALL_HEIGHT } from './field.js';
+import { LEVEL_SIZE, PATH_HALF, GRAVES, WALL_HEIGHT } from './field.js';
 import { BODY } from './level.js';
 import { findWedges } from './repair.js';
+import { spawnZones, spawnFault, SPAWN_FLOOR } from './spawn.js';
 import { MAX_GROUND_HOLES } from '../../ghost/ground.js';
 
-export { LEVEL_SIZE, WALL_HEIGHT, BODY, GRAVES, POWERUPS, PATH_HALF, MAX_GROUND_HOLES };
+export { LEVEL_SIZE, WALL_HEIGHT, BODY, GRAVES, PATH_HALF, MAX_GROUND_HOLES, SPAWN_FLOOR };
 
 // --- the rules, and their numbers -------------------------------------------
 export const MARGIN = 0.15;          // rule 1, nothing overlaps
@@ -56,7 +57,7 @@ export const GATE_BODY = 0.95;       // nothing solid this close to the middle o
 export const CELL = 0.2;             // the raster everything walkable is judged on
 
 export const RULES = ['overlap', 'path', 'fence', 'gate', 'grave', 'occlusion', 'bounds',
-  'wall', 'gateless', 'sealed', 'wedge', 'holes', 'floor'];
+  'wall', 'gateless', 'sealed', 'wedge', 'holes', 'floor', 'spawn'];
 
 // --- geometry, written out rather than imported ------------------------------
 
@@ -387,7 +388,7 @@ export function auditLevel(world, fail) {
     if (p.x - p.radius < box.minX || p.x + p.radius > box.maxX
       || p.z - p.radius < box.minZ || p.z + p.radius > box.maxZ) fail('bounds', `${p.kind} outside the arena`);
   }
-  for (const c of [...world.fireflies(), ...world.powerups(), ...world.graves()]) {
+  for (const c of [...world.fireflies(), ...world.spawns()]) {
     if (c.x < box.minX + 0.5 || c.x > box.maxX - 0.5 || c.z < box.minZ + 0.5 || c.z > box.maxZ - 0.5) {
       fail('bounds', `${c.id} outside the arena`);
     }
@@ -429,7 +430,7 @@ export function auditLevel(world, fail) {
   const start = grid.nearestOpen(world.spawn.x, world.spawn.z, 2.0);
   if (start < 0) { fail('sealed', 'the ghost starts where a body cannot stand'); return grid; }
   const dist = walkField(grid, start);
-  for (const c of [...world.fireflies(), ...world.powerups(), ...world.graves()]) {
+  for (const c of [...world.fireflies(), ...world.spawns()]) {
     const i = grid.nearestOpen(c.x, c.z, 1.4);
     if (i < 0 || !Number.isFinite(dist[i])) fail('sealed', `${c.id} cannot be walked to`);
   }
@@ -444,8 +445,6 @@ export function auditLevel(world, fail) {
   // counts it was promised.
   const holes = props.filter((p) => p.kind === 'hole').length;
   if (holes > MAX_GROUND_HOLES) fail('holes', `${holes} open graves, the floor allows ${MAX_GROUND_HOLES}`);
-  if (world.graves().length !== GRAVES) fail('floor', `${world.graves().length} graves, not ${GRAVES}`);
-  if (world.powerups().length !== POWERUPS) fail('floor', `${world.powerups().length} pellets, not ${POWERUPS}`);
   // Five, on the owner's decision, and the number is a floor rather than a
   // target. Measured over 40 arenas with points placed for distance alone,
   // nine fireflies in a 30 by 30 arena cannot be more than 13.8 apart and come
@@ -458,6 +457,53 @@ export function auditLevel(world, fail) {
   // stones and is the point below which the arena stops reading as a graveyard
   // at all rather than merely reading as a thin one.
   if (props.filter((p) => p.kind === 'stone').length < 6) fail('floor', 'a graveyard with almost no headstones in it');
+
+  // 12: THE SKELETONS HAVE SOMEWHERE TO COME FROM.
+  //
+  // This is the rule the pen used to make unnecessary. A level carried four
+  // hand-placed graves, the generator guaranteed them and the audit only had to
+  // count them; a skeleton now climbs out in front of a HEADSTONE picked at
+  // random, so the question is about every headstone in the yard and it is
+  // geometric. spawn.js owns the zone, its measurement and the four reasons a
+  // stone is not a spawn point, and both this and world/index.js's own list
+  // call spawnFault, so a stone cannot be usable to the game and unusable to
+  // the audit or the other way round.
+  //
+  // TWO CLAUSES, and they are deliberately not the same severity.
+  //
+  // A SOLID PROP in the zone FAILS, one finding per stone. It is the mistake an
+  // author makes without noticing -- a bench, a fountain, the next headstone
+  // along -- and it is fixable by moving one thing a hand's width.
+  //
+  // A FENCE across the zone, a gate sweeping through it or an edge hanging over
+  // the wall DEMOTES the stone instead. A headstone standing with its face half
+  // a metre from a pen rail is a good thing to place and no rule should forbid
+  // it; what it is not is a place a skeleton can come out. Failing those would
+  // fail a level for being a graveyard.
+  //
+  // What catches a yard that has quietly run out of markers is the COUNT, and
+  // the message names what was demoted so the author can see where the ones
+  // they thought they had went.
+  const zones = spawnZones(props);
+  const faults = { prop: 0, fence: 0, gate: 0, bounds: 0 };
+  let usable = 0;
+  for (const z of zones) {
+    const why = spawnFault(z, { props, barriers, gates, box });
+    if (!why) { usable++; continue; }
+    faults[why]++;
+    if (why === 'prop') {
+      fail('spawn', `nothing can climb out in front of the ${z.variant} at ${z.prop.x.toFixed(1)}, ${z.prop.z.toFixed(1)}: something solid is standing in its plot`);
+    }
+  }
+  if (usable < SPAWN_FLOOR) {
+    const lost = [];
+    if (faults.fence) lost.push(`${faults.fence} fenced in`);
+    if (faults.gate) lost.push(`${faults.gate} in a gate's sweep`);
+    if (faults.bounds) lost.push(`${faults.bounds} over the wall`);
+    if (faults.prop) lost.push(`${faults.prop} blocked by a prop`);
+    const of = zones.length ? `${zones.length} headstones with a face` : 'no headstone with a face';
+    fail('spawn', `${usable} places a skeleton can climb out of, the game needs ${SPAWN_FLOOR} (${of}${lost.length ? ', ' + lost.join(', ') : ''})`);
+  }
 
   // 11: NO WEDGES. A place a body fits that nothing can walk to. Rule 9 above
   // floods at one cell size and so cannot see one; this asks the question in
@@ -486,8 +532,17 @@ function wedgeRule(world, fail) {
     gates: world.gates(),
     props: world.props(),
     spawn: world.spawn,
+    spawns: world.spawns(),
   });
   for (const w of wedges) {
+    // `cells: 0` is not a pocket, it is a spawn point on the wrong side of the
+    // flood: somewhere a skeleton APPEARS that the ghost can never reach. Same
+    // list because it is the same failure of the same property, said from the
+    // other end. See findWedges.
+    if (w.spawn) {
+      fail('wedge', `the ${w.spawn} marker at ${w.x.toFixed(1)}, ${w.z.toFixed(1)} spawns a skeleton somewhere nothing can walk to`);
+      continue;
+    }
     fail('wedge', `${w.cells} cells at ${w.x.toFixed(1)}, ${w.z.toFixed(1)}: a body fits there and nothing can walk to it`);
   }
   return wedges;

@@ -619,11 +619,20 @@ export function repairLevel({ box, barriers, gates, spawn, placer, rounds = 40 }
     // for and what rules.js's four personalities need.
     let fixed = false;
     for (const z of spawnZones(props)) {
-      const bad = propsInZone(z, props).filter((q) => !q.keep);
-      if (!bad.length) continue;
-      placer.drop(bad);
+      const inside = propsInZone(z, props);
+      if (!inside.length) continue;
+      // The blockers, unless they are a grave's own three, which are placed
+      // with `keep` and are guaranteed by the level and cannot come out. When
+      // every blocker is one of those the MARKER goes instead: one headstone
+      // out of a yard of twenty-five is invisible, and a headstone whose front
+      // is permanently blocked is a rule this level cannot satisfy while it
+      // stands there. Measured, that is one stone in about four arenas.
+      const bad = inside.filter((q) => !q.keep);
+      const drop = bad.length ? bad : (z.prop.keep ? [] : [z.prop]);
+      if (!drop.length) continue;
+      placer.drop(drop);
       forget();
-      report.removed += bad.length;
+      report.removed += drop.length;
       report.zone++;
       fixed = true;
       break;

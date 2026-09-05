@@ -121,11 +121,19 @@ export const AHEAD = 1.40;
 export const HALF = 1.07;
 export const DEPTH = STAND + AHEAD;
 
-// How many usable markers a level must have. Four, because rules.js runs four
-// personalities and a level where all four share one stone is a level with a
-// pen in it again. It is a FLOOR and not a target: a generated arena averages
-// nine and a hand-made one can have twenty.
-export const SPAWN_FLOOR = 4;
+// How many usable markers a level must have.
+//
+// THREE, and it is the same three DESIGN.md already argued for. rules.js runs
+// four personalities, and the old pen gave them three graves rather than four,
+// staggered by EXIT_STAGGER so that two never climb out of one hole at the same
+// moment. The cap was on simultaneous cuts and not on how many things ever come
+// out of a hole, and that argument survives the pen exactly: four personalities
+// and three markers is a herd that shares, not a herd that overlaps.
+//
+// It is a FLOOR and not a target. Measured over twenty generated arenas the
+// count runs 3 to 9 with a mean of 5.2, and a hand-made yard can easily have
+// twenty. Below three the yard has stopped being somewhere skeletons come from.
+export const SPAWN_FLOOR = 3;
 
 // Does this prop record publish a zone at all? Takes the record every world
 // query publishes, so `foot`, `yaw` and `variant` are already on it.
@@ -158,6 +166,11 @@ export function spawnZone(p) {
   const mid = p.foot.halfV + DEPTH / 2;
   const stand = p.foot.halfV + STAND;
   return {
+    // The stone itself, and its id when it has one. Both, because the
+    // generator's props have no ids until the level is finished being built and
+    // the repair pass has to be able to ask "is this blocker the stone whose
+    // zone this is" before then. Comparing two undefined ids says yes.
+    prop: p,
     of: p.id,
     variant: p.variant,
     x: p.x + f.x * mid,
@@ -235,6 +248,7 @@ function overlapsBox(z, p) {
 // is for.
 export function propInZone(z, p) {
   if (!p.solid) return false;
+  if (p === z.prop) return false;
   if (p.id && p.id === z.of) return false;
   if (Math.hypot(p.x - z.x, p.z - z.z) > p.radius + Math.hypot(z.foot.halfU, z.foot.halfV)) return false;
   if (p.foot?.shape === 'box') return overlapsBox(z, p);
