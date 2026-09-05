@@ -54,14 +54,22 @@ const GRIN_HH = M.grin.height / 2;
 
 // Where the mandible cap's recess ends, in head-local y. The cap runs from
 // just under the mouth down over the chin.
-const CHIN_RECESS_Y = CHIN + M.head.height * 0.02;
+const CHIN_RECESS_Y = CHIN + M.head.height * 0.115;
 
-// Concentrate grid samples near `at`. The derivative of this is
-// 1 - k cos(2 pi (t - at)), so k = 0.55 puts 2.2x the samples on the face.
+// Concentrate grid samples near `at`. The derivative is 1 - k cos(2 pi (t-at)),
+// so k = 0.55 puts 2.2x the samples on the face.
 const concentrate = (t, at, k) => t - (k / (2 * Math.PI)) * Math.sin(2 * Math.PI * (t - at));
 
+// v is NOT periodic: it runs pole to pole. The raw warp above shifts both ends,
+// which pushed v past 1 at the crown and folded the mesh back over the top pole
+// as a dark disc. Subtracting the value at t = 0 pins both ends exactly,
+// because concentrate(1) - concentrate(0) is identically 1.
+const vWarp = (t, at, k) => concentrate(t, at, k) - concentrate(0, at, k);
+
 const U_FRONT = 0.25;       // azimuth u at which the surface faces +Z
-const V_FACE = 0.42;        // polar v halfway between the sockets and the grin
+// Where the extra v samples land, chosen so that after the pinning above the
+// dense band comes out at v = 0.42, between the sockets and the grin.
+const V_FACE = 0.445;
 
 // --- the surface -------------------------------------------------------------
 //
@@ -156,6 +164,45 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
   return p;
 }
 
+// The (u, v) of the point on the FRONT of the head nearest a given head-local
+// (x, y). Derived from the base ellipsoid, which is close enough: everything
+// that uses it then evaluates the real surface function there.
+function frontUV(x, y) {
+  const dy = Math.min(0.999, Math.max(-0.999, (y - CENTRE_Y) / RY));
+  const dx = Math.min(0.999, Math.max(-0.999, x / RX));
+  const dz = Math.sqrt(Math.max(1e-4, 1 - dx * dx - dy * dy));
+  return [Math.atan2(dz, dx) / (Math.PI * 2), 0.5 + Math.asin(dy) / Math.PI];
+}
+
+// The outward normal of the real surface, by finite difference, so a feature
+// pressed into the head is placed against the surface as built rather than
+// against the ellipsoid it started as.
+function surfaceNormal(u, vv, opts) {
+  const e = 2e-3;
+  const p = surfacePoint(u, vv, opts);
+  const pu = surfacePoint(u + e, vv, opts).sub(p);
+  const pv = surfacePoint(u, Math.min(1, vv + e), opts).sub(p);
+  const n = new THREE.Vector3().crossVectors(pv, pu).normalize();
+  const out = p.clone().sub(new THREE.Vector3(0, CENTRE_Y, 0));
+  if (n.dot(out) < 0) n.negate();
+  return n;
+}
+
+// The u at which the real surface reaches a given x on the front of the head,
+// at a given height. Bisection, because the surface has a taper, a brow shelf
+// and a mouth trough in it and there is no closed form.
+function uForX(targetX, y) {
+  let lo = U_FRONT, hi = U_FRONT + 0.245;
+  const xAt = (u) => surfacePoint(u, vAtHeight(y), { mouth: true }).x;
+  const sgn = Math.sign(targetX) || 1;
+  if (sgn < 0) { lo = U_FRONT; hi = U_FRONT - 0.245; }
+  for (let i = 0; i < 28; i++) {
+    const mid = (lo + hi) / 2;
+    if (Math.abs(xAt(mid)) < Math.abs(targetX)) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 // The v value at which the surface is at a given head-local height, on the
 // front centre line. Used to size the mandible patch.
 function vAtHeight(y) {
@@ -214,21 +261,32 @@ function toothRow(parent, material, { count, gap, up, seed }) {
   let s = seed;
   const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
   const span = M.grin.width * 0.86;
+  // Teeth are placed by AZIMUTH, not by a target x, and this is the bug the
+  // first pass had. Solving for an x and then putting a block there works on
+  // the middle of the face and fails at the corners of the grin, because the
+  // head is tapering hard by then: the outer teeth were asked to sit at an x
+  // the surface no longer reaches, and came out floating outside the jaw.
+  const uEnd = uForX(span / 2, GRIN_Y);
   for (let i = 0; i < count; i++) {
     if (i === gap) continue;                        // a missing tooth
     const t = count === 1 ? 0.5 : i / (count - 1);
-    const x = (t - 0.5) * span;
+    const uu0 = U_FRONT + (t - 0.5) * 2 * (uEnd - U_FRONT);
+    const x = surfacePoint(uu0, vAtHeight(GRIN_Y), { mouth: true }).x;
     const lift = M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(x) / GRIN_HW), 2);
     const w = (span / count) * (0.62 + rnd() * 0.20);
     const h = M.grin.height * (up ? 0.46 : 0.38) * (0.78 + rnd() * 0.42);
-    const y = GRIN_Y + lift + (up ? 1 : -1) * (M.grin.height * 0.06 + h / 2);
-    // Follow the face round: the grin wraps, so a flat row of blocks pokes out
-    // at the corners and sinks in the middle.
-    const zFace = surfacePoint(0.25 + (x / (Math.PI * 2 * RX)), vAtHeight(y), { mouth: true }).z;
-    const g = softBox(w, h, M.grin.depth * 1.5, { round: 0.42, uSteps: 8, vSteps: 6 });
-    const m = put(parent, g, material, { pos: v(x, y, zFace + M.grin.depth * 0.30) });
-    m.rotation.z = (rnd() - 0.5) * 0.30;            // uneven
-    m.rotation.x = (rnd() - 0.5) * 0.20;
+    const y = GRIN_Y + lift + (up ? 1 : -1) * (M.grin.height * 0.05 + h / 2);
+    const uu = uu0;
+    const vv = vAtHeight(y);
+    const floor = surfacePoint(uu, vv, { mouth: true });
+    const n = surfaceNormal(uu, vv, { mouth: true });
+    const g = softBox(w, h, M.grin.depth * 1.15, { round: 0.42, uSteps: 8, vSteps: 6 });
+    const m = put(parent, g, material, {
+      pos: floor.clone().addScaledVector(n, M.grin.depth * 0.44),
+    });
+    m.quaternion.setFromUnitVectors(v(0, 0, 1), n);
+    m.rotateZ((rnd() - 0.5) * 0.34);                // uneven
+    m.rotateX((rnd() - 0.5) * 0.20);
   }
 }
 
@@ -289,34 +347,48 @@ export function buildHead({ materials }) {
     vSteps: V,
     closedU: true,
     uAt: (i) => concentrate(i / U, U_FRONT, 0.55),
-    vAt: (j) => concentrate(j / V, V_FACE, 0.45),
+    vAt: (j) => vWarp(j / V, V_FACE, 0.45),
     point: (u, vv) => surfacePoint(u, vv),
   });
   put(group, shell.geometry, materials.skin);
 
   // The dark that lives in the sockets. The dent walls are skin, but the floor
-  // has to be genuinely dark or the socket reads as a dimple. A squashed ball
-  // mostly buried in the head, with only its front showing in the hollow.
+  // has to be genuinely dark or the socket reads as a dimple.
+  //
+  // Each dark is a flattened ball seated ON the dent floor, found by asking the
+  // surface function itself where that floor is rather than by guessing an
+  // offset from the head's radius. Guessing is what put the first pass's darks
+  // OUTSIDE the head, as two black bubbles on the face: the head at brow height
+  // is not RZ deep, it is RZ times the cosine of the latitude times the jaw
+  // taper, and the dent then takes another socket.depth out of it.
   for (const side of [1, -1]) {
-    const c = surfacePoint(0, 0);                     // placeholder, replaced below
-    void c;
-    const dir = v(side * SOCK_X, BROW_Y, 0);
-    // Where the socket centre lands on the undented surface, so the dark ball
-    // can be pushed straight back along the face normal from there.
-    const n = v(dir.x / RX, (dir.y - CENTRE_Y) / RY, 1 / RZ).normalize();
-    const at = v(side * SOCK_X, BROW_Y, 0)
-      .addScaledVector(v(0, 0, 1), RZ * 0.86)
-      .addScaledVector(n, -M.socket.depth * 0.72);
-    const g = ball(SOCK_HW * 0.90, SOCK_HH * 0.90, M.socket.depth * 1.35, 16);
-    put(group, g, materials.socket, { pos: at });
+    const [u0, v0] = frontUV(side * SOCK_X, BROW_Y);
+    const floor = surfacePoint(u0, v0);
+    const n = surfaceNormal(u0, v0);
+    // Flat, and NOT turned to face along the normal. Turning it tilts the dark
+    // outward with the cheek and the pair come out leaning like eyebrows,
+    // which is the difference between a blank stare and a scowl. Flat also
+    // kills the highlight: a curved dark ball catches a bright streak off the
+    // hemisphere light and the socket stops looking empty.
+    const half = M.socket.depth * 0.32;
+    const g = ball(SOCK_HW * 0.94, SOCK_HH * 0.94, half, 16);
+    put(group, g, materials.socket, {
+      pos: floor.clone().addScaledVector(n, -half + M.head.height * 0.005),
+    });
   }
 
-  // The dark inside the mouth. Big enough that when the jaw swings open there
-  // is a throat behind it rather than a green wall.
+  // The dark inside the mouth. Seated on the mouth trough's own floor, and
+  // deep enough that when the jaw swings open there is a throat behind it
+  // rather than a green wall.
   {
-    const g = ball(GRIN_HW * 1.02, GRIN_HH * 2.2, M.grin.depth * 2.6, 16);
+    const [u0, v0] = frontUV(0, GRIN_Y);
+    const floor = surfacePoint(u0, v0);
+    const n = surfaceNormal(u0, v0);
+    const half = M.grin.depth * 1.10;
+    const g = ball(GRIN_HW * 1.02, GRIN_HH * 1.45, half, 16);
     put(group, g, materials.socket, {
-      pos: v(0, GRIN_Y - GRIN_HH * 0.35, RZ * 0.62 - M.grin.depth * 1.4),
+      pos: floor.clone().addScaledVector(n, -half + M.head.height * 0.005)
+        .add(v(0, -GRIN_HH * 0.15, 0)),
     });
   }
 
@@ -339,9 +411,12 @@ export function buildHead({ materials }) {
   // face continues the cranium exactly, and with the mouth switched on for its
   // inner face, so it seats in the recess.
   {
-    const vLo = vAtHeight(CHIN_RECESS_Y - M.head.height * 0.055);
+    // vLo is clamped well clear of the bottom pole. The first pass let it run
+    // to v = 0, where every u sample collapses onto one point, and the patch
+    // came out as a fan of slivers that read as a shelf hanging off the chin.
+    const vLo = Math.max(0.09, vAtHeight(CHIN_RECESS_Y - M.head.height * 0.045));
     const vHi = vAtHeight(GRIN_Y - GRIN_HH * 0.10);
-    const uHalf = (GRIN_HW * 1.16) / (Math.PI * 2 * RX);
+    const uHalf = Math.abs(uForX(GRIN_HW * 1.10, (GRIN_Y + CHIN_RECESS_Y) / 2) - U_FRONT);
     const outer = (u, vv) => {
       const p = surfacePoint(u, vv, { mouth: false });
       return p.clone().add(p.clone().sub(v(0, CENTRE_Y, 0)).normalize().multiplyScalar(M.head.height * 0.004));
@@ -363,14 +438,18 @@ export function buildHead({ materials }) {
   // charm than for the three-quarter silhouette, where they are the only thing
   // breaking the outline of a very large smooth ball.
   for (const side of [1, -1]) {
-    const uEar = side > 0 ? 0.0 : 0.5;
-    const p = onHead(uEar, vAtHeight(EAR_Y), -M.ear.radius * 0.25);
-    const g = ball(M.ear.thickness, M.ear.radius, M.ear.radius * 0.86, 14);
+    // Behind the equator, not on it. On the equator the ear catches the same
+    // light as the face and, from the game's three-quarter camera, the dark
+    // dimple in it reads as a third eye. Behind it, the ear is a silhouette
+    // bump and nothing else, which is all it is for.
+    const uEar = side > 0 ? -0.035 : 0.535;
+    const p = onHead(uEar, vAtHeight(EAR_Y), -M.ear.radius * 0.30);
+    const g = ball(M.ear.thickness, M.ear.radius, M.ear.radius * 0.80, 14);
     const m = put(group, g, materials.skin, { pos: p });
     m.rotation.z = side * 0.18;
-    const inner = ball(M.ear.thickness * 0.55, M.ear.radius * 0.48, M.ear.radius * 0.44, 10);
-    put(group, inner, materials.socket, {
-      pos: p.clone().add(v(side * M.ear.thickness * 0.55, -M.ear.radius * 0.06, -M.ear.radius * 0.05)),
+    const inner = ball(M.ear.thickness * 0.42, M.ear.radius * 0.34, M.ear.radius * 0.30, 10);
+    put(group, inner, materials.stitch, {
+      pos: p.clone().add(v(side * M.ear.thickness * 0.42, -M.ear.radius * 0.04, -M.ear.radius * 0.04)),
     });
   }
 
@@ -379,14 +458,17 @@ export function buildHead({ materials }) {
   {
     const scars = new THREE.Group();
     group.add(scars);
-    const foreheadV = vAtHeight(BROW_Y + M.head.height * 0.20);
-    const a = onHead(U_FRONT - 0.055, foreheadV, M.stitch.thickness * 0.5);
-    const b = onHead(U_FRONT + 0.045, vAtHeight(BROW_Y + M.head.height * 0.28), M.stitch.thickness * 0.5);
+    // Over the figure's LEFT brow rather than across the centre line. A scar
+    // straight down the middle of a symmetrical face reads as a seam in the
+    // moulding; off to one side it reads as damage.
+    const foreheadV = vAtHeight(BROW_Y + M.head.height * 0.17);
+    const a = onHead(U_FRONT + 0.020, foreheadV, M.stitch.thickness * 0.4);
+    const b = onHead(U_FRONT + 0.088, vAtHeight(BROW_Y + M.head.height * 0.25), M.stitch.thickness * 0.4);
     stitchScar(scars, materials.stitch, { from: a, to: b, count: M.stitch.forehead, thickness: M.stitch.thickness });
 
-    const cheekV = vAtHeight(BROW_Y - M.head.height * 0.20);
-    const c = onHead(U_FRONT + 0.072, cheekV, M.stitch.thickness * 0.5);
-    const d = onHead(U_FRONT + 0.105, vAtHeight(BROW_Y - M.head.height * 0.30), M.stitch.thickness * 0.5);
+    const cheekV = vAtHeight(BROW_Y - M.head.height * 0.22);
+    const c = onHead(U_FRONT - 0.062, cheekV, M.stitch.thickness * 0.4);
+    const d = onHead(U_FRONT - 0.098, vAtHeight(BROW_Y - M.head.height * 0.32), M.stitch.thickness * 0.4);
     stitchScar(scars, materials.stitch, { from: c, to: d, count: M.stitch.cheek, thickness: M.stitch.thickness });
   }
 

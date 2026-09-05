@@ -35,10 +35,10 @@ export const PALETTE = {
   // Not black. Pure black at this scale flattens into a hole with no form at
   // all; a very dark warm grey still takes a little bounce off the cheek and
   // keeps the socket looking deep rather than punched out.
-  socket: '#221d1e',
-  jacket: '#9a917d',
-  jacketDark: '#6f6857',
-  shorts: '#6d7358',
+  socket: '#1b1719',
+  jacket: '#aba08a',
+  jacketDark: '#7d745f',
+  shorts: '#7d8365',
   boot: '#4c4038',
   nail: '#33291f',
   stitch: '#3d3128',

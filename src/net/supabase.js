@@ -175,8 +175,7 @@ export function cleanName(raw, max = MAX_NAME) {
   // level's name is 60. One function with one hard coded 20 in it quietly
   // truncated level names to a third of what the column holds.
   return String(raw == null ? '' : raw)
-    // eslint-disable-next-line no-control-regex
-    .replace(/[ -]/g, ' ')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, Math.max(1, max));
@@ -393,7 +392,14 @@ export function createClient({
     configured,
     url: base,
 
-    // GET /rest/v1/levels?slug=eq.<slug>&select=slug,name,author,is_public,doc&limit=1
+    // GET /rest/v1/levels?slug=eq.<slug>&select=slug,name,author,doc&limit=1
+    //
+    // is_public is NOT in that select, though a caller might reasonably want
+    // it. Nothing reads it, and leaving it out means this one request also
+    // works against a project where 002-accounts.sql has not been run yet.
+    // PostgREST rejects a select naming a column the table does not have, and
+    // a player asking for a level is the request that must not be the first
+    // casualty of a migration nobody has got round to.
     //
     // No `is_public=eq.true` filter, and that is deliberate: the SELECT policy
     // in 002-accounts.sql is already "public, or mine", so a private level is
@@ -402,7 +408,7 @@ export function createClient({
     // testing their own unpublished level.
     async fetchLevel(slug) {
       if (!isLevelSlug(slug)) return { ok: false, reason: 'that is not a level code' };
-      const res = await request(`/levels?slug=eq.${encodeURIComponent(slug)}&select=slug,name,author,is_public,doc&limit=1`);
+      const res = await request(`/levels?slug=eq.${encodeURIComponent(slug)}&select=slug,name,author,doc&limit=1`);
       if (!res.ok) return res;
       const row = Array.isArray(res.data) ? res.data[0] : null;
       // Nothing came back, and the two reasons are indistinguishable from here

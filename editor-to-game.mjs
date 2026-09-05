@@ -130,15 +130,18 @@ claim(sect2[0] === 'brick' && sect2[2] !== 'brick', 'and the ones between are un
 // THE PLACEMENT INDICATOR. Green where a headstone may go, red where it may
 // not, and the drop refused when it is red.
 claim(await clickEntry('celtic'), 'a headstone is an entry in the same list');
-const verdicts = await editor.page.evaluate(() => ({
-  open: window.__editor.preview(6, 6),
-  fence: window.__editor.preview(3, -7),
-  path: window.__editor.preview(0, 0),
-  out: window.__editor.preview(14.9, 14.9),
-}));
+const verdicts = await editor.page.evaluate(() => {
+  const p = window.__editor.doc.props[0];
+  return {
+    open: window.__editor.preview(6, 6),
+    fence: window.__editor.preview(3, -7),
+    onTop: window.__editor.preview(p.x, p.z),
+    out: window.__editor.preview(14.9, 14.9),
+  };
+});
 claim(!!verdicts.open && verdicts.open.ok, 'the indicator is green on open ground');
 claim(!verdicts.fence.ok && /fence/.test(verdicts.fence.why), `red in a fence: ${verdicts.fence.why}`);
-claim(!verdicts.path.ok && /path/.test(verdicts.path.why), `red in a path: ${verdicts.path.why}`);
+claim(!verdicts.onTop.ok && /too close/.test(verdicts.onTop.why), `red on top of something: ${verdicts.onTop.why}`);
 claim(!verdicts.out.ok, `red outside the wall: ${verdicts.out.why}`);
 
 const propsBefore = await editor.page.evaluate(() => window.__editor.doc.props.length);
@@ -147,6 +150,14 @@ claim(
   (await editor.page.evaluate(() => window.__editor.doc.props.length)) === propsBefore,
   'a red drop does not happen',
 );
+// A REFUSED DROP ON TOP OF SOMETHING SELECTS THAT THING INSTEAD, which is the
+// way back to selecting without going to find the select button, so the
+// headstone has to be picked up again before the next drop.
+claim(
+  (await editor.page.evaluate(() => window.__editor.tool)) === 'select',
+  'a refused drop on a thing selects the thing instead',
+);
+await clickEntry('celtic');
 await clickWorld(6, 6);
 const placed = await editor.page.evaluate(() => window.__editor.doc.props.at(-1));
 claim(

@@ -10,14 +10,20 @@
 // filling the whole time. The only thing the script does that a player does not
 // is read window.__share instead of clicking a link.
 //
-// TWO RESOLUTIONS, and the reason is the software rasteriser. Every frame in a
-// headless container is drawn on the CPU, so playing a whole run out at the
-// size the picture wants costs many minutes of wall clock for frames that are
-// thrown away. So the run is played at --small, and the canvas is grown to
-// --w/--h for the last stretch, which is exactly the stretch the ring keeps.
-// The recorder measures the canvas on every sample and resizes its slots to
-// suit, so the escalation costs nothing and is the same code path a player
-// resizing their window takes.
+// TWO GEARS, and the reason is the software rasteriser. Every frame here is
+// drawn on the CPU, and the dominant cost is the 2048 square shadow map, which
+// does not care how big the canvas is: shrinking the canvas buys almost
+// nothing, and a run played out frame by frame at 60 Hz costs HOURS.
+//
+// So the run is played in a coarse gear, one step every 0.2 s, which is the
+// largest step the game is built to survive -- scene.js's own loop clamps a
+// stalled frame to 1/20 -- and rules.js substeps internally, so the simulation
+// is the same simulation, just sampled less often. On the last life it drops
+// into a fine gear and the canvas grows, because that is the stretch the ring
+// buffer keeps and the only stretch whose pixels are ever seen. The recorder
+// measures the canvas on every sample and resizes its slots to suit, so the
+// change of size costs nothing and is the same path a player resizing their
+// window takes.
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { openLab, grabPNG, parseArgs } from './session.mjs';
@@ -26,8 +32,8 @@ const a = parseArgs(process.argv.slice(2));
 // The picture keeps just over half the frame height, so the source wants about
 // twice the output's pixels for the crop to be a downsample rather than a
 // stretch. A real browser gets that free from a device pixel ratio of 2.
-const width = Number(a.w || 1920);
-const height = Number(a.h || 1440);
+const width = Number(a.w || 1800);
+const height = Number(a.h || 1350);
 const small = Number(a.small || 640);
 const outDir = a.out || 'out/share';
 const maxSeconds = Number(a.max || 300);
@@ -45,12 +51,11 @@ await setSize(small, Math.round(small * height / width));
 // fastest honest way to the third death, except on the last life, where it
 // runs across the skeleton's path instead so the frames the ring keeps are a
 // chase rather than a head-on collision.
-const DT = 1 / 30;
-const CHUNK = 15;
-// Counted in FRAMES rather than accumulated in seconds. 15 * (1/30) is not 0.5
-// in binary and a seconds counter built out of it never lands on a round
-// number, so a progress line keyed off `t % 10` prints nothing at all and the
-// run looks hung when it is only slow.
+const COARSE = 1 / 5;
+const FINE = 1 / 30;
+const CHUNK = 10;
+// Frames drawn, which is what the wall clock is actually spent on and so what
+// a progress line should be keyed to. Game seconds come off the run itself.
 let frames = 0;
 let t = 0;
 let over = false;
@@ -70,7 +75,7 @@ while (t < maxSeconds && !over) {
     for (let i = 0; i < o.chunk; i++) {
       const st = window.__game.state();
       const foe = foeOf(st);
-      let axis = { x: Math.cos((o.t + i * o.dt) * 0.9), y: Math.sin((o.t + i * o.dt) * 0.61) };
+      let axis = { x: Math.cos((o.t + i) * 0.37), y: Math.sin((o.t + i) * 0.23) };
       if (foe) {
         const dx = foe.x - st.ghost.x;
         const dz = foe.z - st.ghost.z;
@@ -83,13 +88,15 @@ while (t < maxSeconds && !over) {
         const s = Math.sin(turn);
         axis = { x: (dx * c - dz * s) / L, y: (dx * s + dz * c) / L };
       }
-      window.__game.step(o.dt, axis);
+      window.__game.step(st.lives <= 1 ? o.fine : o.coarse, axis);
     }
     const r = window.__game.run();
-    return { over: r.over, lives: window.__game.state().lives, score: r.score, flies: r.fireflies };
-  }, { t, dt: DT, chunk: CHUNK });
+    return { over: r.over, lives: window.__game.state().lives, score: r.score, flies: r.fireflies, t: r.time };
+  }, { t, coarse: COARSE, fine: FINE, chunk: CHUNK });
   frames += CHUNK;
-  t = frames * DT;
+  // The run's own clock rather than a count of steps, since the steps are two
+  // different lengths.
+  t = res.t;
   over = res.over;
   // The last life is the one that gets photographed, so that is where the
   // pixels go.
@@ -98,8 +105,8 @@ while (t < maxSeconds && !over) {
     big = true;
     console.log(`  t=${t.toFixed(0)}s last life, canvas up to ${width}x${height}`);
   }
-  if (frames % (10 * 30) === 0) {
-    console.log(`  t=${t.toFixed(0)}s lives=${res.lives} score=${res.score} fireflies=${res.flies}`);
+  if (frames % 50 === 0) {
+    console.log(`  ${frames} frames, t=${t.toFixed(0)}s lives=${res.lives} score=${res.score} fireflies=${res.flies}`);
   }
 }
 if (!over) { console.log('run did not end inside --max seconds'); await lab.close(); process.exit(1); }

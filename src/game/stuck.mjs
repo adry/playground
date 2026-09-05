@@ -274,6 +274,118 @@ export function sweepWalk(world, { cell = 0.25, dirs = 8, seconds = HOLD } = {})
   return { kind: 'walk', nx, nz, cell, box, grid, hits, probed, stalls, standing };
 }
 
+// THE FINE NET, and it is the one that catches this bug.
+//
+// A cycling resolver does not fail over a region, it fails at a POINT: the
+// place where "integrate, then resolve" happens to have a fixed point. Around
+// it the ghost slides normally, so a quarter unit lattice walks straight past
+// -- the pre-fix trap in the shipped level sits at (9.85, -4.15), which is a
+// tenth of a unit off the nearest quarter unit cell, and every sweep at 0.25
+// declared the level clean.
+//
+// So this one runs at five centimetres, and pays for it with a filter that
+// costs nothing: a body can only be held where at least TWO keep-out regions
+// have it, so cells with fewer than two colliders in contact range are skipped
+// without ever being walked. On the shipped level that is 359,000 cells down to
+// about 12,000 walked.
+export function sweepStand(world, { cell = 0.05, dirs = 8 } = {}) {
+  const nav = createNav(world);
+  const box = world.bounds;
+  const dir = dirsOf(dirs);
+  const r = T.ghostRadius;
+  const nx = Math.floor((box.maxX - box.minX) / cell) + 1;
+  const nz = Math.floor((box.maxZ - box.minZ) / cell) + 1;
+  const hits = [];
+  let probed = 0;
+  let clear = 0;
+  for (let iz = 0; iz < nz; iz++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const x = box.minX + ix * cell;
+      const z = box.minZ + iz * cell;
+      nav.focus(x, z);
+      if (!nav.discClear(x, z, r)) continue;
+      clear++;
+      // In contact with two or more things, which is the only shape a trap has.
+      let touching = 0;
+      for (const p of world.props(null)) {
+        if (p.solid === false) continue;
+        if (Math.hypot(p.x - x, p.z - z) < p.radius + r + 0.10) touching++;
+      }
+      for (const b of world.barriers(null)) {
+        if (pointSegD2(x, z, b.x0, b.z0, b.x1, b.z1) < (b.half + r + 0.10) ** 2) touching++;
+      }
+      if (touching < 2) continue;
+      probed++;
+      const out = escape(nav, x, z, dir);
+      if (out.best >= FREE && !out.nan) continue;
+      hits.push({ x: +x.toFixed(3), z: +z.toFixed(3), best: out.best, nan: out.nan });
+    }
+  }
+  return { kind: 'stand', nx, nz, cell, box, grid: new Int8Array(0), hits, probed, clear, stalls: 0 };
+}
+
+// THE JUMP, which is the door into every pocket in the level.
+//
+// Walking cannot get the ghost into a sealed pocket -- the resolver will not
+// push a body through a prop or across a fence -- but a VAULT is allowed to
+// cross a fence by design, and rule 6 only asks that the landing disc fits.
+// Fitting is not the same as being somewhere you can leave, and a pocket the
+// ghost cannot walk into is a pocket it cannot walk out of either. So this
+// enumerates every jump the rules would permit from every piece of ground the
+// ghost can actually stand on, and reports the ones that land somewhere it can
+// never move again.
+//
+// The speeds are sampled because a jump's length is its speed at takeoff:
+// anything from jumpMinSpeed, the slowest jump the rules allow, to the ghost's
+// top speed.
+export function sweepJump(world, { cell = 0.25, dirs = 16, speeds = 8 } = {}) {
+  const nav = createNav(world);
+  const dir = dirsOf(dirs);
+  const box = world.bounds;
+  const r = T.ghostRadius;
+  const airTime = (2 * T.jumpUp) / T.jumpGravity;
+  const free = openSpace(world, { cell });
+  const nx = Math.floor((box.maxX - box.minX) / cell) + 1;
+  const nz = Math.floor((box.maxZ - box.minZ) / cell) + 1;
+  const hits = [];
+  let probed = 0;
+  let legal = 0;
+  let offshore = 0;
+  for (let iz = 0; iz < nz; iz++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const x = box.minX + ix * cell;
+      const z = box.minZ + iz * cell;
+      if (!free(x, z)) continue;
+      probed++;
+      for (const [dx, dz] of dir) {
+        for (let s = 0; s < speeds; s++) {
+          const sp = T.jumpMinSpeed + ((T.ghostSpeed - T.jumpMinSpeed) * s) / (speeds - 1);
+          const lx = x + dx * sp * airTime;
+          const lz = z + dz * sp * airTime;
+          nav.focus(x, z);
+          // Exactly rules.js tryJump's three refusals, in its order.
+          if (nav.crossesProp(x, z, lx, lz, r)) continue;
+          if (!nav.discClear(lx, lz, r)) continue;
+          if (nav.crossesWall(x, z, lx, lz, 0)) continue;
+          legal++;
+          // Landed off the ground it took off from. Not yet a bug: a vault into
+          // a pen is exactly this and is the point of the mechanic.
+          if (free(lx, lz)) continue;
+          offshore++;
+          nav.focus(lx, lz);
+          const out = escape(nav, lx, lz, dir);
+          if (out.best >= FREE && !out.nan) continue;
+          hits.push({
+            x: +lx.toFixed(3), z: +lz.toFixed(3), best: out.best, nan: out.nan,
+            from: { x, z }, dir: [dx, dz], speed: sp,
+          });
+        }
+      }
+    }
+  }
+  return { kind: 'jump', nx, nz, cell, box, grid: new Int8Array(0), hits, probed, legal, offshore, stalls: 0 };
+}
+
 export function sweepSeats(world, { cell = 0.25, dirs = 8 } = {}) {
   const nav = createNav(world);
   const box = world.bounds;
@@ -491,8 +603,18 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   console.log(`${args.seed ? `seed ${args.seed}` : (args.level || 'public/levels/demo.json')}`
     + `  cell ${cell}, ${dirs} directions, a clear second is ${freeRun().toFixed(2)} units`);
-  const res = args.seats ? sweepSeats(world, { cell, dirs }) : sweepWalk(world, { cell, dirs });
-  if (res.kind === 'walk') {
+  const res = args.seats ? sweepSeats(world, { cell, dirs })
+    : args.stand ? sweepStand(world, { cell: Number(args.cell) || 0.05, dirs })
+      : args.jump ? sweepJump(world, { cell, dirs: Number(args.dirs) || 16 })
+        : sweepWalk(world, { cell, dirs });
+  if (res.kind === 'jump') {
+    console.log(`${res.probed} cells of standable ground: ${res.legal} legal jumps off them, `
+      + `${res.offshore} of those land off the ghost's own ground, `
+      + `${res.hits.length} land somewhere with no way out`);
+  } else if (res.kind === 'stand') {
+    console.log(`${res.clear} open cells at ${res.cell}, ${res.probed} of them touching two or `
+      + `more colliders: ${res.hits.length} are places the ghost can STAND and not get out of`);
+  } else if (res.kind === 'walk') {
     console.log(`${res.probed} open cells: ${res.standing} of them are places the ghost can `
       + `STAND and not get out of  <- this is the one that has to be zero`);
     console.log(`walked from each of them x ${dirs}: ${res.stalls} stalls, `

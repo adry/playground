@@ -159,7 +159,7 @@ async function wireChecks() {
   ok(mine.ok, 'its owner can still open it');
   eq(mine.level.doc.seed, 7, 'and gets the document back');
   const readReq = fake.seen[fake.seen.length - 1];
-  eq(readReq.path, `/rest/v1/levels?slug=eq.${pub.slug}&select=slug,name,author,is_public,doc&limit=1`,
+  eq(readReq.path, `/rest/v1/levels?slug=eq.${pub.slug}&select=slug,name,author,doc&limit=1`,
     'the read asks for the code and only the columns it needs');
 
   console.log('\nmaking it public');

@@ -119,7 +119,7 @@ export const M = {
     neck: f(0.640),           // neck pivot. See the note under `neck` below.
     chin: f(0.670),
     atlas: f(0.700),          // head pivot, at the base of the skull ball
-    grin: f(0.735),           // centre line of the mouth
+    grin: f(0.758),           // centre line of the mouth
     // The jaw hinge, well above the mouth and behind it, where a real condyle
     // sits under the ear. Putting it at the mouth makes an opening jaw slide
     // rather than swing, which reads as the teeth falling off.
@@ -151,7 +151,7 @@ export const M = {
     depth: f(0.318),
     // How far the brow shelf stands proud of the ball. This is small in
     // absolute terms and does most of the shading work on the upper face.
-    browJut: f(0.013),
+    browJut: f(0.017),
     // How far behind the head's centre plane the jaw condyle sits.
     jawHingeZ: f(-0.026),
     // How much narrower the head is at the chin than at the cheekbones, as a
@@ -172,10 +172,14 @@ export const M = {
     width: f(0.090),
     height: f(0.082),
     depth: f(0.038),
-    separation: f(0.115),     // centre to centre
+    // Centre to centre. f(0.115) was the first pass and the two sockets came
+    // within 0.02 of touching over the bridge, which read as one wide dark
+    // band rather than two eyes. Pushed out until there is a clear strip of
+    // green between them at game scale.
+    separation: f(0.140),
     // How far the upper rim cuts down toward the nose. The skeleton's note
     // applies verbatim: 0.60 is a glare, this is a stare. Change knowingly.
-    slant: 0.14,
+    slant: 0.05,
   },
 
   // Lipless: the mouth is a slot cut into the face, not lips laid on it, so
@@ -260,7 +264,7 @@ export const M = {
   cavity: {
     halfAngle: 0.70,
     floor: 0.34,              // cavity floor radius, as a fraction of the shell's
-    ribFront: 0.66,           // where the ribs sit, between floor and shell
+    ribFront: 0.62,           // where the ribs sit, between floor and shell
     // THREE pairs, not the reference's full cage, and this is the biggest
     // single concession to size on the model. The window is 0.205 units tall,
     // which is TWELVE PIXELS in a shipped frame. Four ribs in it is a 3 px
@@ -268,7 +272,7 @@ export const M = {
     // separate pale lines with dark between them, which is what a ribcage is
     // at this size. The count is set by the pixel pitch, not by anatomy.
     ribPairs: 3,
-    ribRadius: f(0.0135),
+    ribRadius: f(0.0105),
     ribSpacing: f(0.040),
     ribTop: f(0.582),
     // The spine runs down the middle of the cavity BEHIND the ribs, so its
@@ -295,7 +299,7 @@ export const M = {
     // with. Opening the jacket past the cavity costs nothing in character and
     // leaves the whole ribcage legible, with the jacket edges framing it.
     openHalfAngle: 0.82,
-    thickness: f(0.014),
+    thickness: f(0.010),
     tatter: f(0.022),         // depth of the sawtooth at the hem and cuffs
     sleeveTo: f(0.500),       // the sleeves are torn off just above the elbow
   },

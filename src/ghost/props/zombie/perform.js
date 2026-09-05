@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import M, { LIMITS, GAIT, REST } from './metrics.js';
+import M, { LIMITS, GAIT } from './metrics.js';
 import { Spring, easeOutBack, easeInOutCubic, easeOutElastic } from '../skeleton/motion.js';
 
 // The chibi zombie's performance: buried, claws its way out of the ground,
@@ -198,11 +198,24 @@ const CRAWL = {
   // generous and because there is a third as much spine to bend.
   lumbar: [[0, 8], [1.6, 4], [2.4, -4], [3.4, -8], [5.2, -4]],
   thorax: [[0, 6], [1.6, 1], [2.4, -6], [3.4, -9], [4.3, -6], [5.2, -2]],
-  // Absolute world pitch of the head. 90 is face down, 0 is level, negative
-  // looks up. THE HELD BEAT IS 2.1 TO 3.0: the surface breaks, the head comes
-  // right back, and it stays there while it shakes the dirt off.
-  gaze: [[0, 96], [1.4, 88], [2.1, 30], [2.6, -34], [3.0, -30], [3.4, -8],
-    [3.9, 8], [5.2, 3]],
+  // Head angle RELATIVE TO THE CHEST, in degrees, positive nodding forward.
+  //
+  // Relative and not absolute, which is a change of authoring convention from
+  // the skeleton's and is forced by LIMITS. The head joint's whole range is
+  // [-0.55, 0.50] rad and the neck's is [-0.30, 0.30], so the head can turn no
+  // more than about 40 degrees against the chest before the skull ball is
+  // through the deltoid. An absolute gaze track, which is what the skeleton
+  // writes, silently spends all of that on whatever the torso happens to be
+  // doing and then clamps: the skeleton's own climb asks for 110 degrees of
+  // absolute head pitch against a chest at 124, which is 67 degrees of head on
+  // this figure, and it would arrive as a head frozen on its stop for two
+  // seconds. Authored relative, every one of these is inside the budget by
+  // construction and the TORSO carries the rest of the swing.
+  //
+  // THE HELD BEAT IS 2.1 TO 3.0: the surface breaks, the head comes right back
+  // to its stop, and it stays there while it shakes the dirt off.
+  gazeRel: [[0, 34], [1.4, 30], [2.1, 2], [2.6, -36], [3.0, -32], [3.4, -18],
+    [3.9, -5], [5.2, -2]],
 
   // Right arm, the one that breaks the surface. World pitch: 0 hangs down,
   // -90 reaches straight forward, -145 is as high as LIMITS.shoulder allows.
@@ -688,8 +701,44 @@ export function createZombiePerformance({
     hipL: 0, hipR: 0, kneeL: 0, kneeR: 0, ankleL: 0, ankleR: 0,
     roll: 0, list: 0, sway: 0, lift: 0,
   };
+  // The head's angle against the chest, which is what every phase authors. See
+  // CRAWL.gazeRel for why this is relative rather than absolute.
+  let headRel = 0;
 
-  const BURIED_Y = -ARM_SPAN * 0.40;
+  // HOW THE HEAD'S ANGLE IS SPENT. metrics.js caps the head joint at [-0.55,
+  // 0.50] and the neck at [-0.30, 0.30], so the two together are 0.85 rad up
+  // and 0.80 rad down and nothing this file writes may exceed that. The split
+  // below hands 70% to the head and 30% to the neck, which saturates both at
+  // very nearly the same angle and so wastes none of a budget there is very
+  // little of. metrics.js says to use the head for the range and the neck for
+  // the follow-through, and 70/30 is that, read as a number.
+  const NECK_SHARE = 0.30;
+  // What a phase may ask for, before the measured lag is added.
+  const HEAD_REL_MAX = 0.63;
+
+  // WHERE IT IS BURIED, worked out rather than chosen.
+  //
+  // Two constraints, and on this figure they nearly meet. The whole head has to
+  // be under the floor, or the shot opens with a bald green dome sitting in the
+  // grass; and a hand has to be able to break the surface from down there, or
+  // the shot opens with a second of empty floor while the figure climbs to
+  // where the performance starts. The skeleton chose -0.30 by hand and wrote
+  // the arithmetic in a comment; here it is the arithmetic.
+  //
+  // The head is treated as a ball at its measured centre of mass, which for a
+  // chibi is very nearly what it is.
+  const OPEN_PITCH = CRAWL.pitch[0][1] * D;
+  const headBall = Math.max(
+    (headBox.max.y - headBox.min.y), (headBox.max.x - headBox.min.x),
+  ) * 0.5;
+  const headTopAboveHip = (HEAD_Y - rootRest.y + HEAD_COM_Y) * Math.cos(OPEN_PITCH) + headBall;
+  const BURIED_Y = -(headTopAboveHip + SPAN * 0.05);
+  // And the check, published rather than asserted, because a rig whose arms
+  // cannot reach the surface is the body agent's news and not this file's to
+  // throw on. Positive means a claw breaks the surface at the opening pose.
+  const armReach = ARM_SPAN + (wristBox.isEmpty() ? M.arm.hand : -wristBox.min.y);
+  const reachMargin = BURIED_Y
+    + (SHOULDER_Y - rootRest.y) * Math.cos(OPEN_PITCH) + armReach * 0.94;
   T.lift = BURIED_Y;
 
   // Joint limits, applied where they can be applied. The pose joints are
@@ -1024,12 +1073,7 @@ export function createZombiePerformance({
     T.root = pitch;
     T.lumbar = pitch + track(CRAWL.lumbar, t) * D;
     T.thorax = T.lumbar + track(CRAWL.thorax, t) * D;
-    const gaze = track(CRAWL.gaze, t) * D;
-    // Most of the head angle goes to the HEAD joint and almost none to the
-    // neck, which is the opposite split from the skeleton's 0.45. metrics.js:
-    // "use `head` for the range and `neck` for the last little follow-through".
-    T.neck = mix(T.thorax, gaze, 0.16);
-    T.head = gaze;
+    headRel = clamp(track(CRAWL.gazeRel, t) * D, -HEAD_REL_MAX, HEAD_REL_MAX);
     T.headYaw = 0;
     T.headRoll = 0;
 

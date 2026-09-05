@@ -216,12 +216,25 @@ const ARCH_DROPS = 7;
 const CROSS_H = 0.36;
 
 // How far out of true. See the note at the top on why this is a shear.
-const DROOP = [0.030, 0.052];      // radians of rack, per leaf
+// Radians of rack, per leaf, and the SPREAD between them is the number that
+// matters rather than either value. At 1.9655 from hinge to meeting stile the
+// two free edges end up 79 mm apart in height, which is three pixels at the
+// game's framing: enough that the camber's apex has a visible step in it and
+// the two rows of spear tips do not line up, which is what "out of true" has to
+// look like at this size. The far leaf has dropped 122 mm and its bottom corner
+// is 22 mm INTO the threshold stone, which is the picture of a gate that has
+// stopped being a gate.
+const DROOP = [0.022, 0.062];
 const LEAN = 0.009;                // and how far the whole gate leans, shared
 
 // The chain, and the padlock hanging off it.
 const LINK = { major: 0.072, tube: 0.022, long: 1.6, count: 11 };
 const CHAIN_Y = 1.30;
+
+// Where the hinge hardware and the chain sit through the thickness of the gate:
+// on its arena face, not on its centreline. The wall is 0.44 thick so this is
+// well inside it, and WALL.collide covers it four times over.
+const HARD_Z = 0.055;
 
 // The iron. Not one colour: the frame is a shade darker than the bars, which is
 // what stops a grille of identical members reading as a screen door.
@@ -543,7 +556,12 @@ function leafPieces(dir, droop, out) {
   const X = (x) => dir * x;
   const hang = X(HANG_X);
   const meet = X(MEET_X);
-  const add = (geo, colour) => out.push({ geo: rack(geo, hang, droop, LEAN * dir), colour });
+  // One lean for BOTH leaves and not one per leaf. Leaning them by dir splays
+  // the pair apart at the top, which is symmetric, and symmetric damage reads
+  // as a style rather than as damage. Leaning them together tips the whole gate
+  // the same way the piers are already tipped, and leaves all the asymmetry to
+  // the droop, which is where it belongs.
+  const add = (geo, colour) => out.push({ geo: rack(geo, hang, droop, LEAN), colour });
 
   // Where the top rail runs. Its own centre line, so every station on it can
   // answer "how high is the head here" for the bars that pass through it.
@@ -620,11 +638,17 @@ function leafPieces(dir, droop, out) {
   // clearest picture of a gate that has failed, and it comes free from building
   // the two halves in the two frames they actually belong to.
   for (const y of [Y_BOT, Y_TOP_HANG - 0.06]) {
-    add(sweepPlane([
+    const strap = sweepPlane([
       { x: hang - X(0.04), y, s: 1 },
       { x: hang + X(0.30), y, s: 1 },
       { x: hang + X(0.46), y, s: 0.55 },
-    ], rect(0.052, 0.016), { smooth: false }), IRON_HARD);
+    ], rect(0.052, 0.016), { smooth: false });
+    // On the FACE of the leaf rather than down its middle, which is where a
+    // strap hinge goes and is also what stops it reading as a fourth rail. The
+    // arena side, because a gate whose hinges can be reached from outside is a
+    // gate that comes off its pins.
+    strap.translate(0, 0, HARD_Z);
+    add(strap, IRON_HARD);
   }
 }
 
@@ -662,9 +686,13 @@ function framePieces(out) {
   // rack, which is the whole point of building them here.
   for (const s of [-1, 1]) {
     for (const y of [Y_BOT, Y_TOP_HANG - 0.06]) {
-      add(strut(s * JAMB, y, s * (JAMB - 0.09), y, rect(0.040, 0.030)), IRON_HARD);
-      add(strut(s * (JAMB - 0.085), y - 0.055, s * (JAMB - 0.085), y + 0.075,
-        ngon(0.022, 5), { smooth: true }), IRON_HARD);
+      const lug = strut(s * JAMB, y, s * (JAMB - 0.09), y, rect(0.040, 0.030));
+      const pin = strut(s * (JAMB - 0.085), y - 0.055, s * (JAMB - 0.085), y + 0.075,
+        ngon(0.022, 5), { smooth: true });
+      lug.translate(0, 0, HARD_Z);
+      pin.translate(0, 0, HARD_Z);
+      add(lug, IRON_HARD);
+      add(pin, IRON_HARD);
     }
   }
 }
@@ -680,6 +708,11 @@ function framePieces(out) {
 
 function chainPieces(rand, out) {
   const link = linkGeometry();
+  // The chain is wrapped round two stiles that lean, so it leans with them.
+  // It does NOT droop with them: it is hanging off the pair, not part of
+  // either leaf, and 100 mm of daylight opening up between a chain and the
+  // thing it is tied round is the one way this detail could look wrong.
+  const chainLean = (CHAIN_Y - Y_FOOT) * LEAN;
 
   // A closed loop in three dimensions: round the back of both stiles, out to
   // each side, and down the front in a bight.
@@ -698,6 +731,8 @@ function chainPieces(rand, out) {
   // at the corners, and turn every other one a quarter turn about the run,
   // which is what makes a row of rings read as a chain and not as a string of
   // beads.
+  for (const q of loop) q[0] += chainLean;
+
   const seg = [];
   let total = 0;
   for (let i = 0; i < loop.length; i++) {
@@ -757,9 +792,9 @@ function chainPieces(rand, out) {
   // round a gate has one, and it is the piece that stops the wrap reading as a
   // moulded lump.
   const tail = [
-    new THREE.Vector3(0.118, CHAIN_Y - 0.05, 0.075),
-    new THREE.Vector3(0.150, CHAIN_Y - 0.21, 0.095),
-    new THREE.Vector3(0.132, CHAIN_Y - 0.37, 0.088),
+    new THREE.Vector3(0.118 + chainLean, CHAIN_Y - 0.05, 0.075),
+    new THREE.Vector3(0.150 + chainLean, CHAIN_Y - 0.21, 0.095),
+    new THREE.Vector3(0.132 + chainLean, CHAIN_Y - 0.37, 0.088),
   ];
   const tailLink = linkGeometry();
   for (let i = 0; i < 4; i++) {
