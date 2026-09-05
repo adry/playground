@@ -66,7 +66,7 @@ export function buildLevelProp(p, { allowCut = true } = {}) {
     // A pellet is a pumpkin. The world calls it `jack` because the rules half
     // collects it, not because it is a different prop.
     case 'jack': return createPumpkin({ variant: p.variant || 'classic', seed: s });
-    case 'bush': return createBush({ seed: s });
+    case 'bush': return createBush({ seed: s, variant: p.variant });
     case 'dirt': return createDirtPile({ seed: s, spade: (s & 3) === 0 });
     case 'lantern': return (LANTERNS[p.variant] || createGroundLantern)({ seed: s });
     case 'grass': return p.variant === 'tuft' ? createGrassTuft({ seed: s }) : createGrassPatch({ seed: s });

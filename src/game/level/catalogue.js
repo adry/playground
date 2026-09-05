@@ -26,6 +26,7 @@
 
 import { footprintOf, boundingRadius } from '../layout/footprints.js';
 import { VARIANTS as STONE_VARIANTS } from '../../ghost/props/stones/index.js';
+import { BUSH_VARIANTS } from '../../ghost/props/foliage/bush.js';
 import { PUMPKIN_VARIANTS } from '../../ghost/props/pumpkin.js';
 import { FLOWER_VARIANTS } from '../../ghost/props/ground/flowers.js';
 
@@ -100,7 +101,12 @@ export const PALETTE = [
   { id: 'pumpkins', label: 'pumpkins', kind: 'pumpkin', variants: PUMPKIN_VARIANTS.slice() },
   { id: 'lanterns', label: 'lanterns', kind: 'lantern', variants: LANTERN_VARIANTS.slice() },
   { id: 'foliage', label: 'planting', kind: null, items: [
-    { kind: 'bush', variant: null, label: 'bush' },
+    // The clipped three first, then the shrub they were cut from. An author
+    // reaching for planting along a path wants topiary; the overgrown one is
+    // for the corner by the wall.
+    ...BUSH_VARIANTS.map((v) => ({
+      kind: 'bush', variant: v, label: v === 'wild' ? 'bush overgrown' : `bush ${v}`,
+    })),
     { kind: 'grass', variant: 'patch', label: 'grass patch' },
     { kind: 'grass', variant: 'tuft', label: 'grass tuft' },
     ...FLOWER_VARIANTS.map((v) => ({ kind: 'flowers', variant: v, label: `flowers ${v}` })),

@@ -271,8 +271,8 @@ function shedYard({ bay, rng, placer }) {
         gridYaw: FACE + rng.jitter(0.5), foot: pFoot,
       })) placed++;
     }
-    const bush = footprintOf('bush');
-    if (placer.try({ kind: 'bush', variant: 'bush', u: yardU, v: bay.cv + 1.2, gridYaw: rng.float(0, 6.28), foot: bush })) placed++;
+    const bush = footprintOf('bush', 'ball');
+    if (placer.try({ kind: 'bush', variant: 'ball', u: yardU, v: bay.cv + 1.2, gridYaw: rng.float(0, 6.28), foot: bush })) placed++;
   }
   return placed;
 }
@@ -382,10 +382,10 @@ export function lanternCorners({ placer, rng, corners, variant = 'ground' }) {
 function lawn({ bay, rng, placer }) {
   let placed = 0;
   const n = rng.int(0, 3);
-  const foot = footprintOf('bush');
+  const foot = footprintOf('bush', 'ball');
   for (const off of spread(n, Math.min(bay.width - 2.4, 4.5))) {
     if (placer.try({
-      kind: 'bush', variant: 'bush',
+      kind: 'bush', variant: 'ball',
       u: bay.cu + off + jitterPos(rng, 0.12),
       v: bay.cv + rng.jitter(0.5),
       gridYaw: rng.float(0, Math.PI * 2), foot,

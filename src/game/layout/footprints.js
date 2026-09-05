@@ -141,7 +141,6 @@ export const MISC = {
   // which is a 4.0 cell to itself with 0.07 to spare, exactly as rule 6 says.
   shed: { shape: 'disc', r: 1.93, height: 2.139 },
 
-  bush: { shape: 'disc', r: 0.600, height: 0.813 },
 
   // ground/hole.js: MOUTH_X 1.0, MOUTH_Z 0.45, long axis along local X. The
   // turf skirt reaches 0.40 further out but it is flat ground that a headstone
@@ -151,6 +150,30 @@ export const MISC = {
   // ground/dirtpile.js: HEAP.length 1.8 along local X, spread 0.9, and loose
   // clods out to scatter 1.2. Measured over the clods: 2.0 by 1.29.
   dirt: { shape: 'box', halfU: 1.0, halfV: 0.643, height: 0.571 },
+};
+
+// --- planting ----------------------------------------------------------------
+//
+// Four bushes off one prop: three clipped forms and the overgrown shrub they
+// were reworked from. They are listed separately because their heights differ
+// by two thirds, and height is what placement rule 5 is written against: a
+// cone at 1.27 stands taller than nine of the headstones and must not be
+// allowed in front of one, while a ball at 0.78 can stand in front of
+// anything. A single row for `bush` would have to publish the cone's height
+// for all four and would then refuse the ball a spot it fits perfectly well.
+//
+// The box is a box. Its faces are 0.92 by 0.89 and a circle round that corner
+// to corner is 0.639, which is 39% of floor it does not occupy; the box test
+// gets it back. The ball and the cone are round in plan and a yaw does nothing
+// to them.
+//
+// A caller that names no variant gets the ball, which is what a level written
+// before the topiary existed is holding when it says `bush`.
+export const BUSHES = {
+  ball: { shape: 'disc', r: 0.476, height: 0.775 },
+  cone: { shape: 'disc', r: 0.405, height: 1.271 },
+  box: { shape: 'box', halfU: 0.459, halfV: 0.445, height: 0.830 },
+  wild: { shape: 'disc', r: 0.576, height: 0.760 },
 };
 
 // Every footprint, addressed as the props list addresses them.
@@ -167,6 +190,7 @@ export function footprintOf(kind, variant) {
     const l = LANTERNS[variant] || LANTERNS.post;
     return { shape: 'disc', r: l.r, height: l.height };
   }
+  if (kind === 'bush') return { ...(BUSHES[variant] || BUSHES.ball) };
   const m = MISC[kind];
   if (m) return { ...m };
   throw new Error(`no footprint for ${kind}/${variant}`);

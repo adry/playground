@@ -262,11 +262,14 @@ async function buildLineup() {
     }
   }
 
-  // Two seeds of the bush, because the one thing a single bush cannot show is
-  // whether two of them read as two plants or as one plant placed twice.
-  for (const seed of [1, 4]) {
-    const b = bush.createBush({ seed });
-    place({ label: `bush ${seed}`, group: b.group, update: b.update });
+  // All four bushes, because the thing the lineup is for is whether the three
+  // clipped forms and the shrub they were cut from read as one plant in four
+  // states. Two seeds of the ball as well, since the one thing a single bush
+  // cannot show is whether two of them read as two plants or as one plant
+  // placed twice.
+  for (const [variant, seed] of [['ball', 1], ['ball', 4], ['cone', 2], ['box', 3], ['wild', 1]]) {
+    const b = bush.createBush({ seed, variant });
+    place({ label: `bush ${variant} ${seed}`, group: b.group, update: b.update });
   }
 
   // The grave hole is the one prop here that is not only itself: it cuts the

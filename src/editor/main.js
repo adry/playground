@@ -313,6 +313,11 @@ function refresh({ deep = !editing } = {}) {
 // they are the two things most likely to be broken by accident.
 function deepReview() {
   if (!world) return;
+  // Into the readout at ?perf=1, because this is the one cost in the tool that
+  // the frame timer cannot see: it runs between gestures rather than inside a
+  // frame, and it is one of the two things most likely to be what a slow
+  // editor feels like.
+  const t0 = performance.now();
   try {
     review = { ...reviewLevel(world), stale: false };
   } catch (err) {
@@ -330,6 +335,7 @@ function deepReview() {
   scene.sync(world, doc, overlayOpts({ wedges: review.wedges }));
   drawPanels();
   drawStatus();
+  scene.mark('review', performance.now() - t0);
 }
 
 // --- finding things ---------------------------------------------------------------
@@ -1499,11 +1505,17 @@ function materialSwatches(value, onpick) {
 
 const groundColour = (name) => (GROUND_COLOURS[name] || { color: '#8b93a3' }).color;
 
+// HOW BIG IT IS, in the units the arena is measured in, which is the one thing
+// a picture of a prop cannot tell you: every tile is the same size, so a grass
+// tuft and a shed look alike until you read this. "halfU" and "disc r" were
+// what the measured table calls them and meant nothing outside it.
 function describeFoot(kind, variant) {
   const f = levelFootprint(kind, variant);
-  return f.shape === 'disc'
-    ? `${kind}/${variant}  disc r ${f.r.toFixed(2)}  height ${f.height.toFixed(2)}`
-    : `${kind}/${variant}  box ${(f.halfU * 2).toFixed(2)} by ${(f.halfV * 2).toFixed(2)}  height ${f.height.toFixed(2)}`;
+  const name = variant ? `${variant} ${kind}` : kind;
+  const size = f.shape === 'disc'
+    ? `${(f.r * 2).toFixed(1)} across`
+    : `${(f.halfU * 2).toFixed(1)} by ${(f.halfV * 2).toFixed(1)}`;
+  return `${name}: ${size}, ${f.height.toFixed(1)} tall. The ghost is 1.3 across.`;
 }
 
 function select(options, value, onchange) {
@@ -1592,8 +1604,12 @@ function drawRight() {
         el('label', { text: 'arena' }),
         el('span', { class: 'grow value', text: `${doc.size} by ${doc.size}${doc.size === LEVEL_SIZE ? '' : ' (made at another size)'}` }),
       ]),
+      // NOT "seed". To us it is the number every random decision is drawn
+      // from; to somebody laying out a graveyard it was an unexplained figure
+      // in a box next to the level's name. What it DOES to them is shuffle the
+      // small stuff, and that is what it is now called.
       el('div', { class: 'row' }, [
-        el('label', { text: 'seed' }),
+        el('label', { text: 'variation' }),
         number(doc.seed, 1, 999999, 1, (v) => commit(() => { doc.seed = v; doc.fireflies.seed = v; })),
       ]),
       el('div', { class: 'row' }, [
@@ -1625,30 +1641,36 @@ function drawRight() {
           say('an empty arena. Place a spawn with S, then build outward from it.');
         } }),
       ]),
-    ], { help: 'The seed drives every prop\'s own wobble and where the fireflies land, so the same file draws the same twice. Save writes a json file; the game plays it at /lab/?game=1&level=<url>.' }),
+    ], {
+      help: 'Variation shuffles the things you do not place by hand: how each headstone leans, how its stone is grained, where the fireflies land. The same number always draws the same level, so change it only if you want a different shuffle. Play opens the game on what is on screen. Save writes a file, which is how a level becomes permanent.',
+    }),
 
     card('wall', 'wall', [
       el('div', { class: 'row' }, [
-        el('label', { text: 'starts in' }),
+        el('label', { text: 'built of' }),
         segment(WALL_VARIANTS, doc.wall.variant, (v) => commit(() => { doc.wall.variant = v; })),
       ]),
       // WHAT THE WALL TOOL STAMPS. Two rows and then clicks on the wall itself,
       // which is how a wall gets built piece by piece: drawing a whole boundary
       // in four clicks is still there and is still the right way to start, and
       // this is the way to work along it afterwards.
+      // TWO STONES ON SCREEN AT ONCE, and until these were labelled it was not
+      // possible to tell which was which: one is what the wall is made of and
+      // one is what the next click will change it to.
+      el('p', { class: 'note', text: 'change of stone tool, then click the wall:' }),
       el('div', { class: 'row' }, [
-        el('label', { text: 'stamp' }),
+        el('label', { text: 'change to' }),
         segment(WALL_VARIANTS, wallPick.variant, (v) => { wallPick.variant = v; setTool('wall'); }),
       ]),
       el('div', { class: 'row' }, [
-        el('label', { text: 'joint' }),
+        el('label', { text: 'joined by' }),
         segment(WALL_JOINTS, wallPick.joint, (v) => { wallPick.joint = v; setTool('wall'); }),
       ]),
       ...doc.wall.styles.map(styleRow),
       el('div', { class: 'row' }, [
         el('button', {
           class: 'grow',
-          text: 'add a change of stone',
+          text: 'add one halfway along',
           disabled: doc.wall.styles.length >= MAX_WALL_CHANGES ? '' : null,
           onclick: () => commit(() => {
             // A sixth of the way on from the last change, which is a place an
@@ -1666,8 +1688,8 @@ function drawRight() {
         }),
       ]),
     ], {
-      count: `${stones.length}/${MAX_STYLES} stones`,
-      help: `With the change of stone tool (W), click anywhere on the wall to change it from there on, and click a change to take it out. The wall runs ${wallLength(doc.wall.points).toFixed(0)} units from the first corner, anticlockwise, and a change at a distance holds until the next one. It is built of ${stones.join(', ')}, and ${MAX_STYLES} stones is all the geometry can carry.`,
+      count: `${stones.length} of ${MAX_STYLES} stones`,
+      help: `The wall can change what it is built of as it goes round. Pick the change of stone tool in the palette, then click the wall where you want it to change; click a change to take it out again. Each change is written as how far round the wall it is, measured from the first corner anticlockwise, and the wall is ${wallLength(doc.wall.points).toFixed(0)} across all four sides. This one uses ${stones.join(', ')}, and four different stones is all one wall can carry.`,
     }),
 
     card('view', 'view', [
@@ -1694,8 +1716,12 @@ function drawRight() {
 
     card('spawns', 'skeleton spawns', doc.graves.length
       ? el('ul', { class: 'spawns' }, doc.graves.map(spawnRow))
-      : el('p', { class: 'note', text: 'the grave tool puts a spawn down. The number is which skeleton climbs out and when.' }),
-    { count: `${doc.graves.length}/${MAX_SPAWNS}`, bad: doc.graves.length !== MAX_SPAWNS }),
+      : el('p', { class: 'note', text: 'put a grave down with the grave tool. Each one is a skeleton, and the number is the order they climb out in.' }),
+    {
+      count: `${doc.graves.length} of ${MAX_SPAWNS}`,
+      bad: doc.graves.length !== MAX_SPAWNS,
+      help: 'Four graves and four skeletons, always: the floor can only be cut open four times and the game runs exactly four characters. Each one chases differently, and the order is the order they come out of the ground.',
+    }),
 
     card('selection', 'selection',
       sel.length === 1 ? inspector(sel[0])
@@ -1704,19 +1730,21 @@ function drawRight() {
     card('audit', 'audit', auditList(), {
       count: review.stale ? '...' : review.errors.length,
       bad: !review.stale && review.errors.length > 0,
-      help: 'audit.js\'s thirteen rules plus the wedge pass, run a moment after you stop. A wedge is a place the ghost can vault into that no skeleton can walk to, and it is the failure that ends a game: it is drawn on the floor because there is nothing else to see.',
+      help: 'The slow, thorough check, run a moment after you stop moving things. It looks for everything the quick one cannot: something standing in a path, something tall hiding something short from the camera, and above all a place the ghost can jump into that no skeleton can walk to. That last one ends a game, because the player stands in it and is safe for ever, and it is invisible until it is drawn on the floor in red.',
     }),
 
     card('fairness', 'fairness', fairnessList(), {
       count: fair.stale ? '...' : fair.fail.length,
       bad: fair.fail.length > 0,
-      help: 'The eight properties the soak proved over three thousand generated levels, run against this one. F3 is the one to read first: it says the ghost can reach somewhere no skeleton can.',
+      help: 'Eight questions about whether this level can be played and lost fairly: can the player reach everything, can the skeletons reach the player, is there anywhere to hide, can one skeleton standing in a gateway trap them. They were proved over three thousand generated levels; now that levels are made by hand, they are asked here instead.',
     }),
 
-    card('problems', 'geometry', issuesList(), {
-      count: report ? `${report.errors.length} / ${report.warnings.length}` : '0 / 0',
+    card('problems', 'placement', issuesList(), {
+      count: report && (report.errors.length || report.warnings.length)
+        ? `${report.errors.length} to fix, ${report.warnings.length} to look at`
+        : 'clear',
       bad: !!(report && report.errors.length),
-      help: 'The fast half, run on every change: overlaps, things in fences, things in gates, things outside the wall. Errors first, then warnings.',
+      help: 'The quick check, run while you are still moving something: things overlapping, things standing in a fence or a gateway, things outside the wall. Anything it finds is outlined in red on the floor.',
     }),
   );
 }
@@ -1755,8 +1783,8 @@ function inspector(id) {
   const k = kindOf(id);
   if (!r) return el('p', { class: 'note', text: 'nothing selected' });
   const rows = [el('div', { class: 'row' }, [
-    el('label', { text: 'what' }),
-    el('span', { class: 'grow value', text: `${k} ${id}` }),
+    el('label', { text: 'this is' }),
+    el('span', { class: 'grow value', text: k === 'prop' ? `${r.variant || ''} ${r.kind}`.trim() : k }),
   ])];
   if (k === 'prop') {
     const group = PALETTE.find((gp) => gp.kind === r.kind);
@@ -1767,6 +1795,7 @@ function inspector(id) {
       ]));
     }
     rows.push(el('p', { class: 'note', text: describeFoot(r.kind, r.variant) }));
+
   }
   if (r.x !== undefined) {
     rows.push(el('div', { class: 'row' }, [
@@ -1869,10 +1898,15 @@ function styleRow(st, i) {
     })),
   ]));
   if (st.joint === 'pier') {
+    // FIVE OPTIONS IS WHERE A SEGMENTED CONTROL GIVES UP. Four stones plus "the
+    // older of the two" does not fit on a 290px panel without truncating every
+    // label to three letters, and a control whose labels read "ol... as... ru..."
+    // is worse than the dropdown it replaced. This is the one place in the tool
+    // a select survives, which is exactly the rule the stylesheet states.
     rows.push(el('div', { class: 'row' }, [
-      el('label', { text: 'pier of' }),
-      segment(['older', ...WALL_VARIANTS], st.jointVariant || 'older', (v) => commit(() => {
-        if (v === 'older') delete st.jointVariant;
+      el('label', { text: 'the pier' }),
+      select(['the older stone', ...WALL_VARIANTS], st.jointVariant || 'the older stone', (v) => commit(() => {
+        if (v === 'the older stone') delete st.jointVariant;
         else st.jointVariant = v;
       })),
     ]));
@@ -1957,12 +1991,12 @@ function drawStatus() {
       + `${world ? world._derived.flies.spacing.toFixed(0) : 0} apart)`,
     `${s.cuts}/${s.max} floor cuts · ${world ? world._derived.gates.length : 0} gates`,
     errors ? `<span class="bad">${errors} error${errors === 1 ? '' : 's'}</span>` : 'geometry ok',
-    review.stale ? 'audit: checking' : (review.errors.length || review.wedges.length)
-      ? `<span class="bad">audit ${review.errors.length}, ${review.wedges.length} wedge${review.wedges.length === 1 ? '' : 's'}</span>`
-      : 'audit: clean, no wedges',
+    review.stale ? 'checking...' : (review.errors.length || review.wedges.length)
+      ? `<span class="bad">${review.errors.length} to fix${review.wedges.length ? `, ${review.wedges.length} of them a place the player could hide` : ''}</span>`
+      : 'checks clean',
     fair.stale ? 'fairness: checking' : unfair
-      ? `<span class="bad">fails ${fair.fail.join(', ')}</span>`
-      : 'fairness: all eight pass',
+      ? `<span class="bad">${unfair} unfair thing${unfair === 1 ? '' : 's'}, listed on the right</span>`
+      : 'fair: nowhere to hide, nothing out of reach',
     message ? `<span>${escapeHtml(message)}</span>` : '',
   ].filter(Boolean).join('<br>');
 }

@@ -68,10 +68,20 @@ for (const [name, file, fn] of lanterns) {
   add(`lantern/${name}`, 'disc', measure((seed) => mod[fn]({ seed }), 2));
 }
 
+const { BUSH_VARIANTS, createBush } = await import(P + 'foliage/bush.js');
+for (const variant of BUSH_VARIANTS) {
+  // Six seeds rather than the two the other miscellaneous props get. A
+  // clipped bush jitters its own size by a few per cent per seed and the leaf
+  // layer is scattered, so the widest of two seeds is a noticeably softer
+  // bound than the widest of six. The box variant is measured as a box: it
+  // has faces, and a circumscribed circle round a square is 41% too big.
+  add(`bush/${variant}`, variant === 'box' ? 'box' : 'disc',
+    measure((seed) => createBush({ seed, variant }), 6));
+}
+
 const misc = [
   ['fountain', 'disc', 'fountain/index.js', 'createFountain'],
   ['shed', 'disc', 'shed/index.js', 'createShed'],
-  ['bush', 'disc', 'foliage/bush.js', 'createBush'],
   ['dirt', 'box', 'ground/dirtpile.js', 'createDirtPile'],
   ['hole', 'box', 'ground/hole.js', 'createGraveHole'],
 ];

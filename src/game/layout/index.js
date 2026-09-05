@@ -9,7 +9,7 @@
 
 export { createLayout, default } from './layout.js';
 export { makeFrame, OCCLUSION, CAM_DIR, K } from './frame.js';
-export { footprintOf, boundingRadius, STONES, PUMPKINS, LANTERNS, MISC } from './footprints.js';
+export { footprintOf, boundingRadius, STONES, PUMPKINS, LANTERNS, BUSHES, MISC } from './footprints.js';
 export { gap, clears, gapToSquare } from './geom.js';
 export { PROP_MARGIN, CORRIDOR_MARGIN } from './place.js';
 export { GATE } from './gate.js';

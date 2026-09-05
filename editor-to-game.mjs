@@ -90,9 +90,12 @@ const clickWorld = async (x, z) => {
   await editor.page.mouse.up();
   return at;
 };
+// The palette is a grid of pictures now, and the name is a caption inside the
+// button rather than the button's whole text. A closed group is still in the
+// DOM, so nothing has to be expanded to reach an entry.
 const clickEntry = (label) => editor.page.evaluate((want) => {
-  const b = [...document.querySelectorAll('#left .swatches button')]
-    .find((n) => n.textContent.replace(/[A-Z]$/, '').trim() === want);
+  const b = [...document.querySelectorAll('#left .tiles button, #left .swatchrow button')]
+    .find((n) => n.querySelector('.name')?.textContent.trim() === want);
   b?.click();
   return !!b;
 }, label);
@@ -120,7 +123,7 @@ const verdicts = await editor.page.evaluate(() => ({
   path: window.__editor.preview(0, 0),
   out: window.__editor.preview(14.9, 14.9),
 }));
-claim(verdicts.open.ok, 'the indicator is green on open ground');
+claim(!!verdicts.open && verdicts.open.ok, 'the indicator is green on open ground');
 claim(!verdicts.fence.ok && /fence/.test(verdicts.fence.why), `red in a fence: ${verdicts.fence.why}`);
 claim(!verdicts.path.ok && /path/.test(verdicts.path.why), `red in a path: ${verdicts.path.why}`);
 claim(!verdicts.out.ok, `red outside the wall: ${verdicts.out.why}`);
@@ -186,7 +189,7 @@ if (gz) {
 await editor.page.evaluate((doc) => window.__editor.load(doc), demo);
 await editor.page.evaluate(() => {
   const rows = [...document.querySelectorAll('#right .row')];
-  const row = rows.find((r) => r.querySelector('label')?.textContent === 'starts in');
+  const row = rows.find((r) => r.querySelector('label')?.textContent === 'built of');
   const seg = row?.querySelector('.seg');
   [...(seg?.querySelectorAll('button') || [])].find((b) => b.textContent === 'rubble')?.click();
 });
@@ -215,10 +218,10 @@ if (played) {
 await editor.page.evaluate((doc) => window.__editor.load(doc), demo);
 await editor.page.evaluate(() => {
   const rows = [...document.querySelectorAll('#right .row')];
-  const row = rows.find((r) => r.querySelector('label')?.textContent === 'starts in');
+  const row = rows.find((r) => r.querySelector('label')?.textContent === 'built of');
   const seg = row?.querySelector('.seg');
   [...(seg?.querySelectorAll('button') || [])].find((b) => b.textContent === 'iron')?.click();
-  const b = [...document.querySelectorAll('#right button')].find((n) => /add a change of stone/.test(n.textContent));
+  const b = [...document.querySelectorAll('#right button')].find((n) => /add one halfway/.test(n.textContent));
   b?.click();
 });
 

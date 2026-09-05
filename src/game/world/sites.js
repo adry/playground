@@ -122,19 +122,19 @@ function loneStone({ rng, placer, u, v }) {
     gridYaw: FACE + rng.jitter(0.4), foot: footprintOf('stone', variant),
   }) ? 1 : 0;
   if (placed && rng.chance(0.35)) {
-    const bush = footprintOf('bush');
+    const bush = footprintOf('bush', 'ball');
     const a = rng.float(0, Math.PI * 2);
     const su = u + Math.cos(a) * 1.4;
     const sv = v + Math.sin(a) * 1.4;
     if (fits(placer, su, sv, bush.height, bush.r)
-      && placer.try({ kind: 'bush', variant: 'bush', u: su, v: sv, gridYaw: rng.float(0, Math.PI * 2), foot: bush })) placed++;
+      && placer.try({ kind: 'bush', variant: 'ball', u: su, v: sv, gridYaw: rng.float(0, Math.PI * 2), foot: bush })) placed++;
   }
   return placed;
 }
 
 function scrub({ rng, placer, u, v }) {
   const n = rng.int(1, 4);
-  const foot = footprintOf('bush');
+  const foot = footprintOf('bush', 'ball');
   let placed = 0;
   for (let i = 0; i < n; i++) {
     const a = rng.float(0, Math.PI * 2);
@@ -142,7 +142,7 @@ function scrub({ rng, placer, u, v }) {
     const su = u + Math.cos(a) * d;
     const sv = v + Math.sin(a) * d;
     if (fits(placer, su, sv, foot.height, foot.r)
-      && placer.try({ kind: 'bush', variant: 'bush', u: su, v: sv, gridYaw: rng.float(0, Math.PI * 2), foot })) placed++;
+      && placer.try({ kind: 'bush', variant: 'ball', u: su, v: sv, gridYaw: rng.float(0, Math.PI * 2), foot })) placed++;
   }
   return placed;
 }
