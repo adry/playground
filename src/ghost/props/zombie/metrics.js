@@ -111,9 +111,9 @@ export const M = {
     hip: f(0.345),            // femoral head, the pivot, and `root`
     pelvisTop: f(0.405),
     waist: f(0.425),          // spineLower pivot
-    cavityBottom: f(0.478),   // bottom lip of the open ribcage window
+    cavityBottom: f(0.470),   // bottom lip of the open ribcage window
     chest: f(0.520),          // spineUpper pivot
-    cavityTop: f(0.592),      // top lip of the window, under the collarbone
+    cavityTop: f(0.600),      // top lip of the window, under the collarbone
     shoulder: f(0.598),       // glenoid, the pivot
     shoulderTop: f(0.628),    // top of the deltoid mass, where the jacket sits
     neck: f(0.640),           // neck pivot. See the note under `neck` below.
@@ -262,8 +262,21 @@ export const M = {
   // to a slot the moment it walks off-axis, which is the failure mode: the
   // feature that defines this character must not be a front-view-only feature.
   cavity: {
-    halfAngle: 0.70,
-    floor: 0.34,              // cavity floor radius, as a fraction of the shell's
+    halfAngle: 0.62,
+    // The cavity floor, as a fraction of the shell's own section. It is
+    // ANISOTROPIC and that is the whole trick.
+    //
+    // Built as one scale, 0.34 both ways, the flesh was a narrow column down
+    // the middle of the chest: it was correctly deep, but only two thirds as
+    // wide as the window, so looking into the opening you saw dark red in the
+    // middle and straight past it at the edges. Widening it uniformly instead
+    // filled the window and destroyed the depth, because the floor came
+    // forward to meet the skin and the ribs had nowhere to stand.
+    //
+    // So: wide enough to close the window (floorX), shallow enough to leave
+    // the ribs a real gap to stand in (floorZ).
+    floorX: 0.88,
+    floorZ: 0.34,
     ribFront: 0.62,           // where the ribs sit, between floor and shell
     // THREE pairs, not the reference's full cage, and this is the biggest
     // single concession to size on the model. The window is 0.205 units tall,
@@ -274,15 +287,15 @@ export const M = {
     ribPairs: 3,
     ribRadius: f(0.0105),
     ribSpacing: f(0.040),
-    ribTop: f(0.582),
+    ribTop: f(0.588),
     // The spine runs down the middle of the cavity BEHIND the ribs, so its
     // top knobs show through the rib gaps and its bottom ones are exposed
     // below the lowest rib. That is what sells the cavity as an opening with
     // a back to it rather than as a patch painted on the chest: you are
     // looking past one piece of geometry at another.
     spineKnobs: 5,
-    spineTop: f(0.568),
-    spineSpacing: f(0.021),
+    spineTop: f(0.578),
+    spineSpacing: f(0.024),
     spineRadius: f(0.016),
   },
 
@@ -291,14 +304,20 @@ export const M = {
   // All of it geometry. The torn edges are a real sawtooth in the mesh outline
   // and the holes are real openings, for the same no-alpha reason as above.
   jacket: {
-    top: f(0.628),            // sits on the deltoid
+    top: f(0.616),            // sits on the deltoid
     hem: f(0.395),
-    // The front gap is WIDER than the cavity (0.70), not narrower. The
-    // reference has the jacket overlapping the ribs at both edges, and built
-    // that way it ate a fifth of a feature that is only 15 px across to begin
-    // with. Opening the jacket past the cavity costs nothing in character and
-    // leaves the whole ribcage legible, with the jacket edges framing it.
-    openHalfAngle: 0.82,
+    // The front gap is WIDER than the cavity (0.62), not narrower, so the two
+    // lapels frame the ribcage instead of covering its edges. The reference
+    // has them overlapping and built that way it ate a fifth of a feature
+    // that is only fifteen pixels across to begin with.
+    //
+    // It is only a little wider, though, and that is the other half of the
+    // lesson. Opened to 0.98 the garment stopped reading as a jacket at all:
+    // from the game's three-quarter camera the front 112 degrees were bare
+    // chest, the remaining cloth hid behind the arms, and what was left looked
+    // like a collar and a separate belt. A jacket has to close enough of the
+    // torso to be a jacket.
+    openHalfAngle: 0.74,
     thickness: f(0.010),
     tatter: f(0.022),         // depth of the sawtooth at the hem and cuffs
     sleeveTo: f(0.500),       // the sleeves are torn off just above the elbow

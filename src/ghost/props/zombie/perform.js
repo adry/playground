@@ -605,6 +605,12 @@ export function createZombiePerformance({
     const reach = SPAN * 0.97;
     const maxAhead = Math.sqrt(Math.max(reach * reach - hipAtLanding * hipAtLanding, 1e-6));
     HALF_STEP = Math.min(HALF_STEP, maxAhead);
+    // STEP_LENGTH is deliberately NOT recomputed if this bites. It is the
+    // cursor's metre-per-step and the cursor is locked to the footfalls anyway,
+    // so a shortened front half shows up as a phase correction bled off over a
+    // fifth of a second rather than as a cadence that fights the feet. It has
+    // never bitten on either figure: 0.235 of headroom against a 0.154 step
+    // here, and 0.54 against 0.36 on the skeleton.
   }
 
   // Where the feet land at the end of the climb, staggered, because a figure
@@ -868,6 +874,8 @@ export function createZombiePerformance({
   let riseSteps = 0;
   let legBlend = 0;
   let travel = 0;
+  // The gait's vertical, applied around the lift spring rather than through it.
+  let liftOffset = 0;
 
   // The x a foot sits at when the leg is straight down. Taken off the rig, so
   // walking straight needs no lateral correction at the hip at all and the
@@ -949,12 +957,30 @@ export function createZombiePerformance({
   // waddle read. Any less and the head is bolted on; any more and it visibly
   // parts company with the shoulders, which on a figure with no neck happens at
   // surprisingly small angles.
-  const HEAD_GAIN = 0.030 * chibi + 0.006;
-  // The caps are the rest of the head's angular budget, after the authored
-  // HEAD_REL_MAX has taken its share. 0.63 + 0.16 is 0.79, and 0.79 * 0.70 is
-  // 0.55, which is exactly LIMITS.head.x. The two numbers are not independent.
+  // It was 0.036 and that was too much, in a way that only a trace shows: BOTH
+  // axes then sat on their caps for most of every cycle, so the drive was a
+  // square wave and the head was no longer responding to the body at all, it
+  // was being switched between two angles and smoothed by its own spring. At
+  // 0.026 the measured peaks are 0.115 in pitch and 0.217 in roll, both inside
+  // their caps, so the caps are limiters that fire on the odd big lurch rather
+  // than shapers that fire every step. That distinction is the difference
+  // between secondary motion and a decoration.
+  const HEAD_GAIN = 0.019 * chibi + 0.005;
+  // Pitch is the rest of the head's angular budget, after the authored
+  // HEAD_REL_MAX has taken its share: 0.63 + 0.16 is 0.79, and 0.79 * 0.70 is
+  // 0.55, which is exactly LIMITS.head.x, so the two are not independent.
+  //
+  // Roll has more room because nothing authored spends any of it, and it needs
+  // all of it. The lateral acceleration at the neck was measured over four
+  // seconds of steady shamble at -17.3 to +15.8 m/s squared, which is 1.7 g,
+  // because the sway and the pelvis list both act on a lever 0.64 long and the
+  // sway spring at 0.55 of critical amplifies its own drive slightly. That puts
+  // the raw roll demand at 0.415 rad, so a cap of 0.34 was shaving the top 18%
+  // off every peak. At 0.42 it stops firing and goes back to being a guard:
+  // 0.42 * 0.75 is 0.315 at the head joint against a limit of 0.35, and 0.105
+  // at the neck against 0.22.
   const HEAD_PITCH_CAP = 0.16;
-  const HEAD_ROLL_CAP = 0.30;
+  const HEAD_ROLL_CAP = 0.42;
 
   // Jaw drive. Measured off the HEAD, because the mandible hangs off the head
   // and it is the head's acceleration it feels, and the head is now the thing
@@ -1215,6 +1241,28 @@ export function createZombiePerformance({
     const cyc = (cursor * 0.5) % 1;
     const moving = smoothstep(0.05, 0.5 * (TOP_SPEED / 1.25 + 0.6), speed);
 
+    // THE BOB AND THE LIMP GO AROUND THE LIFT SPRING, not through it, and that
+    // is dance.js's discovery rather than this file's: "a spring is a low pass
+    // filter and the beat is 2 Hz. Passing the bounce through the hip spring
+    // smears the accent and turns the dance into a wallow."
+    //
+    // It is worse here than there. The lift spring is k = 62, which is 1.25 Hz
+    // natural, and this figure's short legs give it a cadence of 2.6 steps a
+    // second, so the bob is at 2.6 Hz: a frequency ratio of 2.08 and, at 0.80
+    // of critical, a transmission of 0.21. Measured through the spring the hips
+    // moved 32.6mm over a cycle against the 86mm the numbers ask for, and 21%
+    // of a bob is not a bob, it is a figure gliding. The limp, at half the
+    // frequency, was surviving at 60% and so was drowning out the bob it is
+    // supposed to sit on top of.
+    //
+    // Added after the spring, both arrive at full amplitude and in phase with
+    // the footfalls they are locked to. The spring keeps the job it is good at,
+    // which is the slow travel: the crouch, the rise, and the settle.
+    //
+    // The feet do not care. group.position is written before applyLegs, so the
+    // IK solves against the bobbed hips and the planted feet stay exactly where
+    // they were put. Measured foot slip is unchanged at 0.18mm.
+    //
     // Lowest at the footfall, highest at mid stance, and the cursor is pinned
     // to the footfalls in advanceSwings, so the two cannot drift apart.
     const bob = -BOB * moving * (1 + Math.cos(cyc * 2 * TAU)) * 0.5;
@@ -1224,7 +1272,8 @@ export function createZombiePerformance({
     // not a bounce.
     const limpPhase = SOUND === 'L' ? 0 : Math.PI;
     const limp = -BOB * 0.55 * moving * waddle * Math.sin(cyc * TAU + limpPhase);
-    T.lift = mix(HIP_TALL, HIP_STALK, moving) + bob + limp;
+    liftOffset = bob + limp;
+    T.lift = mix(HIP_TALL, HIP_STALK, moving);
 
     // The weight shift. This is the chibi's walk. `sway` moves the pelvis
     // laterally over the stance foot and `list` rolls it, and the two are a
@@ -1270,18 +1319,26 @@ export function createZombiePerformance({
     // right arm goes forward because the left leg did, which is both what a
     // body does and the only way the two can never drift out of step. The
     // springs then do the lag, so the claws arrive well after the shoulders.
-    const gait = clamp((S.hipR.value - S.hipL.value) * 0.55, -0.45, 0.45);
-    const hang = (-14 - 6 * moving) * D;
+    const gait = clamp((S.hipR.value - S.hipL.value) * 0.75, -0.45, 0.45);
+    const hang = (-9 - 5 * moving) * D;
     T.shoulderL = hang + gait;
     T.shoulderR = hang - gait;
-    // The elbows keep a heavy dead bend and the claws hang forward off it.
-    T.elbowL = T.shoulderL - (30 + 10 * moving) * D - gait * 0.5;
-    T.elbowR = T.shoulderR - (30 + 10 * moving) * D + gait * 0.5;
-    T.wristL = T.elbowL - 22 * D;
-    T.wristR = T.elbowR - 22 * D;
+    // The elbow carries a dead bend and the claws hang forward off it, and the
+    // amount is small because the amount is what decides whether the pose reads
+    // as hanging or as reaching. At 40 degrees, which is where this started, the
+    // forearm sits 55 degrees off vertical: on a strip of the walk cycle both
+    // arms were held out in front like a sleepwalker and none of the swing was
+    // legible against them. The arm here is 0.44 to the wrist, so 22 degrees of
+    // elbow under a shoulder at 13 puts the claws just above hip height and a
+    // hand's width in front of the thigh, which is the pose the reference has.
+    T.elbowL = T.shoulderL - (18 + 5 * moving) * D - gait * 0.5;
+    T.elbowR = T.shoulderR - (18 + 5 * moving) * D + gait * 0.5;
+    T.wristL = T.elbowL - 14 * D;
+    T.wristR = T.elbowR - 14 * D;
     // Held out from the body, because the ribcage and the jacket are wider than
-    // the skeleton's and an arm hanging at flare would swing through them.
-    T.spreadL = (16 + 8 * moving) * D;
+    // the skeleton's and an arm hanging at the model's own flare would swing
+    // through them.
+    T.spreadL = (12 + 6 * moving) * D;
     T.spreadR = T.spreadL;
 
     strain = 0.12 + 0.1 * moving;
@@ -1667,13 +1724,27 @@ export function createZombiePerformance({
   // twice at a variable dt is otherwise mostly noise.
   let lagPitch = 0;
   let lagRoll = 0;
+  // What the acceleration asked for before the caps, so a harness can tell a
+  // limiter that fires on the odd lurch from one that is shaping every step.
+  let lagRawPitch = 0;
+  let lagRawRoll = 0;
+  // And the measurement the caps are argued from.
+  const accOut = { x: 0, y: 0, z: 0 };
   function measureBody(dt) {
     J.neck.getWorldPosition(anchorPos);
     if (accPrimed) {
       v1.subVectors(anchorPos, anchorPrev).divideScalar(dt);
       v2.copy(v1).sub(anchorVel).divideScalar(dt);
       anchorVel.copy(approachVec(anchorVel, v1, 26, dt));
-      anchorAcc.copy(approachVec(anchorAcc, v2, 16, dt));
+      // Smoothed harder than the jaw's, at 9 rather than 18, and the reason is
+      // physical rather than cosmetic. A mass this large cannot respond to a
+      // spike: the head's own natural frequency is 1.15 Hz, so anything above a
+      // few Hz in the drive is filtered by the head anyway and all it does
+      // before that is push the cap. The footfall phase lock is the specific
+      // source, since it briefly runs the gait phase half again too fast twice
+      // a cycle and second-differencing that gives a transient nothing on this
+      // figure could physically feel.
+      anchorAcc.copy(approachVec(anchorAcc, v2, 9, dt));
     } else {
       accPrimed = true;
     }
@@ -1695,8 +1766,11 @@ export function createZombiePerformance({
     // model's head grows. Negated: the head lags what the body did.
     const tauX = bodyAcc.z - (HEAD_COM_Z / Math.max(HEAD_COM_Y, 1e-3)) * bodyAcc.y;
     const tauZ = bodyAcc.x;
-    lagPitch = clamp(-HEAD_GAIN * tauX, -HEAD_PITCH_CAP, HEAD_PITCH_CAP);
-    lagRoll = clamp(HEAD_GAIN * tauZ, -HEAD_ROLL_CAP, HEAD_ROLL_CAP);
+    accOut.x = bodyAcc.x; accOut.y = bodyAcc.y; accOut.z = bodyAcc.z;
+    lagRawPitch = -HEAD_GAIN * tauX;
+    lagRawRoll = HEAD_GAIN * tauZ;
+    lagPitch = clamp(lagRawPitch, -HEAD_PITCH_CAP, HEAD_PITCH_CAP);
+    lagRoll = clamp(lagRawRoll, -HEAD_ROLL_CAP, HEAD_ROLL_CAP);
   }
 
   // The mandible is a pendulum on a hinge at the back of the skull and the chin
@@ -1984,9 +2058,9 @@ export function createZombiePerformance({
         // planted foot spins on the spot as the body turns; and the pelvis list
         // plus the hip's own sideways swing tip the sole onto its outside edge,
         // which puts the far edge of the boot through the floor. On this figure
-        // the list is 0.115 rad every single step, so the second one is not an
-        // edge case here the way it is on the skeleton: it happens twice a
-        // cycle, for ever. Composing the parent's rotation from the values just
+        // the list runs to 0.097 rad every single step, so the second one is
+        // not an edge case here the way it is on the skeleton, which has no
+        // list at all: it happens twice a cycle, for ever. Composing the parent's rotation from the values just
         // written and inverting it fixes both exactly, and costs six quaternion
         // multiplies.
         const f = feet[side];
@@ -2048,7 +2122,7 @@ export function createZombiePerformance({
       if (f.swing < 1) continue;
       // The hip in the group's frame: the pelvis is swayed sideways and rolled,
       // and rolling swings one hip up and the other down. On this figure the
-      // list is 0.115 rad on a 0.198 hip separation, which is 11mm of hip
+      // list runs to 0.097 rad on a 0.198 hip separation, which is 10mm of hip
       // height every step, and the margin at full stretch is smaller than that.
       const hx = LEG[side].root.x;
       const lx = rootRest.x + S.sway.value + hx * cr;
@@ -2100,6 +2174,7 @@ export function createZombiePerformance({
     T.roll = 0;
     T.list = 0;
     T.sway = 0;
+    liftOffset = 0;
 
     switch (phase) {
       case 'buried': stepBuried(dt, ghostPos); break;
@@ -2112,6 +2187,9 @@ export function createZombiePerformance({
 
     S.lift.target = T.lift;
     S.lift.step(dt);
+    // The gait's own vertical, added around the spring rather than through it.
+    // See shamble.
+    const hipY = S.lift.value + liftOffset;
     // A leg cannot get longer than a leg. The hips rise until the planted feet
     // run out of leg and then they stop, which is what actually happens when
     // somebody stands up too fast: the knees lock out, the momentum goes into
@@ -2120,11 +2198,14 @@ export function createZombiePerformance({
     // own feet off the floor at the top of the heave.
     const cap = liftLimit();
     liftCap = cap;
-    if (S.lift.value > cap) {
-      S.lift.value = cap;
+    // The cap is applied to the SUM, and it is taken back out of the spring, so
+    // that a hip held down by a planted foot does not let the spring keep
+    // winding up underneath the offset and then release it all at once.
+    if (hipY > cap) {
+      S.lift.value = cap - liftOffset;
       if (S.lift.velocity > 0) S.lift.velocity = 0;
     }
-    group.position.set(pos.x, S.lift.value - rootRest.y * scale, pos.z);
+    group.position.set(pos.x, S.lift.value + liftOffset - rootRest.y * scale, pos.z);
     group.rotation.y = yaw;
 
     applyPose(dt);
@@ -2256,7 +2337,10 @@ export function createZombiePerformance({
     metrics() {
       const out = {
         phase, phaseTime, clock, speed, yaw, yawVel, travel, cursor,
-        hipY: S.lift.value, jaw: S.jaw.value, legBlend, strain, clipping,
+        // The hip height that was actually used, spring plus the gait's own
+        // offset, and not the spring alone. See shamble.
+        hipY: S.lift.value + liftOffset,
+        jaw: S.jaw.value, legBlend, strain, clipping,
         stiffSide: STIFF,
         shed: shedFired.slice(),
         debris: debris?.stats?.() || null,
@@ -2277,6 +2361,9 @@ export function createZombiePerformance({
         rel: headRel,
         lagPitch,
         lagRoll,
+        lagRawPitch,
+        lagRawRoll,
+        acc: [accOut.x, accOut.y, accOut.z],
         worldPitch: S.head.value,
         // How far behind the chest the head actually is, which is the whole
         // point of the file and the one number that says whether it reads.

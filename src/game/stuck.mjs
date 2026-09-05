@@ -280,11 +280,11 @@ export function sweepWalk(world, { cell = 0.25, dirs = 8, seconds = HOLD } = {})
         stalls++;
         if (grid[iz * nx + ix] === 0) grid[iz * nx + ix] = 1;
         nav.focus(end.x, end.z);
-        const out = escape(nav, end.x, end.z, dir);
-        if (out.best >= FREE && !out.nan) continue;
+        const held = escape(nav, end.x, end.z, dir);
+        if (held.best >= FREE && !held.nan) continue;
         grid[iz * nx + ix] = 2;
         hits.push({
-          x: end.x, z: end.z, nan: out.nan, best: out.best,
+          x: end.x, z: end.z, nan: held.nan, best: held.best,
           from: { x, z }, dir: [dx, dz], after: end.at,
         });
       }
@@ -559,10 +559,12 @@ export function report(world, res, { dirs = 8, verbose = true } = {}) {
       nan: g.some((e) => e.nan),
       culprits: who.culprits,
       near: who.near,
-      repro: g[0].from
-        ? `stand at (${g[0].from.x.toFixed(2)}, ${g[0].from.z.toFixed(2)}) and hold `
-          + `(${g[0].dir[0].toFixed(2)}, ${g[0].dir[1].toFixed(2)}) for ${g[0].after.toFixed(2)}s`
-        : 'seated by the resolver',
+      repro: g[0].standing
+        ? `stand at (${g[0].x.toFixed(2)}, ${g[0].z.toFixed(2)}) -- it is clear ground and nothing moves off it`
+        : g[0].from
+          ? `stand at (${g[0].from.x.toFixed(2)}, ${g[0].from.z.toFixed(2)}) and hold `
+            + `(${g[0].dir[0].toFixed(2)}, ${g[0].dir[1].toFixed(2)}) for ${g[0].after.toFixed(2)}s`
+          : 'seated by the resolver',
     };
   }).sort((a, b) => b.hits - a.hits);
 }

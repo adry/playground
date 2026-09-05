@@ -124,8 +124,10 @@ export function createSkeletonRig({ scale = 1 } = {}) {
   // pixel. mergeWithinNodes never merges across a node, so a joint still bends
   // and a shed rib or finger is still its own object to detach.
   //
-  // Measured on this rig: 544 meshes to 75, triangles identical at 531,364,
-  // and the five rigs in the game 2,720 draw calls to 375.
+  // Measured on this rig: 544 meshes to 82, triangles identical at 531,364,
+  // and the five rigs in the game 2,720 draw calls to 410. The gap between 82
+  // and the 72 nodes is the handful that hold two materials, plus a few meshes
+  // that are joints in their own right and are left alone.
   //
   // It runs AFTER the shadow flags above and after the left-versus-right
   // assertion, so both still see the graph they were written against, and

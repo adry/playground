@@ -272,6 +272,21 @@ async function buildLineup() {
     place({ label: `bush ${variant} ${seed}`, group: b.group, update: b.update });
   }
 
+  // The hedge is the one plant that is not one prop. It is a segment on a one
+  // unit pitch, so the lineup shows a RUN of them, which is the only way to
+  // see the thing the variant is for: whether four props read as one hedge.
+  // The far end is capped and the near end is left square, so the cell shows
+  // both ends a run can have.
+  {
+    const holder = new THREE.Group();
+    for (let i = 0; i < 4; i++) {
+      const seg = bush.createBush({ seed: 5 + i, variant: i === 3 ? 'hedgecap' : 'hedge' });
+      seg.group.position.x = i - 1.5;
+      holder.add(seg.group);
+    }
+    place({ label: 'bush hedge run', group: holder });
+  }
+
   // The grave hole is the one prop here that is not only itself: it cuts the
   // floor, so it has to be told which floor. registerWith reads the world
   // matrix, so it goes AFTER place() has positioned it, and without it the pit

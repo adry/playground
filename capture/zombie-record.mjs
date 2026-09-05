@@ -121,7 +121,9 @@ if (numbersOnly) {
   console.log('\n--- the gait, over four seconds of steady shamble ---------------');
   console.log('  (degrees unless marked; range is what the walk actually moves it through)');
   for (const [k, v] of Object.entries(out.trace)) {
-    if (v.rangeMm !== undefined) {
+    if (v.rangeMs2 !== undefined) {
+      console.log(`  ${k.padEnd(16)} ${String(v.minMs2).padStart(8)} .. ${String(v.maxMs2).padStart(8)} m/s2 range ${v.rangeMs2}`);
+    } else if (v.rangeMm !== undefined) {
       console.log(`  ${k.padEnd(16)} ${String(v.minMm).padStart(8)} .. ${String(v.maxMm).padStart(8)} mm   range ${v.rangeMm} mm`);
     } else {
       console.log(`  ${k.padEnd(16)} ${String(v.min).padStart(8)} .. ${String(v.max).padStart(8)}      range ${v.range}`);

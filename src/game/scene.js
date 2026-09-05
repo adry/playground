@@ -121,11 +121,12 @@ export async function startGame({ canvas, params }) {
   const levelUrl = params.get('level') || (params.get('seed') ? null : SHIPPED_LEVEL);
   let authored = null;
   if (levelUrl) {
-    const [format, build, cover, gate] = await Promise.all([
+    const [format, build, cover, gate, maingate] = await Promise.all([
       import('./level/format.js'),
       import('./level/build.js'),
       import('./level/groundcover.js'),
       import('../ghost/props/fence/gate.js'),
+      import('../ghost/props/fence/maingate.js'),
     ]);
     // loadLevelFrom is the format's own door: fetch, normalise, build. A file
     // that is missing or is not a level throws here, before a renderer exists,
@@ -167,6 +168,8 @@ export async function startGame({ canvas, params }) {
       buildLevelProp: build.buildLevelProp,
       createGroundCover: cover.createGroundCover,
       createGate: gate.createGate,
+      createMainGates: maingate.createMainGates,
+      mainGateOpenings: maingate.mainGateOpenings,
     };
   }
 
@@ -522,13 +525,21 @@ export async function startGame({ canvas, params }) {
     let enclosure;
     if (authored) {
       const spec = authored.doc.wall;
+      const points = spec.points.map(([x, z]) => ({ x, z }));
+      const ats = spec.gates || [];
       const made = createWall({
         seed: 1,
-        points: spec.points.map(([x, z]) => ({ x, z })),
+        points,
         closed: true,
         variant: spec.variant,
         styles: spec.styles && spec.styles.length ? spec.styles : null,
+        // THE WAYS IN, and they are holes in what you can SEE and nothing else.
+        // The barrier list the rules collide against is derived without them
+        // and has never known an opening exists, which is the whole reason a
+        // locked gate cannot be a way out of the arena.
+        gate: ats.length ? authored.mainGateOpenings(ats) : null,
       });
+      const gates = ats.length ? authored.createMainGates({ points, ats, seed: 1 }) : null;
       const dusk = createVoid({
         bounds: {
           x: (lay.bounds.minX + lay.bounds.maxX) / 2,
@@ -539,7 +550,8 @@ export async function startGame({ canvas, params }) {
       });
       const group = new THREE.Group();
       group.add(made.group, dusk.group);
-      enclosure = { group, dispose() { made.dispose?.(); dusk.dispose?.(); } };
+      if (gates) group.add(gates.group);
+      enclosure = { group, dispose() { made.dispose?.(); dusk.dispose?.(); gates?.dispose?.(); } };
     } else {
       enclosure = createWalledLevel({
         seed: 1,

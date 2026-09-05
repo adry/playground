@@ -32,7 +32,7 @@
 //      until landing. There is no air control at all.
 //
 //   2. It lasts 0.50 s and carries the ghost `speed * 0.50` units, which at the
-//      top speed of 3.05 is 1.53. That is enough to clear a fence and its posts
+//      top speed of 3.66 is 1.83. That is enough to clear a fence and its posts
 //      with room and not enough to clear anything else.
 //
 //   3. It NEEDS A RUN AT IT. Takeoff is refused below `jumpMinSpeed` 2.0 units
@@ -96,26 +96,35 @@
 // and the renderer will pop.
 //
 // ===========================================================================
-// SPEED, unchanged, and why the redirection did not invalidate it
+// SPEED: 3.66 against 2.49, and how the second number was arrived at
 // ===========================================================================
 //
-// ghost 3.05, skeleton 2.15, a nominal ratio of 0.705. That was measured, and
-// the argument behind it is worth repeating in one paragraph because it is the
-// thing most likely to be second-guessed now that the maze is gone.
+// It was ghost 3.05 against skeleton 2.15, a nominal ratio of 0.705, measured.
+// The owner has taken the ghost up twenty per cent and asked for the threat
+// back, on the herd rather than on the ghost.
 //
-// The skeleton's ceiling is CADENCE: perform.js drives the walk from distance
-// travelled and STEP_LENGTH is 0.629, so 2.15 is 3.42 steps a second, a run.
-// The ghost's ceiling is FEEL: everything the cloth does is driven by velocity,
-// so a slow ghost is not a slower ghost, it is a limp one. The nominal 0.705
-// was measured as an effective 0.75 against a player who drives well and 0.90
-// against one who does not, and that band is Pac-Man's own.
+// The ceilings are different in kind, which is the whole of why this is not
+// simply a matching twenty per cent. The skeleton's ceiling is CADENCE:
+// perform.js drives the walk from distance travelled and STEP_LENGTH is 0.629,
+// so 2.49 is 3.96 steps a second and about 4.0 is where the gait stops reading
+// as a run. The ghost's ceiling is FEEL: everything the cloth does is driven by
+// velocity, so a slow ghost is not a slower ghost, it is a limp one.
 //
-// None of that measurement was about the maze. It was about cornering, and
-// cornering still exists: a disc cutting the inside of a turn round a headstone
-// is the same advantage it was round a corridor corner. What HAS changed is
-// that the corner-cutting advantage is now smaller, because open ground has
-// fewer corners, and the jump is the new advantage that replaces the part of it
-// that went away. soak.mjs re-measures both.
+// So the ratio CANNOT be restored. 0.705 of 3.66 is 2.58 and the cadence stops
+// at 2.49, which is 0.680. The remaining 4% is taken out of the STEERING
+// instead, in chase.js: `pounce` from 7.0 to 8.4 and `legMax` from 4.0 to 3.33,
+// both derived from the ghost's own new speed rather than dialled. A skeleton
+// that only moves faster in a straight line is a different feeling from one
+// that commits to a wrong line for less time and turns at you from further
+// away, and the second is the one that was missing.
+//
+// MEASURED, 40 arenas, 240 s, the careful bot: 4.2% of the run within four
+// units of a skeleton at the old ghost speed, 3.3% at the new one before this,
+// 6.1% after. And one finding worth keeping, because it is the lever everyone
+// reaches for first: raising the POPULATION alone does almost nothing. Holding
+// skeletons up half again as long took the mean from 2.37 to 2.78 and the
+// danger from 3.3% to 3.4%. More skeletons that cannot close are still
+// skeletons that cannot close.
 //
 // ===========================================================================
 // SCORING, repriced for one firefly per screen
@@ -296,7 +305,9 @@ export const TUNING = {
   // which at the measured collection rate is a few minutes in.
   //
   // AND THEY LEAVE. A skeleton that has been up for `retireAfter` seconds
-  // burrows back, unless it is the last one. This is a design decision and it
+  // burrows back, unless it is the last one. At 75 s that is a long tour, so
+  // the herd sits nearer its allowance than it used to and the breathing is
+  // slower; it still breathes, which is the point of it leaving at all. This is a design decision and it
   // is the one worth arguing with: if they never left, the population would
   // climb to five and stay, "gradually more" would be a one-way ramp, and the
   // proximity mechanic would stop mattering the moment the cap was reached.
@@ -310,7 +321,19 @@ export const TUNING = {
   spawnChance: 0.85,
   spawnPeriod: 4.5,
   spawnQuiet: 12.0,
-  retireAfter: 45.0,
+  // 75, up from 45, and it is the third of the three levers that answer a
+  // faster ghost. Retirement is what sets how full the herd runs against its
+  // allowance: at 45 the mean was 2.37 up against a cap of five, so the game
+  // was running at half the threat the owner's own ramp permits.
+  //
+  // WORTH KNOWING BEFORE ANYONE REACHES FOR IT FIRST. Population alone buys
+  // almost nothing. Measured on 24 arenas, raising this to 90 and changing
+  // nothing else took the mean up from 2.37 to 2.78 and the careful player's
+  // time in real danger from 3.3% to 3.4%: more skeletons that cannot close are
+  // still skeletons that cannot close. It only pays once they are fast enough
+  // to use the numbers, which is why it is the last of the three and not the
+  // first.
+  retireAfter: 75.0,
 
   // --- scoring --------------------------------------------------------------
   fireflyScore: 100,

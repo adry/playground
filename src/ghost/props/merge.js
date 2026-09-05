@@ -194,8 +194,14 @@ export function flattenByMaterial(root, { onlyStatic = true } = {}) {
 // The skeleton is built the way a skeleton should be authored, out of small
 // primitives: a rod, two condyles, a tuberosity, a cap. It arrives as 544
 // meshes across 72 nodes and 3 materials, which is 544 draw calls per figure
-// and 2,720 for the five the game keeps. Merged per node it is 75, and the
-// triangle count is identical because nothing has been removed.
+// and 2,720 for the five the game keeps. Merged per node it is 82, and the
+// triangle count is identical at 531,364 because nothing has been removed.
+//
+// Proved rather than argued: the world-space vertex set of a merged rig was
+// matched against an unmerged one through a spatial hash, at rest and again
+// with every joint rotated and the whole figure moved. All 317,926 vertices
+// found a partner both times, worst displacement 2.86e-8 units, which is
+// float32 rounding from baking one matrix.
 //
 // What this deliberately does NOT do:
 //

@@ -169,10 +169,36 @@ export const MISC = {
 //
 // A caller that names no variant gets the ball, which is what a level written
 // before the topiary existed is holding when it says `bush`.
+//
+// The two hedge segments are the same block and publish the same footprint on
+// purpose: a run mixes them (a cap at each end, middles between) and they have
+// to sit on one pitch.
 export const BUSHES = {
   ball: { shape: 'disc', r: 0.482, height: 0.775 },
   cone: { shape: 'disc', r: 0.405, height: 1.270 },
   box: { shape: 'box', halfU: 0.450, halfV: 0.436, height: 0.809 },
+
+  // THE TWO HEDGE SEGMENTS, and the two things about them that are not
+  // measurements.
+  //
+  // halfU is 0.500, the TILE PITCH, where the probe measures 0.544. The extra
+  // 0.044 is the leaf layer overhanging the tile plane, and it overhangs on
+  // purpose: two segments' leaves interleaving across the join is what makes a
+  // run read as one hedge instead of as blocks in a row. Publishing the
+  // measurement would space segments 0.088 apart and put a stripe of daylight
+  // at every metre, which is the exact failure the variant exists to avoid.
+  // This is the shed's exception with the sign reversed, and like the shed's
+  // it is written down rather than left to be rediscovered.
+  //
+  // `abut` names the axis along which two of these may touch with NO
+  // clearance: local U, the run. The 0.15 margin still applies across V, and
+  // to every other prop in the level, and to a hedge meeting anything that is
+  // not another hedge. A placer that does not know the key is not wrong, it
+  // just spaces hedges like everything else and the author gets a fence with
+  // gaps in it.
+  hedge: { shape: 'box', halfU: 0.500, halfV: 0.330, height: 0.821, abut: 'u' },
+  hedgecap: { shape: 'box', halfU: 0.500, halfV: 0.330, height: 0.821, abut: 'u' },
+
   wild: { shape: 'disc', r: 0.576, height: 0.760 },
 };
 

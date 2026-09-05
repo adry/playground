@@ -21,6 +21,7 @@
 import * as THREE from 'three';
 import { createGround, MAX_GROUND_HOLES } from '../ghost/ground.js';
 import { createWall, createVoid, WALL } from '../ghost/props/fence/wall.js';
+import { createMainGates, mainGateOpenings } from '../ghost/props/fence/maingate.js';
 import { createFencePanel } from '../ghost/props/fence/panel.js';
 import { createGate } from '../ghost/props/fence/gate.js';
 import { createFireflies } from '../ghost/props/fireflies.js';
@@ -438,7 +439,7 @@ export function createEditorScene({ canvas }) {
   }
 
   function syncWall(doc) {
-    const s = sig([doc.wall.points, doc.size, doc.wall.variant, doc.wall.styles]);
+    const s = sig([doc.wall.points, doc.size, doc.wall.variant, doc.wall.styles, doc.wall.gates]);
     if (s === wallSig) return;
     wallSig = s;
     if (wallBuilt) { level.remove(wallBuilt.group); wallBuilt.dispose?.(); }
@@ -446,19 +447,26 @@ export function createEditorScene({ canvas }) {
     // variant and styles go straight through: `at` on a style change is a
     // distance along the centreline from points[0], which is the same
     // coordinate a gate uses, so the editor places one with the code it has.
+    const points = doc.wall.points.map(([x, z]) => ({ x, z }));
+    const ats = doc.wall.gates || [];
     const made = createWall({
       seed: 1,
-      points: doc.wall.points.map(([x, z]) => ({ x, z })),
+      points,
       closed: true,
       variant: doc.wall.variant,
       styles: doc.wall.styles && doc.wall.styles.length ? doc.wall.styles : null,
+      // The openings and the gates that stand in them take the SAME distances,
+      // which is the only thing a caller has to get right.
+      gate: ats.length ? mainGateOpenings(ats) : null,
     });
     group.add(made.group);
+    const gates = ats.length ? createMainGates({ points, ats, seed: 1 }) : null;
+    if (gates) group.add(gates.group);
     const h = doc.size / 2;
     const dark = createVoid({ bounds: { x: 0, z: 0, halfX: h, halfZ: h } });
     group.add(dark.group);
     level.add(group);
-    wallBuilt = { group, dispose() { made.dispose?.(); dark.dispose?.(); } };
+    wallBuilt = { group, dispose() { made.dispose?.(); dark.dispose?.(); gates?.dispose?.(); } };
   }
 
   // Fences are rebuilt whole. They are cheap next to a headstone, and the
@@ -603,7 +611,7 @@ export function createEditorScene({ canvas }) {
   function syncOverlay(world, doc, {
     selection = new Set(), flagged = new Set(), hover = null, brush = null, wedges = [],
     gizmo = null, ghost = null, wallHover = null, wallMarks = [], fence = null,
-    spawnZones = [],
+    spawnZones = [], wallGate = null, wallGates = [],
   } = {}) {
     clearOverlay();
     const d = world._derived;
@@ -621,6 +629,23 @@ export function createEditorScene({ canvas }) {
         [at.x - nx * 0.9, at.z - nz * 0.9],
         [at.x + nx * 0.9, at.z + nz * 0.9],
       ], 0xf0902a, 0.95));
+    }
+
+    // THE WAYS IN. A bar across the wall at each gateway, and the one the next
+    // click would open or close, green when it can and red when it cannot.
+    const gateBar = (g, colour, opacity) => {
+      const nx = Math.cos(g.yaw);
+      const nz = -Math.sin(g.yaw);
+      overlay.add(lineOf([
+        [g.x - nx * 1.6, g.z - nz * 1.6],
+        [g.x + nx * 1.6, g.z + nz * 1.6],
+      ], colour, opacity));
+    };
+    for (const g of wallGates) gateBar(g, 0xf0902a, 0.9);
+    if (wallGate) {
+      const colour = wallGate.ok ? 0x2f9e5f : 0xd23b3b;
+      gateBar(wallGate, colour, 1);
+      overlay.add(ringOf(wallGate.x, wallGate.z, 0.55, colour, 1));
     }
 
     // AND WHICH SECTION THE NEXT CLICK PAINTS. Two lines either side of that

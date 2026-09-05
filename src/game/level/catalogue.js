@@ -86,6 +86,19 @@ export function isSolid(kind) {
 
 export { boundingRadius };
 
+// What the planting is called on its swatch. The three clipped forms are named
+// for the shape because that is what an author is choosing between; the hedge
+// segments are named for the job, because "bush hedge" would have somebody
+// hunting for a hedge under H.
+const BUSH_LABEL = {
+  ball: 'bush ball',
+  cone: 'bush cone',
+  box: 'bush box',
+  hedge: 'hedge run',
+  hedgecap: 'hedge end',
+  wild: 'bush overgrown',
+};
+
 // --- the palette -------------------------------------------------------------
 //
 // Groups in the order an author reaches for them: the stones first, because a
@@ -108,9 +121,7 @@ export const PALETTE = [
     // The clipped three first, then the shrub they were cut from. An author
     // reaching for planting along a path wants topiary; the overgrown one is
     // for the corner by the wall.
-    ...BUSH_VARIANTS.map((v) => ({
-      kind: 'bush', variant: v, label: v === 'wild' ? 'bush overgrown' : `bush ${v}`,
-    })),
+    ...BUSH_VARIANTS.map((v) => ({ kind: 'bush', variant: v, label: BUSH_LABEL[v] })),
     { kind: 'grass', variant: 'patch', label: 'grass patch' },
     { kind: 'grass', variant: 'tuft', label: 'grass tuft' },
     ...FLOWER_VARIANTS.map((v) => ({ kind: 'flowers', variant: v, label: `flowers ${v}` })),

@@ -40,6 +40,10 @@
         "variant": "rubble",
         "joint": "pier"
       }
+    ],
+    "gates": [
+      15,
+      75
     ]
   },
   "fences": [
@@ -318,7 +322,39 @@
       "yaw": 0.7853981633974483
     },
     {
+      "id": "p39",
+      "kind": "bush",
+      "variant": "hedge",
+      "x": -8,
+      "z": -6,
+      "yaw": 0
+    },
+    {
+      "id": "p40",
+      "kind": "bush",
+      "variant": "hedge",
+      "x": -7,
+      "z": -6,
+      "yaw": 0
+    },
+    {
       "id": "p41",
+      "kind": "bush",
+      "variant": "hedge",
+      "x": -6,
+      "z": -6,
+      "yaw": 0
+    },
+    {
+      "id": "p42",
+      "kind": "bush",
+      "variant": "hedgecap",
+      "x": -5,
+      "z": -6,
+      "yaw": 0
+    },
+    {
+      "id": "p45",
       "kind": "flowers",
       "variant": "daisies",
       "x": -13,
@@ -326,7 +362,7 @@
       "yaw": 0.7853981633974483
     },
     {
-      "id": "p42",
+      "id": "p46",
       "kind": "flowers",
       "variant": "posy",
       "x": 0.4,
@@ -334,7 +370,7 @@
       "yaw": 0.7853981633974483
     },
     {
-      "id": "p43",
+      "id": "p47",
       "kind": "flowers",
       "variant": "spires",
       "x": 2.6,
@@ -342,7 +378,7 @@
       "yaw": 0.7853981633974483
     },
     {
-      "id": "p44",
+      "id": "p48",
       "kind": "pumpkin",
       "variant": "classic",
       "x": -6.8,
@@ -350,7 +386,7 @@
       "yaw": 0.7853981633974483
     },
     {
-      "id": "p46",
+      "id": "p50",
       "kind": "pumpkin",
       "variant": "tiny",
       "x": -1.4,

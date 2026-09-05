@@ -74,12 +74,23 @@ the box test, because circles cannot express rule 4: a circle test puts the
 spoil heap 1.9 units from the hole it came out of.
 
 The planting publishes one row per variant rather than one for the prop,
-because the bush is four shapes now and their heights differ by two thirds:
+because the bush is six shapes now and their heights differ by two thirds:
 `ball` 0.482 radius and 0.775 tall, `cone` 0.405 and 1.270, `box` 0.450 by
-0.436 and 0.809, `wild` 0.576 and 0.760. Rule 5 is written against height, so
-a single row would have to publish the cone's for all four and would then
-refuse the ball a spot it fits in perfectly well. The generator places the
-ball; the other three are the editor's to place.
+0.436 and 0.809, `hedge` and `hedgecap` 0.500 by 0.330 and 0.821, `wild` 0.576
+and 0.760. Rule 5 is written against height, so a single row would have to
+publish the cone's for all of them and would then refuse the ball a spot it
+fits in perfectly well. The generator places the ball; the rest are the
+editor's to place.
+
+The two hedge segments carry one extra key, `abut: 'u'`, and it is the only
+footprint in the table that asks for an exception to rule 1. It means **zero
+clearance is allowed along that prop's local U axis, and only there**: two
+hedge segments may touch exactly, because a hedge that does not touch is a
+fence with gaps in it. Across V, against every other kind, and against a hedge
+that is not on the same line, the 0.15 margin still applies. Their published
+halfU is the tile pitch (0.500) rather than the measured extent (0.544): the
+leaf layer overhangs the tile plane deliberately, and two segments' leaves
+interleaving across the join is what makes a run read as one hedge.
 
 ## Placement rules
 
@@ -164,11 +175,42 @@ Four rules hold it together, and `rules.js`'s TUNING block carries the numbers:
   middle. Not the nearest stone, which is a spawn on top of a player who has
   just been caught, and not the furthest, which is a monster that takes twenty
   seconds to become one.
-- **And they leave.** A skeleton that has been up for `retireAfter` 45 s burrows
+- **And they leave.** A skeleton that has been up for `retireAfter` 75 s burrows
   back, unless it is the last one. This is the decision most worth arguing with:
   if they never left, the count would climb to five and stay there, "gradually
   more" would be a one-way ramp, and passing a stone would stop mattering the
   moment the cap was reached.
+
+### The chase, repriced for a 20% faster ghost
+
+The ghost is 3.66 and the skeleton 2.49, a nominal ratio of 0.680 where it was
+3.05 against 2.15 and 0.705. The ratio could not be held: 0.705 of 3.66 is 2.58
+and 2.49 is the CADENCE ceiling, 3.96 steps a second against the measured 4.0 at
+which the gait stops reading as a run. So the whole of that axis is now spent
+and the remainder came out of the steering, which is the better half anyway,
+because a monster that only moves faster in a straight line feels different from
+one that commits to a wrong line for less time:
+
+| | was | is | why |
+|---|---|---|---|
+| `speeds.walk` | 2.15 | 2.49 | the cadence ceiling, all of it |
+| `chase.pounce` | 7.0 | 8.4 | it is a distance meaning a TIME, and the ghost crosses it 20% sooner |
+| `chase.legMax` | 4.0 | 3.33 | a leg is a period of not re-steering, worth the ghost's travel during it: 5.67 before, 4.90 now |
+| `retireAfter` | 45 | 75 | the herd runs nearer its allowance |
+
+Measured, careful bot, 240 s, share of the run within four units of a skeleton:
+**4.2%** at the old ghost speed, **3.3%** at the new one before this, **6.1%**
+after, over 40 arenas. Deaths a run 0.42, 0.46, 0.50. The reckless and passive
+players did not become hopeless, which was the thing to watch: reckless 2.96 to
+2.92 deaths and 150 s to 149 s survived, passive 2.58 to 2.55 and 90 s to 98 s.
+And a spawn stayed avoidable rather than becoming a death nobody could answer:
+deaths within a second of a skeleton finishing its climb FELL, 0.25 to 0.15 a
+run, because the 3.4 s of emergence is the warning and the ghost's own speed,
+which sets how far that warning is worth, did not change. And the finding worth keeping, because population is the lever
+everyone reaches for first: raising `retireAfter` to 90 and changing nothing
+else took the mean population from 2.37 to 2.78 and the danger from 3.3% to
+3.4%. **More skeletons that cannot close are still skeletons that cannot
+close.**
 
 **What the level owes the mechanic**, and it is a new obligation: the rate the
 whole thing runs at is set by HOW MANY SPAWN-CAPABLE HEADSTONES THERE ARE.

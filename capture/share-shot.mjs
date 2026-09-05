@@ -32,8 +32,8 @@ const a = parseArgs(process.argv.slice(2));
 // The picture keeps just over half the frame height, so the source wants about
 // twice the output's pixels for the crop to be a downsample rather than a
 // stretch. A real browser gets that free from a device pixel ratio of 2.
-const width = Number(a.w || 1800);
-const height = Number(a.h || 1350);
+const width = Number(a.w || 1400);
+const height = Number(a.h || 1050);
 const small = Number(a.small || 640);
 const outDir = a.out || 'out/share';
 const maxSeconds = Number(a.max || 300);
@@ -52,7 +52,7 @@ await setSize(small, Math.round(small * height / width));
 // runs across the skeleton's path instead so the frames the ring keeps are a
 // chase rather than a head-on collision.
 const COARSE = 1 / 5;
-const FINE = 1 / 30;
+const FINE = 1 / 12;
 const CHUNK = 10;
 // Frames drawn, which is what the wall clock is actually spent on and so what
 // a progress line should be keyed to. Game seconds come off the run itself.
@@ -80,10 +80,10 @@ while (t < maxSeconds && !over) {
         const dx = foe.x - st.ghost.x;
         const dz = foe.z - st.ghost.z;
         const L = Math.hypot(dx, dz) || 1;
-        // Straight at it while there are lives to spend; on the last one, 34
+        // Straight at it while there are lives to spend; on the last one, 23
         // degrees off, so it closes at an angle and the frames the ring keeps
         // are a chase across the picture rather than a head-on collision.
-        const turn = st.lives <= 1 ? 0.6 : 0;
+        const turn = st.lives <= 1 ? 0.4 : 0;
         const c = Math.cos(turn);
         const s = Math.sin(turn);
         axis = { x: (dx * c - dz * s) / L, y: (dx * s + dz * c) / L };

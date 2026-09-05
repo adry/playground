@@ -58,6 +58,13 @@
 //     "closed": true,
 //     "variant": "ashlar",        the style the wall STARTS in: ashlar, brick,
 //                                 rubble or iron
+//     "gates": [15, 75],          THE WAYS IN, as distances along the same
+//                                 centreline. Each one lands on a section
+//                                 boundary, where a pier already stands. A gate
+//                                 is a hole in the wall you can SEE and in
+//                                 nothing else: the barriers this file derives
+//                                 know nothing about it, which is what stops a
+//                                 gateway being a way out of the level.
 //     "styles": [                 style changes along the run
 //       { "at": 22, "variant": "brick", "joint": "tooth" },
 //       { "at": 58, "variant": "rubble", "joint": "pier", "jointVariant": "iron" }
@@ -184,6 +191,7 @@ import {
 import { GATE } from '../layout/gate.js';
 import { LEVEL_SIZE, WALL_HALF, WALL_HEIGHT } from '../world/field.js';
 import { WALL, MAX_STYLES } from '../../ghost/props/fence/wall.js';
+import { mainGateAts, mainGateFault } from '../../ghost/props/fence/maingate.js';
 import { levelFootprint, boundingRadius, isSolid, MAX_SPAWNS, PERSONALITIES } from './catalogue.js';
 import { spawnPoints } from '../world/spawn.js';
 import { placeFireflies, DEFAULT_FLY_RULE } from './fireflies.js';
@@ -229,6 +237,21 @@ export { MAX_STYLES };
 // a pathological file; a wall of a hundred and twenty units has twenty-four
 // piers and there is no reason to want a change between every pair of them.
 export const MAX_WALL_CHANGES = 64;
+
+// HOW MANY WAYS IN THE PERIMETER MAY HAVE. Four, which is one to a side, and
+// the level ships with two: the middle of the near wall and the middle of the
+// far one, opposite each other through the arena.
+//
+// AND THE ONE THING THAT MUST NEVER CHANGE. A main gate is a hole in the WALL
+// YOU CAN SEE and in nothing else. The barrier list this file derives comes
+// from cutRun over the wall's polyline with NO gates passed to it, so the four
+// perimeter segments are unbroken and impassable and have never known that an
+// opening exists. That ignorance is the guarantee: a gate cannot be a way out
+// of the level because the collision has never heard of it. If anyone ever
+// helpfully punches these openings into those segments, the player walks out of
+// the arena through a locked gate.
+export const MAX_MAIN_GATES = 4;
+export { mainGateAts };
 export const GROUND_CELL = 0.5;
 
 const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
@@ -380,7 +403,17 @@ export function emptyLevel({ size = LEVEL_SIZE, seed = 1, name = 'untitled' } = 
     size,
     seed,
     spawn: { x: 0, z: 0 },
-    wall: { points: wallLoop(size), closed: true, variant: WALL_VARIANTS[0], styles: [] },
+    wall: {
+      points: wallLoop(size),
+      closed: true,
+      variant: WALL_VARIANTS[0],
+      styles: [],
+      // The two the owner asked for, at the middle of the near wall and the
+      // middle of the far one. Both land on a section boundary, where the wall
+      // already stands a pier, so a gate replaces that pier rather than
+      // squeezing between two.
+      gates: mainGateAts(size),
+    },
     fences: [],
     props: [],
     graves: [],
@@ -418,6 +451,17 @@ export function normalizeLevel(raw) {
     // are counted as wall.js counts them -- the base variant, then each
     // change's own and each pier joint's own -- and a change is kept as long as
     // what it needs still fits.
+    // THE WAYS IN. Distances along the centreline, the same coordinate a style
+    // change is written in. One the geometry cannot build is DROPPED rather
+    // than thrown on, exactly as an impossible style change is: a file somebody
+    // hand-edited should open.
+    if (Array.isArray(w.gates)) {
+      const want = w.gates.map((g) => num(g, -1)).filter((g) => g >= 0).slice(0, MAX_MAIN_GATES);
+      const pts = doc.wall.points.map(([x, z]) => ({ x, z }));
+      const bad = new Set(mainGateFault(pts, want).map((f) => f.at));
+      doc.wall.gates = want.filter((g) => !bad.has(g));
+    }
+
     const stones = new Set([doc.wall.variant]);
     doc.wall.styles = (w.styles || [])
       .map((st) => ({

@@ -137,9 +137,29 @@ const QUARTER = {
 };
 
 export const DEFAULT_SPEEDS = {
-  // See rules.js for how these were chosen. Unchanged by the redirection: the
-  // ratio was measured against cornering and the jump does not touch it.
-  walk: 2.15,
+  // 2.49, AND IT IS THE CEILING, spent deliberately and all at once.
+  //
+  // It was 2.15 for as long as the ghost was 3.05, a nominal ratio of 0.705
+  // that rules.js argues at length. The owner has taken the ghost to 3.66 and
+  // wants the threat back, and the lever is the herd.
+  //
+  // WHY THIS IS THE MOST THAT CAN BE SPENT. The skeleton's speed is a CADENCE,
+  // not a speed: perform.js drives the walk from distance travelled and
+  // STEP_LENGTH is 0.629, so 2.49 is 3.96 steps a second, and about 4.0 is the
+  // measured limit before the gait reads as a cartoon scramble rather than a
+  // run. DESIGN.md has the measurement. So the whole of the 16% of headroom
+  // this axis ever had is now in the base speed.
+  //
+  // WHY IT IS SPENT NOW rather than kept. It used to be the wave curve's, spent
+  // gradually to 2.49 by wave 8. There are no waves; there is nothing left to
+  // save it for.
+  //
+  // AND IT STILL DOES NOT RESTORE THE RATIO. 2.49 against 3.66 is 0.680 against
+  // the old 0.705, so even at the ceiling the skeletons are relatively slower
+  // than they were and the rest has to come from the steering below. If this
+  // number ever has to go higher, the thing to change is STEP_LENGTH or the
+  // gait, not this.
+  walk: 2.49,
   // Cruise Elroy, RETRIGGERED. It used to key off the fireflies remaining,
   // which in an endless world is a number that never falls. The mechanism it
   // exists for is "stop a stale chase dragging", and the endless equivalent of
@@ -152,7 +172,18 @@ export const DEFAULT_SPEEDS = {
 export const DEFAULT_CHASE = {
   // The two numbers that make the skeletons read as deciding rather than
   // homing. See the essay above; soak.mjs sweeps both.
-  legMax: 4.0,
+  // 3.33, down from 4.0, and it is the STEERING half of answering a faster
+  // ghost. A leg is a period of not re-steering and what it is worth to the
+  // player is how far they can move during one: at walk 2.15 a 4.0 leg was
+  // 1.86 s and the ghost covered 5.67 of it. 3.33 at walk 2.49 is 1.34 s and
+  // the ghost covers 4.90, so the juke is 14% tighter than it was rather than
+  // merely restored, which is deliberate: the ghost's other advantages, cutting
+  // a corner as a disc and the vault, did not shrink when it sped up.
+  //
+  // This is the number that decides whether the skeletons read as DECIDING or
+  // as homing, so it is the first one to put back if they stop feeling like
+  // characters. soak.mjs sweeps it.
+  legMax: 3.33,
   maxTurn: 100 * Math.PI / 180,
   arrive: 0.30,
   // How far a leg carries PAST a passage. A gate is a thing you go through, not
@@ -178,7 +209,12 @@ export const DEFAULT_CHASE = {
   // four skeletons circle a stationary player for ever, each of them with the
   // player just behind its shoulder, and the passive bot survives a quarter of
   // arenas untouched.
-  pounce: 7.0,
+  // 8.4, up from 7.0, and the change is arithmetic rather than taste. The
+  // number is a distance but what it MEANS is a time: how long the player has
+  // between a skeleton being able to turn freely at them and being on them. The
+  // ghost crossed 7.0 in 2.30 s at 3.05 and crosses it in 1.91 s at 3.66, so
+  // 7.0 x 1.2 puts the same time back.
+  pounce: 8.4,
   // How far out a skeleton looks for a way past a fence. Far enough to see the
   // gate at the other end of a pen wall, near enough that it does not consider
   // a gate it will never reach, and small enough that scatterOut + this stays

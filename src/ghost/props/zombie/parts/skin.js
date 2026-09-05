@@ -163,7 +163,11 @@ export function ribbon(frames, profile) {
     const i2 = (i + 1) % n;
     for (let k = 0; k < m - 1; k++) {
       const a = i * m + k, b = i2 * m + k, c = i2 * m + k + 1, d = i * m + k + 1;
-      idx.push(a, b, c, a, c, d);
+      // Same outward convention as gridSurface. The frames run the same way
+      // round the opening as the surface's own u, so the naive winding faces
+      // into the body and the lip is invisible from outside: you see the raw
+      // staircase of the cut instead of the lip that was put there to hide it.
+      idx.push(a, c, b, a, d, c);
     }
   }
   return mesh(flat(pts), idx);

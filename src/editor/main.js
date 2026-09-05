@@ -73,7 +73,7 @@ import { MATERIALS as GROUND_COLOURS } from '../game/level/groundcover.js';
 import {
   emptyLevel, normalizeLevel, serializeLevel, createLevelWorld, renumberGraves,
   packPaint, unpackPaint, GROUND_MATERIALS, LEVEL_FORMAT,
-  WALL_VARIANTS, WALL_JOINTS, MAX_STYLES, WALL_SECTION,
+  WALL_VARIANTS, WALL_JOINTS, MAX_STYLES, WALL_SECTION, MAX_MAIN_GATES,
   wallDistanceTo, wallPointAt, wallSections, wallSectionCount, setWallSections,
   SESSION_KEY, SESSION_LEVEL,
 } from '../game/level/format.js';
@@ -83,6 +83,7 @@ import {
 import { checkFairness, FAIR_MESSAGES } from '../game/level/fairness.js';
 import { PALETTE, levelFootprint } from '../game/level/catalogue.js';
 import { spawnZone, spawnFault } from '../game/world/spawn.js';
+import { mainGateFault, mainGateAt } from '../ghost/props/fence/maingate.js';
 import { LEVEL_SIZE } from '../game/world/field.js';
 // THE ONLINE HALF: an account, the levels in it, and the choice to make one
 // public. All of it lives in src/net/online.js, which owns the requests, the
@@ -240,6 +241,9 @@ let placeEntry = { kind: 'stone', variant: 'cross' };
 // builds meet. Not the same thing as doc.wall.variant, which is what the run
 // STARTS in.
 let wallPick = { variant: WALL_VARIANTS[1], joint: 'pier' };
+// What a click on the wall does: change the stone of a section, or put a
+// gateway in the boundary between two.
+let wallClick = 'stone';
 // Which two grounds the next kerb goes between.
 const kerbPick = { a: GROUND_MATERIALS[0], b: GROUND_MATERIALS[3] || GROUND_MATERIALS[1] };
 let snapOn = false;
@@ -301,9 +305,21 @@ function overlayOpts(extra = {}) {
     // WHICH SECTION OF WALL THE NEXT CLICK PAINTS. Without it an author is
     // clicking a hundred and twenty units of wall and guessing where the five
     // unit boundaries fall.
-    wallHover: tool === 'wall' && hover && wallSectionAt(hover.x, hover.z)
+    wallHover: tool === 'wall' && wallClick === 'stone' && hover && wallSectionAt(hover.x, hover.z)
       ? wallSectionOutline(wallSectionAt(hover.x, hover.z).i)
       : null,
+    // The join a gateway would go in, and whether it can. Same idea as the
+    // section band: an author should not have to guess where a boundary falls.
+    wallGate: tool === 'wall' && wallClick === 'gate' && hover && wallBoundaryAt(hover.x, hover.z)
+      ? (() => {
+        const b = wallBoundaryAt(hover.x, hover.z);
+        const on = (doc.wall.gates || []).some((g) => Math.abs(g - b.at) < 1e-6);
+        const at = mainGateAt(doc.wall.points.map(([x, z]) => ({ x, z })), b.at);
+        return { x: at.x, z: at.z, yaw: at.yaw, ok: on || !gateFaultAt(b.at), on };
+      })()
+      : null,
+    // Every way in the wall already has, so they can be seen and found.
+    wallGates: (doc.wall.gates || []).map((g) => mainGateAt(doc.wall.points.map(([x, z]) => ({ x, z })), g)),
     wallMarks: doc.wall.styles.map((st) => wallPointAt(doc.wall.points, st.at)),
     // THE FENCE ABOUT TO BE DRAWN. Green or red, and a ring on whatever the
     // point has attached itself to, because a snap the author cannot see is a
@@ -663,6 +679,52 @@ function stoneFits(i, stone) {
   return wallStones(sections).size <= MAX_STYLES;
 }
 
+// THE WAYS IN. A gateway goes on the boundary between two sections, which is
+// where the wall already stands a pier, so it replaces that pier rather than
+// squeezing between two and it lands on the lattice by construction. The
+// author picks a boundary exactly as they pick a section, and the arithmetic is
+// the same arithmetic.
+//
+// Every reason one cannot go somewhere comes from mainGateFault, in its own
+// words: the geometry owns those rules and the tool should not be keeping a
+// second opinion about them.
+function wallBoundaryAt(x, z) {
+  const near = wallDistanceTo(doc.wall.points, x, z);
+  if (near.away > 2.6) return null;
+  const n = wallSectionCount(doc.wall.points);
+  const i = Math.round(near.at / WALL_SECTION) % n;
+  return { i, at: i * WALL_SECTION };
+}
+
+function gateFaultAt(at) {
+  const pts = doc.wall.points.map(([px, pz]) => ({ x: px, z: pz }));
+  const want = [...(doc.wall.gates || []), at];
+  const fault = mainGateFault(pts, want).find((f) => Math.abs(f.at - at) < 1e-6);
+  return fault ? fault.why : null;
+}
+
+function toggleMainGate(x, z) {
+  const b = wallBoundaryAt(x, z);
+  if (!b) { say('click the join between two sections of the wall to put a gateway there'); return false; }
+  const gates = doc.wall.gates || (doc.wall.gates = []);
+  const had = gates.findIndex((g) => Math.abs(g - b.at) < 1e-6);
+  if (had >= 0) {
+    gates.splice(had, 1);
+    say('closed that gateway up');
+    return true;
+  }
+  if (gates.length >= MAX_MAIN_GATES) {
+    say(`${MAX_MAIN_GATES} ways in is the most a wall can have, one to a side`);
+    return false;
+  }
+  const why = gateFaultAt(b.at);
+  if (why) { say(`no gateway there: ${why}`); return false; }
+  gates.push(b.at);
+  gates.sort((p, q) => p - q);
+  say('a gateway. It is chained shut, and it is a hole in the wall you can see and in nothing else.');
+  return true;
+}
+
 function paintWallSection(x, z) {
   const hit = wallSectionAt(x, z);
   if (!hit) { say('click a section of the perimeter wall to change what it is built of'); return false; }
@@ -673,6 +735,16 @@ function paintWallSection(x, z) {
   }
   if (!stoneFits(hit.i, wallPick.variant)) {
     say(`a wall can be built of ${MAX_STYLES} stones at once and this one already uses ${[...wallStones()].join(', ')}`);
+    return false;
+  }
+  // A JOINT NEEDS WALL TO JOIN. A change of stone lands on the boundary at the
+  // start of the section, and if there is a gateway standing in that boundary
+  // there is no wall there for a pier or a tooth to be part of.
+  const gates = doc.wall.gates || [];
+  const boundary = hit.i * WALL_SECTION;
+  if (hit.i > 0 && gates.some((g) => Math.abs(g - boundary) < 1e-6)
+    && sections[hit.i - 1] !== wallPick.variant) {
+    say('there is a gateway on that join, so the stone cannot change there');
     return false;
   }
   sections[hit.i] = wallPick.variant;
@@ -917,7 +989,10 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   
   if (tool === 'gate') { commitIf(() => toggleGate(at.x, at.z)); return; }
-  if (tool === 'wall') { commitIf(() => paintWallSection(at.x, at.z)); return; }
+  if (tool === 'wall') {
+    commitIf(() => (wallClick === 'gate' ? toggleMainGate(at.x, at.z) : paintWallSection(at.x, at.z)));
+    return;
+  }
 
   if (tool === 'fence') {
     const look = fencePreview(at.x, at.z, e.altKey);
@@ -1994,7 +2069,14 @@ function drawRight() {
       // ONE STONE PICKER, not two. There used to be a "starts in" and a "stamp"
       // side by side and no way to tell which was which; with sections there is
       // only one question, which is what the next click paints.
-      el('p', { class: 'note', text: 'pick the wall stone tool, then click a section of the wall' }),
+      el('div', { class: 'row' }, [
+        el('label', { text: 'clicking' }),
+        segment(['stone', 'gate'], wallClick, (v) => { wallClick = v; setTool('wall'); },
+          { labels: ['changes the stone', 'puts a way in'] }),
+      ]),
+      el('p', { class: 'note', text: wallClick === 'gate'
+        ? `click the join between two sections. ${(doc.wall.gates || []).length} of ${MAX_MAIN_GATES} ways in.`
+        : 'click a section of the wall, five units of it' }),
       el('div', { class: 'row' }, [
         el('label', { text: 'make it' }),
         el('div', { class: 'seg' }, WALL_VARIANTS.map((v) => {

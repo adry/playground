@@ -87,7 +87,7 @@ function profile(y) {
 // A block of trunk between two heights, rounded off at both ends so it is a
 // closed solid. `k` scales the radius, which is how the flesh column reuses
 // exactly the same section as the skin.
-function blockPoint(lo, hi, u, vv, k = 1, capFrac = 0.09) {
+function blockPoint(lo, hi, u, vv, kx = 1, capFrac = 0.09, kz = null) {
   const y = lo + (hi - lo) * vv;
   const [hw, hd] = profile(y);
   let cap = 1;
@@ -95,9 +95,9 @@ function blockPoint(lo, hi, u, vv, k = 1, capFrac = 0.09) {
   else if (vv > 1 - capFrac) cap = Math.sqrt(Math.max(0, 1 - Math.pow((vv - (1 - capFrac)) / capFrac, 2)));
   const a = u * Math.PI * 2;
   return new THREE.Vector3(
-    Math.cos(a) * hw * k * cap,
+    Math.cos(a) * hw * kx * cap,
     y,
-    Math.sin(a) * hd * k * cap,
+    Math.sin(a) * hd * (kz === null ? kx : kz) * cap,
   );
 }
 
@@ -163,16 +163,26 @@ export function buildTorso({ materials }) {
   const vLo = vOfY(M.y.cavityBottom);
   const vHi = vOfY(M.y.cavityTop);
 
-  // The cut is one cell smaller than the true outline all round, so the lip
+  // The window's outline is a ROUNDED rectangle, not a rectangle. A square
+  // corner on an opening in flesh reads as a machined panel; the corner radius
+  // is what makes it read as torn away. `windowR` is 1 exactly on the outline,
+  // and the cut, the lip and nothing else all use it, so they cannot disagree.
+  const CORNER = 3.2;
+  const windowR = (u, vv) => {
+    const du = (((u - U_FRONT + 1.5) % 1) - 0.5) / uHalf;
+    const dv = (vv - (vLo + vHi) / 2) / ((vHi - vLo) / 2);
+    return Math.pow(Math.pow(Math.abs(du), CORNER) + Math.pow(Math.abs(dv), CORNER), 1 / CORNER);
+  };
+
+  // The cut is a little smaller than the true outline all round, so the lip
   // ribbon that follows the true outline covers the staircase it leaves.
-  const CELL_U = 1 / 64, CELL_V = 1 / 30;
   put(inUpper, gridSurface({
     uSteps: 64, vSteps: 30, closedU: true,
     point: (u, vv) => blockPoint(CHEST.lo, CHEST.hi, u, vv),
-    keepQuad: (u, vv) => {
-      const du = Math.abs(((u - U_FRONT + 1.5) % 1) - 0.5);
-      return !(du < uHalf - CELL_U * 0.6 && vv > vLo + CELL_V * 0.6 && vv < vHi - CELL_V * 0.6);
-    },
+    // The hole is cut a little LARGER than the lip's outline, not smaller, so
+    // the lip's outer flange lies over the cut edge. Cut smaller and the
+    // shell's staircase stands proud of the lip and you see every step of it.
+    keepQuad: (u, vv) => windowR(u, vv) > 1.10,
   }).geometry, materials.skin);
 
   // --- 3. the lip ---------------------------------------------------------
@@ -191,11 +201,11 @@ export function buildTorso({ materials }) {
       const t = i / N;
       let du, dv;
       const box = (s) => {
-        // s in 0..1 round a unit square, corners rounded.
+        // s in 0..1 round a unit superellipse with the same corner radius the
+        // cut above used, so the lip lands exactly on the edge of the hole.
         const a = s * Math.PI * 2;
         const cx = Math.cos(a), cy = Math.sin(a);
-        const p = 1 / corner;
-        const k = Math.pow(Math.pow(Math.abs(cx), p) + Math.pow(Math.abs(cy), p), -1 / p);
+        const k = Math.pow(Math.pow(Math.abs(cx), CORNER) + Math.pow(Math.abs(cy), CORNER), -1 / CORNER);
         return [cx * k, cy * k];
       };
       [du, dv] = box(t);
@@ -217,14 +227,13 @@ export function buildTorso({ materials }) {
     // and back to the flesh. The last point lands at the flesh radius, so the
     // lip and the flesh column meet rather than leaving a slot to see through.
     const wall = M.torso.shellThickness;
-    const back = M.torso.chestDepth / 2 * (1 - M.cavity.floor);
+    const back = M.torso.chestDepth / 2 * (1 - M.cavity.floorZ);
     put(inUpper, ribbon(frames, [
-      { t: wall * 1.9, n: 0.0 },
-      { t: wall * 0.9, n: wall * 0.45 },   // the proud outer lip: a torn edge
-      { t: 0.0, n: -wall * 0.35 },
-      { t: -wall * 0.8, n: -wall * 1.5 },
-      { t: -wall * 1.6, n: -back * 0.72 },
-      { t: -wall * 2.2, n: -back * 1.15 },
+      { t: wall * 1.75, n: -wall * 0.14 },  // tucked under the skin, outside the cut
+      { t: wall * 0.50, n: wall * 0.30 },   // the proud torn edge
+      { t: -wall * 0.10, n: -wall * 0.30 },
+      { t: -wall * 0.55, n: -back * 0.55 },
+      { t: -wall * 1.00, n: -back * 1.15 },
     ]), materials.flesh);
   }
 
@@ -234,7 +243,7 @@ export function buildTorso({ materials }) {
     point: (u, vv) => blockPoint(
       M.y.cavityBottom - 0.030 * M.height,
       M.y.cavityTop + 0.020 * M.height,
-      u, vv, M.cavity.floor, 0.16,
+      u, vv, M.cavity.floorX, 0.16, M.cavity.floorZ,
     ),
   }).geometry, materials.flesh);
 
@@ -262,7 +271,7 @@ export function buildTorso({ materials }) {
       const inset = M.cavity.ribFront + (0.86 - M.cavity.ribFront) *
         smoothstep(M.cavity.halfAngle * 0.72, reach, Math.abs(a - Math.PI / 2));
       // and they droop forward and down, as real ribs do.
-      const droop = 0.30 * M.cavity.ribSpacing *
+      const droop = 0.12 * M.cavity.ribSpacing *
         (1 - Math.pow(Math.abs(a - Math.PI / 2) / reach, 2));
       pts.push(new THREE.Vector3(Math.cos(a) * hw * inset, y - droop, Math.sin(a) * hd * inset));
     }
@@ -288,8 +297,13 @@ export function buildTorso({ materials }) {
     const y = M.cavity.spineTop - k * M.cavity.spineSpacing;
     const [, hd] = profile(y);
     const r = M.cavity.spineRadius * (k < 2 ? 0.82 : 1.0);
+    // BEHIND the ribs, not level with them. Sitting them at the ribs' own
+    // depth put the knobs in front of the bars and the cavity flattened into
+    // one plane of pale shapes; a tenth of the chest's depth further back is
+    // enough that the top ones read as glimpsed THROUGH the rib gaps, which is
+    // the whole reason the spine is in there.
     put(inUpper, ball(r, r * 0.62, r * 0.75, 12), materials.bone, {
-      pos: v(0, y, hd * (M.cavity.floor + 0.30)),
+      pos: v(0, y, hd * (M.cavity.floorZ + 0.12)),
     });
   }
 

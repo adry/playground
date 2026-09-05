@@ -120,7 +120,16 @@ export function makeFake({ rejectKey = false, legacy = false } = {}) {
     );
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
     res.setHeader('Access-Control-Expose-Headers', 'content-range,content-location');
-    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+    if (req.method === 'OPTIONS') {
+      // Recorded like any other request. A preflight is the half of a cross
+      // origin write that the site cannot see and cannot influence, and a check
+      // that never observes one cannot tell a project that allows the write
+      // from one that does not.
+      seen.push({ method: 'OPTIONS', path: req.url, headers: { ...req.headers }, body: null, uid: null, bearer: '' });
+      res.writeHead(204);
+      res.end();
+      return;
+    }
 
     const chunks = [];
     req.on('data', (c) => chunks.push(c));

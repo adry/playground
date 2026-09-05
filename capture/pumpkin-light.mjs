@@ -47,7 +47,13 @@ const lab = await openLab({
   query: `game=1&test=1&view=${args.view || 6.5}`,
   readyFlag: '__gameReady', verbose: !!args.verbose,
 });
-await lab.page.evaluate((o) => window.__game.setSize(o.w, o.h), { w: width, h: height });
+// THE WALK IS RENDERED AT A QUARTER OF THE SIZE. Stepping the game draws a
+// frame, a frame here is software-rasterised, and the walk is fifty of them
+// against the four that are kept. Nothing about the walk depends on the
+// viewport, so it happens small and the canvas is grown again before anything
+// is captured.
+const SMALL = { w: Math.round(width / 2.2), h: Math.round(height / 2.2) };
+await lab.page.evaluate((o) => window.__game.setSize(o.w, o.h), SMALL);
 await mkdir(outDir, { recursive: true });
 
 // Walk there. The stick is the same one a player holds, so the ghost arrives
@@ -77,6 +83,12 @@ const arrive = await lab.page.evaluate(async (t) => {
 }, target);
 console.log(`ghost at (${arrive.at.x.toFixed(2)}, ${arrive.at.z.toFixed(2)}), `
   + `${Math.hypot(arrive.at.x - px, arrive.at.z - pz).toFixed(2)} from the pumpkin`);
+
+// Full size for the pictures, and two steps to settle the cloth into it.
+await lab.page.evaluate((o) => {
+  window.__game.setSize(o.w, o.h);
+  for (let i = 0; i < 2; i++) window.__game.step(1 / 20, { x: 0, y: 0 });
+}, { w: width, h: height });
 
 // WHICH LIGHTS BELONG TO A PUMPKIN, and it has to be answered without relying
 // on anything this fix added, or the before and the after are not the same

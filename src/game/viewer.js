@@ -45,6 +45,7 @@ import { Input } from '../ghost/input.js';
 import { createWorld } from './world/index.js';
 import { createFencePanel } from '../ghost/props/fence/panel.js';
 import { createWall, createVoid } from '../ghost/props/fence/wall.js';
+import { createMainGates, mainGateOpenings } from '../ghost/props/fence/maingate.js';
 import { createGate } from '../ghost/props/fence/gate.js';
 import { createFireflies } from '../ghost/props/fireflies.js';
 // The prop switch this file used to carry lives here now, so the editor at
@@ -171,13 +172,17 @@ export async function startViewer({ canvas, params }) {
   let walled = null;
   if (levelUrl && world.doc?.wall) {
     const spec = world.doc.wall;
+    const points = spec.points.map(([x, z]) => ({ x, z }));
+    const ats = spec.gates || [];
     const made = createWall({
       seed: 1,
-      points: spec.points.map(([x, z]) => ({ x, z })),
+      points,
       closed: true,
       variant: spec.variant,
       styles: spec.styles && spec.styles.length ? spec.styles : null,
+      gate: ats.length ? mainGateOpenings(ats) : null,
     });
+    const mains = ats.length ? createMainGates({ points, ats, seed: 1 }) : null;
     const b = world.bounds;
     const dusk = createVoid({
       bounds: {
@@ -187,6 +192,7 @@ export async function startViewer({ canvas, params }) {
     });
     walled = new THREE.Group();
     walled.add(made.group, dusk.group);
+    if (mains) walled.add(mains.group);
     scene.add(walled);
   }
 

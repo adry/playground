@@ -51,7 +51,7 @@ export function buildJacket({ materials }) {
 
   const open = M.jacket.openHalfAngle;
   const arc = Math.PI * 2 - 2 * open;
-  const gap = 0.007 * M.height;          // standoff from the body
+  const gap = 0.005 * M.height;          // standoff from the body
   const top = M.jacket.top;
 
   const hemAt = (u) => M.jacket.hem + tornEdge(u, 9, M.jacket.tatter, 3);
@@ -62,7 +62,7 @@ export function buildJacket({ materials }) {
   // throat, with the head sitting in it like a bucket.
   const topAt = (u) => {
     const front = 1 - Math.min(1, Math.abs(u - 0.5) * 2.4);
-    return top - 0.050 * M.height * (1 - front);
+    return top - 0.038 * M.height * (1 - front);
   };
   const yAt = (u, vv) => {
     const h = hemAt(u);
@@ -77,7 +77,7 @@ export function buildJacket({ materials }) {
   // through it, which read as bare shoulders with a bib hung under them.
   const yoke = (y) => {
     const t = Math.max(0, (y - (M.y.shoulder - 0.075 * M.height)) / (0.075 * M.height));
-    return 1 + 0.16 * Math.min(1, t) * Math.min(1, t);
+    return 1 + 0.08 * Math.min(1, t) * Math.min(1, t);
   };
   const radAt = (u, y, out) => {
     const [hw, hd] = trunkProfile(y);

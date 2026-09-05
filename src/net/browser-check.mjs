@@ -24,10 +24,25 @@
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { chromium } from 'playwright';
 import { makeFake, listen, KEY } from './fake-postgrest.mjs';
 
-const PORT = 5191;
+// A FREE PORT, ASKED FOR RATHER THAN ASSUMED. A fixed port is a fixed way for
+// this check to quietly test the wrong thing: a dev server somebody left
+// running answers, the one started here fails to bind, and every page loaded
+// below comes from a tree that is not the one being checked.
+function freePort() {
+  const s = net.createServer();
+  return new Promise((resolve) => {
+    s.listen(0, '127.0.0.1', () => {
+      const { port } = s.address();
+      s.close(() => resolve(port));
+    });
+  });
+}
+const PORT = await freePort();
 const ORIGIN = `http://127.0.0.1:${PORT}`;
 const DEAD = 'http://127.0.0.1:9';
 
@@ -72,20 +87,46 @@ const fake = makeFake();
 const fakePort = await listen(fake.server);
 const BOARD = `http://127.0.0.1:${fakePort}`;
 
+// A FROZEN COPY OF THE PROJECT, and it is not fussiness.
+//
+// This check drives a dev server, and a dev server reloads every open page the
+// instant a source file changes. Several people work in this repository at
+// once, so a run against the working tree is a run whose pages navigate out
+// from under it halfway through: fetches abort, the card the board was attached
+// to stops existing, and the failure looks like a bug in the board rather than
+// like somebody two directories away pressing save.
+//
+// So the project is copied first and the server runs on the copy. node_modules
+// is symlinked rather than copied, because it is large and nobody edits it.
+const ROOT = new URL('../..', import.meta.url).pathname.replace(/\/$/, '');
+const SNAP = fs.mkdtempSync(path.join(os.tmpdir(), 'graveyard-check-'));
+fs.cpSync(ROOT, SNAP, {
+  recursive: true,
+  filter: (src) => !/^\/(node_modules|\.git|dist|\.scratch)(\/|$)/.test(src.slice(ROOT.length) || '/'),
+});
+fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(SNAP, 'node_modules'));
+
 const vite = spawn('npx', ['vite', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
-  cwd: new URL('../..', import.meta.url).pathname,
+  cwd: SNAP,
   stdio: ['ignore', 'pipe', 'pipe'],
   // Its own process group, so killing it at the end kills the vite underneath
   // npx as well. Without this the dev server outlives the check and the next
   // run of it cannot bind the port.
   detached: true,
 });
+let viteFailed = null;
 vite.stdout.on('data', () => {});
-vite.stderr.on('data', (d) => process.stderr.write(d));
+vite.stderr.on('data', (d) => {
+  const text = String(d);
+  if (/already in use|EADDRINUSE/.test(text)) viteFailed = text.trim();
+  process.stderr.write(d);
+});
+vite.on('exit', (code) => { if (code) viteFailed = viteFailed || `the dev server exited with ${code}`; });
 
 let browser = null;
 try {
   await waitForPort(PORT);
+  if (viteFailed) throw new Error(`the dev server did not start: ${viteFailed}`);
   // --no-proxy-server, because this machine has an outbound proxy configured
   // and every request here is to a loopback address.
   browser = await chromium.launch({ args: ['--no-proxy-server'] });
@@ -476,6 +517,7 @@ try {
   if (browser) await browser.close();
   try { process.kill(-vite.pid, 'SIGTERM'); } catch { vite.kill('SIGTERM'); }
   fake.server.close();
+  try { fs.rmSync(SNAP, { recursive: true, force: true }); } catch { /* it is in the temp directory */ }
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

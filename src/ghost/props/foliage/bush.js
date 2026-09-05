@@ -73,11 +73,13 @@ import {
 //
 // COST, per bush, at the sizes below: one draw call for the body and one for
 // the painted contact patch. Triangles over four seeds are 15.2k to 17.8k for
-// the ball, 18.9k to 21.8k for the cone, 26.0k to 31.0k for the box and 21.6k
-// to 22.8k for the wild one. The box is the dearest because it has the most
-// surface to cover and the leaf is one fixed size: six faces of a 0.9 cube is
-// nearly twice the skin of a 0.9 ball. Building one costs 40 to 76 ms, nearly
-// all of it in scattering the leaf clusters.
+// the ball, 18.9k to 21.8k for the cone, 26.0k to 31.0k for the box, 25.8k for
+// a hedge segment (27.3k capped) and 21.6k to 22.8k for the wild one. Surface
+// area is what sets it, because the leaf is one fixed size: six faces of a 0.9
+// cube is nearly twice the skin of a 0.9 ball, and a hedge is a metre of that
+// per segment, so a four segment run is four times this and reads as one
+// prop. Building one costs 40 to 80 ms, nearly all of it in scattering the
+// leaf clusters.
 
 export const BUSH_VARIANTS = ['ball', 'cone', 'box', 'hedge', 'hedgecap', 'wild'];
 
@@ -329,8 +331,8 @@ const CLIPPED = {
 
   // A segment of hedge, and the segment that ends a run. See hedgeField in
   // clipped.js for the shape and why the box could not do this job.
-  hedge: (rand) => hedgeSpec({ capPlus: false }),
-  hedgecap: (rand) => hedgeSpec({ capPlus: true }),
+  hedge: () => hedgeSpec({ capPlus: false }),
+  hedgecap: () => hedgeSpec({ capPlus: true }),
 };
 
 // NOTHING HERE IS SEEDED, and that is the point of a tiling piece.
@@ -371,21 +373,32 @@ function hedgeSpec({ capPlus }) {
   return {
     height: HEDGE.height,
     lean: 0,
-    // No leaf on a flat end. It is inside the neighbour on a tiled run, so it
-    // is triangles nobody can see, and on the last segment of a run it is a
-    // cut face that should look cut. The clusters on the LONG faces are left
-    // alone deliberately: they overhang the tile plane by up to their own
-    // radius, and two segments' overhangs interleaving is what makes the join
-    // disappear. They are opaque solids of one colour, so overlapping them
-    // costs nothing and shows nothing.
-    // Rejected by NORMAL and not by position, and the threshold is 0.9 rather
-    // than something comfortable like 0.5 on purpose. The end face's normal is
-    // exactly +x; the arris where it meets the top and the side faces has a
-    // blended one, and at 0.5 that whole arris was rejected too. What that
-    // left was a cluster-sized hole at the top corner of every join, which on
-    // this camera is on the silhouette, so the hedge showed a notch of
-    // daylight at every metre. The band right at the arris is the band that
-    // has to be planted.
+    // WHERE THE LEAF GOES ON A SEGMENT, which took three tries to get right.
+    //
+    // The middle of a flat end face gets none. On a run it is inside the
+    // neighbour, so it would be triangles nobody can see; on the last segment
+    // of a run it is a cut face and a cut face should look cut.
+    //
+    // A band one cluster wide around the EDGE of that face does get leaf, and
+    // that band is what closes the join. Rejecting the whole face left the
+    // join line covered only by the rims of clusters standing on the long
+    // faces, and a rim is the thinnest part of a cluster, so the surface
+    // sagged along the join and drew a shadow line at every metre. Planting
+    // the band fills it from both sides.
+    //
+    // The test is on the NORMAL, and the threshold is 0.9 rather than
+    // something comfortable like 0.5. The end face's normal is exactly +x; the
+    // arris where it meets the top and the sides has a blended one, and at 0.5
+    // that arris was rejected with the face. What that left was a
+    // cluster-sized hole at the top corner of every join, which on this camera
+    // sits on the silhouette, so the hedge showed a notch of daylight at every
+    // metre.
+    //
+    // The clusters on the long faces are left alone: they overhang the tile
+    // plane by up to their own radius on purpose, and two segments' overhangs
+    // interleaving is the other half of what makes the join disappear. They
+    // are opaque solids of one colour, so overlapping them costs nothing and
+    // shows nothing.
     napKeep: (p, n) => capPlus || n.x < 0.9
       || Math.abs(p.z) > HEDGE.thick / 2 - LEAF * 1.3
       || p.y > HEDGE.height - LEAF * 1.3,

@@ -203,6 +203,14 @@ push('bush', 'ball', -3.6, 12.8);
 push('bush', 'cone', -11.4, 10.2);
 push('bush', 'box', 12.6, 5.2);
 push('bush', 'wild', -12.4, 12.2);
+
+// A short run of hedge, which is the one prop in the set that is placed as a
+// SEQUENCE. The pitch is one unit exactly and the segments abut: the leaf
+// layer of each overhangs the join and interleaves with its neighbour's, which
+// is what makes four props read as one hedge. The last one is `hedgecap`,
+// whose far end is rounded off instead of cut square, so the run ends rather
+// than stops. Yaw is zero, so the run lies along world x.
+for (let i = 0; i < 4; i++) push('bush', i === 3 ? 'hedgecap' : 'hedge', -8.0 + i, -6.0, 0);
 push('grass', 'patch', -8.2, 1.4);
 push('grass', 'patch', 8.4, 12.4);
 push('flowers', 'daisies', -13.0, -1.4);
