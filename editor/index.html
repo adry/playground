@@ -320,23 +320,18 @@
     display: block;
     object-fit: contain;
   }
-  /* The marks for the things that are not props. A fence is a thing you draw
-     rather than a thing that exists before you have drawn it, so there is
-     nothing to photograph and this is a drawing of the idea. */
+  /* The drawings for the things that are not props. A fence run is a line you
+     draw rather than a thing that exists before you have drawn it, so there is
+     nothing to photograph: main.js draws these, in full, at the same
+     three-quarter angle the rendered ones are seen at. They carry their own
+     colours, so nothing here paints them. */
   .tiles .shot.glyph {
     display: grid;
     place-items: center;
-    padding: 12px;
+    padding: 4px;
+    overflow: hidden;
   }
-  .tiles .shot.glyph svg {
-    width: 100%;
-    height: 100%;
-    fill: none;
-    stroke: #4a515c;
-    stroke-width: 1.6;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
+  .tiles .shot.glyph svg { width: 100%; height: 100%; display: block; }
   /* Until its render arrives. Not a spinner: a spinner in a grid of fifty is a
      disco, and these fill in within a second or two of the group opening. */
   .tiles .shot:not([src]) { opacity: 0.5; }

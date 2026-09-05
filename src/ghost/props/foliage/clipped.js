@@ -27,12 +27,13 @@ import { icosphere, makeLobes, lumpPositions } from './wind.js';
 //
 //   profileGeometry  ball and cone. A surface of revolution, from a profile
 //                    polyline resampled by ARC LENGTH. That resampling is the
-//                    reason the cone exists at all: mapped radially from an
-//                    interior point, the cone's apex subtends about three and a
-//                    half degrees of the sphere of directions and collects
-//                    THREE vertices out of two and a half thousand, which is a
-//                    spike and not a rounded tip. Mapped by arc length it
-//                    collects about twenty.
+//                    reason the cone exists at all. Its apex arc is 5.5% of the
+//                    profile's length, but seen from a point inside the cone it
+//                    subtends five degrees and a twentieth of one per cent of
+//                    the sphere of directions: mapped radially it collects FOUR
+//                    vertices out of the two thousand the mesh has, which is a
+//                    spike and not a rounded tip. Mapped by arc length the same
+//                    two thousand put NINETEEN on it.
 //
 //   fieldGeometry    the box. Not a surface of revolution, so it is a signed
 //                    distance field bisected along rays from the centre. A box
@@ -163,7 +164,7 @@ function resampleProfile(profile, count = 512) {
 // A constant inset is what every clipped form wants except at the tip of the
 // cone, and the tip of the cone is why this exists. The leaf layer is a shell
 // of clusters standing one nap depth off the mass, and a cluster is a body
-// about six nap depths across: where the surface it stands on is curved
+// nine nap depths across: where the surface it stands on is curved
 // tighter than that, its neighbours splay apart from it and the tip comes out
 // as a raspberry with daylight between the segments. Thinning the nap over the
 // top fifth of the cone, and shrinking the clusters to match, keeps the ratio
@@ -238,8 +239,9 @@ export function profileGeometry({ profile, detail = 4 }) {
 // shrinking b. BATTER is the other half of the read: real hedging is cut a few
 // per cent narrower at the top than at the bottom, both because it is cut with
 // a straight edge held against a leaning face and because a vertical face
-// starves the bottom of light. Three per cent is invisible as a taper and is
-// the difference between three faces that shade alike and three that do not.
+// starves the bottom of light. Four and a half per cent does not read as a
+// taper at all, and it is the difference between a top face and a side face
+// that shade alike and two that do not.
 export function boxField({ hx, hy, hz, cy, fillet, batter = 0 }) {
   const y0 = cy - hy;
   const span = Math.max(1e-4, 2 * hy);
@@ -397,8 +399,8 @@ export function napSites(geo, {
   // same way the overgrown bush's two clump sizes share a gap.
   const sp = (p) => spacing * (sizeAt ? sizeAt(p) : 1);
 
-  // One candidate: a point drawn uniformly over the surface, or null if it
-  // landed somewhere no cluster may go.
+  // One candidate: a point drawn uniformly over the surface, left in p and nv.
+  // False if it landed somewhere no cluster may go.
   const draw = () => {
     const t = pick(rand());
     const i0 = idx.getX(t * 3), i1 = idx.getX(t * 3 + 1), i2 = idx.getX(t * 3 + 2);
@@ -471,7 +473,7 @@ export function buildNap(sites, {
   nap,                  // how far a tip stands above the mass
   napAt = null,         // or that depth per site, where the mass was inset unevenly
   jitter = 0.12,        // and how unequal the tips are, as a fraction of nap
-  flat = 0.52,          // squash along the cluster's own axis
+  flat = 0.34,          // squash along the cluster's own axis
   tilt = 0.14,          // radians of aim scatter
   flutterTop = 1,       // world y at which flutter reaches full weight
   sizeAt = null,        // per-site multiplier on the cluster radius

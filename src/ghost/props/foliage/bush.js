@@ -41,11 +41,12 @@ import {
 //     or a scallop of its own, mostly buried in the mass, merged into a single
 //     geometry. They are what carries the flutter: each has its own phase, so
 //     the surface breaks into pieces that move separately instead of one object
-//     being shaken. On the wild bush there are a hundred and fifty of them and
-//     they are what makes the outline scallop. On a clipped bush there are
-//     three hundred, they are half the size, and their tips are placed so they
-//     land back on the exact form: the outline stays the shape the gardener
-//     cut, and only the shading says leaves.
+//     being shaken. On the wild bush there are a hundred and sixty-eight of
+//     them, they stand well proud of the mass, and they are what makes the
+//     outline scallop. On a clipped bush there are a hundred and fifty to three
+//     hundred, they are squashed flat against the surface, and their tips are
+//     placed so they land back on the exact form: the outline stays the shape
+//     the gardener cut, and only the shading says leaves.
 //
 // Alpha-cut leaf cards were the obvious alternative and are wrong for this
 // scene three times over. There is no environment map, so a card has nothing to
@@ -64,7 +65,16 @@ import {
 // wind weights, so they are built and baked separately, and then joined into a
 // single buffer with a single material by joinLayers below. The colour
 // difference between them survives the join as a factor on the vertex colour,
-// which the tint bake was already writing.
+// which the tint bake was already writing. The wild bush was two meshes before
+// this and is now one; the join is exact, and a render of it is byte for byte
+// the render the two meshes gave.
+//
+// COST, per bush, at the sizes below: one draw call for the body and one for
+// the painted contact patch. Triangles over four seeds are 14.5k to 15.4k for
+// the ball, 16.1k to 20.0k for the cone, 24.5k to 29.0k for the box and 21.6k
+// to 22.8k for the wild one. The box is the dearest because it has the most
+// surface to cover and the leaf is one fixed size: six faces of a 0.9 cube is
+// nearly twice the skin of a 0.9 ball.
 
 export const BUSH_VARIANTS = ['ball', 'cone', 'box', 'wild'];
 
@@ -164,26 +174,33 @@ export function createBush({ seed = 1, scale = 1, variant = DEFAULT_VARIANT } = 
 // and it makes the cone read as a ball seen from further away, which is the
 // exact opposite of what "the same plant cut three ways" needs.
 //
-// Three numbers, and the third is the one that decides whether the surface
-// reads as clipped foliage or as bubble wrap.
+// Four numbers, and it is the last two that decide whether the surface reads
+// as clipped foliage or as bubble wrap.
 //
-//   LEAF     the radius of one cluster.
-//   SPACING  how far apart their centres go. Under twice the radius, so
-//            neighbours overlap by about a third and the crevice between them
-//            is a slot rather than a valley.
+//   LEAF     the radius of one cluster, in plan.
+//   SPACING  how far apart their centres go: about one radius, so a cluster's
+//            visible scallop covers its neighbour's centre and the surface
+//            closes. At one and a half radii the scallops separated into
+//            petals stuck on a dark ball, which is the failure this number is
+//            set against.
 //   NAP      how far a tip stands proud of the mass, which is the RELIEF of
-//            the whole surface and nothing else. It was 0.023, a third of the
-//            cluster radius, and at that depth every cluster is a dome with
-//            its own shading gradient and the three forms came back looking
-//            like broccoli. At 0.015 the same clusters at the same spacing are
-//            shallow scallops: the crevice shading still draws every one of
-//            them, the outline wobbles by under two per cent of the width, and
-//            the form is what the eye reads first. Cluster size and relief are
-//            separate knobs for exactly this reason, and the relief is the one
-//            that wanted turning down.
+//            the whole surface and nothing else.
+//   FLAT     how squashed a cluster is along its own axis.
+//
+// The first version had NAP at a third of LEAF and FLAT at 0.52, and every
+// cluster came out a little dome with a shading gradient of its own: three
+// heads of broccoli. Turning the relief down on its own made it worse rather
+// than better, because a shallower cut through the same round lump exposes a
+// SMALLER cap, and the surface opened into islands with dark mass between
+// them. Both knobs had to move together: at 0.016 of relief on a cluster
+// squashed to a third of its width, the exposed cap is nearly the cluster's
+// full radius, so the scallops overlap and the crevice shading still draws
+// every one of them, while the outline wobbles by under two per cent of the
+// prop's width and the form is what the eye reads first.
 const LEAF = 0.072;
 const SPACING = 0.076;
 const NAP = 0.016;
+const FLAT = 0.34;
 
 // How finely the mass is tessellated, as three's PolyhedronGeometry `detail`,
 // which gives 20 * (detail + 1)^2 triangles. It is per form because the three
@@ -194,12 +211,13 @@ const NAP = 0.016;
 //           step is a 55-gon that misses the true circle by 0.0007 units.
 //   cone 13  3920 tris. Set by the apex, not the flank: the flank is straight
 //           and gets its shading from analytic normals, so tessellating it
-//           buys nothing, while the apex cap is 5% of the profile's length and
-//           needs enough rings not to be a spike.
+//           buys nothing, while the apex cap is 5.5% of the profile's length
+//           and needs enough rings not to be a spike. It gets 19 vertices.
 //   box  15  5120 tris, 4.1 degrees. Set by the fillet, which subtends only
 //           about 15 degrees of direction from the centre however wide it is
-//           in world units, so it collects four vertices across at this step
-//           and one and a bit at the ball's.
+//           in world units. At this step 668 of the 2562 vertices land on the
+//           fillets, four across each arris; at the ball's step it would be
+//           one and a bit.
 const CLIPPED = {
   // A true spheroid, slightly wider than tall, cut off flat below the floor.
   // If it looks like the wild bush with the lobes turned down it has failed, so
@@ -214,7 +232,6 @@ const CLIPPED = {
     const cut = -0.075 * height;  // the flat underside, underground
     return {
       height,
-      width,
       mass: (inset) => profileGeometry({
         detail: 9,
         profile: ballProfile({ a, b, cy, cut }, inset),
@@ -250,7 +267,6 @@ const CLIPPED = {
     };
     return {
       height,
-      width: base * 2,
       napSize: (p) => taper(p.y),
       napAt: (p) => NAP * taper(p.y),
       mass: (inset) => profileGeometry({
@@ -277,8 +293,6 @@ const CLIPPED = {
     const cy = (height - buried) / 2;
     return {
       height,
-      width,
-      depth,
       mass: (inset) => fieldGeometry({
         detail: 15,
         field: insetField(cutField(boxField({
@@ -337,7 +351,7 @@ function clippedBush(kind, rand) {
   const napGeo = mergeLumps(buildNap(sites, {
     rand,
     radius: LEAF,
-    flat: 0.34,
+    flat: FLAT,
     nap: NAP,
     flutterTop: top * 0.85,
     sizeAt: spec.napSize || null,
@@ -359,11 +373,17 @@ function clippedBush(kind, rand) {
 
   // The wind, and this is the single easiest way to lose the trimmed read.
   // Clipped topiary that sways like a shrub is not clipped, so the mass barely
-  // moves: the stiffness power is 2.6 against the wild bush's 1.8, which keeps
-  // everything below three quarters of the height effectively rigid, and the
-  // sway amplitude is a fifth of the wild bush's. What is left is the leaf
-  // layer's own flutter, which is a rigid offset per cluster and therefore
-  // moves the surface without moving the outline.
+  // moves. Two numbers do it. The stiffness power goes to 2.6 from the wild
+  // bush's 1.8, so a vertex at half the height moves 0.16 of what the crown
+  // does rather than 0.29. And the sway amplitude goes to a ninth of the wild
+  // bush's. What is left is the leaf layer's flutter, which is a rigid offset
+  // per cluster and therefore moves the surface without moving the outline.
+  //
+  // Measured off the rendered silhouette by bush-shot.mjs --measure over six
+  // seconds, the top of the prop travels 0.013 world units for the ball, 0.016
+  // for the cone and the box, against 0.087 for the wild bush, and the foot
+  // travels 0.0035, 0.0005 and 0.0007 against 0.0103. At the size the yard
+  // shows a bush, the crown of a clipped one moves about half a pixel.
   bakeWind(massGeo, { top: top * 0.92, base: 0, power: 2.6, flutter: 0 });
   bakeWind(napGeo, { top: top * 0.92, base: 0, power: 2.6 });
 

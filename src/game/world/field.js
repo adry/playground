@@ -83,7 +83,10 @@ export const FLY_REACH = 2.2;       // how far one may be pulled toward a gate o
 // them 19.1 apart before anything moves. It is now a floor that catches a pair
 // shoved together by two nudges, not the thing setting the spacing.
 export const FLY_GAP = 12.0;
-export const POWERUPS = 4;          // Pac-Man's four, one per quadrant
+// NO POWERUPS. There were four, one per quadrant, and they were Pac-Man's
+// power pellet as a lit jack-o'-lantern. The owner has taken the pellet out of
+// the game; see rules.js for what the game loses with it and for the four
+// constants that would come back if it returned.
 export const GRAVES = 4;            // exactly MAX_GROUND_HOLES, so there is no budget to keep
 export const SPAWN_CLEAR = 3.2;     // the ghost's own patch of ground
 

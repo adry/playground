@@ -47,7 +47,8 @@
 // are all the same shape of problem, a prop somewhere a body has to be:
 //
 //   the ghost's own spawn has to admit a body
-//   every grave has to admit a skeleton, or nothing can climb out of it
+//   every headstone's keep-clear zone has to be clear of solid props, or the
+//     skeleton that climbs out in front of it comes up inside a fountain
 //   every gate's approach corridor has to admit a body, two units either side
 
 // THE RULES HALF'S OWN RASTERISER, IMPORTED RATHER THAN REPRODUCED.
@@ -69,6 +70,8 @@
 // can walk through and steps over a pocket a body can stand in, and it does the
 // second more often than the first. So the repair is done at the finest raster
 // anybody measures at, and it costs about forty milliseconds a level.
+import { spawnZones, propsInZone } from './spawn.js';
+
 export const NAV_CELL = 0.25;
 // THE BODY, PLUS A MARGIN, AND THE MARGIN IS THE POINT.
 //
@@ -413,6 +416,25 @@ const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -
 // the same records world.barriers(), world.gates() and world.props() publish,
 // so a level loaded out of a file is checked by exactly this call.
 //
+// AND THE OTHER END OF THE FLOOD, which is new and is the reason a keep-clear
+// zone had to be taught to this function rather than only to the audit.
+//
+// The flood starts at the GHOST'S spawn, so what it reports is ground the ghost
+// cannot walk to. That was the whole question while the skeletons came out of
+// four hand-placed graves the generator guaranteed were on the main component.
+// They come out of headstones now, chosen at random from every marker in the
+// yard, and a marker's own plot can perfectly well sit on the far side of a
+// fence the flood never crossed. Nothing about that reads as a pocket: it is
+// two cells of ordinary ground with a stone at one end, a body fits there, and
+// a body could have walked there from the other side. The level is then unfair
+// in the direction nothing was looking, because a skeleton APPEARS in it.
+//
+// So a spawn point that is not on the ghost's own component is a finding of the
+// same kind and comes back in the same list, with `spawn` naming the marker and
+// `cells` at zero. An entry with `cells: 0` is a place something arrives at,
+// not a place something is trapped in, and a caller that only wants pockets can
+// filter on it.
+//
 // SINGLE CELLS ARE NOT REPORTED, and the floor is the same MIN_POCKET the
 // repair uses. The confirmation samples a cell on a five by five, so a cell
 // whose extreme corner clears the body by a millimetre counts as a place to
@@ -420,7 +442,7 @@ const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -
 // seventeen findings of exactly one cell and none of two or more, against a
 // soak that reports those arenas clean at a raster of 0.15. One cell is the
 // instrument; two is a place.
-export function findWedges({ box, barriers, gates, props, spawn, cell = NAV_CELL, minCells = MIN_POCKET }) {
+export function findWedges({ box, barriers, gates, props, spawn, spawns = null, cell = NAV_CELL, minCells = MIN_POCKET }) {
   const grid = navGrid(box, barriers, gates, props, spawn, cell);
   const { label } = components(grid);
   const spawnCell = nearestWide(grid, spawn.x, spawn.z);
@@ -464,13 +486,23 @@ export function findWedges({ box, barriers, gates, props, spawn, cell = NAV_CELL
     }
     if (count >= minCells) out.push({ x: sx / count, z: sz / count, cells: count });
   }
+  // And the marker whose plot the ghost's flood never reached. `reachable` is
+  // the generous dilation, so a spawn point outside it is outside it at every
+  // raster and not merely at this one.
+  for (const sp of spawns || []) {
+    const a = Math.round((sp.x - grid.x0) / cell - 0.5);
+    const b = Math.round((sp.z - grid.z0) / cell - 0.5);
+    if (a < 0 || b < 0 || a >= grid.n || b >= grid.n) continue;
+    if (reachable[b * grid.n + a]) continue;
+    out.push({ x: sp.x, z: sp.z, cells: 0, spawn: sp.stone || sp.id });
+  }
   return out;
 }
 
 // Returns what it had to take out, and the walkable grid the collectibles are
 // then placed against, so a firefly is never put somewhere nothing can walk.
-export function repairLevel({ box, barriers, gates, graves, spawn, placer, rounds = 40 }) {
-  const report = { removed: 0, rounds: 0, pockets: 0, spawn: 0, grave: 0, gate: 0, stuck: null };
+export function repairLevel({ box, barriers, gates, spawn, placer, rounds = 40 }) {
+  const report = { removed: 0, rounds: 0, pockets: 0, spawn: 0, zone: 0, gate: 0, stuck: null };
   // Pockets nothing can be removed to open. They are bounded by fence and wall
   // rather than by props, so no prop is to blame and there is nothing this pass
   // can do about them. They are SKIPPED rather than fatal: giving up on the
@@ -569,19 +601,30 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
       continue;
     }
 
-    // 2. Every grave admits a skeleton, and stands on the corridor network.
+    // 2. NOTHING SOLID IN A HEADSTONE'S KEEP-CLEAR ZONE.
+    //
+    // This is what the grave step used to be. It asked that each of the four
+    // hand-placed graves admitted a skeleton, which was a disc of SKEL_R at one
+    // point; the spawn is any marker in the yard now, and what has to be clear
+    // is the 2.14 by 2.65 rectangle in front of its face that the climb
+    // actually uses. See spawn.js.
+    //
+    // Only PROPS are cleared. A marker whose zone is crossed by a fence, or
+    // hangs over the wall, or sits in a gate's sweep, is demoted to an ordinary
+    // headstone by spawnPoints() and nothing is removed for it: a stone against
+    // a fence is a good thing to place and this pass has no business pulling
+    // the fence down. Measured over twenty seeds, 24% of markers had a prop in
+    // the zone and 27% had a fence across it, and after this step every arena
+    // is left with at least four usable markers, which is what audit.js asks
+    // for and what rules.js's four personalities need.
     let fixed = false;
-    for (const g of graves) {
-      if (discClear(barriers, props, g.x, g.z, SKEL_R)) {
-        const c = nearestWide(grid, g.x, g.z);
-        if (c >= 0 && label[c] === main && Math.hypot(grid.wx(c) - g.x, grid.wz(c) - g.z) < 1.6) continue;
-      }
-      const bad = blockers(props, g.x, g.z, SKEL_R + 0.5);
+    for (const z of spawnZones(props)) {
+      const bad = propsInZone(z, props).filter((q) => !q.keep);
       if (!bad.length) continue;
       placer.drop(bad);
       forget();
       report.removed += bad.length;
-      report.grave++;
+      report.zone++;
       fixed = true;
       break;
     }

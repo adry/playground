@@ -36,8 +36,7 @@
 //   world.props(box)    -> [{ id, kind, x, z, yaw, radius, height, solid,
 //                             variant, foot }]
 //   world.fireflies(box)-> [{ id, x, z }]
-//   world.powerups(box) -> [{ id, x, z }]
-//   world.graves(box)   -> [{ id, x, z, yaw }]
+//   world.spawns(box)   -> [{ id, x, z, yaw, stone, variant, zone }]
 //   world.paths(box)    -> [{ id, points: [[x, z], ...], width }]
 //   world.blocks(x0, z0, x1, z1) -> the first barrier a move crosses, or null
 //
@@ -108,14 +107,15 @@
 //              to sweep a level, and nine times fewer than the first build's
 //              one per unit of corridor. Measured, the next one is on screen
 //              100% of the time, so no off screen indicator is needed here.
-//   pellets    four, one per quadrant, on a path crossing where there is one.
-//              Pac-Man's number and Pac-Man's placement.
 //   graves     four, one per quadrant, guaranteed. That is exactly
 //              MAX_GROUND_HOLES, so a bounded arena has no hole budget to
 //              manage at all: every grave can be cut at once and the fifth that
-//              would throw cannot exist. One per quadrant puts one within about
-//              twelve units of anywhere, which is the range a dead skeleton
-//              re-homes over.
+//              would throw cannot exist. They are DECORATION now: a hole, a
+//              spoil heap and a marker. Nothing climbs out of them in
+//              particular, because everything climbs out of headstones.
+//   spawns     every headstone with a face and a clear plot in front of it,
+//              which measures nine in an average arena and never fewer than
+//              four. See spawn.js: the pen is gone and the yard is the pen.
 //   fence      67 units, one per 13 square units of ground. The old maze ran at
 //              one per 6.1, so it is less than half, and the SHAPE is what
 //              matters rather than the total: two pens, a divider three levels
@@ -139,24 +139,23 @@
 
 import {
   levelBox, gridBoxOf, worldBoxOf, padBox, boxesOverlap, inBox, rngAt,
-  LEVEL_SIZE, PATH_HALF, FLY_REACH, FLY_GAP, POWERUPS, SPAWN_CLEAR, WALL_HEIGHT, WALL_HALF,
+  LEVEL_SIZE, PATH_HALF, FLY_REACH, FLY_GAP, SPAWN_CLEAR, WALL_HEIGHT, WALL_HALF,
 } from './field.js';
 import { buildLevel, BODY } from './level.js';
 import { GATE_HALF, PANEL, FENCE_HALF, BARRIER_HEIGHT, segGap } from './fence.js';
-import { footprintOf } from '../layout/footprints.js';
+import { spawnPoints } from './spawn.js';
 
 // How far a prop's centre may sit outside the box it is asked for and still
 // have its footprint inside it.
 const PROP_REACH = 2.2;
 const FLY_CLEAR = 0.45;
-const PELLET_CLEAR = footprintOf('pumpkin', 'classic').r + 0.25;
 // The edge of the arena the collectible lattices keep off, so nothing is
 // jammed against the wall where a body cannot get round it.
 const EDGE = 4.0;
 
 export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
   const level = buildLevel({ seed, size });
-  const { field, box, props, barriers, gates, graves, wall, runs, spawn, walk } = level;
+  const { field, box, props, barriers, gates, wall, runs, spawn, walk } = level;
   const frame = field.frame;
 
   // --- paths, which are a field and not a list --------------------------------
@@ -351,36 +350,18 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
     return out;
   })();
 
-  // Four pellets, one per quadrant, on a crossroads where the quadrant has one.
-  const pelletList = (() => {
-    const q = size / 4;
-    const out = [];
-    let i = 0;
-    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-      if (out.length >= POWERUPS) break;
-      const cx = sx * q;
-      const cz = sz * q;
-      const centre = frame.toGrid(cx, cz);
-      let pick = null;
-      for (const k of field.uPathsNear(centre.u, 5)) {
-        for (const m of field.vPathsNear(centre.v, 5)) {
-          const c = field.crossing(k, m);
-          if (Math.hypot(c.u - centre.u, c.v - centre.v) <= 5) pick = c;
-        }
-      }
-      if (!pick) {
-        const p = field.nearestPath(centre.u, centre.v, 6);
-        pick = p.dist <= 6 ? { u: p.u, v: p.v } : centre;
-      }
-      const spot = nudge({ u: pick.u, v: pick.v }, centre, 8, PELLET_CLEAR);
-      const w = frame.toWorld(spot.u, spot.v);
-      out.push({
-        id: `jack/${i++}`, kind: 'jack', x: w.x, z: w.z,
-        yaw: frame.yawFor(0, -1), radius: footprintOf('pumpkin', 'classic').r,
-      });
-    }
-    return out;
-  })();
+  // WHERE THE SKELETONS COME OUT, worked out against the finished level.
+  //
+  // There used to be four pellets here too, one per quadrant on a path
+  // crossing, and they were the power pellet. They are gone with it.
+  //
+  // This list is the replacement for the four graves the rules half used to
+  // re-home dead skeletons onto. It is computed ONCE, here, rather than every
+  // time a skeleton goes underground, because the answer cannot change during a
+  // run: nothing moves a headstone and nothing moves a fence. See spawn.js for
+  // the zone, the measurement behind it, and the four reasons a headstone is
+  // not on this list.
+  const spawnList = spawnPoints({ props, barriers, gates, box });
 
   // --- the queries -----------------------------------------------------------------
   const clip = (list, query) => (query ? list.filter((e) => inBox(padBox(query, PROP_REACH), e.x, e.z)) : list);
@@ -418,9 +399,8 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
       if (!query) return gates;
       return gates.filter((g) => boxesOverlap(g.box, query));
     },
-    graves: (query) => clip(graves, query),
     fireflies: (query) => clip(flyList, query),
-    powerups: (query) => clip(pelletList, query),
+    spawns: (query) => clip(spawnList, query),
     paths,
 
     blocks(x0, z0, x1, z1) {

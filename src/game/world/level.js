@@ -61,7 +61,7 @@ export function buildLevel({ seed = 1, size = 30 } = {}) {
   // headstones is a wall as far as anything that walks is concerned, and the
   // only way to know whether one has closed a passage is to look at the
   // finished level.
-  const fix = repairLevel({ box, barriers, gates, graves, spawn, placer });
+  const fix = repairLevel({ box, barriers, gates, spawn, placer });
 
   // WHERE THE GHOST ACTUALLY STARTS. Everything above kept SPAWN_CLEAR off the
   // middle of the arena, but a gate's flank or a prop the repair pass could not
@@ -89,6 +89,7 @@ export function buildLevel({ seed = 1, size = 30 } = {}) {
     stats: {
       ...placer.rejects,
       repaired: fix.report.removed, repairRounds: fix.report.rounds,
+      zoneFixes: fix.report.zone,
       pockets: fix.report.pockets, stuck: fix.report.stuck,
       pens: runs.filter((r) => r.kind === 'pen').length,
       divider: runs.some((r) => r.kind === 'divider'),

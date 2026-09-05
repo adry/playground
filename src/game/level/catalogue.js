@@ -119,9 +119,13 @@ export const PALETTE = [
     { kind: 'fountain', variant: null, label: 'fountain' },
     { kind: 'shed', variant: null, label: 'shed' },
   ] },
-  { id: 'pellets', label: 'pellets', kind: null, items: [
-    { kind: 'jack', variant: 'classic', label: 'power pumpkin' },
-  ] },
+  // NO PELLETS. The lit jack-o'-lantern was Pac-Man's power pellet and the
+  // owner has taken it out of the game, so there is nothing for an author to
+  // place. The KIND survives everywhere else -- level/build.js still builds
+  // one, the format still carries a powerups list, and a level written before
+  // this still opens and still draws them -- because removing a prop from the
+  // palette is a decision about authoring and deleting it from the format
+  // would be a decision about every file already written.
 ];
 
 // Every (kind, variant) the palette can produce, flattened.

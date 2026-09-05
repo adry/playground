@@ -30,6 +30,16 @@
 //   fireflies      The owner asked for them to be automated. They are drawn so
 //                  the author can see where the rule will put them, and there
 //                  is no tool that moves one.
+//   a power pellet The lit jack-o'-lantern was Pac-Man's power pellet and the
+//                  owner has taken it out of the game. The kind still exists
+//                  everywhere else, so a level written before this still opens
+//                  and still draws the ones it has; there is simply no way to
+//                  put a new one down.
+//   a spawn tool   Skeletons climb out of HEADSTONES now, chosen at random,
+//                  so there is nothing for an author to place and no order for
+//                  them to set. A level written before this keeps its graves,
+//                  draws them and lets them be moved; it is the tool that put
+//                  new ones down that is gone.
 //   the generator  There is no button that fills the arena. It was here, as a
 //                  blank page to edit rather than as a competitor, and the
 //                  owner has taken it out: a level is a thing a person makes,
@@ -71,7 +81,7 @@ import {
   validateLevel, reviewLevel, placementCheck, placementProps,
 } from '../game/level/validate.js';
 import { checkFairness, FAIR_MESSAGES } from '../game/level/fairness.js';
-import { PALETTE, PERSONALITIES, MAX_SPAWNS, levelFootprint } from '../game/level/catalogue.js';
+import { PALETTE, PERSONALITIES, levelFootprint } from '../game/level/catalogue.js';
 import { LEVEL_SIZE } from '../game/world/field.js';
 
 const AUTOSAVE = 'graveyard-editor/doc/v1';
@@ -431,36 +441,12 @@ function turnRecord(id, dyaw, about) {
 function previewAt(x, z) {
   if (!world) return null;
   if (tool === 'place') {
-    if (placeEntry.kind === 'jack') {
-      // A PELLET IS NOT JUDGED THE WAY A PROP IS, because the audit does not
-      // judge it that way: powerups are not in props(), so no overlap rule
-      // touches them and refusing one for standing near a headstone would be
-      // the indicator inventing a rule. The one thing the audit does ask is
-      // that it is inside the arena with half a unit to spare.
-      const foot = placementProps({ kind: 'pumpkin', variant: 'classic', x, z, yaw: FACE_YAW });
-      const b = world.bounds;
-      const inside = x > b.minX + 0.5 && x < b.maxX - 0.5 && z > b.minZ + 0.5 && z < b.maxZ - 0.5;
-      return { ok: inside, why: inside ? '' : 'outside the wall', foots: foot };
-    }
     const cands = placementProps({
       kind: placeEntry.kind, variant: placeEntry.variant, x, z, yaw: FACE_YAW,
     });
     return { ...placementCheck(world, cands), foots: cands };
   }
-  if (tool === 'spawn') return graveCheckAt(x, z);
   return null;
-}
-
-// A grave, on whichever long side its spoil heap will fit. Both are tried and
-// the answer carries the one that won, so the preview and the drop agree.
-function graveCheckAt(x, z) {
-  for (const pile of [1, -1]) {
-    const cands = placementProps({ grave: { x, z, yaw: FACE_YAW, head: 1, pile, headstone: 'cross' } });
-    const r = placementCheck(world, cands);
-    if (r.ok) return { ...r, foots: cands, pile };
-  }
-  const cands = placementProps({ grave: { x, z, yaw: FACE_YAW, head: 1, pile: 1, headstone: 'cross' } });
-  return { ...placementCheck(world, cands), foots: cands, pile: 1 };
 }
 
 // THE HANDLES ON A SELECTED THING. A disc at the middle to move it and a ring
@@ -505,39 +491,9 @@ function placeAt(x, z) {
   const e = placeEntry;
   const check = previewAt(x, z);
   if (check && !check.ok) { say(`cannot put a ${e.variant || e.kind} there: ${check.why}`); return false; }
-  if (e.kind === 'jack') {
-    doc.powerups.push({ id: freshId('jack'), x, z });
-    return true;
-  }
   doc.props.push({
     id: freshId('p'), kind: e.kind, variant: e.variant, x, z, yaw: FACE_YAW,
   });
-  return true;
-}
-
-function addSpawn(x, z) {
-  if (doc.graves.length >= MAX_SPAWNS) {
-    say(`four skeleton spawns is the limit. src/ghost/ground.js cuts at most ${MAX_SPAWNS} holes in the floor and throws at the fifth, and the rules run exactly four personalities.`);
-    return false;
-  }
-  // The same call the green preview made, so the drop happens exactly where
-  // the indicator said it could -- including WHICH LONG SIDE the spoil heap
-  // goes on, which is the one thing about a grave the tool decides for the
-  // author. Trying both saves them an error they did not cause.
-  const check = graveCheckAt(x, z);
-  if (!check.ok) { say(`cannot put a grave there: ${check.why}`); return false; }
-  const taken = new Set(doc.graves.map((g) => g.personality));
-  const free = PERSONALITIES.find((p) => !taken.has(p)) || PERSONALITIES[0];
-  doc.graves.push({
-    id: freshId('g'), x, z, yaw: FACE_YAW, order: doc.graves.length, personality: free,
-    // EVERY FIELD, not the ones normalizeLevel would fill in later. A grave
-    // with no `headstone` of its own is a grave with no headstone at all until
-    // the file is reloaded, because deriveLevel synthesises the stone only
-    // when the field is there -- so a fresh grave used to fail the audit's
-    // grave rule and then quietly grow a headstone on the next open.
-    pile: check.pile, head: 1, headstone: 'cross',
-  });
-  renumberGraves(doc);
   return true;
 }
 
@@ -735,7 +691,6 @@ canvas.addEventListener('pointerdown', (e) => {
   }
 
   if (tool === 'place') { commitIf(() => placeAt(snapped(at.x), snapped(at.z))); return; }
-  if (tool === 'spawn') { commitIf(() => addSpawn(snapped(at.x), snapped(at.z))); return; }
   
   if (tool === 'gate') { commitIf(() => toggleGate(at.x, at.z)); return; }
   if (tool === 'wall') { commitIf(() => toggleWallStyle(at.x, at.z)); return; }
@@ -800,7 +755,7 @@ canvas.addEventListener('pointermove', (e) => {
     // changed, so nothing is rebuilt and nothing is revalidated -- the
     // placement check is a millisecond and a half against the world that is
     // already built, which is what makes it affordable per pointer move.
-    if (world && (tool === 'paint' || tool === 'place' || tool === 'spawn')) {
+    if (world && (tool === 'paint' || tool === 'place')) {
       scene.overlayOnly(world, doc, overlayOpts({ wedges: review.stale ? [] : review.wedges }));
     }
     return;
@@ -1218,14 +1173,6 @@ function placeGroups() {
       ]),
     },
     {
-      id: 'spawns',
-      label: 'skeleton spawns',
-      items: [{
-        tool: 'spawn', label: 'grave', key: 'S',
-        title: 'Where a skeleton climbs out. Four of them, and the order they come out in is on the right.',
-      }],
-    },
-    {
       id: 'cover',
       label: 'ground cover',
       items: GROUND_MATERIALS.map((m, i) => ({ tool: 'paint', material: i + 1, label: m })),
@@ -1445,20 +1392,110 @@ function placeGroup(group) {
 // as one -- a fence is a thing you draw, not a thing that exists until you have
 // drawn it -- so each gets a drawn mark instead. An empty tile with a name
 // under it was the worst of both: it reads as a thumbnail that failed.
-const GLYPHS = {
-  fence: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18M3 14h18" /><path d="M5 5v15M10 5v15M15 5v15M20 5v15" /></svg>',
-  gate: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 10h4M18 10h4M2 15h4M18 15h4" /><path d="M4 4v17M20 4v17" /><path d="M7 20l8-9" /><path d="M7 20l0-6M7 20l6 0" /></svg>',
-  wall: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 7h20M2 12h20M2 17h20" /><path d="M6 7V2M6 12V7M11 17v-5M16 12V7M11 7V2M16 17v-5" /><path d="M13 2v20" stroke-dasharray="2 2" /></svg>',
-  path: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 22c0-6 10-8 10-14 0-3-2-5-4-6" /><path d="M12 22c0-6 10-8 10-14" opacity="0.45" /><path d="M2 22c0-6 10-8 10-14" opacity="0.45" /></svg>',
-  grave: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 20V10a4 4 0 0 1 8 0v10z" /><path d="M4 20h16" /><path d="M10 13h4" opacity="0.6" /></svg>',
+// ILLUSTRATIONS FOR THE THINGS THAT ARE NOT PROPS.
+//
+// A headstone can be photographed because a headstone exists. A fence run does
+// not: it is a line you draw, and there is nothing to point a camera at until
+// you have drawn it. The same goes for a gate, a change of stone and a path.
+// The first version left those tiles empty, which read as a thumbnail that had
+// failed -- and was reported as exactly that.
+//
+// So they are DRAWN, and drawn as the thing rather than as a symbol of it: a
+// fence run is several panels in a line, a gate is a run with a leaf swung open
+// in the gap, a change of stone is a wall that is one stone on the left and
+// another on the right with the join showing, and each path is a ribbon of its
+// own material. All of them at the three-quarter angle everything else in the
+// project is seen at, so the palette does not change viewpoint halfway down.
+//
+// Inline SVG rather than a render: these are diagrams, they stay crisp at any
+// size, and they cost nothing to draw. The colours come from the same places
+// the real things get theirs.
+// Pitched against the tile's own pale ground rather than against the panel: a
+// bone prop reads there by its shading, but a DRAWING has no shading, so it
+// reads by its line. The first pass used the same near-white for both and the
+// fence came out as a ghost of itself.
+const STONE = '#eef1f5';
+const SHADE = '#9aa3b0';
+const LINE = '#39404b';
+
+// A fence: pickets standing on a line that recedes to the right, with the two
+// rails that make it one run rather than five posts.
+const FENCE_SVG = `<svg viewBox="0 0 48 48" aria-hidden="true">
+  <ellipse cx="24" cy="41" rx="21" ry="3" fill="rgba(0,0,0,0.10)" />
+  <path d="M6 31l36-9M6 36l36-9" stroke="${SHADE}" stroke-width="2.4" fill="none" />
+  <path d="M7 38V22M16 35.5V20M25 33V18M34 30.5V16M43 28V14"
+    stroke="${STONE}" stroke-width="3.4" stroke-linecap="round" fill="none" />
+  <path d="M7 38V22M16 35.5V20M25 33V18M34 30.5V16M43 28V14"
+    stroke="${LINE}" stroke-width="1.1" fill="none" opacity="0.75" />
+</svg>`;
+
+// A gate: the same run, with a gap in it and the leaf standing open across the
+// opening. Open, because the opening is the whole idea.
+const GATE_SVG = `<svg viewBox="0 0 48 48" aria-hidden="true">
+  <ellipse cx="24" cy="41" rx="21" ry="3" fill="rgba(0,0,0,0.10)" />
+  <path d="M4 32l12-3M32 25l12-3" stroke="${SHADE}" stroke-width="2.2" fill="none" />
+  <path d="M5 38V23M15 35.5V20.5M33 31V16M43 28.5V13.5"
+    stroke="${STONE}" stroke-width="3.4" stroke-linecap="round" fill="none" />
+  <path d="M16 34l12 5v-12l-12-5z" fill="${STONE}" stroke="${LINE}" stroke-width="1" stroke-linejoin="round" />
+  <path d="M16 30l12 5M16 26.5l12 5" stroke="${LINE}" stroke-width="0.8" opacity="0.45" fill="none" />
+  <path d="M16 37q7 2 13 3" stroke="${LINE}" stroke-width="0.9" stroke-dasharray="2 2" fill="none" opacity="0.5" />
+</svg>`;
+
+// A change of stone: one wall, two builds, the join between them standing as a
+// pier. This picture says what the tool does better than the sentence beside it.
+const WALL_SVG = `<svg viewBox="0 0 48 48" aria-hidden="true">
+  <ellipse cx="24" cy="40" rx="22" ry="3" fill="rgba(0,0,0,0.10)" />
+  <path d="M3 36l19-5.5V15L3 20.5z" fill="${STONE}" stroke="${LINE}" stroke-width="1" stroke-linejoin="round" />
+  <path d="M3 28.5l19-5.5M12 33.5v-15" stroke="${LINE}" stroke-width="0.8" opacity="0.5" fill="none" />
+  <path d="M26 29.5L45 24V8.5L26 14z" fill="${SHADE}" stroke="${LINE}" stroke-width="1" stroke-linejoin="round" />
+  <path d="M26 25.5l19-5.5M26 21.5l19-5.5M26 17.5l19-5.5" stroke="${LINE}" stroke-width="0.7" opacity="0.5" fill="none" />
+  <path d="M31 27.9v-15.4M40 25.3v-15.4M35 24.2v-8" stroke="${LINE}" stroke-width="0.7" opacity="0.5" fill="none" />
+  <path d="M21 31.5l6-1.7V12.3l-6 1.7z" fill="${STONE}" stroke="${LINE}" stroke-width="1" stroke-linejoin="round" />
+</svg>`;
+
+// A path: a ribbon curving away, in its own material. A route rather than a
+// swatch, which is what the word path means to whoever is drawing one.
+function pathSvg(fill, marks) {
+  return `<svg viewBox="0 0 48 48" aria-hidden="true">
+    <path d="M11 45C15 33 27 31 30 20c1.6-5.6 2-9 2.6-13"
+      stroke="${fill}" stroke-width="13" fill="none" stroke-linecap="round" />
+    <path d="M11 45C15 33 27 31 30 20c1.6-5.6 2-9 2.6-13"
+      stroke="rgba(0,0,0,0.18)" stroke-width="13" fill="none" stroke-linecap="round" stroke-dasharray="0 999" />
+    ${marks}
+  </svg>`;
+}
+
+const PATH_SVGS = {
+  sand: pathSvg('#c3b9a3', `
+    <g fill="rgba(70,60,45,0.45)">
+      <ellipse cx="17" cy="37" rx="1.5" ry="1" /><ellipse cx="24" cy="30" rx="1.2" ry="0.8" />
+      <ellipse cx="29" cy="22" rx="1.4" ry="0.9" /><ellipse cx="32" cy="12" rx="1.1" ry="0.8" />
+    </g>`),
+  gravel: pathSvg('#9a9994', `
+    <g fill="rgba(30,32,36,0.5)">
+      <circle cx="15" cy="39" r="1.1" /><circle cx="19" cy="34" r="0.9" /><circle cx="23" cy="36" r="1" />
+      <circle cx="24" cy="29" r="1.1" /><circle cx="28" cy="26" r="0.9" /><circle cx="27" cy="19" r="1.1" />
+      <circle cx="31" cy="16" r="0.9" /><circle cx="31" cy="9" r="1" /><circle cx="20" cy="42" r="1" />
+    </g>`),
+  // A kerb is not a surface, it is the two rows of stones that edge one, so it
+  // is drawn as the stones and the ground between them stays the ground.
+  kerb: `<svg viewBox="0 0 48 48" aria-hidden="true">
+    <path d="M14 45C18 33 30 31 33 20c1.6-5.6 2-9 2.6-13"
+      stroke="rgba(0,0,0,0.08)" stroke-width="14" fill="none" stroke-linecap="round" />
+    <path d="M8 44C12 32 24 30 27 19c1.5-5.4 2-8.6 2.6-12.6"
+      stroke="${STONE}" stroke-width="4.6" fill="none" stroke-linecap="round"
+      stroke-dasharray="4.5 2.4" />
+    <path d="M20 46C24 34 36 32 39 21c1.5-5.4 2-8.6 2.6-12.6"
+      stroke="${SHADE}" stroke-width="4.6" fill="none" stroke-linecap="round"
+      stroke-dasharray="4.5 2.4" />
+  </svg>`,
 };
 
 function glyphFor(e) {
-  if (e.tool === 'fence') return GLYPHS.fence;
-  if (e.tool === 'gate') return GLYPHS.gate;
-  if (e.tool === 'wall') return GLYPHS.wall;
-  if (e.tool === 'path') return GLYPHS.path;
-  if (e.tool === 'spawn') return GLYPHS.grave;
+  if (e.tool === 'fence') return FENCE_SVG;
+  if (e.tool === 'gate') return GATE_SVG;
+  if (e.tool === 'wall') return WALL_SVG;
+  if (e.tool === 'path') return PATH_SVGS[e.path] || PATH_SVGS.sand;
   return null;
 }
 
@@ -1714,15 +1751,6 @@ function drawRight() {
       ]),
     ]),
 
-    card('spawns', 'skeleton spawns', doc.graves.length
-      ? el('ul', { class: 'spawns' }, doc.graves.map(spawnRow))
-      : el('p', { class: 'note', text: 'put a grave down with the grave tool. Each one is a skeleton, and the number is the order they climb out in.' }),
-    {
-      count: `${doc.graves.length} of ${MAX_SPAWNS}`,
-      bad: doc.graves.length !== MAX_SPAWNS,
-      help: 'Four graves and four skeletons, always: the floor can only be cut open four times and the game runs exactly four characters. Each one chases differently, and the order is the order they come out of the ground.',
-    }),
-
     card('selection', 'selection',
       sel.length === 1 ? inspector(sel[0])
         : el('p', { class: 'note', text: sel.length ? `${sel.length} selected` : 'nothing selected. Drag the ring under a selected thing to turn it.' })),
@@ -1755,28 +1783,6 @@ const openHelp = new Set();
 let showFootprints = true;
 let showFacing = true;
 
-
-function spawnRow(g, i) {
-  return el('li', {}, [
-    el('span', { class: 'n', text: String(g.order + 1) }),
-    select(PERSONALITIES, g.personality, (v) => commit(() => { g.personality = v; })),
-    el('button', { text: '↑', title: 'earlier', onclick: () => commit(() => reorder(i, -1)) }),
-    el('button', { text: '↓', title: 'later', onclick: () => commit(() => reorder(i, 1)) }),
-    el('button', { text: '×', title: 'remove', onclick: () => commit(() => {
-      doc.graves.splice(i, 1);
-      renumberGraves(doc);
-    }) }),
-  ]);
-}
-
-function reorder(i, dir) {
-  const j = i + dir;
-  if (j < 0 || j >= doc.graves.length) return;
-  const a = doc.graves[i];
-  doc.graves[i] = doc.graves[j];
-  doc.graves[j] = a;
-  doc.graves.forEach((g, k) => { g.order = k; });
-}
 
 function inspector(id) {
   const r = recordOf(id);
