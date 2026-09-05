@@ -330,4 +330,6 @@ export function buildTorso({ materials }) {
   };
 }
 
-export { profile as trunkProfile, CHEST as CHEST_SPAN, PELVIS as PELVIS_SPAN };
+// The clothing has to follow the same section the body has, or a garment
+// crosses it. One profile, shared.
+export { profile as trunkProfile };

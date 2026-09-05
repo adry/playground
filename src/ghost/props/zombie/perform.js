@@ -1479,21 +1479,43 @@ export function createZombiePerformance({
 
   // Gives up and goes back down. The same machinery in reverse, so the sink is
   // as heavy as the climb was.
+  //
+  // IT ENDS IN THE POSE THE CLIMB STARTS IN, and every one of the last keys
+  // below is read off CRAWL rather than written out again. That is not tidiness
+  // and it is not free: BURIED_Y is derived from the climb's OPENING PITCH,
+  // because how deep the figure has to be to hide a head this size depends
+  // entirely on how far over the head is folded. The first version of this
+  // function sank to the buried depth while pitching only to 72 degrees, and at
+  // 72 the head stands 0.569 above the hips against the 0.266 the hole was dug
+  // for: the figure finished its sink with a green dome parked in the grass,
+  // for as long as the rules left it dormant. On the skeleton, whose skull is a
+  // sixth of it, the same mistake is a few centimetres of parietal bone and
+  // nobody would ever see it.
+  //
+  // The skeleton's own note makes the general point: two hand-written versions
+  // of the same crouch is how its first pass ended up with a buried figure
+  // whose spine was bent 86 degrees backwards. Here there is only one, and this
+  // is the end of it.
   function stepSettle(dt) {
     const t = phaseTime;
     T.lift = mix(HIP_TALL, BURIED_Y - SPAN * 0.05, easeInOutCubic(clamp01((t - 0.6) / 2.6)));
-    const pitch = track([[0, 6], [0.6, 22], [1.6, 50], [3.2, 72]], t) * D;
+    const openPitch = CRAWL.pitch[0][1];
+    const pitch = track([[0, 6], [0.6, 22], [1.6, openPitch * 0.6], [3.2, openPitch]], t) * D;
     T.root = pitch;
-    T.lumbar = pitch + 6 * D;
-    T.thorax = T.lumbar + 8 * D;
-    headRel = clamp(track([[0, 0], [0.5, 14], [2.0, 30]], t) * D, -HEAD_REL_MAX, HEAD_REL_MAX);
+    T.lumbar = pitch + track([[0, 6], [3.2, CRAWL.lumbar[0][1]]], t) * D;
+    T.thorax = T.lumbar + track([[0, 8], [3.2, CRAWL.thorax[0][1]]], t) * D;
+    headRel = clamp(
+      track([[0, 0], [0.5, 14], [3.2, CRAWL.gazeRel[0][1]]], t) * D,
+      -HEAD_REL_MAX, HEAD_REL_MAX,
+    );
     T.headYaw = 0;
     T.headRoll = 0;
-    const arm = track([[0, -26], [0.8, -14], [2.4, 8]], t) * D;
+    const arm = track([[0, -26], [0.8, -14], [3.2, CRAWL.armL[0][1]]], t) * D;
     T.shoulderL = arm; T.shoulderR = arm;
-    T.elbowL = arm - 52 * D; T.elbowR = arm - 52 * D;
+    const bend = track([[0, 52], [3.2, CRAWL.elbowL[0][1]]], t) * D;
+    T.elbowL = arm - bend; T.elbowR = arm - bend;
     T.wristL = T.elbowL - 22 * D; T.wristR = T.elbowR - 22 * D;
-    T.spreadL = 10 * D; T.spreadR = 10 * D;
+    T.spreadL = CRAWL.spread[0][1] * D; T.spreadR = T.spreadL;
     T.roll = 0;
     T.list = 0;
     T.sway = 0;
@@ -1503,9 +1525,11 @@ export function createZombiePerformance({
     speed = 0;
     advanceSwings(dt);
 
+    // The same hanging legs poseCrawl opens with, so the handover into 'buried'
+    // has nothing in it to smooth over.
     T.hipL = 0; T.hipR = 0;
-    T.kneeL = 20 * D; T.kneeR = 24 * D;
-    T.ankleL = 26 * D; T.ankleR = 28 * D;
+    T.kneeL = 20 * D; T.kneeR = 26 * D;
+    T.ankleL = 26 * D; T.ankleR = 30 * D;
     if (t > 0.5 && legBlend > 0) legBlend = Math.max(0, legBlend - dt * 1.6);
     if (t > 0.4 && !clipping) setClipping(true);
     if (t > 3.6) enter('buried');

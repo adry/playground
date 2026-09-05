@@ -520,4 +520,5 @@ export function buildHead({ materials }) {
   };
 }
 
-export { surfacePoint as headSurfacePoint, CENTRE_Y as HEAD_CENTRE_Y };
+// Exported for the probes that measure the face while it is being tuned.
+export { surfacePoint as headSurfacePoint };

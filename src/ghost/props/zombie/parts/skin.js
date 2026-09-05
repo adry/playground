@@ -390,9 +390,3 @@ export function triangleCount(object3D) {
   });
   return n;
 }
-
-export function collectGeometries(object3D) {
-  const set = new Set();
-  object3D.traverse((o) => { if (o.isMesh) set.add(o.geometry); });
-  return set;
-}

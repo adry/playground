@@ -24,7 +24,7 @@ export function boneMaterial(options = {}) {
   });
 }
 
-const RADIAL = 20;   // enough that a shaft's silhouette is smooth at prop size
+const RADIAL = 12;   // enough that a shaft's silhouette is smooth at prop size
 
 // A long bone: swept along `path`, fat at both ends, waisted in between.
 //
@@ -98,7 +98,7 @@ export function straightShaft(a, b, r, { bow = 0, bowAxis = null, ...rest } = {}
 // A joint bulb. Slightly squashed along its own axis so it reads as a condyle
 // rather than a bead threaded on a stick.
 export function jointBall(r, { squash = 0.88, axis = null } = {}) {
-  const geo = new THREE.SphereGeometry(r * M.jointBallScale, 24, 18);
+  const geo = new THREE.SphereGeometry(r * M.jointBallScale, 14, 11);
   if (squash !== 1) {
     geo.scale(1, squash, 1);
     if (axis) {

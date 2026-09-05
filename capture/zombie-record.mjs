@@ -5,6 +5,7 @@
 //   node capture/zombie-record.mjs --strip 1            the walk cycle as poses
 //   node capture/zombie-record.mjs --numbers 1          no draw, just the maths
 //   node capture/zombie-record.mjs --rig skeleton --numbers 1
+//   node capture/zombie-record.mjs --numbers 1 --drive 1   the game's own path
 //
 // Frame-stepped at a fixed dt, like every other recorder here, so the software
 // rasteriser cannot affect the timing: the clip is smooth even when a frame
@@ -58,7 +59,8 @@ const lab = await openLab({
   width: doStrip ? stripW : width,
   height: doStrip ? stripH : height,
   entry: '/zombie-perform-lab.html',
-  query: `route=${route}&view=${view}&rig=${rig}&seed=${args.seed || 3}`,
+  query: `route=${route}&view=${view}&rig=${rig}&seed=${args.seed || 3}`
+    + (args.drive ? '&drive=1' : ''),
   readyFlag: '__labReady',
   verbose: !!args.verbose,
 });

@@ -660,8 +660,8 @@ const AO_REACH = 0.038 * HS;
 // Tessellation. Set by the openings, not by the silhouette: the vault is smooth
 // at a third of this, but the edge of a cut is a contour crossing the grid at
 // an arbitrary angle and can only be as clean as the grid it lands on.
-const NTH = 288;
-const NPH = 184;
+const NTH = 144;
+const NPH = 92;
 
 // Polynomial smooth minimum. k is a real length, so a fillet between two parts
 // is the same size wherever it happens.
@@ -970,7 +970,7 @@ function sweepShape(centre, section, uMin, uMax, nU, { capStart = true, capEnd =
 // the blend radius that hides the join is the same radius that eats the tip.
 // `narrow` is how far the far end draws in; `sign` is +1 to point up, -1 down.
 function processGeometry(hx, hy, hz, { exp = 2.6, narrow = 0.4, sign = -1 } = {}) {
-  const geo = new THREE.SphereGeometry(0.5, 18, 14);
+  const geo = new THREE.SphereGeometry(0.5, 12, 9);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i) * 2, y = pos.getY(i) * 2, z = pos.getZ(i) * 2;
@@ -991,7 +991,7 @@ function processGeometry(hx, hy, hz, { exp = 2.6, narrow = 0.4, sign = -1 } = {}
 // rounded block, not a shaft or a plate, and a superellipsoid at exponent ~3 is
 // a block with no edge on it anywhere, which is the house look in one line.
 function toothGeometry(w, h, d) {
-  const geo = new THREE.SphereGeometry(0.5, 14, 10);
+  const geo = new THREE.SphereGeometry(0.5, 10, 7);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i) * 2, y = pos.getY(i) * 2, z = pos.getZ(i) * 2;
@@ -1978,7 +1978,7 @@ export function buildSkull({ material }) {
   // lights up.
   const cavityMat = new THREE.MeshStandardMaterial({ color: 0x241b14, roughness: 0.95, metalness: 0 });
   materials.push(cavityMat);
-  const cavityGeo = track(new THREE.SphereGeometry(1, 20, 14));
+  const cavityGeo = track(new THREE.SphereGeometry(1, 13, 9));
   // Measured against the rows rather than guessed: its top has to sit BELOW the
   // upper crowns' tips and its front BEHIND the lower row's outer face, or the
   // black bubble shows through the bite as a slot twice the height of the gap.
@@ -2105,7 +2105,7 @@ export function buildSkull({ material }) {
   // The condyle heads, as their own bulbs on the axis the hinge turns about, so
   // the joint cannot tear open when the mouth moves.
   for (const side of [-1, 1]) {
-    const ball = track(new THREE.SphereGeometry(0.040 * HS, 18, 12));
+    const ball = track(new THREE.SphereGeometry(0.040 * HS, 12, 8));
     ball.scale(1.25, 0.78, 1.0);
     ball.translate(side * HINGE_X, HINGE_Y, HINGE_Z);
     jawRoot.add(add(ball, material, 'jaw-condyle'));

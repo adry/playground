@@ -77,9 +77,9 @@ const f = (v) => v * H;
 //
 // So three things are deliberately oversized against the reference, and the
 // number in brackets is what the reference actually shows:
-//   sockets   0.248 of head height  (reference ~0.17)
-//   grin      0.567 of head width   (reference ~0.45)
-//   stitches  4.4 px long, x2 thick (reference: hairline)
+//   sockets   0.26 of head height   (reference ~0.17)
+//   grin      0.62 of head width    (reference ~0.45)
+//   stitches  3.1 px long, x2 thick (reference: hairline)
 // and one thing is deliberately REDUCED, because more of it is less:
 //   teeth     5 upper / 4 lower     (reference: ten-plus, uneven)
 //
