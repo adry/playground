@@ -14,8 +14,11 @@ import { Spring, easeInOutCubic, easeOutBack } from './motion.js';
 //     reads as a snap rather than as a cut.
 //   * the legs are inverse kinematics onto FOOT PLANTS fixed in the troupe's
 //     frame. A foot does not move until a step moves it, so the feet cannot
-//     skate. The pelvis rides over the feet rather than the feet chasing the
-//     pelvis: see bodyOffset.
+//     skate. The pelvis rides over the FEET rather than the feet chasing the
+//     pelvis: it is placed at the weighted mean of the two plants, weighted by
+//     how much of the body each foot is carrying, so a shuffle carries the hips
+//     with it and a toe point shifts the weight onto the standing leg without
+//     either being authored. See applyPose.
 //   * the jaw is a pendulum hung off the skull's own measured acceleration, so
 //     it clacks on every accent because the head stopped.
 //
@@ -65,12 +68,21 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
 // is 1.225, so a figure standing at M.y.hip has its knees locked dead straight
 // and cannot bend, bounce or step. 1.150 is about 24 degrees of knee, which is
 // a dancer's stance: enough bend to drop into and enough leg left to push with.
-const HIP_BASE = 1.150;
+const HIP_BASE = 1.105;
 // How far the hips drop on each beat, at amplitude 1. Added after the springs.
-const BOUNCE = 0.036;
+const BOUNCE = 0.048;
 // And the extra drop on the first beat of each bar, which is what stops four
 // identical beats reading as a metronome.
-const BAR_ACCENT = 0.016;
+const BAR_ACCENT = 0.022;
+
+// The stance. Wider than the model's own, and turned out. The rig stands with
+// its feet 0.41 apart and dead parallel, which is a figure standing to
+// attention: at the clip's framing the first render of this routine read as
+// three skeletons doing arm exercises, and the legs were most of why. Pushing
+// each foot 70mm out and turning the toes out 11 degrees is a dancer's stance
+// and it costs nothing, because the plants are authored and the IK follows.
+const STANCE_OUT = 0.07;
+const STANCE_TURN = 0.20;
 
 // Where the toe tip sits relative to the ankle pivot, and the same two corners
 // as polar coordinates about it. Lifted from perform.js, where the derivation
@@ -164,10 +176,21 @@ function mulberry32(seed) {
 // wraps: the value at 16 is the value at 0 by construction, because 16 is 0.
 
 // Shoulder world pitch. -180 is straight up, -90 is straight out in front, 0
-// hangs down. The claw sits at -126, which puts the hands about at the chin
-// with the elbows high and out, and that is the pose the whole routine is
-// hung between.
-const CLAW = -126;
+// hangs down.
+//
+// THE CLAW, and the number is worth the working, because the obvious value is
+// the wrong one. -126 was the first guess: it raises the upper arm 36 degrees
+// above horizontal, and with a bent elbow on top of that the forearm ends up
+// past vertical and the hand finishes above and BEHIND the shoulder. Solved
+// out, that pose puts the hands at crown height and 140mm in front of the
+// chest, which is not a claw, it is surrender.
+//
+// -98 leaves the upper arm just above horizontal, so the elbows sit forward at
+// chest height and out at 34 degrees of spread, the forearms stand up, and the
+// hands land at about mouth height and 370mm clear in front. Elbows low and
+// out, hands up in front, wrists broken forward over them: that is the shape,
+// and it is the one that survives being 40 pixels tall.
+const CLAW = -98;
 const ARM = {
   R: [
     [0, CLAW, snapEase], [0.5, CLAW - 5], [1, CLAW + 7], [1.5, CLAW - 5],
@@ -224,10 +247,15 @@ const ELBOW = {
   ],
 };
 
-// The wrist. This is the bent-wrist claw and it is most of what the hands say
-// at this size: the hand is broken forward off the forearm and held there.
-// Positive is subtracted from the elbow's world pitch, so it folds the hand
-// further forward.
+// The wrist, in degrees the hand breaks FORWARD off the forearm. This is the
+// bent-wrist claw and it is most of what the hands say at this size.
+//
+// It is ADDED to the forearm's world pitch where the elbow's flex is
+// subtracted, and the two really do go opposite ways. Subtracting is what
+// bends an elbow, because a forearm swings forward off a limb that hangs
+// down; but the claw's forearm is standing up, and continuing to subtract from
+// there folds the hand back over the top of the arm. The hand has to come the
+// other way to hang forward over the knuckles.
 const WRIST = {
   R: [
     [0, 52, snapEase], [1, 44], [2, 52], [3, 44], [3.5, 54],
@@ -336,15 +364,39 @@ const PELVIS_YAW = [
   [16, 0, snapEase],
 ];
 
+// THE HIP PUSH, as a lateral shift of the pelvis in metres, positive toward the
+// figure's left. It goes with PELVIS_YAW rather than instead of it: yaw alone
+// turns the pelvis on the spot, which at the game's framing is about four
+// pixels of change and invisible, while a shift moves the whole silhouette of
+// the hips against a stationary ribcage and reads at any size. The two
+// together are the move.
+const HIP_PUSH = [
+  [0, 0, snapEase], [1, -0.055], [2, 0.055], [3, -0.055], [3.5, 0],
+  [4, 0, snapEase], [7.5, 0],
+  [8, 0.05, snapEase], [9, 0.065], [9.5, 0.05],
+  [10, -0.05, snapEase], [11, -0.065], [11.4, -0.05],
+  [12, 0], [13.5, 0],
+  [14, 0], [15.6, 0],
+  [16, 0, snapEase],
+];
+
 // Torso roll, degrees, positive leans toward the figure's right.
 const ROLL = [
-  [0, 0, snapEase], [1, 5], [2, -5], [3, 5], [3.5, 0],
+  [0, 0, snapEase], [1, 8], [2, -8], [3, 8], [3.5, 0],
   [4, -6, snapEase], [5.5, -6], [6, 6, snapEase], [7.5, 6],
   [8, -9, snapEase], [9.5, -8],
   [10, 9, snapEase], [11.4, 8],
   [12, 0], [13.5, 0],
   [14, 0], [15.6, 0],
   [16, 0, snapEase],
+];
+
+// How much of the body's turn the head REFUSES to take, 0 to 1. This is the
+// whole of why the turn reads: the body goes first and the skull stays looking
+// at the viewer for half a beat, then gives up and whips round after it. A head
+// that turns with the shoulders is a figure rotating on a plinth.
+const HEAD_HOLD = [
+  [0, 0], [13.9, 0], [14.0, 0.85, snapEase], [14.45, 0.85], [14.8, 0], [16, 0],
 ];
 
 // The body's own yaw, degrees, relative to facing the camera. THE TURN. Out on
@@ -431,9 +483,11 @@ function pivot(x, z, deg) {
   return { x: x * c + z * s, z: -x * s + z * c };
 }
 
-function buildSteps(footX) {
-  const L0 = footX.L;
-  const R0 = footX.R;
+function buildSteps(stance) {
+  const L0 = stance.L.x;
+  const R0 = stance.R.x;
+  const YL = stance.L.yaw;
+  const YR = stance.R.yaw;
   const S = [];
   const add = (beat, side, x, z, yaw = 0, pitch = 0, weight = 1, dur = 0.34) =>
     S.push({ beat, side, x, z, yaw, pitch, weight, dur });
@@ -446,14 +500,14 @@ function buildSteps(footX) {
   // trailing leg was 13mm out of reach at the far end of the second one, which
   // the guard below would have caught but which is better not to ask for.
   const STEP = 0.27;
-  add(4.0, 'L', L0 + STEP, STANCE_Z);
-  add(4.5, 'R', R0 + STEP, STANCE_Z);
-  add(5.0, 'L', L0 + 2 * STEP, STANCE_Z);
-  add(5.5, 'R', R0 + 2 * STEP, STANCE_Z);
-  add(6.0, 'R', R0 + STEP, STANCE_Z);
-  add(6.5, 'L', L0 + STEP, STANCE_Z);
-  add(7.0, 'R', R0, STANCE_Z);
-  add(7.5, 'L', L0, STANCE_Z);
+  add(4.0, 'L', L0 + STEP, STANCE_Z, YL);
+  add(4.5, 'R', R0 + STEP, STANCE_Z, YR);
+  add(5.0, 'L', L0 + 2 * STEP, STANCE_Z, YL);
+  add(5.5, 'R', R0 + 2 * STEP, STANCE_Z, YR);
+  add(6.0, 'R', R0 + STEP, STANCE_Z, YR);
+  add(6.5, 'L', L0 + STEP, STANCE_Z, YL);
+  add(7.0, 'R', R0, STANCE_Z, YR);
+  add(7.5, 'L', L0, STANCE_Z, YL);
 
   // Bar 3: the toe points. The foot lands INBOARD of the standing one and a
   // little behind it, up on its point at 43 degrees, with the sole turned in.
@@ -461,20 +515,20 @@ function buildSteps(footX) {
   // nowhere else to put it, so the knee turns in as a consequence of where the
   // toe is rather than as a twist bolted onto the thigh.
   const POINT_PITCH = 0.75;
-  add(8.0, 'R', R0 + 0.14, -0.16, 34 * D, POINT_PITCH, 0.14, 0.30);
-  add(10.0, 'R', R0, STANCE_Z, 0, 0, 1, 0.28);
-  add(10.0, 'L', L0 - 0.14, -0.16, -34 * D, POINT_PITCH, 0.14, 0.30);
-  add(11.6, 'L', L0, STANCE_Z, 0, 0, 1, 0.28);
+  add(8.0, 'R', R0 + 0.16, -0.16, 40 * D, POINT_PITCH, 0.14, 0.30);
+  add(10.0, 'R', R0, STANCE_Z, YR, 0, 1, 0.28);
+  add(10.0, 'L', L0 - 0.16, -0.16, -40 * D, POINT_PITCH, 0.14, 0.30);
+  add(11.6, 'L', L0, STANCE_Z, YL, 0, 1, 0.28);
 
   // Bar 4: the turn, four pivot steps. Out on 14 with the right foot leading,
   // because the turn goes that way, and back on 15 with the left.
   const TURN = -62;
   const oL = pivot(L0, STANCE_Z, TURN);
   const oR = pivot(R0, STANCE_Z, TURN);
-  add(14.0, 'R', oR.x, oR.z, TURN * D, 0, 1, 0.30);
-  add(14.3, 'L', oL.x, oL.z, TURN * D, 0, 1, 0.30);
-  add(15.0, 'L', L0, STANCE_Z, 0, 0, 1, 0.30);
-  add(15.3, 'R', R0, STANCE_Z, 0, 0, 1, 0.30);
+  add(14.0, 'R', oR.x, oR.z, TURN * D + YR, 0, 1, 0.30);
+  add(14.3, 'L', oL.x, oL.z, TURN * D + YL, 0, 1, 0.30);
+  add(15.0, 'L', L0, STANCE_Z, YL, 0, 1, 0.30);
+  add(15.3, 'R', R0, STANCE_Z, YR, 0, 1, 0.30);
 
   S.sort((a, b) => a.beat - b.beat);
   return S;
@@ -566,9 +620,19 @@ export function createDance({
     twist: 0, pelvisYaw: 0, roll: 0, bodyYaw: 0,
     shoulderL: 0, shoulderR: 0, elbowL: 0, elbowR: 0, wristL: 0, wristR: 0,
     spreadL: 0, spreadR: 0,
-    swayX: 0, swayZ: 0, lift: HIP_BASE,
-    weightL: 1, weightR: 1,
+    lift: HIP_BASE,
   };
+  // Every spring T has a target for, stepped once a frame in applyPose.
+  //
+  // The four springs that are NOT here are deliberate and the omission is load
+  // bearing. `lift` is stepped separately because the bounce is added to its
+  // answer rather than to its target. `swayX`, `swayZ`, `weightL` and
+  // `weightR` are driven by where the FEET are, not by the phrase, and their
+  // targets are written by stepFeet and by applyPose's own weighted mean. They
+  // were in T once: the loop then overwrote both weight targets with a
+  // constant 1 on the same frame stepFeet had set them, which silently deleted
+  // the entire weight shift, and it stepped the sway springs twice a frame,
+  // which quietly doubled their stiffness.
   const POSE_KEYS = Object.keys(T).filter((k) => k !== 'lift');
 
   // --- leg geometry ----------------------------------------------------------
@@ -632,7 +696,11 @@ export function createDance({
   // The x a foot sits at when the leg hangs straight down, taken off the rig,
   // so the rest stance is exactly as wide as the model was built.
   const FOOT_X = { L: LEG.L.root.x + LEG.L.cx, R: LEG.R.root.x + LEG.R.cx };
-  const STEPS = buildSteps(FOOT_X);
+  const STANCE = {
+    L: { x: FOOT_X.L + STANCE_OUT, z: STANCE_Z, yaw: STANCE_TURN },
+    R: { x: FOOT_X.R - STANCE_OUT, z: STANCE_Z, yaw: -STANCE_TURN },
+  };
+  const STEPS = buildSteps(STANCE);
 
   // --- feet ------------------------------------------------------------------
   // A foot is planted at a point in the PARENT's frame or swinging to the next
@@ -641,8 +709,8 @@ export function createDance({
   // same construction perform.js uses for its heel-off, so the contact does not
   // move when the heel comes up.
   const foot = (side) => ({
-    plant: new THREE.Vector3(slot.x + FOOT_X[side] * scale, 0, slot.z + STANCE_Z * scale),
-    yaw: 0,
+    plant: new THREE.Vector3(slot.x + STANCE[side].x * scale, 0, slot.z + STANCE_Z * scale),
+    yaw: STANCE[side].yaw,
     pitch: 0,
     weight: 1,
     from: new THREE.Vector3(),
@@ -659,15 +727,9 @@ export function createDance({
     slip: 0,
   });
   const feet = { L: foot('L'), R: foot('R') };
-  // The IK is in charge of the legs from the first frame, not eased into over
-  // the first half beat. There is nothing to ease: adopt() plants each foot
-  // exactly where that foot already is, so the solve's answer on frame one is
-  // the pose the figure arrived in. The ramp that used to be here was 80mm of
-  // measured foot slip and all of it was the legs holding their old angles
-  // while the hips came down through them.
   // Where the pelvis sits when the weight is even, in the troupe's frame.
   const restMid = {
-    x: slot.x + (FOOT_X.L + FOOT_X.R) * 0.5 * scale,
+    x: slot.x + (STANCE.L.x + STANCE.R.x) * 0.5 * scale,
     z: slot.z + STANCE_Z * scale,
   };
 
@@ -675,6 +737,7 @@ export function createDance({
   let clock = 0;          // seconds since the dance began
   let beat = 0;           // this dancer's own beat, including its offset
   let jawBeat = 0;
+  let push = 0;          // the authored lateral hip shift, metres
   let wobble = 0;
   const wobblePhase = rand() * TAU;
   let maxShort = 0;
@@ -815,7 +878,12 @@ export function createDance({
     T.twist = track(TWIST, b) * amp * D;
     T.pelvisYaw = track(PELVIS_YAW, b) * amp * D;
     T.roll = track(ROLL, b) * amp * D;
+    push = track(HIP_PUSH, b) * amp;
     T.bodyYaw = track(BODY_YAW, b) * D;
+    // The skull holds the front while the shoulders go. Subtracting the body's
+    // own yaw is exactly a head that has not moved in world terms, and the
+    // hold track then lets it go.
+    T.headYaw -= T.bodyYaw * track(HEAD_HOLD, b);
 
     for (const side of ['L', 'R']) {
       const sh = (track(ARM[side], b) * amp + wArm) * D;
@@ -823,7 +891,7 @@ export function createDance({
       const wr = track(WRIST[side], b) * amp + wWrist;
       T[`shoulder${side}`] = sh;
       T[`elbow${side}`] = sh - el * D;
-      T[`wrist${side}`] = sh - (el + wr) * D;
+      T[`wrist${side}`] = sh - el * D + wr * D;
       T[`spread${side}`] = (track(SPREAD[side], b) * amp + wSpread) * D;
     }
 
@@ -960,7 +1028,7 @@ export function createDance({
     // reach, which is 30mm of measured foot slip and a visible skate. The lean
     // a dancer really does have belongs to the roll, which is a separate
     // authored channel, not to the hips refusing to arrive.
-    S.swayX.target = px - restMid.x;
+    S.swayX.target = px - restMid.x + push;
     S.swayZ.target = pz - restMid.z;
     S.swayX.step(dt);
     S.swayZ.step(dt);
@@ -1149,6 +1217,7 @@ export function createDance({
     T.neck = mix(T.thorax, gaze, 0.45);
     T.head = gaze;
     T.headYaw = mix(T.headYaw, 0, 1 - Math.exp(-6 * dt));
+    push = 0;
     T.twist = 0;
     T.pelvisYaw = 0;
     T.roll = 0;
@@ -1165,7 +1234,7 @@ export function createDance({
     for (const side of ['L', 'R']) {
       T[`shoulder${side}`] = arm;
       T[`elbow${side}`] = arm - flex * D;
-      T[`wrist${side}`] = arm - (flex + mix(8, 52, load)) * D;
+      T[`wrist${side}`] = arm - flex * D + mix(8, 52, load) * D;
       T[`spread${side}`] = mix(10, 34, load) * D;
     }
     T.lift = mix(HIP_BASE + 0.03, HIP_BASE - 0.012, g);
@@ -1191,11 +1260,11 @@ export function createDance({
       // Feet under the hips, on beats 0.6 and 1.3 of the intro.
       if (introSteps === 0 && beats > 0.6) {
         introSteps = 1;
-        queueStep({ side: 'R', x: FOOT_X.R, z: STANCE_Z, yaw: 0, pitch: 0, weight: 1, dur: 0.5 });
+        queueStep({ side: 'R', ...STANCE.R, pitch: 0, weight: 1, dur: 0.5 });
       }
       if (introSteps === 1 && beats > 1.3) {
         introSteps = 2;
-        queueStep({ side: 'L', x: FOOT_X.L, z: STANCE_Z, yaw: 0, pitch: 0, weight: 1, dur: 0.5 });
+        queueStep({ side: 'L', ...STANCE.L, pitch: 0, weight: 1, dur: 0.5 });
       }
       beat = 0;
     } else {
@@ -1264,20 +1333,36 @@ export function createDance({
     }
   }
 
-  // A figure that arrives buried is still carrying perform.js's clipping plane,
-  // and half a dancer is worse than no dancer. The plane is taken off here
-  // rather than asking the caller to remember: this file cannot edit perform.js
-  // but it can undo the one thing perform.js leaves on a shared material.
+  // A figure that arrives buried is still carrying perform.js's floor clipping
+  // plane, and half a dancer is worse than no dancer. The plane is taken off
+  // here rather than asking the caller to remember: this file cannot edit
+  // perform.js, but it can undo the one thing perform.js leaves on the rig's
+  // own material.
+  //
+  // PUT BACK on dispose, and that is not tidiness. perform.js only touches
+  // those planes when its own idea of whether clipping is on CHANGES, so a
+  // performance that was buried when the dance took its rig still believes the
+  // plane is fitted: leaving it off would make its next reset() a no-op and the
+  // skeleton would rise out of the next grave as a solid figure sliding up
+  // through the floor.
   const clipped = [];
   group.traverse((o) => {
     const m = o.material;
-    if (m?.clippingPlanes && !clipped.includes(m)) {
-      clipped.push(m);
+    if (m?.clippingPlanes?.length && !clipped.some((c) => c.material === m)) {
+      clipped.push({ material: m, planes: m.clippingPlanes, clipShadows: m.clipShadows });
       m.clippingPlanes = null;
       m.clipShadows = false;
       m.needsUpdate = true;
     }
   });
+  function unclip() {
+    for (const c of clipped) {
+      c.material.clippingPlanes = c.planes;
+      c.material.clipShadows = c.clipShadows;
+      c.material.needsUpdate = true;
+    }
+    clipped.length = 0;
+  }
 
   if (blend) adopt();
   else {
@@ -1317,7 +1402,7 @@ export function createDance({
       }
       return out;
     },
-    dispose() {},
+    dispose() { unclip(); },
   };
 }
 
@@ -1331,8 +1416,14 @@ export function createDance({
 // deliberately a beat apart.
 //
 //   centre    dead on the beat, full size. The one the eye locks onto.
-//   left      a third of a beat late and 14% smaller. The timid one.
-//   right     a sixth of a beat EARLY and 16% bigger. The one that overcommits.
+//   left      a third of a beat late and 10% smaller. The timid one.
+//   right     a sixth of a beat EARLY and 12% bigger. The one that overcommits.
+//
+// The spread was 14% and 16% for a round and it was too much: amplitude scales
+// every authored angle about zero, so at 0.86 the arm that is supposed to punch
+// straight up only reaches 44 degrees off vertical, and a smaller dancer stops
+// reading as a smaller dancer and starts reading as one doing a different move.
+// Ten percent is as far as this goes before the unison breaks.
 //
 // Early matters as much as late: two dancers behind a leader reads as a leader
 // and two followers, and one in front of the beat reads as somebody who cannot
@@ -1342,9 +1433,9 @@ export function createDance({
 // roll takes a whole beat to travel from one end of the troupe to the other and
 // is unmistakably a wave rather than three people rolling their shoulders.
 const CAST = [
-  { offset: 0.30, amp: 0.86, seed: 11 },
+  { offset: 0.30, amp: 0.90, seed: 11 },
   { offset: 0.00, amp: 1.00, seed: 23 },
-  { offset: -0.16, amp: 1.16, seed: 37 },
+  { offset: -0.16, amp: 1.12, seed: 37 },
 ];
 
 export function createDanceTroupe({

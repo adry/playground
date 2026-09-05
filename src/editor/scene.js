@@ -386,7 +386,7 @@ export function createEditorScene({ canvas }) {
   let showFootprints = true;
   let showFacing = true;
 
-  function syncOverlay(world, doc, { selection = new Set(), flagged = new Set(), hover = null, brush = null } = {}) {
+  function syncOverlay(world, doc, { selection = new Set(), flagged = new Set(), hover = null, brush = null, wedges = [] } = {}) {
     clearOverlay();
     const d = world._derived;
 
@@ -434,6 +434,19 @@ export function createEditorScene({ canvas }) {
       if (run.source.closed) pts.push(pts[0]);
       overlay.add(lineOf(pts, selection.has(run.id) ? 0x1f6fe0 : 0x2f6fd0, 0.5));
       for (const [x, z] of run.source.points) overlay.add(ringOf(x, z, 0.12, 0x2f6fd0, 0.8));
+    }
+
+    // WEDGES. A place the ghost can vault into that no skeleton can walk to, so
+    // the player stands in it and is safe for ever. It is invisible: it is not
+    // a prop and not a fence, it is a shape the gaps make, so the only way an
+    // author can see one is if the tool draws it. Two rings and a cross, in the
+    // error colour, sized by how big the pocket is.
+    for (const w of wedges) {
+      const r = Math.max(0.5, Math.sqrt((w.cells * 0.25 * 0.25) / Math.PI));
+      overlay.add(ringOf(w.x, w.z, r, 0xd23b3b, 1));
+      overlay.add(ringOf(w.x, w.z, r + 0.35, 0xd23b3b, 0.5));
+      overlay.add(lineOf([[w.x - r, w.z - r], [w.x + r, w.z + r]], 0xd23b3b, 0.7));
+      overlay.add(lineOf([[w.x - r, w.z + r], [w.x + r, w.z - r]], 0xd23b3b, 0.7));
     }
 
     if (hover) overlay.add(ringOf(hover.x, hover.z, 0.2, 0x2f3542, 0.5));

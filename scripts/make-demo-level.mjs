@@ -2,12 +2,20 @@
 //
 //   node scripts/make-demo-level.mjs
 //
-// This is not the editor and it is not a second generator: it exists so there
+// This is not the editor and it is not a second generator. It exists so there
 // is one hand-shaped level in the repository to open with
 // /lab/?world=1&level=/levels/demo.json, and so that the level FORMAT has a
-// test that is not the editor's own UI. It places candidates against the same
-// validator the editor runs and drops anything that does not fit, so the file
-// it writes is a level the tool would call clean.
+// test that is not the editor's own UI.
+//
+// EVERYTHING IN IT IS PLACED THE WAY THE EDITOR MAKES THE OWNER PLACE THINGS:
+// a candidate goes in, the whole rule set runs over the whole level, and if the
+// number of findings went up the candidate comes back out. The whole rule set
+// means src/game/world/audit.js and repair.js's findWedges, not a subset. The
+// first version of this script gated on a subset and wrote a file with forty
+// findings in it, eleven of them wedges -- a wedge being a place the ghost can
+// vault into that no skeleton can walk to, which is the failure that ends the
+// game. That is exactly the mistake a person makes in an editor and cannot see,
+// so it is the mistake this file must not be able to make either.
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -31,7 +39,7 @@ doc.wall.styles = [
 // --- the fences: one pen and one divider, each with its gate ------------------
 doc.fences.push({
   id: 'pen', closed: true, gates: [{ edge: 0, t: 0.5 }],
-  points: [[3.0, -10.0], [10.0, -10.0], [10.0, -3.5], [3.0, -3.5]],
+  points: [[3.0, -10.5], [10.5, -10.5], [10.5, -3.5], [3.0, -3.5]],
 });
 doc.fences.push({
   id: 'divider', closed: false, gates: [{ edge: 0, t: 0.42 }],
@@ -49,30 +57,49 @@ doc.paths.push({
 });
 doc.paths.push({
   id: 'kerb-plot', material: 'kerb', width: 1.0,
-  points: [[-10.5, -2.2], [-6.0, -2.2]],
+  points: [[-10.5, -2.4], [-6.2, -2.4]],
 });
 
-// --- the graves, and the order the skeletons come out in ----------------------
+// --- the machinery: a candidate is kept only if it costs nothing ---------------
+
+// The 'floor' rule counts CONTENT -- four graves, four pellets, at least so
+// many headstones -- so it fires on an empty shell and clears as the level is
+// filled. Counting it here would let the budget ratchet: a candidate that broke
+// a real rule would be accepted while a content finding was still standing, and
+// then stay in once that finding cleared. That is not hypothetical, it is how a
+// headstone ended up half a metre into a path. So the gate counts GEOMETRY
+// findings only, and the content rules are checked once at the end.
+const findings = () => reviewLevel(createLevelWorld(doc)).errors
+  .filter((e) => e.code !== 'floor').length;
+let budget = findings();
+
+// Try each of `options` in turn and keep the first that does not raise the
+// count. `apply` pushes it, `undo` takes it back out.
+function tryOne(options, apply, undo) {
+  for (const o of options) {
+    apply(o);
+    const n = findings();
+    if (n <= budget) { budget = n; return true; }
+    undo();
+  }
+  return false;
+}
+
+// --- the graves ----------------------------------------------------------------
 //
 // Each is a POSE and the file stores nothing else: the mouth, the spoil heap
-// and the headstone are synthesised from it. `pile` is chosen here rather than
-// guessed, by audit.js's own rule -- the heap goes on the long side AWAY from
-// the nearest path -- because getting it wrong is a finding the author would
-// have to be told about rather than one the tool can avoid.
-const spawns = [
-  { x: -8.6, z: -10.2, yaw: Math.PI / 4, personality: 'chaser', headstone: 'fred' },
-  { x: 7.0, z: -6.4, yaw: Math.PI / 4, personality: 'ambusher', headstone: 'heart' },
-  { x: -10.0, z: 10.4, yaw: Math.PI / 4 + 0.35, personality: 'flanker', headstone: 'gothic' },
-  { x: 10.0, z: 3.4, yaw: Math.PI / 4 - 0.3, personality: 'loner', headstone: 'celtic' },
-];
-
+// and the headstone are synthesised from it. `pile` is chosen by audit.js's own
+// rule -- the heap goes on the long side AWAY from the nearest path -- and then
+// the whole grave is offered at a few nearby spots, because a grave is three
+// props and three and a half units long, and the first place you think of is
+// often two centimetres into a path.
 function pileSideFor(g) {
   const c = Math.cos(g.yaw);
-  const s2 = Math.sin(g.yaw);
+  const s = Math.sin(g.yaw);
   const local = (x, z) => {
     const dx = x - g.x;
     const dz = z - g.z;
-    return { x: dx * c - dz * s2, z: dx * s2 + dz * c };
+    return { x: dx * c - dz * s, z: dx * s + dz * c };
   };
   let near = null;
   for (const p of doc.paths) {
@@ -95,100 +122,101 @@ function pileSideFor(g) {
   return lc.z >= 0 ? -1 : 1;
 }
 
-spawns.forEach((s, i) => {
-  const g = { id: `g${i}`, order: i, head: 1, ...s };
-  g.pile = pileSideFor(g);
-  doc.graves.push(g);
-});
+const FACE = Math.PI / 4;
+const spawnPlan = [
+  { x: -10.6, z: -8.4, personality: 'chaser', headstone: 'fred' },
+  { x: 6.8, z: -7.4, personality: 'ambusher', headstone: 'heart' },
+  { x: -9.8, z: 10.6, personality: 'flanker', headstone: 'gothic' },
+  { x: 10.4, z: 2.0, personality: 'loner', headstone: 'celtic' },
+];
+let placedSpawns = 0;
+for (const [i, plan] of spawnPlan.entries()) {
+  const spots = [];
+  for (const dx of [0, 1.2, -1.2, 2.4, -2.4]) {
+    for (const dz of [0, 1.2, -1.2, 2.4, -2.4]) {
+      for (const head of [1, -1]) spots.push({ dx, dz, head });
+    }
+  }
+  const ok = tryOne(spots, (o) => {
+    const g = {
+      id: `g${i}`, order: i, yaw: FACE, head: o.head,
+      x: plan.x + o.dx, z: plan.z + o.dz,
+      personality: plan.personality, headstone: plan.headstone,
+    };
+    g.pile = pileSideFor(g);
+    doc.graves.push(g);
+  }, () => doc.graves.pop());
+  if (ok) placedSpawns += 1;
+}
 renumberGraves(doc);
 
 // --- the pellets ---------------------------------------------------------------
-for (const [i, [x, z]] of [[-11.5, -5.5], [11.0, -12.0], [-12.5, 12.0], [12.0, 11.0]].entries()) {
-  doc.powerups.push({ id: `jack${i}`, x, z });
+for (const [i, [x, z]] of [[-12.0, -5.0], [11.0, -12.5], [-12.5, 12.5], [12.5, 11.0]].entries()) {
+  tryOne([[0, 0], [1, 1], [-1, -1], [2, 0], [0, 2]], (o) => {
+    doc.powerups.push({ id: `jack${i}`, x: x + o[0], z: z + o[1] });
+  }, () => doc.powerups.pop());
 }
 
 // --- the props -----------------------------------------------------------------
 //
-// Candidates in the order they matter, each dropped if the validator says it
-// does not fit. A row of headstones is authored as a row: same yaw, even
-// spacing, short at the front and tall at the back, which is what the layout
-// package's motifs do and what makes a plot read as laid out.
-
-const FACE = Math.PI / 4;
+// A row of headstones is authored as a row: same yaw, even spacing, short at
+// the front and tall at the back, which is what the layout package's motifs do
+// and what makes a plot read as laid out rather than as a scatter. Each one is
+// still offered to the rule set and dropped if it costs anything.
 const wanted = [];
 const push = (kind, variant, x, z, yaw = FACE) => wanted.push({ kind, variant, x, z, yaw });
 
-// two rows against the west wall
+// Two rows down the west side, kept well off the wall: a row standing a metre
+// from it leaves a strip behind that a body fits in and nothing can walk to,
+// which is a wedge and is the whole reason this level is placed the hard way.
 const westRow = ['heart', 'fred', 'cracked', 'twin', 'wings', 'celtic'];
-westRow.forEach((v, i) => push('stone', v, -12.6, -8.0 + i * 2.0, FACE + (i % 2 ? 0.06 : -0.05)));
-const westBack = ['gothic', 'stele', 'obelisk', 'calvary'];
-westBack.forEach((v, i) => push('stone', v, -14.0, -7.0 + i * 2.4, FACE + 0.03));
+westRow.forEach((v, i) => push('stone', v, -11.6, -6.0 + i * 2.2, FACE + (i % 2 ? 0.06 : -0.05)));
+const westBack = ['stele', 'obelisk', 'calvary'];
+westBack.forEach((v, i) => push('stone', v, -13.3, -5.4 + i * 2.6, FACE + 0.03));
 
 // the pen's own occupants
-push('stone', 'vault', 6.6, -8.6, FACE);
-push('stone', 'ledger', 4.6, -5.4, FACE);
-push('stone', 'chest', 8.4, -5.2, FACE);
+push('stone', 'vault', 6.4, -8.8, FACE);
+push('stone', 'ledger', 4.6, -5.2, FACE);
+push('stone', 'chest', 8.8, -5.2, FACE);
 
-// a family plot east of the main path
-['urn', 'draped', 'column', 'scroll'].forEach((v, i) => push('stone', v, -3.4 + i * 1.7, -8.6, FACE - 0.04));
-['book', 'lamb', 'cairn', 'pillow'].forEach((v, i) => push('stone', v, -3.0 + i * 1.6, -6.4, FACE + 0.05));
+// a family plot west of the pen
+['urn', 'draped', 'column', 'scroll'].forEach((v, i) => push('stone', v, -3.6 + i * 1.9, -9.8, FACE - 0.04));
+['book', 'lamb', 'cairn'].forEach((v, i) => push('stone', v, -3.0 + i * 1.9, -7.0, FACE + 0.05));
 
 // the north quarter
 ['bat', 'cross', 'boulder', 'pyramid', 'sundial', 'wheel', 'stump'].forEach((v, i) => {
-  push('stone', v, -6.5 + i * 2.1, 10.5, FACE + (i % 3) * 0.05);
+  push('stone', v, -6.6 + i * 2.2, 11.6, FACE + (i % 3) * 0.05);
 });
-push('stone', 'kerb', -11.0, 1.2, FACE);
-push('stone', 'bench', 2.6, 8.6, FACE);
+push('stone', 'kerb', -11.4, 0.6, FACE);
+push('stone', 'bench', 3.2, 9.2, FACE);
 
 // the buildings
-push('fountain', null, 4.4, 1.0);
-push('shed', null, 12.0, -0.6, FACE - 0.5);
+push('fountain', null, 4.6, 0.6);
+push('shed', null, 12.2, -1.4, FACE - 0.5);
 
-// lanterns beside the paths
-push('lantern', 'post', -5.0, -6.0);
-push('lantern', 'crook', 0.2, 3.0);
-push('lantern', 'street', -1.0, 8.2);
-push('lantern', 'pillar', 6.4, 8.0);
-push('lantern', 'brazier', -12.0, 5.6);
+// lanterns beside the paths, off them
+push('lantern', 'post', -5.2, -4.6);
+push('lantern', 'crook', 2.4, 2.6);
+push('lantern', 'street', -2.4, 8.6);
+push('lantern', 'pillar', 6.6, 6.6);
+push('lantern', 'brazier', -12.6, 5.8);
 
 // planting and pumpkins
-push('bush', null, -2.4, 12.2);
-push('bush', null, 13.0, 6.6);
-push('grass', 'patch', -7.6, 2.0);
-push('grass', 'patch', 8.0, 12.0);
-push('flowers', 'daisies', -12.0, -1.0);
-push('flowers', 'posy', -3.9, -9.9);
-push('flowers', 'spires', 2.2, -2.4);
-push('pumpkin', 'classic', -6.2, -3.2);
-push('pumpkin', 'squat', 5.4, 11.4);
-push('pumpkin', 'tiny', -0.6, -3.6);
+push('bush', null, -3.6, 12.8);
+push('bush', null, 13.0, 6.2);
+push('grass', 'patch', -8.2, 1.4);
+push('grass', 'patch', 8.4, 12.4);
+push('flowers', 'daisies', -13.0, -1.4);
+push('flowers', 'posy', 0.4, -11.0);
+push('flowers', 'spires', 2.6, -1.6);
+push('pumpkin', 'classic', -6.8, -2.4);
+push('pumpkin', 'squat', 6.2, 12.0);
+push('pumpkin', 'tiny', -1.4, -4.6);
 
-// EVERY CANDIDATE IS TESTED AGAINST THE WHOLE RULE SET, not against a subset.
-//
-// The first version of this script used only the editor's fast checks, and the
-// level it wrote had forty audit findings in it, eleven of them wedges. That is
-// exactly the mistake the editor exists to stop a person making, so the script
-// makes it impossible here too: a candidate goes in, audit.js and findWedges
-// are run over the whole level, and if the count of errors went up the
-// candidate comes back out. It is a couple of hundred milliseconds per
-// candidate and it takes about fifteen seconds, which is the right trade for a
-// file that ships as the example.
-const baseline = reviewLevel(createLevelWorld(doc)).errors.length;
-if (baseline) {
-  console.log(`the empty shell already has ${baseline} findings:`);
-  for (const e of reviewLevel(createLevelWorld(doc)).errors) console.log(`  ${e.code}: ${e.message}`);
-}
-let worst = baseline;
 let dropped = 0;
 for (const [i, c] of wanted.entries()) {
-  doc.props.push({ id: `p${i}`, ...c });
-  const n = reviewLevel(createLevelWorld(doc)).errors.length;
-  if (n > worst) {
-    doc.props.pop();
-    dropped += 1;
-  } else {
-    worst = n;
-  }
+  const kept = tryOne([0], () => doc.props.push({ id: `p${i}`, ...c }), () => doc.props.pop());
+  if (!kept) dropped += 1;
 }
 
 // --- the painted ground ---------------------------------------------------------
@@ -196,7 +224,8 @@ for (const [i, c] of wanted.entries()) {
 // Grass over the whole yard, sand widening around the main path, gravel inside
 // the pen and round the fountain, bare earth at the graves. The borders are not
 // drawn: groundcover.js blurs these cells into a weight field and the materials
-// interleave across about a metre and a half wherever two of them meet.
+// interleave across about a metre and a half wherever two of them meet. None of
+// this is geometry, so none of it can fail a rule.
 
 const g = doc.ground;
 const cells = new Uint8Array(g.w * g.h);
@@ -219,9 +248,9 @@ for (let j = 0; j < g.h; j++) {
     let v = idx('grass');
     if (nearPoly(x, z, doc.paths[0].points, 2.2)) v = idx('sand');
     if (nearPoly(x, z, doc.paths[1].points, 1.9)) v = idx('gravel');
-    if (x > 3.2 && x < 9.8 && z > -9.8 && z < -3.7) v = idx('gravel');
-    if (Math.hypot(x - 4.4, z - 1.0) < 3.0) v = idx('gravel');
-    for (const s of spawns) if (Math.hypot(x - s.x, z - s.z) < 2.6) v = idx('earth');
+    if (x > 3.2 && x < 10.3 && z > -10.3 && z < -3.7) v = idx('gravel');
+    if (Math.hypot(x - 4.6, z - 0.6) < 3.0) v = idx('gravel');
+    for (const s of doc.graves) if (Math.hypot(x - s.x, z - s.z) < 2.6) v = idx('earth');
     cells[j * g.w + i] = v;
   }
 }
@@ -232,20 +261,18 @@ const out = normalizeLevel(doc);
 const world = createLevelWorld(out);
 const check = validateLevel(out, world);
 const review = reviewLevel(world);
+const fair = checkFairness(world);
 const path = new URL('../public/levels/demo.json', import.meta.url).pathname;
 mkdirSync(dirname(path), { recursive: true });
 writeFileSync(path, `${serializeLevel(out)}\n`);
 
 console.log(`wrote ${path}`);
 console.log(`props ${out.props.length} (${dropped} candidates dropped for not fitting)`);
-console.log(`gates ${world._derived.gates.length}  graves ${out.graves.length}  fireflies ${world.fireflies().length}`);
-console.log(`live checks: errors ${check.errors.length}  warnings ${check.warnings.length}`);
+console.log(`spawns ${placedSpawns}/4  gates ${world._derived.gates.length}  pellets ${out.powerups.length}`);
+console.log(`fireflies ${world.fireflies().length} at ${world._derived.flies.spacing.toFixed(1)} apart`);
+console.log(`live checks: ${check.errors.length} errors, ${check.warnings.length} warnings`);
 for (const i of check.issues) console.log(`  ${i.severity}: ${i.message}`);
-console.log(`audit: ${review.errors.length} findings, ${review.wedges.length} wedges, ${review.notes.length} notes`);
+console.log(`audit: ${review.errors.length} findings, ${review.wedges.length} wedges`);
 for (const i of review.issues) console.log(`  ${i.severity} ${i.code}: ${i.message}`);
-
-// And the eight the soak checks, which is what actually decides whether this
-// is playable now that nothing procedural stands between it and a player.
-const fair = checkFairness(world);
 console.log(fair.fail.length ? `FAILS ${fair.fail.join(', ')}` : 'fairness: all eight pass');
 for (const f of fair.fail) console.log(`  ${f}: ${FAIR_MESSAGES[f]}`);

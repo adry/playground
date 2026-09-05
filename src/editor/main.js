@@ -39,7 +39,7 @@ import {
   packPaint, unpackPaint, GROUND_MATERIALS, LEVEL_FORMAT,
   WALL_VARIANTS, WALL_JOINTS, MAX_STYLES, wallLength,
 } from '../game/level/format.js';
-import { validateLevel } from '../game/level/validate.js';
+import { validateLevel, reviewLevel } from '../game/level/validate.js';
 import { checkFairness, FAIR_MESSAGES } from '../game/level/fairness.js';
 import { PALETTE, PERSONALITIES, MAX_SPAWNS, levelFootprint } from '../game/level/catalogue.js';
 import { LEVEL_SIZE } from '../game/world/field.js';
@@ -57,10 +57,22 @@ const YAW_SNAP = Math.PI / 12;
 let doc = load() || emptyLevel({ size: LEVEL_SIZE, seed: 7, name: 'graveyard' });
 let world = null;
 let report = null;
-// The soak's eight, run on a timer after the last change rather than on every
-// pointer move: it rasters the whole arena at 0.5 and floods it several times,
-// which is tens of milliseconds. See level/fairness.js.
+// THE SLOW HALF, run on a timer after the last change rather than on every
+// pointer move. Three things live in here and together they are the whole
+// fairness guarantee, because nothing procedural stands between a hand-made
+// level and the player any more:
+//
+//   audit    src/game/world/audit.js's full rule set, a second implementation
+//            of the geometry, plus the rules the fast half cannot do: nothing
+//            in a path, nothing tall hiding something short, and WEDGES
+//   wedges   repair.js's findWedges at 0.25, drawn on the floor. A wedge is a
+//            place the ghost can vault into that no skeleton can walk to
+//   fair     the soak's eight properties, transcribed in level/fairness.js
+//
+// Together they are about 350 ms on a full arena, which is nothing between
+// gestures and far too much per pointer move.
 let fair = { fail: [], where: {}, stale: true };
+let review = { issues: [], wedges: [], errors: [], notes: [], stale: true };
 let fairTimer = 0;
 
 const undoStack = [];
@@ -171,25 +183,35 @@ function refresh({ deep = !editing } = {}) {
   report = validateLevel(doc, world, { deep });
   scene.sync(world, doc, { selection, flagged: report.flagged, hover, brush: tool === 'paint' && hover ? { ...hover, r: brush.radius } : null });
   fair.stale = true;
+  review.stale = true;
   clearTimeout(fairTimer);
-  fairTimer = setTimeout(runFairness, 260);
+  fairTimer = setTimeout(deepReview, 260);
   drawPanels();
   drawStatus();
 }
 
-// THE EIGHT. Nothing now stands between a hand-made level and the player, so
-// this is not advisory: F3 in particular is invisible on screen and it is the
-// property most likely to be broken by accident.
-function runFairness() {
+// THE SLOW HALF. Not advisory: F3 and a wedge are both invisible on screen and
+// they are the two things most likely to be broken by accident.
+function deepReview() {
   if (!world) return;
   try {
-    const out = checkFairness(world);
-    fair = { ...out, stale: false };
+    review = { ...reviewLevel(world), stale: false };
+  } catch (err) {
+    review = { issues: [], wedges: [], errors: [], notes: [], stale: false, error: err.message };
+  }
+  try {
+    fair = { ...checkFairness(world), stale: false };
   } catch (err) {
     // A level mid-edit can be geometry nav.js has never been asked about. A
     // check that throws must not take the tool down with it.
     fair = { fail: [], where: {}, stale: false, error: err.message };
   }
+  // The wedges go onto the floor as well as into the list. A coordinate in a
+  // panel is a number; a red ring where the pocket is, is a place.
+  scene.sync(world, doc, {
+    selection, flagged: report.flagged, hover, wedges: review.wedges,
+    brush: tool === 'paint' && hover ? { ...hover, r: brush.radius } : null,
+  });
   drawPanels();
   drawStatus();
 }
@@ -658,8 +680,14 @@ function saveFile({ anyway = false } = {}) {
   // can still force it -- it is their tool -- but never by accident.
   const blocking = [
     ...report.errors.map((e) => e.message),
+    ...review.errors.map((e) => `${e.code}: ${e.message}`),
     ...fair.fail.map((f) => `${f}: ${FAIR_MESSAGES[f] || f}`),
   ];
+  if (review.stale || fair.stale) {
+    say('checking the level before saving; press save again in a moment');
+    deepReview();
+    return;
+  }
   if (blocking.length && !anyway) {
     const ok = confirm(
       `This level is not playable:\n\n  ${blocking.slice(0, 6).join('\n  ')}\n\n`
@@ -939,6 +967,9 @@ function drawRight() {
     el('h2', { text: 'selection' }),
     sel.length === 1 ? inspector(sel[0]) : el('p', { class: 'note', text: sel.length ? `${sel.length} selected` : 'nothing selected' }),
 
+    el('h2', { text: `audit  ${review.stale ? '...' : review.errors.length}` }),
+    auditList(),
+
     el('h2', { text: 'fairness' }),
     fairnessList(),
 
@@ -1076,6 +1107,27 @@ function styleRow(st, i) {
   ]);
 }
 
+// audit.js's full rule set plus the wedge pass. A wedge is clickable: it flies
+// the camera to the pocket, which is the only way to see one at all.
+function auditList() {
+  if (review.stale) {
+    return el('ul', { class: 'issues' }, [el('li', { class: 'none', text: 'running the audit and the wedge pass...' })]);
+  }
+  if (review.error) {
+    return el('ul', { class: 'issues' }, [el('li', { 'data-severity': 'error', text: `the audit could not run: ${review.error}` })]);
+  }
+  const rows = review.issues.map((i) => el('li', {
+    'data-severity': i.severity === 'error' ? 'error' : 'warn',
+    text: `${i.code}: ${i.message}`,
+    onclick: () => {
+      const m = /at (-?[\d.]+), (-?[\d.]+)/.exec(i.message);
+      if (m) scene.lookAt(Number(m[1]), Number(m[2]));
+    },
+  }));
+  if (!rows.length) rows.push(el('li', { class: 'none', text: 'audit.js finds nothing wrong, and no wedges' }));
+  return el('ul', { class: 'issues' }, rows);
+}
+
 // The eight the soak checks, as they stand on THIS level. See level/fairness.js
 // for what each one means and why F3 is the one to read first.
 function fairnessList() {
@@ -1143,9 +1195,14 @@ function drawStatus() {
   const errors = report ? report.errors.length : 0;
   const unfair = fair.fail.length;
   statusEl.innerHTML = [
-    `<b>${doc.props.length}</b> props · <b>${doc.graves.length}</b> spawns · <b>${world ? world.fireflies().length : 0}</b> fireflies (auto)`,
+    `<b>${doc.props.length}</b> props · <b>${doc.graves.length}</b> spawns · `
+      + `<b>${world ? world.fireflies().length : 0}</b> fireflies (auto, `
+      + `${world ? world._derived.flies.spacing.toFixed(0) : 0} apart)`,
     `${s.cuts}/${s.max} floor cuts · ${world ? world._derived.gates.length : 0} gates`,
     errors ? `<span class="bad">${errors} error${errors === 1 ? '' : 's'}</span>` : 'geometry ok',
+    review.stale ? 'audit: checking' : review.errors.length
+      ? `<span class="bad">audit ${review.errors.length}, ${review.wedges.length} wedge${review.wedges.length === 1 ? '' : 's'}</span>`
+      : 'audit: clean, no wedges',
     fair.stale ? 'fairness: checking' : unfair
       ? `<span class="bad">fails ${fair.fail.join(', ')}</span>`
       : 'fairness: all eight pass',

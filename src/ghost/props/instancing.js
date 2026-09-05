@@ -40,18 +40,29 @@ import { flattenByMaterial } from './merge.js';
 // is drawing; a field retains what it uses and releases it when its chunk is
 // torn down, so nothing in the scene can be evicted out from under it.
 //
-// 48 is a DIAL, not a right answer, and the exchange rate is measured. A stone
-// template is about 3 MB of texture and about 0.63 s to bake (on the capture
-// container's software rasteriser, so read the ratio and not the absolute).
-// One level of the game page wants 28 templates -- 16 stone variants, never
-// more than three of any one -- so 48 holds one level and half of the next.
-// That is deliberately tight: at 48 the page sits inside 114 MB of texture, and
-// the cost is visible in game-perf's build rows, where returning to a wave two
-// waves later re-bakes what was evicted and pays about 7.5 s for it.
+// 48 is a DIAL, and it has now been argued twice against two different shapes
+// of the game, which is worth recording because the second argument replaced
+// the first entirely.
 //
-// Raise it and that goes away at 3 MB a template: 72 would hold two full levels
-// for about 220 MB. Which way to go is a memory decision and belongs to
-// whoever owns the streaming budget, which is why it is an argument.
+// It was sized for an endless world, as LRU headroom: one level's worth plus
+// half of the next, so the wave being played and the one before it never miss.
+// That reasoning is dead. The game is a bounded arena loading an AUTHORED
+// level, and a level is built once.
+//
+// What sizes it now is PREWARMING. A bake is cheap before anything has been
+// rendered and dear afterwards -- measured at 319 ms a template against 2,243
+// and 5,211 on the two waves after a frame was drawn -- and the only moment a
+// page is reliably in the cheap regime is its load. So the templates worth
+// baking are the union of the variants of every level the session might open,
+// baked at load, and the ceiling has to be AT LEAST that union or prewarming
+// evicts itself and is worse than not doing it. Measured on the generator that
+// stood in for authored levels, six levels' variants union to 46 distinct
+// templates, which is what 48 now holds.
+//
+// The exchange rate for moving it: about 3 MB of texture and about 0.32 s of
+// load per template, on the capture container's software rasteriser, so read
+// the ratio rather than the absolute. Size it against the real set of authored
+// levels when there is one; until then 46 measured is the best number there is.
 export function createPropCache({ build, limit = 48 }) {
   // key -> { parts: [{ geometry, material, castShadow, receiveShadow, renderOrder }],
   //          extra: Object3D  (anything the flatten could not swallow, or null),
