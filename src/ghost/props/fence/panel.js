@@ -166,15 +166,28 @@ function paintBoard(geo, rand, { groundEnd = true, axis = 0 } = {}) {
 
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.setAttribute('aGrain', new THREE.BufferAttribute(grain, 2));
-  // The board's own space, frozen before anything moves the board.
-  //
-  // The grain is evaluated from this rather than from the vertex position, and
-  // the two are the same number right up until a panel is baked into one
-  // buffer. After that the position is in panel space and reading the grain off
-  // it would run the streaks straight through seven pickets as if they had been
-  // sawn from one plank -- which is exactly what the first merged panel looked
-  // like. Copying the position here costs 12 bytes a vertex and is the entire
-  // reason a panel can be one mesh.
+  return geo;
+}
+
+// The board's own space, frozen before anything moves the board.
+//
+// The grain is evaluated from this rather than from the vertex position, and
+// the two are the same number right up until a panel is baked into one buffer.
+// After that the position is in panel space, and reading the grain off it runs
+// the streaks straight through seven pickets as if they had been sawn from one
+// plank -- which is exactly what the first merged panel looked like.
+//
+// It is stamped HERE, by the one function that merges, and deliberately not in
+// paintBoard beside the other two attributes. Every board in the set goes
+// through paintBoard or a copy of it, and several of them get merged with
+// boards that do not: broken.js fuses a picket's stump with splinters it cut
+// itself, and three's mergeGeometries refuses a list whose attribute sets
+// differ. Adding aBoard to paintBoard broke the free-roam page's damaged panels
+// exactly that way. Only the merged panel needs it, so only the merged panel
+// gets it.
+function stampBoardSpace(geo) {
+  if (geo.getAttribute('aBoard')) return geo;
+  const pos = geo.getAttribute('position');
   geo.setAttribute('aBoard', new THREE.BufferAttribute(Float32Array.from(pos.array), 3));
   return geo;
 }
@@ -484,7 +497,7 @@ export function panelGeometry({ seed = 1, postSeeds } = {}) {
   const entries = [];
   const own = [];
   const place = (geo, part, { lean = 0, twist = 0 } = {}) => {
-    own.push(geo);
+    own.push(stampBoardSpace(geo));
     const m = new THREE.Matrix4()
       .makeRotationFromEuler(new THREE.Euler(0, twist, lean, 'XYZ'))
       .setPosition(part.x, part.y, part.z);

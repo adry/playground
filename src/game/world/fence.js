@@ -96,9 +96,9 @@ export const RUN_GAP = 2.8;
 // the wall and 33% of the deaths there, a risk ratio of seven, because a corner
 // is where you are pinned and the wall is the one barrier the ghost cannot
 // vault. Three units of clear ground all the way round is Pac-Man's outer
-// corridor: it leaves a walkable loop about 2.2 wide, so there is always a way
-// out of a corner that is not through whatever is chasing you.
-export const WALL_GAP = 3.0;
+// corridor: at 3.5 it leaves a walkable loop about 2.7 wide, so there is always
+// a way out of a corner that is not through whatever is chasing you.
+export const WALL_GAP = 3.5;
 
 // The grid yaw of a box whose long axis runs along the grid direction (du, dv).
 // geom.js reads a yaw as "local X is (cos, -sin)".

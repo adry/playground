@@ -240,7 +240,7 @@ export function placeGraves({ field, placer, box, spawn, runs, rng }) {
   // against, so a level with three is a level where a skeleton can be stranded,
   // and a grave in the wrong quarter is better than no grave.
   const regions = quadrants.map((q) => ({ q, wide: false }));
-  for (let extra = 0; extra < 4; extra++) regions.push({ q: quadrants[extra % 4], wide: true });
+  for (let extra = 0; extra < 10; extra++) regions.push({ q: quadrants[extra % 4], wide: true, apart: extra < 4 ? 6 : 4.5 });
   for (const region of regions) {
     if (out.length >= GRAVES) break;
     const [sx, sz] = region.q;
@@ -282,10 +282,18 @@ export function placeGraves({ field, placer, box, spawn, runs, rng }) {
           const v = spot.g.v;
           const t = turnAbout(u, v, theta, u, v);
           if (!placer.wouldFit({ kind: 'hole', variant: 'grave', u: t.u, v: t.v, gridYaw: FACE - theta, foot: holeFoot })) continue;
-          // The heap goes on the long side AWAY from the nearest path, which is
-          // the same rule the maze had with the corridor in the path's place.
+          // The heap goes on the long side AWAY from the nearest path, which
+          // is the same rule the maze had with the corridor in the path's
+          // place. TURNED, though: the grave may be at an angle, and the long
+          // side turns with it, so the side is decided against the direction
+          // the heap will actually end up in rather than against plain v. The
+          // untorned version put the heap on the path side of one grave in two
+          // hundred, which is exactly the levels where the grave had to turn.
           const near = field.nearestPath(u, v, 10);
-          const side = Number.isFinite(near.dist) && near.v >= v ? -1 : 1;
+          const heapDir = { u: -Math.sin(theta), v: Math.cos(theta) };
+          const toPath = Number.isFinite(near.dist)
+            ? { u: near.u - u, v: near.v - v } : { u: 0, v: 1 };
+          const side = (heapDir.u * toPath.u + heapDir.v * toPath.v) >= 0 ? -1 : 1;
           const group = graveGroup({
             placer: turnedPlacer(u, v, theta), rng, u, v,
             pileSide: side, headSide, stoneVariant: variant,
