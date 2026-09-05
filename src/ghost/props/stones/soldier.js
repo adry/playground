@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { registerStone, buildArcSweepGeometry, inkText, inkCross } from '../tombstones.js';
+import { registerStone, buildArcSweepGeometry, inkText } from '../tombstones.js';
 
 // The war grave: a plain upright tablet with a segmental head, a regimental
 // badge standing proud at the top, three lines of small lettering and a plain
@@ -226,11 +226,55 @@ export const LETTER = {
 // change that would make two of these look like two objects.
 const LINE_MAX = 0.525;
 
-// The cross. Low, small and plain: 0.175 tall against the cross stone's 0.30,
-// because there it is the only mark on the face and here it is the fourth
-// thing. Its bar is 0.20 of its height, which is 0.035 world, 2.2 px at scene
-// size, right at what the groove treatment can still hold.
-const CROSS = { y: 0.255, h: 0.175 };
+// The cross, and it is drawn here rather than with the registry's inkCross,
+// which is a correction and not a preference.
+//
+// THE ARROW. The first pass used inkCross at h 0.175 and every rendered stone
+// carried an up arrow under the year. inkCross puts the transverse arm 0.26h
+// down from the top and makes it 0.20h thick, which leaves 0.16h of upright
+// standing above it and rounds the ends by 0.34 of the bar. At h 0.175 that
+// stub is 0.028 world, 1.8 px at the scene's 64.5 px per world unit, and the
+// groove treatment lays a wall 0.0138 world wide down each side of every mark.
+// The two walls are 1.8 px between them, so the daylight over the crossing is
+// exactly zero: the arm and the rounded top merge, the arm's ends read as the
+// barbs, and the shaft below reads as the shank. On a war grave that is not a
+// small blemish.
+//
+// It is a size threshold and not a bug in inkCross. The cross stone uses the
+// same helper at h 0.30, where the stub is 0.048 world and 3.1 px, and there it
+// reads correctly. Somewhere near h 0.25 the proportion stops surviving the
+// groove, and any stone wanting a cross smaller than that has to space it
+// itself.
+//
+// WHAT THIS ONE DOES INSTEAD. The arm is a separate stroke with the upright
+// running visibly past it, and the stub is sized in pixels first and world
+// units second: 0.060 world is 3.9 px, and with 0.9 px of groove wall on the
+// underside of the shaft's top and 0.9 on the top of the arm it still leaves
+// 2.1 px of clean stone over the crossing. That is the number the whole shape
+// is built around, and it is why the mark is taller than the one it replaces.
+//
+// IS IT WIDE ENOUGH TO BOTHER WITH. Yes, and only just. The upright and the arm
+// are both 0.040 world, 2.6 px, which is above the 2.2 px the set's own R.I.P.
+// stem runs at and is the thinnest thing on this stone. The arm spans 0.145,
+// 9.4 px, three and a half times the upright, which is what makes it read as a
+// crossing rather than as a thickening. Nothing here is wider than it should
+// look: a CWGC cross is a slender mark and this one is slender. Dropping it was
+// considered, because the badge does carry the piece and three lines plus a
+// badge is a full face, but the cross is the one element on a war grave that
+// says grave rather than monument, and at 1.4 percent ink it is affordable.
+// Exported for the same reason LETTER is: the harness builds one tablet per
+// stub height and photographs them in a row, so the threshold below is a
+// measurement and not a recollection. Nothing in the scene writes to it.
+export const CROSS = {
+  y: 0.250,        // centre of the whole mark on the face
+  h: 0.210,        // total height, 13.5 px at scene size
+  up: 0.040,       // width of the upright
+  arm: 0.145,      // full span of the transverse arm
+  thick: 0.040,    // its thickness
+  stub: 0.060,     // upright standing clear ABOVE the top of the arm
+  round: 0.011,    // the ends, kept well under inkCross's 0.34 of the bar so
+                   // the top of the upright does not round itself into the arm
+};
 
 // Rank, name and year. This is the entire per-seed variation on the piece,
 // which is the point: two soldier stones side by side differ in who is under
@@ -380,7 +424,17 @@ export function drawSoldierFace(ctx, w, h, rng) {
   line(pick(NAMES), LETTER.name);
   line(pick(YEARS), LETTER.year);
 
-  inkCross(ctx, bx, py(CROSS.y), CROSS.h * S);
+  // The upright first, full height, then the arm laid across it a fixed stub
+  // below the top. Two strokes, not one silhouette, so the crossing is a
+  // crossing at every size.
+  const top = CROSS.y + CROSS.h / 2;
+  const r = CROSS.round * S;
+  ctx.beginPath();
+  ctx.roundRect(px(-CROSS.up / 2), py(top), CROSS.up * S, CROSS.h * S, r);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.roundRect(px(-CROSS.arm / 2), py(top - CROSS.stub), CROSS.arm * S, CROSS.thick * S, r);
+  ctx.fill();
 }
 
 // ---------------------------------------------------------------------------

@@ -75,7 +75,7 @@ import { PALETTE } from '../style.js';
 // itself. A real marker plate is 8mm of iron. This one is 130mm, which is the
 // same lie the whole set tells and the reason it looks like it came off the
 // same shelf as the ghost.
-const PLATE = { halfWidth: 0.24, height: 0.66, depth: 0.13, corner: 0.078 };
+const PLATE = { halfWidth: 0.24, height: 0.70, depth: 0.13, corner: 0.078 };
 
 // Where the plate's bottom point sits. 0.46 clear of the ground puts the top at
 // 1.08, in the middle of the 0.9 to 1.2 the piece was asked for, and splits the
@@ -83,7 +83,7 @@ const PLATE = { halfWidth: 0.24, height: 0.66, depth: 0.13, corner: 0.078 };
 // real object and read as a lollipop even with the lozenge; tried at 0.32 and
 // the gap closed until it was a small headstone with a stick behind it.
 const PLATE_Y = 0.44;
-const TOTAL = PLATE_Y + PLATE.height; // 1.08
+const TOTAL = PLATE_Y + PLATE.height; // 1.14
 
 // --- the post ---------------------------------------------------------------
 //
@@ -193,7 +193,7 @@ const IRON_ROUGH = 0.46;
 // and cross's 0.122. Matching the set's letter SIZE is what has to hold rather
 // than a coverage figure, because a narrower face makes the same chisel cover
 // more of itself.
-const LETTER = 0.225;
+const LETTER = 0.212;
 // How wide the moat round each mark is, as a fraction of the face canvas
 // height. See the block on raised lettering at draw(). 0.014 is 14 texels
 // against the treatment's own 11-texel groove blur, which is the smallest ring
@@ -318,7 +318,7 @@ registerStone('ironmarker', {
     // 0.155 of the face is 0.102 world tall with an arm span of 0.070, and it
     // sits where the flat face is 0.113 across, so it clears the bead by 21mm
     // on each side.
-    inkCross(tc, w / 2, h * 0.285, h * 0.155);
+    inkCross(tc, w / 2, h * 0.300, h * 0.135);
     const size = h * LETTER;
     inkText(tc, String(NUMBERS[Math.floor(rng() * NUMBERS.length)]), w / 2, h * 0.500, size, size * 0.04);
 
