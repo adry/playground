@@ -1,0 +1,13 @@
+import { chromium } from 'playwright';
+import { createServer } from 'vite';
+import path from 'node:path';
+const server = await createServer({ configFile: path.resolve('vite.config.js'), server: { port: 5188, host: '127.0.0.1' } });
+await server.listen();
+const b = await chromium.launch({ args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader'] });
+const p = await b.newPage();
+p.on('pageerror', e => console.log('PAGEERROR:', e.message, '\n', (e.stack||'').split('\n').slice(0,4).join('\n')));
+p.on('console', m => { if (m.type() === 'error') console.log('CONSOLE:', m.text()); });
+await p.goto('http://127.0.0.1:5188/lab/?game=1&test=1&seed=3', { waitUntil: 'domcontentloaded', timeout: 60000 });
+await p.waitForTimeout(45000);
+console.log('ready?', await p.evaluate(() => !!window.__gameReady));
+await b.close(); await server.close();
