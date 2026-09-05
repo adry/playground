@@ -11,11 +11,14 @@
 //
 // It runs in three phases and each one is a claim that can fail:
 //
-//   1  AUTHOR AND SAVE. The editor is opened on public/levels/demo.json, the
+//   1  AUTHOR, PLAY AND SAVE. The editor is opened on public/levels/demo.json, the
 //      wall's stone is changed through the panel's own select -- a real change
 //      event, so the real commit, the real autosave and the real validation --
 //      and the save button is clicked. What comes back is the actual download
-//      the owner would get, not a serialisation done on the side.
+//      the owner would get, not a serialisation done on the side. Before that
+//      it presses PLAY, which is the loop with no file in it at all: the
+//      document goes to the game through localStorage and the game opens on
+//      `level=session` in a tab of its own.
 //
 //   2  PLAY IT. /lab/?game=1&level=... is opened on the file phase 1 wrote,
 //      and the level the game is running is read back out of the page. It also
@@ -174,13 +177,47 @@ if (gz) {
   claim(Math.hypot(moved.x - placed.x, moved.z - placed.z) > 0.5, 'dragging the middle moves it');
 }
 
-// Put the level back to the one that gets saved and played.
+// --- 1c: PLAY, with no file in between -----------------------------------------
+//
+// The loop the owner actually runs. The document goes into localStorage, the
+// game opens on `level=session` in a tab of its own, and what it plays has to
+// be what was on screen -- including the change made a moment ago and never
+// saved to anything.
 await editor.page.evaluate((doc) => window.__editor.load(doc), demo);
 await editor.page.evaluate(() => {
   const rows = [...document.querySelectorAll('#right .row')];
   const row = rows.find((r) => r.querySelector('label')?.textContent === 'starts in');
-  const sel = row?.querySelector('select');
-  if (sel) { sel.value = 'iron'; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+  const seg = row?.querySelector('.seg');
+  [...(seg?.querySelectorAll('button') || [])].find((b) => b.textContent === 'rubble')?.click();
+});
+await editor.page.waitForTimeout(2500);
+
+// A REAL click, because window.open without user activation is a blocked popup
+// and a test that used a scripted click would be testing the popup blocker.
+const popup = editor.page.waitForEvent('popup', { timeout: 60000 }).catch(() => null);
+await editor.page.getByRole('button', { name: 'play this' }).click();
+const played = await popup;
+claim(!!played, 'the play button opens the game');
+if (played) {
+  await played.waitForFunction(() => window.__gameReady === true, null, { timeout: 600000 });
+  const live = await played.evaluate(() => ({
+    level: window.__game.level(),
+    variant: window.__game.layout.doc.wall.variant,
+    props: window.__game.layout.props().length,
+  }));
+  console.log('   ', JSON.stringify(live));
+  claim(live.level && live.level.url === 'session', 'and it is playing the editor\'s own document');
+  claim(live.variant === 'rubble', `including a change that was never saved to a file: the wall is ${live.variant}`);
+  await played.close();
+}
+
+// Put the level back to the one that gets saved and played from a file.
+await editor.page.evaluate((doc) => window.__editor.load(doc), demo);
+await editor.page.evaluate(() => {
+  const rows = [...document.querySelectorAll('#right .row')];
+  const row = rows.find((r) => r.querySelector('label')?.textContent === 'starts in');
+  const seg = row?.querySelector('.seg');
+  [...(seg?.querySelectorAll('button') || [])].find((b) => b.textContent === 'iron')?.click();
   const b = [...document.querySelectorAll('#right button')].find((n) => /add a change of stone/.test(n.textContent));
   b?.click();
 });

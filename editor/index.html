@@ -13,12 +13,13 @@
   can open it: this is a door nobody is told about, not a locked one, and it is
   not the place for anything that would matter if a stranger opened it.
 
-  It writes to two places and neither of them reaches a shipped page. Its
-  autosave is localStorage under this page's own key, which only this page
-  reads. Its output is a JSON file the owner downloads on purpose. The game
-  loads a level only from a URL typed into /lab/?game=1&level=... (or
-  /lab/?world=1&level=... for the same level with no game in it), so a level in
-  progress here cannot appear anywhere else by accident.
+  It writes to three places, all of them local to this browser. Its autosave is
+  localStorage under this page's own key, which only this page reads. Its output
+  is a JSON file the owner downloads on purpose. And its PLAY button puts the
+  document into one more key, which /lab/?game=1&level=session reads: that is
+  the authoring loop, it is the only way anything here reaches a page that
+  ships, and it happens only when somebody presses the button. Nothing links to
+  that URL and a stranger opening /lab/?game=1 gets the level the site ships.
 -->
 <style>
   /* ==========================================================================
@@ -502,6 +503,67 @@
     border-radius: 999px;
   }
   .keys .toggle:hover { color: var(--ink); background: rgba(35, 40, 48, 0.95); }
+
+  /* The one mode, above the list of things. */
+  .card.mode { padding: 6px; }
+  .card.mode button { display: flex; align-items: center; width: 100%; }
+  .card.mode kbd {
+    margin-left: auto;
+    font: 400 10px/1 var(--mono);
+    opacity: 0.6;
+  }
+
+  /* PLAY. The one button in the tool that is a verb rather than a setting, and
+     the whole of the authoring loop: it hands the document to the game in a tab
+     of its own with no file in between. It gets the candle, because it is the
+     only thing here that is not editing. */
+  button.play {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 7px 8px;
+  }
+  button.play:hover { background: #ffa03a; border-color: #ffa03a; }
+
+  .stack { display: grid; gap: 6px; }
+
+  /* The one native control kept, because a yaw is genuinely continuous and a
+     row of buttons cannot say 37 degrees. Dressed to match everything else. */
+  input[type="range"].dial {
+    appearance: none;
+    background: transparent;
+    padding: 0;
+    border: 0;
+    height: 18px;
+  }
+  input[type="range"].dial::-webkit-slider-runnable-track {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--line);
+  }
+  input[type="range"].dial::-webkit-slider-thumb {
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-top: -4.5px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 0;
+  }
+  input[type="range"].dial::-moz-range-track {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--line);
+  }
+  input[type="range"].dial::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--accent);
+  }
 
   /* A note is a sentence, not a paragraph of prose. The long explanations live
      behind the card's own info button. */

@@ -3,6 +3,9 @@
 //   /lab/?game=1                          the level the site ships, which is
 //                                         /levels/demo.json and was authored
 //   /lab/?game=1&level=<url>              some other authored level
+//   /lab/?game=1&level=session            whatever /editor/ has open, which is
+//                                         what its play button opens and is
+//                                         the whole of the authoring loop
 //   /lab/?game=1&seed=7                   a generated arena. The developer's
 //                                         door, and the only one left.
 //
@@ -101,6 +104,9 @@ export async function startGame({ canvas, params }) {
   // lanterns -- which is most of what an authored level can contain and none
   // of what a generated one does.
   const SHIPPED_LEVEL = '/levels/demo.json';
+  // Not a URL: the token that means "the document the editor has open". See
+  // loadLevelFrom, which is the only thing that knows what to do with it.
+  const SESSION = 'session';
   const levelUrl = params.get('level') || (params.get('seed') ? null : SHIPPED_LEVEL);
   let authored = null;
   if (levelUrl) {
@@ -825,11 +831,14 @@ export async function startGame({ canvas, params }) {
       caughtBy: run.caughtBy,
     });
     const board = loadBoard();
-    // The link has to come back to the SAME level, or a score made on a
-    // hand-made arena sends whoever follows it to a generated one.
+    // The link has to come back to the SAME level. The one exception is a
+    // level handed over from the editor: `level=session` means "whatever that
+    // browser has open", which is nothing at all to anybody else, so a score
+    // made while testing shares the level the site ships instead.
+    const shareLevel = levelUrl && levelUrl !== SESSION ? `&level=${encodeURIComponent(levelUrl)}` : '';
     const url = shareUrl(
       { ...run, remaining: game.state.flyRemaining },
-      `${location.origin}${location.pathname}?game=1${levelUrl ? `&level=${encodeURIComponent(levelUrl)}` : ''}`,
+      `${location.origin}${location.pathname}?game=1${shareLevel}`,
     );
 
     card.innerHTML = '';

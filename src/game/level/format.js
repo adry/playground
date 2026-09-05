@@ -148,6 +148,9 @@
 //
 //   /lab/?game=1&level=/levels/mine.json    play it
 //   /lab/?world=1&level=/levels/mine.json   walk it, with no game in it
+//   /lab/?game=1&level=session              play what the editor has open,
+//                                           which is what its play button
+//                                           opens. See loadLevelFrom.
 //
 // Both pages take a `level` query parameter and, when it is there, build from
 // the file instead of from a seed: src/game/scene.js is the game and
@@ -765,8 +768,40 @@ export function createLevelWorld(input) {
   };
 }
 
+// THE HANDOVER, and it is the whole of the authoring loop.
+//
+// `level=session` is not a URL and nothing fetches it. It means "the document
+// the editor has open right now", which the editor writes to this key the
+// moment its play button is pressed. The alternative was the loop the owner
+// actually had: save a file, find it in the downloads folder, move it into
+// public/levels/, type a URL. Four steps between moving a headstone and seeing
+// how it plays, several hundred times.
+//
+// localStorage rather than sessionStorage, because sessionStorage is per tab
+// and a copy of it is what a new tab inherits, so the second press of play
+// would hand over a stale document. This key is shared by every tab on the
+// origin and is written fresh on every press.
+//
+// WHAT THIS DOES TO THE EDITOR'S PROMISE, said plainly rather than left for
+// somebody to find. /editor/ used to be unable to put anything on a shipped
+// page at all. It now can, through this one key, and only into a page opened
+// with `level=session` in its URL. Nothing links to that, a stranger opening
+// /lab/?game=1 gets the level the site ships, and the key never leaves the
+// browser it was written in. What is gone is "cannot", and what replaces it is
+// "only when the person at the keyboard asks for it by name".
+export const SESSION_LEVEL = 'session';
+export const SESSION_KEY = 'graveyard-editor/session/v1';
+
 // Fetch and load in one call, for a page that takes a level as a URL.
 export async function loadLevelFrom(url) {
+  if (url === SESSION_LEVEL) {
+    let raw = null;
+    try { raw = localStorage.getItem(SESSION_KEY); } catch { /* private window */ }
+    if (!raw) {
+      throw new Error('nothing has been sent from the editor in this browser. Open /editor/ and press play.');
+    }
+    return createLevelWorld(normalizeLevel(JSON.parse(raw)));
+  }
   const res = await fetch(url, { cache: 'no-cache' });
   if (!res.ok) throw new Error(`level ${url}: ${res.status}`);
   return createLevelWorld(normalizeLevel(await res.json()));

@@ -6,10 +6,13 @@
 // file the game can load.
 //
 // UNLISTED, NOT PRIVATE. See the comment at the top of editor/index.html. This
-// file is the part that keeps the promise: everything it writes goes either to
-// this page's own localStorage autosave or to a file the owner downloads on
-// purpose, and neither can reach a shipped page. /lab/ loads a level only from
-// a URL typed by hand.
+// file writes to three places and each one is deliberate: its own localStorage
+// autosave, which only this page reads; a JSON file the owner downloads on
+// purpose; and, when the play button is pressed, format.js's session key, which
+// /lab/?game=1&level=session reads. That last one is the authoring loop and it
+// is the only way anything here reaches a page that ships. Nothing links to it,
+// it never leaves this browser, and a stranger opening /lab/?game=1 gets the
+// level the site ships.
 //
 // THE ONE RULE THIS TOOL IS BUILT ON. An editor with fewer features that never
 // loses work beats a rich one that does. So:
@@ -35,10 +38,12 @@
 //                  audit and its wedge finder are the fairness guarantee this
 //                  tool runs on every change -- but nothing here builds a
 //                  level with it.
-//   a play mode    This is not the game. /lab/?game=1&level=... is, and it is
-//                  one link away from a saved file. /lab/?world=1&level=... is
-//                  the same level with the game taken out of it, which is the
-//                  one to open when the question is about placement.
+//   a play mode    This is not the game and never will be. The PLAY button
+//                  hands the document to /lab/?game=1&level=session in a tab
+//                  of its own, which is the real game running the real rules;
+//                  what would live here instead is a second, worse one.
+//                  /lab/?world=1&level=... is the same level with the game
+//                  taken out of it, for when the question is about placement.
 //   free camera    Two views, the game's and straight down, because those are
 //                  the two questions an author asks: what will the player see,
 //                  and where actually is everything.
@@ -60,7 +65,7 @@ import {
   emptyLevel, normalizeLevel, serializeLevel, createLevelWorld, renumberGraves,
   packPaint, unpackPaint, GROUND_MATERIALS, LEVEL_FORMAT,
   WALL_VARIANTS, WALL_JOINTS, MAX_STYLES, MAX_WALL_CHANGES,
-  wallLength, wallDistanceTo,
+  wallLength, wallDistanceTo, SESSION_KEY, SESSION_LEVEL,
 } from '../game/level/format.js';
 import {
   validateLevel, reviewLevel, placementCheck, placementProps,
@@ -916,6 +921,7 @@ window.addEventListener('keydown', (e) => {
   }
   if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 's') { e.preventDefault(); saveFile(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 'p') { e.preventDefault(); playLevel(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'd') { e.preventDefault(); commit(duplicateSelection); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'a') {
     e.preventDefault();
@@ -982,29 +988,74 @@ function collectBlocking() {
   ];
 }
 
-function saveFile({ anyway = false } = {}) {
-  // NOT A QUIET SAVE. The generator used to be the last thing between a broken
-  // level and a player and it is gone, so a level that fails a fairness
-  // property or carries a geometry error has to be refused out loud. The owner
-  // can still force it -- it is their tool -- but never by accident.
+// PLAY WHAT IS ON SCREEN, with no file in between.
+//
+// The loop this replaces was: save a file, find it in the downloads folder,
+// move it into public/levels/, type a URL. The editor and the game are the
+// same origin, so the document can simply be handed over: it goes into
+// localStorage under format.js's own key and the game is opened on
+// `level=session`, which is the token that means "read it from there".
+//
+// Three things this is careful about.
+//
+//   IT PLAYS WHAT IS ON SCREEN, unsaved changes and all. A play button that
+//   quietly played the last SAVED file would be worse than no button, because
+//   the owner would believe they were testing the change they just made.
+//   IT RUNS THE SAME GUARD AS SAVE. An unplayable level is exactly what the
+//   guard exists to catch, and finding a wedge by walking into it is a slower
+//   way to learn the same thing.
+//   IT IS ONE TAB, REUSED. A named target means the second press reloads the
+//   game rather than opening a fourteenth window, and the editor keeps its
+//   own state either way. The timestamp is there because a browser handed the
+//   same URL twice may focus the tab without reloading it, and the whole point
+//   is that it reloads.
+function playLevel() {
+  if (!guardPasses('play')) return;
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(doc));
+  } catch (err) {
+    say(`could not hand the level over: ${err.message}`);
+    return;
+  }
+  const url = `/lab/?game=1&level=${SESSION_LEVEL}&t=${Date.now()}`;
+  const tab = window.open(url, 'graveyard-play');
+  if (!tab) { say(`the browser blocked the new tab. Open ${url} yourself.`); return; }
+  say('playing what is on screen, in the other tab. Press play again after a change.');
+}
+
+// The check that stands between a level and a player, whichever door it is
+// going out of. Both saving and playing run it, because the two answer the
+// same question: is this level one somebody can finish?
+function guardPasses(verb) {
   let blocking = collectBlocking();
   if (review.stale || fair.stale) {
     // The debounce has not fired yet, so what `blocking` was built from is the
     // last check and not this level. Run both now -- they are synchronous and
     // cost a couple of hundred milliseconds -- rather than send the owner away
     // to press the button again, which is a step they can skip and then the
-    // save went out unchecked.
+    // level went out unchecked.
     say('checking the level...');
     deepReview();
     blocking = collectBlocking();
   }
-  if (blocking.length && !anyway) {
-    const ok = confirm(
-      `This level is not playable:\n\n  ${blocking.slice(0, 6).join('\n  ')}\n\n`
-      + 'Save it anyway?',
-    );
-    if (!ok) { say(`not saved: ${blocking.length} problem${blocking.length === 1 ? '' : 's'} to fix first`); return; }
+  if (!blocking.length) return true;
+  const ok = confirm(
+    `This level is not playable:\n\n  ${blocking.slice(0, 6).join('\n  ')}\n\n`
+    + `${verb === 'play' ? 'Play' : 'Save'} it anyway?`,
+  );
+  if (!ok) {
+    say(`not ${verb === 'play' ? 'played' : 'saved'}: ${blocking.length} problem${blocking.length === 1 ? '' : 's'} to fix first`);
+    return false;
   }
+  return true;
+}
+
+function saveFile({ anyway = false } = {}) {
+  // NOT A QUIET SAVE. The generator used to be the last thing between a broken
+  // level and a player and it is gone, so a level that fails a fairness
+  // property or carries a geometry error has to be refused out loud. The owner
+  // can still force it -- it is their tool -- but never by accident.
+  if (!anyway && !guardPasses('save')) return;
   const text = serializeLevel(doc);
   const blob = new Blob([text], { type: 'application/json' });
   const a = document.createElement('a');
@@ -1012,10 +1063,12 @@ function saveFile({ anyway = false } = {}) {
   a.download = `${(doc.name || 'level').replace(/[^a-z0-9-_]+/gi, '-')}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  // Both doors, because they answer different questions. /lab/?game=1 PLAYS it,
-  // which is the one that matters now that the game loads a file; ?world=1 is
-  // the same level with no game in it, for judging placement.
-  say(`saved ${a.download}. play it with /lab/?game=1&level=<url>, walk it with /lab/?world=1&level=<url>`);
+  // THE REAL LINK, not the pattern. Where the file has to go is known -- it is
+  // public/levels/, which is the directory the site serves from its root -- so
+  // the URL it will have is knowable too, and printing `<url>` for the reader
+  // to work out was the tool being coy about the one fact it had.
+  const link = `/lab/?game=1&level=/levels/${a.download}`;
+  say(`saved ${a.download}. Put it in public/levels/ and it plays at ${link}. The play button needs none of that.`);
 }
 
 async function openFile(file) {
@@ -1261,16 +1314,17 @@ function entryForKey(k) {
 
 function drawLeft() {
   left.replaceChildren(
-    el('h2', { text: 'edit' }),
-    el('div', { class: 'tools' }, [
+    // SELECT IS THE ONE MODE, so it is the one thing above the list rather than
+    // an entry in it: everything below puts something into the scene and this
+    // acts on what is already there.
+    el('section', { class: 'card mode' }, [
       el('button', {
+        class: 'grow',
         'aria-pressed': String(tool === 'select'),
-        title: 'Pick things up, move them and turn them. Drag the ring under a selected thing to turn it.',
+        title: 'Pick things up. Drag the middle of a selected thing to move it and the ring round it to turn it.',
         onclick: () => setTool('select'),
-      }, [el('span', { text: 'select' }), el('kbd', { text: 'V' })]),
+      }, [el('span', { text: 'select and move' }), el('kbd', { text: 'V' })]),
     ]),
-
-    el('h2', { text: 'place' }),
     ...placeGroups().map(placeGroup),
   );
 }
@@ -1452,6 +1506,14 @@ function drawRight() {
       el('div', { class: 'row' }, [
         el('label', { text: 'seed' }),
         number(doc.seed, 1, 999999, 1, (v) => commit(() => { doc.seed = v; doc.fireflies.seed = v; })),
+      ]),
+      el('div', { class: 'row' }, [
+        el('button', {
+          class: 'grow play',
+          text: 'play this',
+          title: 'Open the game on exactly what is on screen, unsaved changes and all. No file, no URL to type.',
+          onclick: playLevel,
+        }),
       ]),
       el('div', { class: 'row' }, [
         el('button', { class: 'grow', text: 'save json', onclick: saveFile }),
