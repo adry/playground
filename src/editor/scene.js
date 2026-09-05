@@ -25,6 +25,7 @@ import { createFencePanel } from '../ghost/props/fence/panel.js';
 import { createGate } from '../ghost/props/fence/gate.js';
 import { createFireflies } from '../ghost/props/fireflies.js';
 import { buildLevelProp, buildLevelPath } from '../game/level/build.js';
+import { wallPointAt } from '../game/level/format.js';
 import { createGroundCover } from '../game/level/groundcover.js';
 import { PERSONALITIES } from '../game/level/catalogue.js';
 
@@ -386,12 +387,29 @@ export function createEditorScene({ canvas }) {
   let showFootprints = true;
   let showFacing = true;
 
-  function syncOverlay(world, doc, { selection = new Set(), flagged = new Set(), hover = null, brush = null, wedges = [] } = {}) {
+  function syncOverlay(world, doc, {
+    selection = new Set(), flagged = new Set(), hover = null, brush = null, wedges = [],
+    gizmo = null, ghost = null,
+  } = {}) {
     clearOverlay();
     const d = world._derived;
 
     // The arena edge, always, because everything has to be inside it.
     overlay.add(lineOf([...doc.wall.points, doc.wall.points[0]], 0x4a5160, 0.6));
+
+    // WHERE THE WALL CHANGES HANDS. A change is stored as a distance along the
+    // run, which is the right way to store it and no way at all to see it, so
+    // each one is drawn as a bar standing across the wall where it stands.
+    for (const st of doc.wall.styles) {
+      const at = wallPointAt(doc.wall.points, st.at);
+      const nx = -at.dz;
+      const nz = at.dx;
+      overlay.add(lineOf([
+        [at.x - nx * 0.9, at.z - nz * 0.9],
+        [at.x + nx * 0.9, at.z + nz * 0.9],
+      ], 0xb06a1f, 0.95));
+      overlay.add(ringOf(at.x, at.z, 0.22, 0xb06a1f, 0.9));
+    }
 
     for (const g of d.gates) {
       // The approach capsule, which is the thing an author blocks by accident.
@@ -449,9 +467,53 @@ export function createEditorScene({ canvas }) {
       overlay.add(lineOf([[w.x - r, w.z + r], [w.x + r, w.z - r]], 0xd23b3b, 0.7));
     }
 
+    // THE PLACEMENT INDICATOR. What is about to be dropped, where it would
+    // land, in green when it may go there and red when it may not -- and when
+    // it is red the drop is refused, so this is the rule and not a warning
+    // about it. It is drawn as the footprint the checks actually test, turned
+    // by the yaw the prop will get, because a headstone is three times as wide
+    // as it is deep and a circle would promise room that is not there.
+    if (ghost) {
+      const colour = ghost.ok ? 0x2f9e5f : 0xd23b3b;
+      for (const f of ghost.foots) {
+        overlay.add(footprintOutline(f, colour, 1));
+        overlay.add(footprintOutline(
+          { ...f, foot: grownFoot(f.foot, 0.06) }, colour, 0.45,
+        ));
+      }
+      if (!ghost.ok) {
+        const c = ghost.foots[0];
+        overlay.add(lineOf([[c.x - 0.35, c.z - 0.35], [c.x + 0.35, c.z + 0.35]], 0xd23b3b, 1));
+        overlay.add(lineOf([[c.x - 0.35, c.z + 0.35], [c.x + 0.35, c.z - 0.35]], 0xd23b3b, 1));
+      }
+    }
+
+    // THE HANDLES. A ring you can grab to turn a thing and a cross you can grab
+    // to move it, both on the ground plane, both a fixed size on screen. The
+    // camera is a fixed three-quarter orthographic view and there is exactly
+    // one axis of rotation, so a ring on the floor is unambiguous to hit and a
+    // three-axis gizmo would be three times the machinery for no third axis.
+    if (gizmo) {
+      overlay.add(ringOf(gizmo.x, gizmo.z, gizmo.ring, 0x1f6fe0, 0.55));
+      overlay.add(ringOf(gizmo.x, gizmo.z, gizmo.move, 0x1f6fe0, 0.8));
+      // The two axes of movement, as a cross inside the move disc.
+      overlay.add(lineOf([[gizmo.x - gizmo.move, gizmo.z], [gizmo.x + gizmo.move, gizmo.z]], 0x1f6fe0, 0.8));
+      overlay.add(lineOf([[gizmo.x, gizmo.z - gizmo.move], [gizmo.x, gizmo.z + gizmo.move]], 0x1f6fe0, 0.8));
+      // The knob, on the ring, at whatever the thing's own yaw is, so the ring
+      // also reads as a dial and not only as a target.
+      const kx = gizmo.x + Math.sin(gizmo.yaw) * gizmo.ring;
+      const kz = gizmo.z + Math.cos(gizmo.yaw) * gizmo.ring;
+      overlay.add(ringOf(kx, kz, gizmo.knob, 0x1f6fe0, 1));
+      overlay.add(ringOf(kx, kz, gizmo.knob * 0.55, 0x1f6fe0, 1));
+    }
+
     if (hover) overlay.add(ringOf(hover.x, hover.z, 0.2, 0x2f3542, 0.5));
     if (brush) overlay.add(ringOf(brush.x, brush.z, brush.r, 0x2f3542, 0.8));
   }
+
+  const grownFoot = (f, by) => (f.shape === 'disc'
+    ? { shape: 'disc', r: f.r + by }
+    : { shape: 'box', halfU: f.halfU + by, halfV: f.halfV + by });
 
   // --- the badges ---------------------------------------------------------------
   //
@@ -534,7 +596,13 @@ export function createEditorScene({ canvas }) {
       if (on) { placeCamera(); renderer.render(scene, camera); }
     },
     get view() { return view; },
-    setView(v) { view = Math.max(4, Math.min(60, v)); resize(); },
+    // HOW FAR OUT. `view` is the half height of the frame in world units, so
+    // the 30 unit arena stands on the diagonal and needs about 21 to fit. The
+    // ceiling was 60, not quite three times that, and the owner asked for room
+    // to spare: 120 is a frame 240 units deep, eight arenas, which is further
+    // out than anyone needs and costs nothing to allow. The floor of 3 is close
+    // enough to read the lettering on a headstone.
+    setView(v) { view = Math.max(3, Math.min(120, v)); resize(); },
     get mode() { return mode; },
     setMode(m) { mode = m === 'plan' ? 'plan' : 'game'; placeCamera(); },
     pan(dx, dz) { target.x += dx; target.z += dz; placeCamera(); },

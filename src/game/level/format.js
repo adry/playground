@@ -123,8 +123,12 @@
 //   "ground": {                   the painted ground cover; see groundcover.js
 //     "cell": 0.5, "minX": -15, "minZ": -15, "w": 60, "h": 60,
 //     "materials": ["grass", "sand", "gravel", "earth"],
-//     "paint": "3600:0"           run-length: "<count>:<index>,..." where index
+//     "paint": "3600:0",          run-length: "<count>:<index>,..." where index
 //                                 0 is bare floor and n is materials[n-1]
+//     "kerbs": [["grass","earth"]]
+//                                 which pairs of grounds meet at a row of
+//                                 stones rather than at a plain crossover.
+//                                 groundcover.js owns what that means.
 //   },
 //
 //   "fireflies": { "count": 5, "gap": 12, "edge": 1.5, "seed": 7 }
@@ -181,6 +185,24 @@ export const GROUND_MATERIALS = ['grass', 'sand', 'gravel', 'earth'];
 export const WALL_VARIANTS = WALL.variants.slice();
 export const WALL_JOINTS = ['pier', 'tooth', 'step'];
 export { MAX_STYLES };
+
+// HOW MANY TIMES A WALL MAY CHANGE HANDS, which is a different number from how
+// many stones it may be built of, and confusing the two is what stopped a wall
+// being crafted piece by piece.
+//
+// wall.js's cap is on DISTINCT STYLES: at most MAX_STYLES of them, because the
+// geometry carries a style index per vertex and the shader holds that many
+// builds. It says nothing at all about how many CHANGES there may be, and it
+// does not need to: ashlar to brick and back to ashlar is two changes and two
+// styles. This file used to keep only the first MAX_STYLES - 1 changes, which
+// meant three, which meant an author could put a change at three of the wall's
+// twenty-four piers and no more -- a limit nothing in the prop asked for.
+//
+// So the real constraint is enforced instead, below: a change is kept while the
+// set of stones it needs still fits in MAX_STYLES. This is only a bound against
+// a pathological file; a wall of a hundred and twenty units has twenty-four
+// piers and there is no reason to want a change between every pair of them.
+export const MAX_WALL_CHANGES = 64;
 export const GROUND_CELL = 0.5;
 
 const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
@@ -199,6 +221,54 @@ export function wallLength(points) {
     total += Math.hypot(b[0] - a[0], b[1] - a[1]);
   }
   return total;
+}
+
+// A point on the wall's centreline at a distance from points[0], and the
+// direction the run is going there. This is the inverse of the coordinate every
+// style change and every gate is written in, so it is what turns "a change at
+// 34" into a mark the author can see on the floor and a click on the floor into
+// a distance.
+export function wallPointAt(points, at) {
+  const total = wallLength(points);
+  let d = ((at % total) + total) % total;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 1e-9) continue;
+    if (d <= len) {
+      const t = d / len;
+      return {
+        x: a[0] + (b[0] - a[0]) * t, z: a[1] + (b[1] - a[1]) * t,
+        dx: (b[0] - a[0]) / len, dz: (b[1] - a[1]) / len,
+      };
+    }
+    d -= len;
+  }
+  const a = points[0];
+  return { x: a[0], z: a[1], dx: 1, dz: 0 };
+}
+
+// The nearest point ON the wall to somewhere the author clicked, as a distance
+// along it. Same coordinate, the other way round.
+export function wallDistanceTo(points, x, z) {
+  let acc = 0;
+  let best = null;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const ll = dx * dx + dz * dz;
+    if (ll < 1e-9) continue;
+    const len = Math.sqrt(ll);
+    let t = ((x - a[0]) * dx + (z - a[1]) * dz) / ll;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const away = Math.hypot(x - (a[0] + dx * t), z - (a[1] + dz * t));
+    if (!best || away < best.away) best = { away, at: acc + t * len };
+    acc += len;
+  }
+  return best || { away: Infinity, at: 0 };
 }
 
 export function wallLoop(size) {
@@ -229,6 +299,7 @@ export function emptyLevel({ size = LEVEL_SIZE, seed = 1, name = 'untitled' } = 
       cell: GROUND_CELL, minX: box.minX, minZ: box.minZ, w, h,
       materials: GROUND_MATERIALS.slice(),
       paint: `${w * h}:0`,
+      kerbs: [],
     },
     fireflies: { ...DEFAULT_FLY_RULE, seed },
   };
@@ -252,9 +323,12 @@ export function normalizeLevel(raw) {
       doc.wall.points = w.points.map((p) => [num(p[0], 0), num(p[1], 0)]);
     }
     doc.wall.variant = WALL_VARIANTS.includes(w.variant) ? w.variant : WALL_VARIANTS[0];
-    // A style change past the end of the run, or one wall.js would refuse for
-    // carrying too many styles, is dropped rather than thrown: a file the owner
-    // hand-edited should open.
+    // A style change wall.js would refuse for needing a fifth stone is dropped
+    // rather than thrown: a file the owner hand-edited should open. The stones
+    // are counted as wall.js counts them -- the base variant, then each
+    // change's own and each pier joint's own -- and a change is kept as long as
+    // what it needs still fits.
+    const stones = new Set([doc.wall.variant]);
     doc.wall.styles = (w.styles || [])
       .map((st) => ({
         at: Math.max(0, num(st.at, 0)),
@@ -263,7 +337,15 @@ export function normalizeLevel(raw) {
         ...(WALL_VARIANTS.includes(st.jointVariant) ? { jointVariant: st.jointVariant } : {}),
       }))
       .sort((a, b) => a.at - b.at)
-      .slice(0, MAX_STYLES - 1);
+      .filter((st) => {
+        const want = new Set(stones);
+        want.add(st.variant);
+        if (st.jointVariant) want.add(st.jointVariant);
+        if (want.size > MAX_STYLES) return false;
+        for (const v of want) stones.add(v);
+        return true;
+      })
+      .slice(0, MAX_WALL_CHANGES);
   }
 
   doc.fences = (raw.fences || []).map((f, i) => ({
@@ -320,6 +402,15 @@ export function normalizeLevel(raw) {
       materials: Array.isArray(g.materials) && g.materials.length
         ? g.materials.slice() : GROUND_MATERIALS.slice(),
       paint: typeof g.paint === 'string' ? g.paint : `${w * h}:0`,
+      // WHICH PAIRS OF GROUNDS MEET AT A KERB, as [["grass","earth"], ...].
+      // This block belongs to level/groundcover.js and not to anything here:
+      // the format's job is to carry it from the file to that module without
+      // an opinion, so a pair naming a material this level does not have is
+      // kept rather than dropped. Absent is the common case and means every
+      // border is a plain crossover.
+      kerbs: (Array.isArray(g.kerbs) ? g.kerbs : [])
+        .filter((k) => Array.isArray(k) && k.length === 2)
+        .map(([a, b]) => [String(a), String(b)]),
     };
   }
 
@@ -514,6 +605,55 @@ export function segmentsCross(ax, az, bx, bz, cx, cz, dx, dz) {
   return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 }
 
+// A GRAVE IS THREE PROPS AND THE FILE STORES ONE POSE.
+//
+// The generator's graves are a pose plus a hole, a spoil heap and a headstone,
+// and `graves(box)` points at the hole. A hand-made level stores only the pose,
+// because a spawn the author can move in one piece is the whole point of the
+// tool, and the three props are synthesised here. They come out of props()
+// exactly as the generator's do, which is what keeps the renderer, the audit
+// and the reachability fill on one code path.
+//
+// THE ARRANGEMENT IS layout/motifs.js's graveGroup, TO THE CENTIMETRE, and it
+// has to be: audit.js's grave rule asks that the heap sits on a long side and
+// the stone at an end, and the numbers below are the ones that satisfy it with
+// the audit's 0.15 margin to spare. The hole is 2.0 by 0.9 in plan with its
+// long axis along local X, so
+//
+//   the heap   local ( -head * HEAP_SHIFT, pile * (0.45 + 0.643 + 0.22) )
+//   the stone  local ( head * (1.0 + stone.halfU + 0.25), 0 )
+//
+// and all three carry the grave's own yaw, so turning a grave turns the whole
+// plot. Local to world is x + lx * (cos, -sin) + lz * (sin, cos), which is what
+// a three.js rotation about Y does.
+//
+// It is exported because the EDITOR has to know it too: the placement
+// indicator has to say whether a grave will fit before it is dropped, and the
+// only honest way to answer that is to ask about the three props it is
+// actually going to be.
+const HEAP_SHIFT = 0.45;
+
+export function graveProps(g) {
+  const id = g.id || 'g';
+  const yaw = g.yaw || 0;
+  const c = Math.cos(yaw);
+  const s = Math.sin(yaw);
+  const head = g.head === -1 ? -1 : 1;
+  const pile = g.pile === -1 ? -1 : 1;
+  const at = (lx, lz) => ({ x: g.x + lx * c + lz * s, z: g.z - lx * s + lz * c });
+  const hole = levelFootprint('hole');
+  const dirt = levelFootprint('dirt');
+  const out = [propRecord({ id: `${id}/hole`, kind: 'hole', variant: 'grave', x: g.x, z: g.z, yaw })];
+  const heap = at(-head * HEAP_SHIFT, pile * (hole.halfV + dirt.halfV + 0.22));
+  out.push(propRecord({ id: `${id}/dirt`, kind: 'dirt', variant: null, x: heap.x, z: heap.z, yaw }));
+  if (g.headstone) {
+    const stone = levelFootprint('stone', g.headstone);
+    const p = at(head * (hole.halfU + stone.halfU + 0.25), 0);
+    out.push(propRecord({ id: `${id}/head`, kind: 'stone', variant: g.headstone, x: p.x, z: p.z, yaw }));
+  }
+  return out;
+}
+
 // Everything derived from a document, in one place, so the editor and the
 // loader agree on what a document means down to the last segment.
 export function deriveLevel(doc) {
@@ -540,54 +680,8 @@ export function deriveLevel(doc) {
   });
   const barriers = [...wall.segments, ...runs.flatMap((r) => r.segments)];
   const gates = runs.flatMap((r) => r.gates);
-  // A GRAVE IS THREE PROPS AND THE FILE STORES ONE POSE.
-  //
-  // The generator's graves are a pose plus a hole, a spoil heap and a
-  // headstone, and `graves(box)` points at the hole. A hand-made level stores
-  // only the pose, because a spawn the author can move in one piece is the
-  // whole point of the tool, and the three props are synthesised here. They
-  // come out of props() exactly as the generator's do, which is what keeps the
-  // renderer, the audit and the reachability fill on one code path.
-  //
-  // THE ARRANGEMENT IS layout/motifs.js's graveGroup, TO THE CENTIMETRE, and
-  // it has to be: audit.js's grave rule asks that the heap sits on a long side
-  // and the stone at an end, and the numbers below are the ones that satisfy
-  // it with the audit's 0.15 margin to spare. The hole is 2.0 by 0.9 in plan
-  // with its long axis along local X, so
-  //
-  //   the heap   local ( -head * HEAP_SHIFT, pile * (0.45 + 0.643 + 0.22) )
-  //   the stone  local ( head * (1.0 + stone.halfU + 0.25), 0 )
-  //
-  // and all three carry the grave's own yaw, so turning a grave turns the
-  // whole plot. Local to world is x + lx * (cos, -sin) + lz * (sin, cos),
-  // which is what a three.js rotation about Y does.
-  const HEAP_SHIFT = 0.45;
-  const graveProps = [];
-  for (const g of doc.graves) {
-    const yaw = g.yaw || 0;
-    const c = Math.cos(yaw);
-    const s = Math.sin(yaw);
-    const head = g.head === -1 ? -1 : 1;
-    const pile = g.pile === -1 ? -1 : 1;
-    const at = (lx, lz) => ({ x: g.x + lx * c + lz * s, z: g.z - lx * s + lz * c });
-    const hole = levelFootprint('hole');
-    const dirt = levelFootprint('dirt');
-    graveProps.push(propRecord({
-      id: `${g.id}/hole`, kind: 'hole', variant: 'grave', x: g.x, z: g.z, yaw,
-    }));
-    const heap = at(-head * HEAP_SHIFT, pile * (hole.halfV + dirt.halfV + 0.22));
-    graveProps.push(propRecord({
-      id: `${g.id}/dirt`, kind: 'dirt', variant: null, x: heap.x, z: heap.z, yaw,
-    }));
-    if (g.headstone) {
-      const stone = levelFootprint('stone', g.headstone);
-      const at2 = at(head * (hole.halfU + stone.halfU + 0.25), 0);
-      graveProps.push(propRecord({
-        id: `${g.id}/head`, kind: 'stone', variant: g.headstone, x: at2.x, z: at2.z, yaw,
-      }));
-    }
-  }
-  const props = [...doc.props.map(propRecord), ...graveProps];
+  // The graves, each one three props. See graveProps above.
+  const props = [...doc.props.map(propRecord), ...doc.graves.flatMap(graveProps)];
   const paths = doc.paths.map((p) => ({
     id: p.id, material: p.material, width: p.width, points: p.points.map((q) => [q[0], q[1]]),
   }));

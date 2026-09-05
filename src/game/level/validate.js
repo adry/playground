@@ -66,9 +66,12 @@
 // no longer standing between a hand-made level and the player, this IS the
 // fairness guarantee.
 
-import { BODY } from './format.js';
+import { BODY, propRecord, graveProps } from './format.js';
 import { isSolid } from './catalogue.js';
-import { auditFindings } from '../world/audit.js';
+import {
+  auditFindings, shapeOf as auditShape, gapBetween, barrierPoly, pointPoly, pathPoints,
+  MARGIN, PATH_MARGIN, FENCE_MARGIN, GATE_BODY,
+} from '../world/audit.js';
 import { findWedges } from '../world/repair.js';
 
 const RUN_GAP = 2.4;      // world/index.js rule 3, the least ground between two runs
@@ -479,4 +482,115 @@ export function reviewLevel(world) {
     errors: issues.filter((i) => i.severity === 'error'),
     notes: issues.filter((i) => i.severity === 'note'),
   };
+}
+
+
+// --- may this go here? ------------------------------------------------------------
+//
+// THE PLACEMENT INDICATOR'S RULE. Asked once per pointer move, about ONE thing
+// that is not in the document yet, and it decides whether the drop happens at
+// all. So it has two obligations and they pull against each other:
+//
+//   it must be instant           it runs on every pointer move
+//   it must never refuse a drop  a refusal the audit would have accepted is a
+//   the audit would accept       lie the author cannot argue with, and worse
+//                                than the red outline it replaces
+//
+// The second is why this calls AUDIT.JS'S OWN geometry -- shapeOf, gapBetween,
+// barrierPoly, pointPoly -- with audit.js's own margins, rather than a second
+// opinion written here. Five of the audit's thirteen rules are decidable for
+// one prop at one position and all five are below:
+//
+//   bounds      rule 7,  inside the wall, footprint included
+//   overlap     rule 1,  MARGIN clear of every other prop
+//   fence       rule 3,  FENCE_MARGIN clear of every barrier and the wall
+//   gate        rule 4,  out of the leaf's sweep, out of the approach capsule,
+//                        and, if it is solid, GATE_BODY from the middle
+//   path        rule 2,  PATH_MARGIN clear of every path
+//
+// WHAT IS NOT HERE, and why each one cannot be:
+//
+//   occlusion   rule 6 is a statement about a PAIR of props under the camera,
+//               and it is a matter of degree: a row of headstones raises it
+//               and is still what a graveyard looks like. Refusing the drop
+//               would make a row impossible to lay. It stays on the slow pass.
+//   grave       rule 5 asks about an arrangement of three props, which the
+//               format synthesises, so a single prop cannot break it except by
+//               standing where the audit will pick it as the wrong heap. That
+//               is emergent and it is rare.
+//   sealed      rule 9 is a flood over the whole arena.
+//   wedge       rule 11 is a flood at a quarter-unit raster, it is emergent
+//               from every prop and every fence at once, and it is usually not
+//               the fault of the thing in your hand. It costs a couple of
+//               hundred milliseconds and it stays on the slow timer, drawn on
+//               the floor where it is. THE INDICATOR CANNOT SEE A WEDGE AND
+//               MUST NOT PRETEND TO.
+//   gateless    rules 8, 10, 12 and 13 are about the level as a whole -- how
+//   wall        many graves, how many pellets, whether a pen has a way in --
+//   holes       and adding one prop cannot decide any of them.
+//   floor
+//
+// So the indicator is the LOCAL half of the audit, exactly, and the slow pass
+// remains the whole of it. A green preview means "nothing about this spot is
+// wrong"; it does not mean the level is playable, which is what the audit
+// panel and the save guard are for.
+
+// The candidate props for a thing about to be dropped. A prop is one; a grave
+// is the three the format will synthesise, because the question the author is
+// asking is whether the GRAVE fits, and a grave is a hole, a heap and a stone.
+export function placementProps(entry) {
+  if (entry.grave) return graveProps({ id: 'new', ...entry.grave });
+  return [propRecord({ id: 'new', ...entry })];
+}
+
+export function placementCheck(world, cands) {
+  const box = world.bounds;
+  const barriers = world.barriers();
+  const gates = world.gates();
+  const others = world.props();
+  const half = world.PATH_HALF;
+  // Sampled once per call rather than once per candidate; a level has a
+  // handful of paths and this is the only part of the test that is not O(1).
+  const path = pathPoints(world);
+
+  for (const p of cands) {
+    const S = auditShape(p);
+    const distTo = (x, z) => (S.circle ? Math.hypot(x - S.x, z - S.z) - S.r : pointPoly(x, z, S));
+
+    if (p.x - p.radius < box.minX || p.x + p.radius > box.maxX
+      || p.z - p.radius < box.minZ || p.z + p.radius > box.maxZ) {
+      return { ok: false, why: 'outside the wall' };
+    }
+    for (const q of others) {
+      if (Math.hypot(p.x - q.x, p.z - q.z) > p.radius + q.radius + MARGIN) continue;
+      if (gapBetween(S, auditShape(q)) < MARGIN - 1e-6) {
+        return { ok: false, why: `too close to the ${q.kind}${q.variant ? `/${q.variant}` : ''} already there` };
+      }
+    }
+    for (const b of barriers) {
+      if (Math.hypot(p.x - (b.x0 + b.x1) / 2, p.z - (b.z0 + b.z1) / 2)
+        > p.radius + b.length / 2 + FENCE_MARGIN + 0.3) continue;
+      if (gapBetween(S, barrierPoly(b)) < FENCE_MARGIN - 1e-6) {
+        return { ok: false, why: `in the ${b.kind}` };
+      }
+    }
+    for (const g of gates) {
+      if (distTo(g.sweep.x, g.sweep.z) < g.sweep.r - 1e-6) return { ok: false, why: 'in the gate leaf\'s sweep' };
+      if (!p.solid) continue;
+      if (distTo(g.x, g.z) < GATE_BODY - 1e-6) return { ok: false, why: 'in the mouth of a gate' };
+      let near = Infinity;
+      for (let t = 0; t <= 1.0001; t += 0.05) {
+        near = Math.min(near, distTo(
+          g.clear.x0 + (g.clear.x1 - g.clear.x0) * t,
+          g.clear.z0 + (g.clear.z1 - g.clear.z0) * t,
+        ));
+      }
+      if (near < g.clear.r - 0.06) return { ok: false, why: 'blocking the way to a gate' };
+    }
+    for (const [x, z] of path) {
+      if (Math.abs(x - p.x) > p.radius + half + 0.4 || Math.abs(z - p.z) > p.radius + half + 0.4) continue;
+      if (distTo(x, z) < half + PATH_MARGIN - 1e-6) return { ok: false, why: 'standing in a path' };
+    }
+  }
+  return { ok: true, why: '' };
 }

@@ -28,6 +28,10 @@
 //      mistake that ends a game, because the ghost vaults in and no skeleton
 //      can follow. The fast half of the validation does not see it at all. The
 //      claim is that the save is refused anyway: a dialog and no download.
+//
+// Phase 1 also drives the interface itself with a real mouse -- the wall tool,
+// the placement indicator and the move and turn handles -- because all three
+// are things that either work under a pointer or do not work at all.
 
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -63,24 +67,121 @@ await editor.page.evaluate((doc) => {
   window.__editor.setMode('game');
 }, demo);
 
-// The wall's stone, through the panel. Finding the control by its label rather
-// than by position is the point: a select found by index would keep passing
-// after somebody moved it.
-const changed = await editor.page.evaluate(() => {
-  const rows = [...document.querySelectorAll('#right .row')];
-  const row = rows.find((r) => r.querySelector('label')?.textContent === 'stone');
-  const sel = row?.querySelector('select');
-  if (!sel) return null;
-  sel.value = 'iron';
-  sel.dispatchEvent(new Event('change', { bubbles: true }));
-  return sel.value;
-});
-claim(changed === 'iron', 'the wall\'s stone can be changed from the panel');
 
-// And one more change of stone along the run, through its own button.
+// --- 1b: the interface, under a real mouse -------------------------------------
+//
+// page.mouse rather than a synthetic PointerEvent, and for a reason worth
+// keeping: the canvas calls setPointerCapture on pointerdown, and that throws
+// on a pointer id the browser has never seen, which takes the handler down with
+// it. A dispatched event would test nothing and look like it had.
+
+const clickWorld = async (x, z) => {
+  const at = await editor.page.evaluate(([wx, wz]) => {
+    const c = document.getElementById('view');
+    const r = c.getBoundingClientRect();
+    const s = window.__editor.scene.toScreen(wx, wz);
+    return [r.left + s.x, r.top + s.y];
+  }, [x, z]);
+  await editor.page.mouse.move(at[0], at[1]);
+  await editor.page.mouse.down();
+  await editor.page.mouse.up();
+  return at;
+};
+const clickEntry = (label) => editor.page.evaluate((want) => {
+  const b = [...document.querySelectorAll('#left .swatches button')]
+    .find((n) => n.textContent.replace(/[A-Z]$/, '').trim() === want);
+  b?.click();
+  return !!b;
+}, label);
+
+// THE WALL, PIECE BY PIECE. Pick the change of stone out of the one list and
+// click on the perimeter; the change lands at the distance clicked.
+claim(await clickEntry('change of stone'), 'the wall tool is an entry in the palette');
+const wallBefore = await editor.page.evaluate(() => window.__editor.doc.wall.styles.length);
+await clickWorld(-6, -15);
+const wallAfter = await editor.page.evaluate(() => window.__editor.doc.wall.styles.map((st) => st.at));
+claim(wallAfter.length === wallBefore + 1, `clicking the wall adds a change of stone (${wallBefore} to ${wallAfter.length})`);
+claim(wallAfter.some((a) => Math.abs(a - 9) < 2), `and it lands where the click was, at ${wallAfter.map((a) => a.toFixed(0)).join(', ')} along the run`);
+await clickWorld(-6, -15);
+claim(
+  (await editor.page.evaluate(() => window.__editor.doc.wall.styles.length)) === wallBefore,
+  'and clicking it again takes it out',
+);
+
+// THE PLACEMENT INDICATOR. Green where a headstone may go, red where it may
+// not, and the drop refused when it is red.
+claim(await clickEntry('celtic'), 'a headstone is an entry in the same list');
+const verdicts = await editor.page.evaluate(() => ({
+  open: window.__editor.preview(6.5, 6.5),
+  fence: window.__editor.preview(3, -7),
+  path: window.__editor.preview(0, 0),
+  out: window.__editor.preview(14.9, 14.9),
+}));
+claim(verdicts.open.ok, 'the indicator is green on open ground');
+claim(!verdicts.fence.ok && /fence/.test(verdicts.fence.why), `red in a fence: ${verdicts.fence.why}`);
+claim(!verdicts.path.ok && /path/.test(verdicts.path.why), `red in a path: ${verdicts.path.why}`);
+claim(!verdicts.out.ok, `red outside the wall: ${verdicts.out.why}`);
+
+const propsBefore = await editor.page.evaluate(() => window.__editor.doc.props.length);
+await clickWorld(3, -7);
+claim(
+  (await editor.page.evaluate(() => window.__editor.doc.props.length)) === propsBefore,
+  'a red drop does not happen',
+);
+await clickWorld(6.5, 6.5);
+const placed = await editor.page.evaluate(() => window.__editor.doc.props.at(-1));
+claim(
+  (await editor.page.evaluate(() => window.__editor.doc.props.length)) === propsBefore + 1,
+  'a green drop does',
+);
+
+// THE HANDLES. Select what was just placed and drag the ring round it.
+await editor.page.evaluate((id) => { window.__editor.setTool('select'); window.__editor.select(id); }, placed.id);
+const gz = await editor.page.evaluate(() => window.__editor.gizmo());
+claim(!!gz && gz.ring > gz.move, 'a selected thing has a move disc and a turn ring');
+if (gz) {
+  const yaw0 = await editor.page.evaluate((id) => window.__editor.doc.props.find((p) => p.id === id).yaw, placed.id);
+  const knob = await editor.page.evaluate(([x, z]) => {
+    const c = document.getElementById('view');
+    const r = c.getBoundingClientRect();
+    const s = window.__editor.scene.toScreen(x, z);
+    return [r.left + s.x, r.top + s.y];
+  }, [gz.x + Math.sin(gz.yaw) * gz.ring, gz.z + Math.cos(gz.yaw) * gz.ring]);
+  const across = await editor.page.evaluate(([x, z]) => {
+    const c = document.getElementById('view');
+    const r = c.getBoundingClientRect();
+    const s = window.__editor.scene.toScreen(x, z);
+    return [r.left + s.x, r.top + s.y];
+  }, [gz.x + Math.cos(gz.yaw) * gz.ring, gz.z - Math.sin(gz.yaw) * gz.ring]);
+  await editor.page.mouse.move(knob[0], knob[1]);
+  await editor.page.mouse.down();
+  await editor.page.mouse.move(across[0], across[1], { steps: 6 });
+  await editor.page.mouse.up();
+  const yaw1 = await editor.page.evaluate((id) => window.__editor.doc.props.find((p) => p.id === id).yaw, placed.id);
+  claim(Math.abs(yaw1 - yaw0) > 0.3, `dragging the ring turns it, by ${(((yaw1 - yaw0) * 180) / Math.PI).toFixed(0)} degrees`);
+
+  const centre = await editor.page.evaluate(([x, z]) => {
+    const c = document.getElementById('view');
+    const r = c.getBoundingClientRect();
+    const s = window.__editor.scene.toScreen(x, z);
+    return [r.left + s.x, r.top + s.y];
+  }, [gz.x, gz.z]);
+  await editor.page.mouse.move(centre[0], centre[1]);
+  await editor.page.mouse.down();
+  await editor.page.mouse.move(centre[0] + 40, centre[1], { steps: 6 });
+  await editor.page.mouse.up();
+  const moved = await editor.page.evaluate((id) => window.__editor.doc.props.find((p) => p.id === id), placed.id);
+  claim(Math.hypot(moved.x - placed.x, moved.z - placed.z) > 0.5, 'dragging the middle moves it');
+}
+
+// Put the level back to the one that gets saved and played.
+await editor.page.evaluate((doc) => window.__editor.load(doc), demo);
 await editor.page.evaluate(() => {
-  const b = [...document.querySelectorAll('#right button')]
-    .find((n) => /add a change of stone/.test(n.textContent));
+  const rows = [...document.querySelectorAll('#right .row')];
+  const row = rows.find((r) => r.querySelector('label')?.textContent === 'starts in');
+  const sel = row?.querySelector('select');
+  if (sel) { sel.value = 'iron'; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+  const b = [...document.querySelectorAll('#right button')].find((n) => /add a change of stone/.test(n.textContent));
   b?.click();
 });
 
@@ -92,7 +193,7 @@ const before = await editor.page.evaluate(() => ({
   styles: window.__editor.doc.wall.styles.length,
   props: window.__editor.doc.props.length,
 }));
-claim(before.variant === 'iron', `the document says the wall is ${before.variant}`);
+claim(before.variant === 'iron', `the wall's stone can be changed from the panel: it is ${before.variant}`);
 claim(before.styles === 3, `the wall carries ${before.styles} changes of stone`);
 
 const download = editor.page.waitForEvent('download', { timeout: 30000 }).catch(() => null);
@@ -166,8 +267,12 @@ claim(playing.pending === 0, 'every prop template was baked before the first fra
 claim(playing.flies === 5, `five fireflies, ${playing.spacing} apart at the closest`);
 
 // A few seconds of real play, so this is a game and not a still.
-for (let i = 0; i < 120; i++) {
-  await game.page.evaluate(() => window.__game.step(1 / 60, { x: 0.85, y: -0.25 }));
+// Sixty steps at a thirtieth rather than a hundred and twenty at a sixtieth:
+// the same two seconds of rules, half as many renders. On a software
+// rasteriser under load a frame is seconds, and this is the part of the run
+// that takes the longest by a wide margin.
+for (let i = 0; i < 60; i++) {
+  await game.page.evaluate(() => window.__game.step(1 / 30, { x: 0.85, y: -0.25 }));
 }
 const state = await game.page.evaluate(() => {
   const s = window.__game.state();

@@ -99,13 +99,9 @@
   button.wide { width: 100%; }
   button.danger { color: var(--bad); }
 
-  .tools { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
+  .tools { display: grid; grid-template-columns: 1fr; gap: 4px; }
   .tools button { text-align: left; padding: 5px 7px; }
-  .tools button kbd {
-    float: right;
-    font: 400 10px/1.4 ui-monospace, monospace;
-    opacity: 0.55;
-  }
+
 
   .swatches { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; }
   .swatches button {
@@ -116,6 +112,17 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* The shortcut, on the entry it belongs to. It used to sit on a row of tool
+     buttons; those are gone and everything placeable is one list, so the
+     letter travelled with the thing rather than with the mode. */
+  .swatches button kbd,
+  .tools button kbd {
+    float: right;
+    font: 400 10px/1.4 ui-monospace, monospace;
+    opacity: 0.55;
+  }
+  .swatches button[aria-pressed="true"] kbd,
+  .tools button[aria-pressed="true"] kbd { opacity: 0.85; }
 
   details { margin: 2px 0 6px; }
   summary {

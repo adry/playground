@@ -42,14 +42,25 @@
 //   free camera    Two views, the game's and straight down, because those are
 //                  the two questions an author asks: what will the player see,
 //                  and where actually is everything.
+//   a size choice  Thirty by thirty, on the owner's decision. The format still
+//                  carries a size and everything downstream still reads it.
+//
+// AND ONE LIST. There is no tool box separate from the palette: a fence, a
+// gate, a path, a patch of ground and a headstone are all things you put in the
+// scene, so they are all in the same list, and picking one puts you in whatever
+// interaction it needs. Select is the only mode, because it is the only thing
+// that acts on what is already there rather than adding to it.
 
 import { createEditorScene } from './scene.js';
 import {
   emptyLevel, normalizeLevel, serializeLevel, createLevelWorld, renumberGraves,
   packPaint, unpackPaint, GROUND_MATERIALS, LEVEL_FORMAT,
-  WALL_VARIANTS, WALL_JOINTS, MAX_STYLES, wallLength,
+  WALL_VARIANTS, WALL_JOINTS, MAX_STYLES, MAX_WALL_CHANGES,
+  wallLength, wallDistanceTo,
 } from '../game/level/format.js';
-import { validateLevel, reviewLevel } from '../game/level/validate.js';
+import {
+  validateLevel, reviewLevel, placementCheck, placementProps,
+} from '../game/level/validate.js';
 import { checkFairness, FAIR_MESSAGES } from '../game/level/fairness.js';
 import { PALETTE, PERSONALITIES, MAX_SPAWNS, levelFootprint } from '../game/level/catalogue.js';
 import { LEVEL_SIZE } from '../game/world/field.js';
@@ -84,6 +95,9 @@ let report = null;
 let fair = { fail: [], where: {}, stale: true };
 let review = { issues: [], wedges: [], errors: [], notes: [], stale: true };
 let fairTimer = 0;
+// How long the hand has to be still before the slow half runs. See refresh().
+const DEEP_IDLE = 700;
+let lastSig = null;
 
 const undoStack = [];
 const redoStack = [];
@@ -169,6 +183,10 @@ let tool = 'select';
 let brush = { material: 1, radius: 1.5 };
 let placeEntry = { kind: 'stone', variant: 'cross' };
 let pathStyle = { material: 'sand', width: 1.3 };
+// What the wall tool stamps: the stone from this point on, and how the two
+// builds meet. Not the same thing as doc.wall.variant, which is what the run
+// STARTS in.
+let wallPick = { variant: WALL_VARIANTS[1], joint: 'pier' };
 let snapOn = false;
 let hover = null;
 let pending = null;   // the fence or path being drawn
@@ -187,17 +205,74 @@ function cells() {
   return paintCells;
 }
 
+// Everything the overlay draws, in one place, so the three callers below
+// cannot each show a different set of it.
+function overlayOpts(extra = {}) {
+  return {
+    selection,
+    flagged: report ? report.flagged : new Set(),
+    hover,
+    brush: tool === 'paint' && hover ? { ...hover, r: brush.radius } : null,
+    ghost: hover ? previewAt(snapped(hover.x), snapped(hover.z)) : null,
+    gizmo: gizmoNow(),
+    ...extra,
+  };
+}
+
+// WHAT THE SLOW HALF ACTUALLY DEPENDS ON. Everything that can change where a
+// body may walk, what stands where, or where a firefly lands -- which is the
+// whole document except its name and its painted ground. The paint is the
+// exclusion that pays: it is decoration, no rule in audit.js or fairness.js
+// reads a cell of it, and it is the one thing an author drags across the arena
+// for minutes at a time.
+function connectivitySig() {
+  return JSON.stringify([
+    doc.size, doc.seed, doc.spawn, doc.wall, doc.fences,
+    doc.props, doc.paths, doc.graves, doc.powerups, doc.fireflies,
+  ]);
+}
+
 function refresh({ deep = !editing } = {}) {
   paintCells = null;
   world = createLevelWorld(doc);
   report = validateLevel(doc, world, { deep });
-  scene.sync(world, doc, { selection, flagged: report.flagged, hover, brush: tool === 'paint' && hover ? { ...hover, r: brush.radius } : null });
-  fair.stale = true;
-  review.stale = true;
-  clearTimeout(fairTimer);
-  fairTimer = setTimeout(deepReview, 260);
-  drawPanels();
-  drawStatus();
+  scene.sync(world, doc, overlayOpts());
+
+  // THE SLOW HALF IS SCHEDULED, NOT RUN, and now it is scheduled twice as
+  // carefully. It costs 35 to 88 ms warmed and about half a second cold, and
+  // most of that is floor work rather than work the level's own size decides:
+  // a nearly empty arena pays nearly what a full one does. Two things follow.
+  //
+  //   IT DOES NOT RUN IF NOTHING IT READS CHANGED. Renaming the level, or
+  //   painting a hundred cells of grass, cannot move a wedge, so the last
+  //   answer is still the right answer and stays on screen rather than being
+  //   marked stale and recomputed.
+  //   IT WAITS LONGER. 260 ms fires between one nudge of a headstone and the
+  //   next; 700 ms fires once when the hand stops. The cost of waiting is that
+  //   the panel is briefly out of date, and the cost of not waiting is a stall
+  //   in the middle of a gesture, which is the thing the owner reported.
+  //
+  // Nothing here can make it not run before a save: saveFile forces it and
+  // will not write a file until it has an answer.
+  const sig = connectivitySig();
+  if (sig !== lastSig) {
+    lastSig = sig;
+    fair.stale = true;
+    review.stale = true;
+    clearTimeout(fairTimer);
+    fairTimer = setTimeout(deepReview, DEEP_IDLE);
+  }
+
+  // NOT DURING A GESTURE. drawPanels rebuilds both columns of the interface,
+  // which is most of what an edit costs -- 7.4 ms of 7.6 -- and during a drag
+  // none of it can have changed: the palette is the palette and the counts are
+  // the counts. Rebuilding the panel under a slider the author is dragging also
+  // takes the slider away from them mid-drag. Both columns and the status line
+  // are redrawn when the gesture ends, which is what endEdit's refresh is for.
+  if (!editing) {
+    drawPanels();
+    drawStatus();
+  }
 }
 
 // THE SLOW HALF. Not advisory: F3 and a wedge are both invisible on screen and
@@ -218,10 +293,7 @@ function deepReview() {
   }
   // The wedges go onto the floor as well as into the list. A coordinate in a
   // panel is a number; a red ring where the pocket is, is a place.
-  scene.sync(world, doc, {
-    selection, flagged: report.flagged, hover, wedges: review.wedges,
-    brush: tool === 'paint' && hover ? { ...hover, r: brush.radius } : null,
-  });
+  scene.sync(world, doc, overlayOpts({ wedges: review.wedges }));
   drawPanels();
   drawStatus();
 }
@@ -305,15 +377,102 @@ function turnRecord(id, dyaw, about) {
 
 // --- the tools ---------------------------------------------------------------------
 
+// WHAT THE NEXT CLICK WOULD PUT DOWN, AND WHETHER IT MAY.
+//
+// The tool used to let anything be dropped anywhere and then outline it in red,
+// which tells an author what they have already done wrong. This says it before
+// the drop: the footprint follows the cursor in green where the thing may go
+// and in red where it may not, and a red drop does not happen. The rule is
+// validate.js's placementCheck, which is the LOCAL half of audit.js run against
+// audit.js's own geometry, so the indicator and the audit cannot disagree. See
+// the comment over placementCheck for exactly which rules are in it, and for
+// the one that most conspicuously is not: a wedge is emergent and is found by a
+// flood over the whole arena, so it stays on the slow timer and on the floor.
+function previewAt(x, z) {
+  if (!world) return null;
+  if (tool === 'place') {
+    if (placeEntry.kind === 'jack') {
+      // A PELLET IS NOT JUDGED THE WAY A PROP IS, because the audit does not
+      // judge it that way: powerups are not in props(), so no overlap rule
+      // touches them and refusing one for standing near a headstone would be
+      // the indicator inventing a rule. The one thing the audit does ask is
+      // that it is inside the arena with half a unit to spare.
+      const foot = placementProps({ kind: 'pumpkin', variant: 'classic', x, z, yaw: FACE_YAW });
+      const b = world.bounds;
+      const inside = x > b.minX + 0.5 && x < b.maxX - 0.5 && z > b.minZ + 0.5 && z < b.maxZ - 0.5;
+      return { ok: inside, why: inside ? '' : 'outside the wall', foots: foot };
+    }
+    const cands = placementProps({
+      kind: placeEntry.kind, variant: placeEntry.variant, x, z, yaw: FACE_YAW,
+    });
+    return { ...placementCheck(world, cands), foots: cands };
+  }
+  if (tool === 'spawn') return graveCheckAt(x, z);
+  return null;
+}
+
+// A grave, on whichever long side its spoil heap will fit. Both are tried and
+// the answer carries the one that won, so the preview and the drop agree.
+function graveCheckAt(x, z) {
+  for (const pile of [1, -1]) {
+    const cands = placementProps({ grave: { x, z, yaw: FACE_YAW, head: 1, pile, headstone: 'cross' } });
+    const r = placementCheck(world, cands);
+    if (r.ok) return { ...r, foots: cands, pile };
+  }
+  const cands = placementProps({ grave: { x, z, yaw: FACE_YAW, head: 1, pile: 1, headstone: 'cross' } });
+  return { ...placementCheck(world, cands), foots: cands, pile: 1 };
+}
+
+// THE HANDLES ON A SELECTED THING. A disc at the middle to move it and a ring
+// round it to turn it, both on the ground plane and both a fixed size on
+// screen, which is what `scene.view` is for: it is the half height of the frame
+// in world units, so a fraction of it is a constant number of pixels at every
+// zoom. The expert path -- drag to move, alt-drag to turn, shift to snap, the
+// brackets to nudge -- is untouched and still faster; this is the path that
+// does not have to be known about first.
+function gizmoNow() {
+  if (tool !== 'select' || !selection.size || !world) return null;
+  let x = 0;
+  let z = 0;
+  let n = 0;
+  for (const id of selection) {
+    const c = centreOf(id);
+    if (c) { x += c.x; z += c.z; n += 1; }
+  }
+  if (!n) return null;
+  const v = scene.view;
+  const only = selection.size === 1 ? recordOf([...selection][0]) : null;
+  return {
+    x: x / n,
+    z: z / n,
+    yaw: only && only.yaw !== undefined ? only.yaw : 0,
+    move: Math.max(0.35, v * 0.045),
+    ring: Math.max(1.1, v * 0.13),
+    knob: Math.max(0.22, v * 0.028),
+  };
+}
+
+// Which handle a click landed on, or null for neither.
+function gizmoHit(gz, at) {
+  if (!gz) return null;
+  const d = Math.hypot(at.x - gz.x, at.z - gz.z);
+  if (d <= gz.move) return 'move';
+  if (Math.abs(d - gz.ring) <= Math.max(gz.knob, gz.ring * 0.22)) return 'turn';
+  return null;
+}
+
 function placeAt(x, z) {
   const e = placeEntry;
+  const check = previewAt(x, z);
+  if (check && !check.ok) { say(`cannot put a ${e.variant || e.kind} there: ${check.why}`); return false; }
   if (e.kind === 'jack') {
     doc.powerups.push({ id: freshId('jack'), x, z });
-    return;
+    return true;
   }
   doc.props.push({
     id: freshId('p'), kind: e.kind, variant: e.variant, x, z, yaw: FACE_YAW,
   });
+  return true;
 }
 
 function addSpawn(x, z) {
@@ -321,21 +480,24 @@ function addSpawn(x, z) {
     say(`four skeleton spawns is the limit. src/ghost/ground.js cuts at most ${MAX_SPAWNS} holes in the floor and throws at the fifth, and the rules run exactly four personalities.`);
     return false;
   }
+  // The same call the green preview made, so the drop happens exactly where
+  // the indicator said it could -- including WHICH LONG SIDE the spoil heap
+  // goes on, which is the one thing about a grave the tool decides for the
+  // author. Trying both saves them an error they did not cause.
+  const check = graveCheckAt(x, z);
+  if (!check.ok) { say(`cannot put a grave there: ${check.why}`); return false; }
   const taken = new Set(doc.graves.map((g) => g.personality));
   const free = PERSONALITIES.find((p) => !taken.has(p)) || PERSONALITIES[0];
-  const g = {
-    id: freshId('g'), x, z, yaw: FACE_YAW, order: doc.graves.length, personality: free, pile: 1,
-  };
-  doc.graves.push(g);
+  doc.graves.push({
+    id: freshId('g'), x, z, yaw: FACE_YAW, order: doc.graves.length, personality: free,
+    // EVERY FIELD, not the ones normalizeLevel would fill in later. A grave
+    // with no `headstone` of its own is a grave with no headstone at all until
+    // the file is reloaded, because deriveLevel synthesises the stone only
+    // when the field is there -- so a fresh grave used to fail the audit's
+    // grave rule and then quietly grow a headstone on the next open.
+    pile: check.pile, head: 1, headstone: 'cross',
+  });
   renumberGraves(doc);
-  // The heap goes on whichever long side is clear. Trying both here saves the
-  // author an error they did not cause and would not guess the fix for.
-  const errs = (side) => {
-    g.pile = side;
-    const w = createLevelWorld(doc);
-    return validateLevel(doc, w, { deep: false }).errors.length;
-  };
-  if (errs(1) > errs(-1)) g.pile = -1; else g.pile = 1;
   return true;
 }
 
@@ -363,6 +525,57 @@ function toggleGate(x, z) {
   const near = best.f.gates.findIndex((g) => g.edge === best.edge && Math.abs(g.t - best.t) * best.len < 1.4);
   if (near >= 0) best.f.gates.splice(near, 1);
   else best.f.gates.push({ edge: best.edge, t: best.t });
+  return true;
+}
+
+// THE WALL, PIECE BY PIECE. A click on the perimeter changes what it is built
+// of from that point on; a click on a change takes it out again. It is the gate
+// tool wearing a different hat, and deliberately so: a style change is written
+// at a DISTANCE ALONG THE RUN, which is the same coordinate a gate is written
+// in, so the two are the same gesture and the same arithmetic.
+//
+// The budget it can run out of is not the number of changes -- there is no
+// useful limit on those -- but the number of STONES, because the geometry
+// carries a style index per vertex and wall.js holds MAX_STYLES builds. Ashlar
+// to brick and back is two changes and two stones; a fourth stone is the last
+// one that fits.
+function wallStones(extra) {
+  const out = new Set([doc.wall.variant]);
+  for (const st of doc.wall.styles) {
+    out.add(st.variant);
+    if (st.jointVariant) out.add(st.jointVariant);
+  }
+  if (extra) for (const v of extra) if (v) out.add(v);
+  return out;
+}
+
+function toggleWallStyle(x, z) {
+  const near = wallDistanceTo(doc.wall.points, x, z);
+  if (near.away > 2.2) { say('click on the perimeter wall to change what it is built of from there on'); return false; }
+  // Within a bay of an existing change is that change, so the same click takes
+  // it away. 1.6 is a little under the pier spacing, so two changes can still
+  // sit at neighbouring piers.
+  const hit = doc.wall.styles.findIndex((st) => Math.abs(st.at - near.at) < 1.6);
+  if (hit >= 0) {
+    doc.wall.styles.splice(hit, 1);
+    say('took that change of stone out');
+    return true;
+  }
+  if (doc.wall.styles.length >= MAX_WALL_CHANGES) {
+    say(`a wall carries at most ${MAX_WALL_CHANGES} changes of stone`);
+    return false;
+  }
+  const stones = wallStones([wallPick.variant]);
+  if (stones.size > MAX_STYLES) {
+    say(`a wall is built of at most ${MAX_STYLES} stones and it already has ${[...wallStones()].join(', ')}. Change one of those first, or pick a stone it already uses.`);
+    return false;
+  }
+  doc.wall.styles.push({
+    at: Math.round(near.at * 2) / 2,
+    variant: wallPick.variant,
+    joint: wallPick.joint,
+  });
+  doc.wall.styles.sort((a, b) => a.at - b.at);
   return true;
 }
 
@@ -466,7 +679,9 @@ canvas.addEventListener('pointerdown', (e) => {
 
   if (tool === 'place') { commit(() => placeAt(snapped(at.x), snapped(at.z))); return; }
   if (tool === 'spawn') { commit(() => { addSpawn(snapped(at.x), snapped(at.z)); }); return; }
+  
   if (tool === 'gate') { commit(() => { toggleGate(at.x, at.z); }); return; }
+  if (tool === 'wall') { commit(() => { toggleWallStyle(at.x, at.z); }); return; }
 
   if (tool === 'fence' || tool === 'path') {
     commit(() => {
@@ -495,7 +710,12 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
 
-  // select
+  // select. THE HANDLES FIRST: a click inside the move disc or on the turn ring
+  // belongs to the gizmo whatever is drawn under it, or a headstone standing on
+  // the ring would take its own handle's click.
+  const grab = gizmoHit(gizmoNow(), at);
+  if (grab) { beginTransform(grab, at, gizmoNow()); return; }
+
   const hit = scene.pickAt(e.clientX, e.clientY);
   const id = hit ? ownerOf(hit.id) : null;
   if (!id || !kindOf(id)) {
@@ -508,15 +728,7 @@ canvas.addEventListener('pointerdown', (e) => {
     selection.clear();
     selection.add(id);
   }
-  const centre = centreOf(id);
-  drag = {
-    type: e.altKey ? 'turn' : 'move',
-    anchor: at,
-    about: centre,
-    start: [...selection].map((sid) => ({ id: sid, centre: centreOf(sid) })),
-    yaw0: Math.atan2(at.x - centre.x, at.z - centre.z),
-    moved: false,
-  };
+  beginTransform(e.altKey ? 'turn' : 'move', at, centreOf(id));
   refresh();
 });
 
@@ -526,12 +738,13 @@ canvas.addEventListener('pointermove', (e) => {
   hover = at;
 
   if (!drag) {
-    // Just the brush ring following the pointer. The document has not changed,
-    // so nothing is rebuilt and nothing is revalidated.
-    if (tool === 'paint' && world) {
-      scene.overlayOnly(world, doc, {
-        selection, flagged: report.flagged, hover, brush: { ...hover, r: brush.radius },
-      });
+    // Just the overlay following the pointer: the brush ring, or the green or
+    // red footprint of the thing about to be dropped. The document has not
+    // changed, so nothing is rebuilt and nothing is revalidated -- the
+    // placement check is a millisecond and a half against the world that is
+    // already built, which is what makes it affordable per pointer move.
+    if (world && (tool === 'paint' || tool === 'place' || tool === 'spawn')) {
+      scene.overlayOnly(world, doc, overlayOpts({ wedges: review.stale ? [] : review.wedges }));
     }
     return;
   }
@@ -582,6 +795,21 @@ canvas.addEventListener('pointermove', (e) => {
   }
 });
 
+// One drag, whether it started on a handle or on the thing itself. `about` is
+// what a turn turns around: the gizmo's centre when the ring was grabbed, and
+// the thing's own centre when the drag started on it.
+function beginTransform(type, at, about) {
+  if (!about) return;
+  drag = {
+    type,
+    anchor: at,
+    about: { x: about.x, z: about.z },
+    start: [...selection].map((sid) => ({ id: sid, centre: centreOf(sid) })),
+    yaw0: Math.atan2(at.x - about.x, at.z - about.z),
+    moved: false,
+  };
+}
+
 function endDrag() {
   if (drag?.type === 'paint') { flushPaint(true); }
   drag = null;
@@ -625,7 +853,10 @@ function finishPending(close) {
 // --- keys --------------------------------------------------------------------------
 
 let spaceDown = false;
-const TOOL_KEYS = { v: 'select', b: 'place', f: 'fence', g: 'gate', p: 'path', s: 'spawn', k: 'paint' };
+// V is select, the one mode. B is "the prop I last picked", because the palette
+// is long and going back to it for the same headstone twice is a waste of a
+// hand. Every other letter picks an ENTRY out of the one list -- see
+// entryForKey -- so F is a fence run and not merely the fence mode.
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -677,7 +908,10 @@ window.addEventListener('keydown', (e) => {
     });
     return;
   }
-  if (TOOL_KEYS[k]) { setTool(TOOL_KEYS[k]); return; }
+  if (k === 'v') { setTool('select'); return; }
+  if (k === 'b') { setTool('place'); return; }
+  const entry = entryForKey(k);
+  if (entry) { pick(entry); return; }
 });
 window.addEventListener('keyup', (e) => { if (e.code === 'Space') spaceDown = false; });
 
@@ -802,6 +1036,15 @@ function setTool(t) {
   refresh();
 }
 
+// The pointer left the canvas, so there is nothing under it: the ghost
+// placement footprint and the brush ring have to go with it, or a green
+// outline is left sitting on the floor where the author's hand is not.
+canvas.addEventListener('pointerleave', () => {
+  if (!hover || drag) return;
+  hover = null;
+  if (world) scene.overlayOnly(world, doc, overlayOpts({ wedges: review.stale ? [] : review.wedges }));
+});
+
 function setMode(m) {
   scene.setMode(m);
   drawPanels();
@@ -812,68 +1055,148 @@ function drawPanels() {
   drawRight();
 }
 
+// ONE LIST OF THINGS YOU CAN PUT IN THE SCENE.
+//
+// There used to be a TOOL group above a PALETTE group, and the line between
+// them was the tool's own idea rather than the author's: a fence, a gate, a
+// path and a patch of ground are all things you put in the scene, exactly as a
+// headstone is, and the only reason they lived in a different box is that the
+// code behind them is a mode rather than a click. The owner said so, and they
+// are right. So there is one list, and picking anything out of it puts you in
+// whatever interaction that thing needs -- one click for a headstone, click
+// click enter for a fence run, a drag for the ground.
+//
+// SELECT IS THE ONE EXCEPTION and it stays a mode of its own, because it does
+// not put anything in the scene: it acts on what is already there.
+//
+// Each entry says what picking it does, and nothing else knows the difference:
+//
+//   tool     the interaction it needs. That IS the old tool name, unchanged.
+//   kind     for a prop, its kind and variant
+//   path     for a line, its material
+//   material for the ground, its index in GROUND_MATERIALS
+//
+// The keyboard shortcuts are the ones that were on the tool buttons, so a hand
+// that learnt them keeps them.
+function placeGroups() {
+  return [
+    {
+      id: 'boundary',
+      label: 'walls, fences and gates',
+      open: true,
+      items: [
+        {
+          tool: 'fence', label: 'fence run', key: 'F',
+          title: 'Click a corner at a time. Enter finishes the run, c closes it into a pen. A pen gets a gate put in it, because a pen with no way in is a pocket.',
+        },
+        {
+          tool: 'gate', label: 'gate', key: 'G',
+          title: 'Click on a fence to cut a gate into it, and on a gate to take it out again. A gate is a hole in the run, so it lives on the run and cannot be dragged away from it.',
+        },
+        {
+          tool: 'wall', label: 'change of stone', key: 'W',
+          title: 'Click on the perimeter wall to change what it is built of from that point on, and on a change to take it out. The stone and the joint are the two selects under WALL on the right.',
+        },
+      ],
+    },
+    {
+      id: 'lines',
+      label: 'paths',
+      items: [
+        { tool: 'path', path: 'sand', label: 'sand path', key: 'P' },
+        { tool: 'path', path: 'gravel', label: 'gravel path' },
+        { tool: 'path', path: 'kerb', label: 'kerb run' },
+      ],
+      after: () => el('div', { class: 'row' }, [
+        el('label', { text: 'width' }),
+        number(pathStyle.width, 0.4, 3, 0.1, (v) => { pathStyle.width = v; }),
+      ]),
+    },
+    {
+      id: 'spawns',
+      label: 'skeleton spawns',
+      items: [{
+        tool: 'spawn', label: 'grave', key: 'S',
+        title: 'Where a skeleton climbs out. Four of them, and the order they come out in is on the right.',
+      }],
+    },
+    {
+      id: 'cover',
+      label: 'ground cover',
+      items: GROUND_MATERIALS.map((m, i) => ({ tool: 'paint', material: i + 1, label: m })),
+      after: () => el('div', {}, [
+        el('div', { class: 'row' }, [
+          el('label', { text: 'brush' }),
+          number(brush.radius, 0.5, 6, 0.25, (v) => { brush.radius = v; refresh(); }),
+        ]),
+        el('p', { class: 'note', text: 'drag to paint, right-drag or alt-drag to erase. Where two materials meet they interleave rather than butting up.' }),
+      ]),
+    },
+    ...PALETTE.map((group) => ({
+      id: group.id,
+      label: group.label,
+      open: group.id === 'stones',
+      items: (group.items || group.variants.map((v) => ({ kind: group.kind, variant: v, label: v })))
+        .map((it) => ({
+          tool: 'place', kind: it.kind, variant: it.variant, label: it.label,
+          title: describeFoot(it.kind, it.variant),
+        })),
+    })),
+  ];
+}
+
+// Is this the entry the next click will place?
+function isPicked(e) {
+  if (tool !== e.tool) return false;
+  if (e.tool === 'place') return placeEntry.kind === e.kind && placeEntry.variant === e.variant;
+  if (e.tool === 'path') return pathStyle.material === e.path;
+  if (e.tool === 'paint') return brush.material === e.material;
+  return true;
+}
+
+function pick(e) {
+  if (e.tool === 'place') placeEntry = { kind: e.kind, variant: e.variant };
+  if (e.tool === 'path') pathStyle.material = e.path;
+  if (e.tool === 'paint') brush.material = e.material;
+  setTool(e.tool);
+}
+
+// The shortcut for a tool is the first entry that carries one, so pressing F
+// picks the fence run and P picks the sand path rather than merely arming a
+// mode with no material chosen.
+function entryForKey(k) {
+  for (const g of placeGroups()) {
+    for (const e of g.items) if (e.key && e.key.toLowerCase() === k) return e;
+  }
+  return null;
+}
+
 function drawLeft() {
   left.replaceChildren(
-    el('h2', { text: 'tool' }),
+    el('h2', { text: 'edit' }),
     el('div', { class: 'tools' }, [
-      toolButton('select', 'select', 'V'),
-      toolButton('place', 'place', 'B'),
-      toolButton('fence', 'fence', 'F'),
-      toolButton('gate', 'gate', 'G'),
-      toolButton('path', 'path', 'P'),
-      toolButton('spawn', 'spawn', 'S'),
-      toolButton('paint', 'ground', 'K'),
+      el('button', {
+        'aria-pressed': String(tool === 'select'),
+        title: 'Pick things up, move them and turn them. Drag the ring under a selected thing to turn it.',
+        onclick: () => setTool('select'),
+      }, [el('span', { text: 'select' }), el('kbd', { text: 'V' })]),
     ]),
 
-    el('h2', { text: 'palette' }),
-    ...PALETTE.map(paletteGroup),
-
-    el('h2', { text: 'lines' }),
-    el('div', { class: 'row' }, [
-      el('label', { text: 'material' }),
-      select(['sand', 'gravel', 'kerb'], pathStyle.material, (v) => { pathStyle.material = v; }),
-    ]),
-    el('div', { class: 'row' }, [
-      el('label', { text: 'width' }),
-      number(pathStyle.width, 0.4, 3, 0.1, (v) => { pathStyle.width = v; }),
-    ]),
-
-    el('h2', { text: 'ground cover' }),
-    el('div', { class: 'swatches' }, GROUND_MATERIALS.map((m, i) => el('button', {
-      text: m,
-      'aria-pressed': String(brush.material === i + 1),
-      onclick: () => { brush.material = i + 1; setTool('paint'); },
-    }))),
-    el('div', { class: 'row' }, [
-      el('label', { text: 'brush' }),
-      number(brush.radius, 0.5, 6, 0.25, (v) => { brush.radius = v; refresh(); }),
-    ]),
-    el('p', { class: 'note', text: 'right-drag or alt-drag erases. Materials blend across about 1.5 units where they meet.' }),
+    el('h2', { text: 'place' }),
+    ...placeGroups().map(placeGroup),
   );
 }
 
-function toolButton(id, label, keyName) {
-  return el('button', {
-    'aria-pressed': String(tool === id),
-    onclick: () => setTool(id),
-  }, [el('span', { text: label }), el('kbd', { text: keyName })]);
-}
-
-function paletteGroup(group) {
-  const items = group.items
-    ? group.items
-    : group.variants.map((v) => ({ kind: group.kind, variant: v, label: v }));
-  return el('details', { open: group.id === 'stones' ? '' : null }, [
-    el('summary', { text: `${group.label} (${items.length})` }),
-    el('div', { class: 'swatches' }, items.map((it) => el('button', {
-      text: it.label,
-      title: describeFoot(it.kind, it.variant),
-      'aria-pressed': String(placeEntry.kind === it.kind && placeEntry.variant === it.variant),
-      onclick: () => {
-        placeEntry = { kind: it.kind, variant: it.variant };
-        setTool('place');
-      },
-    }))),
+function placeGroup(group) {
+  return el('details', { open: group.open || group.items.some(isPicked) ? '' : null }, [
+    el('summary', { text: `${group.label} (${group.items.length})` }),
+    el('div', { class: 'swatches' }, group.items.map((e) => el('button', {
+      text: e.label,
+      title: e.title || null,
+      'aria-pressed': String(isPicked(e)),
+      onclick: () => pick(e),
+    }, e.key ? [el('kbd', { text: e.key })] : []))),
+    group.after ? group.after() : null,
   ]);
 }
 
@@ -909,9 +1232,16 @@ function drawRight() {
         onchange: (e) => commit(() => { doc.name = e.target.value; }),
       }),
     ]),
+    // THIRTY, AND NO CHOICE. The owner fixed it: thirty is six of the floor's
+    // major grid squares and the number every other number in the project was
+    // measured against -- the firefly spacing, the camera's framing, the four
+    // pellets one to a quadrant. The FORMAT still carries a size and everything
+    // downstream still reads it, so a smaller arena remains a thing the file
+    // can say and a harness can ask for; it is only the tool that has stopped
+    // offering it.
     el('div', { class: 'row' }, [
       el('label', { text: 'size' }),
-      select(['10', '15', '20', '25', '30'], String(doc.size), (v) => commit(() => resize(Number(v)))),
+      el('span', { class: 'grow', text: `${doc.size} by ${doc.size}${doc.size === LEVEL_SIZE ? '' : ' (this file was made at another size)'}` }),
     ]),
     el('div', { class: 'row' }, [
       el('label', { text: 'seed' }),
@@ -933,7 +1263,7 @@ function drawRight() {
       el('button', { class: 'grow danger', text: 'new', onclick: () => {
         if (!confirm('start a new empty level? the current one is only in this tab.')) return;
         commit(() => {
-          doc = emptyLevel({ size: doc.size, seed: doc.seed, name: 'graveyard' });
+          doc = emptyLevel({ size: LEVEL_SIZE, seed: doc.seed, name: 'graveyard' });
           selection.clear();
           pending = null;
         });
@@ -943,22 +1273,35 @@ function drawRight() {
 
     el('h2', { text: 'wall' }),
     el('div', { class: 'row' }, [
-      el('label', { text: 'stone' }),
+      el('label', { text: 'starts in' }),
       select(WALL_VARIANTS, doc.wall.variant, (v) => commit(() => { doc.wall.variant = v; })),
     ]),
+    // WHAT THE WALL TOOL STAMPS. Two selects and then clicks on the wall
+    // itself, which is how a wall gets built piece by piece: the run-based way
+    // of drawing a whole boundary in four clicks is still there and is still
+    // the right way to start, and this is the way to work along it afterwards.
+    el('div', { class: 'row' }, [
+      el('label', { text: 'stamp' }),
+      select(WALL_VARIANTS, wallPick.variant, (v) => { wallPick.variant = v; setTool('wall'); }),
+      select(WALL_JOINTS, wallPick.joint, (v) => { wallPick.joint = v; setTool('wall'); }),
+    ]),
+    el('p', { class: 'note', text: `with the change of stone tool (W), click anywhere on the wall to change it to ${wallPick.variant} from there on, and click a change to take it out. Built of ${[...wallStones()].join(', ')} of ${MAX_STYLES} stones.` }),
     ...doc.wall.styles.map(styleRow),
     el('div', { class: 'row' }, [
       el('button', {
         class: 'grow',
-        text: `add a change of stone (${doc.wall.styles.length}/${MAX_STYLES - 1})`,
-        disabled: doc.wall.styles.length >= MAX_STYLES - 1 ? '' : null,
+        text: `add a change of stone (${doc.wall.styles.length})`,
+        disabled: doc.wall.styles.length >= MAX_WALL_CHANGES ? '' : null,
         onclick: () => commit(() => {
+          // Halfway to the next corner from the last change, which is a place
+          // an author can see rather than a place the arithmetic liked.
           const len = wallLength(doc.wall.points);
-          const n = doc.wall.styles.length;
+          const last = doc.wall.styles.length ? doc.wall.styles[doc.wall.styles.length - 1].at : 0;
+          const stones = wallStones([wallPick.variant]);
           doc.wall.styles.push({
-            at: Math.round((len * (n + 1)) / (MAX_STYLES + 1)),
-            variant: WALL_VARIANTS[(WALL_VARIANTS.indexOf(doc.wall.variant) + 1 + n) % WALL_VARIANTS.length],
-            joint: 'pier',
+            at: Math.min(len - 0.5, Math.round((last + len / 6) * 2) / 2),
+            variant: stones.size <= MAX_STYLES ? wallPick.variant : doc.wall.variant,
+            joint: wallPick.joint,
           });
           doc.wall.styles.sort((a, b) => a.at - b.at);
         }),
@@ -1221,27 +1564,6 @@ function pickFile() {
   input.click();
 }
 
-function resize(size) {
-  doc.size = size;
-  doc.wall = { points: emptyLevel({ size }).wall.points, closed: true };
-  const g = emptyLevel({ size }).ground;
-  // The paint field is re-cut to the new arena rather than rescaled: half a
-  // metre is half a metre whatever the level is, and a rescale would smear the
-  // borders the author just painted.
-  const old = { ...doc.ground, cells: unpackPaint(doc.ground.paint, doc.ground.w * doc.ground.h) };
-  const next = new Uint8Array(g.w * g.h);
-  for (let j = 0; j < g.h; j++) {
-    for (let i = 0; i < g.w; i++) {
-      const x = g.minX + (i + 0.5) * g.cell;
-      const z = g.minZ + (j + 0.5) * g.cell;
-      const oi = Math.floor((x - old.minX) / old.cell);
-      const oj = Math.floor((z - old.minZ) / old.cell);
-      if (oi >= 0 && oj >= 0 && oi < old.w && oj < old.h) next[j * g.w + i] = old.cells[oj * old.w + oi];
-    }
-  }
-  doc.ground = { ...g, paint: packPaint(next) };
-}
-
 function drawStatus() {
   const s = scene.stats();
   const errors = report ? report.errors.length : 0;
@@ -1263,7 +1585,8 @@ function drawStatus() {
 }
 
 hintEl.textContent = [
-  'drag select · alt-drag turns freely, +shift snaps 15° · [ ] nudge 5° · shift-drag snaps to the grid',
+  'selected: drag the middle to move it, drag the ring to turn it',
+  'or: drag to move · alt-drag turns freely, +shift snaps 15° · [ ] nudge 5° · shift-drag snaps to the grid',
   'space or middle drag pans · wheel zooms · tab swaps the game camera and the plan',
   'fence and path: click points, enter finishes, c closes · ctrl+z undo · ctrl+s save',
 ].join('\n');
@@ -1283,8 +1606,16 @@ scene.lookAt(0, 0);
 window.__editor = {
   get doc() { return doc; },
   get report() { return report; },
-  load(json) { doc = normalizeLevel(json); refresh(); },
+  get tool() { return tool; },
+  get review() { return review; },
+  load(json) { doc = normalizeLevel(json); selection.clear(); pending = null; refresh(); },
   setTool, setMode,
+  // The two answers the interface is built on, so a harness can ask them
+  // directly rather than reading them off a screenshot: may this go here, and
+  // where are the handles.
+  preview: (x, z) => previewAt(x, z),
+  gizmo: () => gizmoNow(),
+  select(id) { selection.clear(); if (id) selection.add(id); refresh(); },
   scene,
   serialize: () => serializeLevel(doc),
   format: LEVEL_FORMAT,

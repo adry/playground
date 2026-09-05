@@ -100,7 +100,22 @@ export async function startGame({ canvas, params }) {
     // loadLevelFrom is the format's own door: fetch, normalise, build. A file
     // that is missing or is not a level throws here, before a renderer exists,
     // which is the right place for it to throw.
-    const first = await format.loadLevelFrom(levelUrl);
+    //
+    // AND IT IS SAID OUT LOUD. A mistyped level URL used to leave a grey canvas
+    // and a line in the console, which is the failure /lab/'s own header warns
+    // about: a page that is broken has to LOOK broken. It does not fall back to
+    // a generated arena either -- somebody who asked for a particular level and
+    // silently got a different one is worse off than somebody who got nothing.
+    let first;
+    try {
+      first = await format.loadLevelFrom(levelUrl);
+    } catch (err) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<h1>NO LEVEL</h1><p class="story">${levelUrl}\n${err.message}</p>`;
+      document.body.appendChild(card);
+      throw err;
+    }
     authored = {
       // The DOCUMENT is what is kept, not just the world built from it. A wave
       // rebuilds the world from the document so each wave gets its own arrays
