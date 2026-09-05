@@ -379,7 +379,7 @@ export async function startViewer({ canvas, params }) {
   // --- the ghost, purely for scale -------------------------------------------
   const ghost = new Ghost({ seed: 12345 });
   ghost.pos.set(world.spawn.x, ghost.pos.y, world.spawn.z);
-  ghost.cloth.reset(ghost.matrix);
+  ghost.resetCloth();
   scene.add(ghost.mesh);
 
   // --- readout ---------------------------------------------------------------
@@ -396,7 +396,7 @@ export async function startViewer({ canvas, params }) {
     world = createWorld({ seed });
     ghost.pos.set(world.spawn.x, ghost.pos.y, world.spawn.z);
     ghost.vel.set(0, 0, 0);
-    ghost.cloth.reset(ghost.matrix);
+    ghost.resetCloth();
     camTarget.set(world.spawn.x, 0.75, world.spawn.z);
   }
 

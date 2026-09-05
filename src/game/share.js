@@ -37,7 +37,7 @@
 //
 // Then it is composited: the game's own card style, over the game's own frame.
 import * as THREE from 'three';
-import { shareText } from './run.js';
+import { shareText, CAUGHT_BY } from './run.js';
 
 // 16:9. X shows an attached photo at up to 16:9 without cropping it, and a
 // square grab of a square canvas would be letterboxed or cut to pieces. The
@@ -96,11 +96,6 @@ function make2D(w, h) {
 const FOE_RANK = { hunting: 2, leaving: 2, emerging: 1 };
 
 export function createShareRecorder({ canvas, camera, state }) {
-  // Sized on first sample, from whatever the canvas's backing store turns out
-  // to be. A phone at three times pixel ratio and a laptop at one do not want
-  // the same buffer, and neither wants a buffer bigger than the pixels it has.
-  let storeW = 0;
-  let storeH = 0;
   const ring = [];
   let head = -1;
   let clock = 0;
@@ -150,17 +145,31 @@ export function createShareRecorder({ canvas, camera, state }) {
     const cx = clamp(mid.x - (SUBJECT_X - 0.5) * cw, cw / 2, sw - cw / 2);
     const cy = clamp(mid.y - (SUBJECT_Y - 0.5) * ch, ch / 2, sh - ch / 2);
 
-    if (!storeW) {
-      storeW = clamp(Math.round(cw), 640, OUT_W);
-      storeH = Math.round(storeW * 9 / 16);
-    }
+    // How big to keep it. Never more pixels than the crop actually has, so a
+    // phone does not carry six 1600 wide buffers to store 500 wide pictures,
+    // and never more than the picture will ever be.
+    //
+    // MEASURED EVERY SAMPLE, not once. The canvas's backing store changes when
+    // the window is resized, and it changes a lot: a ring sized against a
+    // 400 px window and then filled from a full screen one would be storing a
+    // quarter of the pixels it could. Each slot is resized to suit, which also
+    // clears it, which is right -- a frame from before a resize is a frame of a
+    // differently framed game.
+    const want = clamp(Math.round(cw), 640, OUT_W);
     head = (head + 1) % SLOTS;
     let slot = ring[head];
-    if (!slot) slot = ring[head] = { canvas: make2D(storeW, storeH), ctx: null };
+    if (!slot) slot = ring[head] = { canvas: make2D(want, Math.round(want * 9 / 16)), ctx: null };
+    if (slot.canvas.width !== want) {
+      slot.canvas.width = want;
+      slot.canvas.height = Math.round(want * 9 / 16);
+      slot.ctx = null;
+    }
     if (!slot.ctx) {
       slot.ctx = slot.canvas.getContext('2d');
       slot.ctx.imageSmoothingQuality = 'high';
     }
+    const storeW = slot.canvas.width;
+    const storeH = slot.canvas.height;
     slot.ctx.drawImage(canvas, cx - cw / 2, cy - ch / 2, cw, ch, 0, 0, storeW, storeH);
     slot.t = clock;
     slot.gap = gap;
@@ -219,6 +228,29 @@ const DARK = '#16181c';
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 const SANS = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
+// The end card's h1, and the one strong dark shape in the picture. At thumbnail
+// size it is the only thing that is certainly readable, so it says the outcome
+// and nothing else. The static site card passes badge: null and does without
+// it, because there the name is already the eyebrow and saying it twice in one
+// picture is saying it once too often.
+function drawBadge(ctx, badge) {
+  ctx.font = `700 17px ${MONO}`;
+  const track = 17 * 0.22;
+  const bw = trackedWidth(ctx, badge, track) + 52;
+  const bh = 50;
+  ctx.save();
+  ctx.shadowColor = 'rgba(20, 24, 32, 0.35)';
+  ctx.shadowBlur = 26;
+  ctx.shadowOffsetY = 8;
+  ctx.fillStyle = DARK;
+  roundRect(ctx, 56, 56, bw, bh, bh / 2);
+  ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = '#ffffff';
+  ctx.textBaseline = 'middle';
+  drawTracked(ctx, badge, 56 + 26, 56 + bh / 2 + 1, track);
+}
+
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -251,13 +283,22 @@ function wrap(ctx, text, maxWidth, maxLines) {
   const words = text.split(/\s+/);
   const lines = [];
   let line = '';
+  let spilled = false;
   for (const word of words) {
     const test = line ? `${line} ${word}` : word;
     if (ctx.measureText(test).width <= maxWidth || !line) line = test;
+    else if (lines.length + 1 >= maxLines) { spilled = true; break; }
     else { lines.push(line); line = word; }
-    if (lines.length === maxLines) break;
   }
-  if (lines.length < maxLines && line) lines.push(line);
+  if (line) lines.push(line);
+  // Trimmed rather than silently cut off. The headline should never reach here
+  // -- it is one clause -- but a caption that quietly loses its last word is
+  // the kind of thing nobody notices until it is in somebody's timeline.
+  if (spilled && lines.length) {
+    let last = lines[lines.length - 1];
+    while (last.length > 1 && ctx.measureText(`${last}...`).width > maxWidth) last = last.slice(0, -1);
+    lines[lines.length - 1] = `${last.replace(/[\s,.;:]+$/, '')}...`;
+  }
   return lines;
 }
 
@@ -292,7 +333,13 @@ export function composeShareImage({ frame, run = null, best = false, caption = n
   const lines = run ? shareText(run).split('\n') : [];
   const spec = {
     badge: best ? 'BEST RUN' : 'CAUGHT',
-    headline: lines[0] || 'A run in the graveyard.',
+    // THE CLAUSE, NOT THE SENTENCE. shareText's first line ends with how long
+    // the run lasted, and the stat row below says that in three characters, so
+    // the picture takes the half that only the picture can say and drops the
+    // half it is about to repeat. A run that was quit rather than caught has no
+    // clause and keeps the whole line.
+    headline: (run && CAUGHT_BY[run.caughtBy] && `${CAUGHT_BY[run.caughtBy]}.`)
+      || lines[0] || 'A run in the graveyard.',
     // Line 1 of the share text is the points and the fireflies, which the stat
     // row below says better, so it is skipped. Anything AFTER it is colour the
     // stats cannot carry -- there is none today, since the near miss went with
@@ -309,29 +356,11 @@ export function composeShareImage({ frame, run = null, best = false, caption = n
     ...(caption || {}),
   };
 
-  // --- the badge, top left ---------------------------------------------------
-  // The end card's h1, and the one strong dark shape in the picture. At
-  // thumbnail size it is the only thing that is certainly readable, so it says
-  // the outcome and nothing else.
   const badge = spec.badge;
-  ctx.font = `700 17px ${MONO}`;
-  const badgeTrack = 17 * 0.22;
-  const badgeW = trackedWidth(ctx, badge, badgeTrack);
-  const bw = badgeW + 52;
-  const bh = 50;
-  ctx.save();
-  ctx.shadowColor = 'rgba(20, 24, 32, 0.35)';
-  ctx.shadowBlur = 26;
-  ctx.shadowOffsetY = 8;
-  ctx.fillStyle = DARK;
-  roundRect(ctx, 56, 56, bw, bh, bh / 2);
-  ctx.fill();
-  ctx.restore();
-  ctx.fillStyle = '#ffffff';
-  ctx.textBaseline = 'middle';
-  drawTracked(ctx, badge, 56 + 26, 56 + bh / 2 + 1, badgeTrack);
+  if (badge) drawBadge(ctx, badge);
 
   // --- the caption panel, bottom left ---------------------------------------
+
   const headline = spec.headline;
   const subline = spec.subline;
 
@@ -340,13 +369,13 @@ export function composeShareImage({ frame, run = null, best = false, caption = n
   const px = 56;
   const inner = PANEL_W - PAD * 2;
 
-  ctx.font = `600 38px ${SANS}`;
+  ctx.font = `600 40px ${SANS}`;
   const head = wrap(ctx, headline, inner, 2);
 
   let hgt = PAD + 17 + 22 + head.length * 46;
   if (subline) hgt += 30;
   if (spec.stats) hgt += 26 + 14 + 1 + 22 + 34 + PAD;
-  else hgt += PAD - 12;
+  else hgt += PAD - 6;
 
   const py = OUT_H - 56 - hgt;
 
@@ -374,7 +403,7 @@ export function composeShareImage({ frame, run = null, best = false, caption = n
   // The story. The single most characterful fact about the run, which is which
   // of the four skeletons ended it.
   ctx.fillStyle = INK;
-  ctx.font = `600 38px ${SANS}`;
+  ctx.font = `600 40px ${SANS}`;
   for (const l of head) { ctx.fillText(l, px + PAD, y); y += 46; }
 
   if (subline) {
@@ -503,11 +532,18 @@ export function attach({ pick, anchor, run, best = false }) {
       // The good path. The image goes to X as an attachment and the intent URL
       // is never opened at all.
       e.preventDefault();
-      const url = new URL(anchor.href);
+      // The words are read back off the anchor's own href rather than rebuilt,
+      // so the post says exactly what the link would have said.
+      const intent = new URL(anchor.href);
+      const body = intent.searchParams.get('text') || shareText(run);
+      const link = intent.searchParams.get('url');
       navigator.share({
         files: [file],
-        text: url.searchParams.get('text') || shareText(run),
-        ...(url.searchParams.get('url') ? { url: url.searchParams.get('url') } : {}),
+        // The link is FOLDED INTO THE TEXT rather than passed as `url`. A share
+        // target is allowed to take some of the fields and drop the rest, and
+        // several of them drop `url` the moment a file is present. Inside the
+        // text it cannot be dropped without dropping the post.
+        text: link ? `${body} ${link}` : body,
       }).catch((err) => {
         // AbortError is the player closing the sheet, which is not a failure
         // and must not then open a tab they did not ask for.

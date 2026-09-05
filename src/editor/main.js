@@ -78,11 +78,17 @@ import {
   SESSION_KEY, SESSION_LEVEL,
 } from '../game/level/format.js';
 import {
-  validateLevel, reviewLevel, placementCheck, placementProps,
+  validateLevel, reviewLevel, placementCheck, placementProps, segmentCheck,
 } from '../game/level/validate.js';
 import { checkFairness, FAIR_MESSAGES } from '../game/level/fairness.js';
 import { PALETTE, levelFootprint } from '../game/level/catalogue.js';
 import { LEVEL_SIZE } from '../game/world/field.js';
+// PUBLISHING. Everything about it lives in src/net/publish.js: the request, the
+// panel with the URL in it, and every way it can fail. What is here is the
+// button and the three things the action needs from this file, because a level
+// going out over the network has to answer to the same guard as one going out
+// as a file.
+import { createPublishAction } from '../net/publish.js';
 
 const AUTOSAVE = 'graveyard-editor/doc/v1';
 // Props were authored to face the camera and the camera looks along
@@ -264,6 +270,13 @@ function overlayOpts(extra = {}) {
       ? wallSectionOutline(wallSectionAt(hover.x, hover.z).i)
       : null,
     wallMarks: doc.wall.styles.map((st) => wallPointAt(doc.wall.points, st.at)),
+    // THE FENCE ABOUT TO BE DRAWN. Green or red, and a ring on whatever the
+    // point has attached itself to, because a snap the author cannot see is a
+    // snap that fights them.
+    fence: tool === 'fence' && hover ? (() => {
+      const look = fencePreview(hover.x, hover.z, altDown);
+      return look && { ...look, to: look.at.to };
+    })() : null,
     gizmo: gizmoNow(),
     ...extra,
   };
@@ -280,6 +293,13 @@ function connectivitySig() {
     doc.size, doc.seed, doc.spawn, doc.wall, doc.fences,
     doc.props, doc.graves, doc.powerups, doc.fireflies,
   ]);
+}
+
+// The overlay alone, for the things that change under the pointer without the
+// document changing: the ghost footprint, the fence line, the wall section.
+function redrawOverlay() {
+  if (!world) return;
+  scene.overlayOnly(world, doc, overlayOpts({ wedges: review.stale ? [] : review.wedges }));
 }
 
 function refresh({ deep = !editing } = {}) {
@@ -600,6 +620,104 @@ function paintWallSection(x, z) {
   return true;
 }
 
+// ============================================================================
+// DRAWING A FENCE: WHERE THE NEXT POINT LANDS, AND WHETHER IT MAY
+// ============================================================================
+//
+// "the next fence attaches itself to the previous one logically", which is
+// three separate things and all three are here.
+//
+//   IT ATTACHES. Within a unit of the end of a run that already exists, the
+//   point lands exactly on it. A hairline gap between two fences looks like a
+//   join and is not one: it is a hole a skeleton walks through, so it changes
+//   whether the level is fair while looking correct. The perimeter counts too,
+//   so a divider run out to the boundary meets it rather than stopping short.
+//
+//   IT IS A WHOLE NUMBER OF PANELS. A fence is built out of panels of a fixed
+//   length and a run that is not a multiple of one either gets a cut panel or
+//   gets stretched. Quantised to the panel from the previous corner.
+//
+//   IT IS SQUARE. Forty five degree steps, because the camera is isometric and
+//   everything else in the scene is on those axes; a fence a degree and a half
+//   off square is visible immediately and is almost never meant.
+//
+// ALL THREE ARE ESCAPABLE with alt held, and all three SHOW: the point that the
+// click will use is ringed on the floor, and when it has attached to something
+// the thing it attached to is ringed too.
+//
+// The radii are in WORLD units and not in pixels on purpose. The camera now
+// zooms from three units to the whole arena, so a snap measured on screen would
+// be a grab of half the level at one end of that range and unusable at the
+// other.
+const SNAP_END = 1.0;      // to the end of a run that is already there
+const SNAP_WALL = 0.9;     // onto the perimeter's own line
+const SNAP_ANGLE = Math.PI / 4;
+
+// Every corner a run could attach to.
+function fenceAnchors() {
+  const out = [];
+  for (const f of doc.fences) {
+    for (const [x, z] of f.points) out.push({ x, z, id: f.id });
+  }
+  for (const [x, z] of doc.wall.points) out.push({ x, z, id: 'wall' });
+  return out;
+}
+
+// Where the next click would actually put a point.
+function fenceSnap(x, z, free = false) {
+  if (free) return { x, z, to: null };
+
+  let best = null;
+  for (const a of fenceAnchors()) {
+    const d = Math.hypot(a.x - x, a.z - z);
+    if (d < SNAP_END && (!best || d < best.d)) best = { d, a };
+  }
+  if (best) return { x: best.a.x, z: best.a.z, to: best.a };
+
+  // The perimeter's own line, so a run that reaches the boundary meets it.
+  const onWall = wallDistanceTo(doc.wall.points, x, z);
+  if (onWall.away < SNAP_WALL) {
+    const p = wallPointAt(doc.wall.points, onWall.at);
+    return { x: p.x, z: p.z, to: { x: p.x, z: p.z, id: 'wall' } };
+  }
+
+  const prev = pendingLastPoint();
+  if (!prev) return { x: snapped(x), z: snapped(z), to: null };
+
+  // Square and a whole number of panels, from the corner before it.
+  const panel = world ? world.PANEL : 2;
+  const dx = x - prev.x;
+  const dz = z - prev.z;
+  const angle = Math.round(Math.atan2(dz, dx) / SNAP_ANGLE) * SNAP_ANGLE;
+  const len = Math.max(panel, Math.round(Math.hypot(dx, dz) / panel) * panel);
+  return { x: prev.x + Math.cos(angle) * len, z: prev.z + Math.sin(angle) * len, to: null };
+}
+
+function pendingLastPoint() {
+  if (!pending) return null;
+  const r = recordOf(pending.id);
+  if (!r || !r.points.length) return null;
+  const [x, z] = r.points[r.points.length - 1];
+  return { x, z };
+}
+
+// THE SEGMENT ABOUT TO BE COMMITTED, green or red, on the same rules and
+// through the same function as the drop that follows it.
+function fencePreview(x, z, free = false) {
+  if (!world) return null;
+  const at = fenceSnap(x, z, free);
+  const prev = pendingLastPoint();
+  if (!prev) {
+    const b = world.bounds;
+    const inside = at.x >= b.minX && at.x <= b.maxX && at.z >= b.minZ && at.z <= b.maxZ;
+    return { at, ok: inside, why: inside ? '' : 'outside the wall', a: null };
+  }
+  // Its own run is ignored, or every corner would read as crossing the
+  // segment that ends on it.
+  const check = segmentCheck(world, prev, at, { ignore: pending ? pending.id : null });
+  return { ...check, at, a: prev };
+}
+
 function paintAt(x, z, erase) {
   const g = doc.ground;
   const c = cells();
@@ -720,19 +838,23 @@ canvas.addEventListener('pointerdown', (e) => {
   if (tool === 'wall') { commitIf(() => paintWallSection(at.x, at.z)); return; }
 
   if (tool === 'fence') {
-    commit(() => {
+    const look = fencePreview(at.x, at.z, e.altKey);
+    if (!look.ok) { say(`the fence cannot go there: ${look.why}`); return; }
+    commitIf(() => {
       if (!pending) {
-        const f = { id: freshId('f'), points: [[snapped(at.x), snapped(at.z)]], closed: false, gates: [] };
+        const f = { id: freshId('f'), points: [[look.at.x, look.at.z]], closed: false, gates: [] };
         doc.fences.push(f);
         pending = { kind: 'fence', id: f.id };
+        say('click the next corner. Enter finishes the run, c closes it into a pen.');
       } else {
         // An undo mid-draw can take the run out from under `pending`, so the
         // record is looked up rather than assumed. Losing the run is a
         // nuisance; throwing here would lose the session.
         const rec = recordOf(pending.id);
-        if (rec) rec.points.push([snapped(at.x), snapped(at.z)]);
+        if (rec) rec.points.push([look.at.x, look.at.z]);
         else pending = null;
       }
+      return true;
     });
     return;
   }
@@ -770,9 +892,7 @@ canvas.addEventListener('pointermove', (e) => {
     // changed, so nothing is rebuilt and nothing is revalidated -- the
     // placement check is a millisecond and a half against the world that is
     // already built, which is what makes it affordable per pointer move.
-    if (world && (tool === 'paint' || tool === 'place' || tool === 'wall')) {
-      scene.overlayOnly(world, doc, overlayOpts({ wedges: review.stale ? [] : review.wedges }));
-    }
+    if (tool === 'paint' || tool === 'place' || tool === 'wall' || tool === 'fence') redrawOverlay();
     return;
   }
 
@@ -879,6 +999,10 @@ function finishPending(close) {
 // --- keys --------------------------------------------------------------------------
 
 let spaceDown = false;
+// ALT IS THE ESCAPE FROM SNAPPING, tracked rather than read off the event,
+// because the fence preview is drawn from a pointer move and has to know
+// whether the key is down at that moment. Pressing or releasing it redraws.
+let altDown = false;
 // V is select, the one mode. B is "the prop I last picked", because the palette
 // is long and going back to it for the same headstone twice is a waste of a
 // hand. Every other letter picks an ENTRY out of the one list -- see
@@ -888,6 +1012,7 @@ window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
   const k = e.key.toLowerCase();
   if (e.code === 'Space') { spaceDown = true; e.preventDefault(); return; }
+  if (e.key === 'Alt' && !altDown) { altDown = true; redrawOverlay(); return; }
 
   if ((e.ctrlKey || e.metaKey) && k === 'z') {
     e.preventDefault();
@@ -940,7 +1065,12 @@ window.addEventListener('keydown', (e) => {
   const entry = entryForKey(k);
   if (entry) { pick(entry); return; }
 });
-window.addEventListener('keyup', (e) => { if (e.code === 'Space') spaceDown = false; });
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') spaceDown = false;
+  if (e.key === 'Alt' && altDown) { altDown = false; redrawOverlay(); }
+});
+// The window can lose the keyboard with alt still held.
+window.addEventListener('blur', () => { spaceDown = false; if (altDown) { altDown = false; redrawOverlay(); } });
 
 // --- files -------------------------------------------------------------------------
 
@@ -1000,6 +1130,16 @@ function playLevel() {
 // The check that stands between a level and a player, whichever door it is
 // going out of. Both saving and playing run it, because the two answer the
 // same question: is this level one somebody can finish?
+// The three doors a level can go out of, and what to call each one in the
+// sentence the guard writes. A table rather than a ternary, because there were
+// two doors and now there are three and the next one should not have to touch
+// the grammar.
+const VERBS = {
+  play: ['Play', 'played'],
+  save: ['Save', 'saved'],
+  publish: ['Publish', 'published'],
+};
+
 function guardPasses(verb) {
   let blocking = collectBlocking();
   if (review.stale || fair.stale) {
@@ -1013,16 +1153,27 @@ function guardPasses(verb) {
     blocking = collectBlocking();
   }
   if (!blocking.length) return true;
+  const [asked, done] = VERBS[verb] || VERBS.save;
   const ok = confirm(
     `This level is not playable:\n\n  ${blocking.slice(0, 6).join('\n  ')}\n\n`
-    + `${verb === 'play' ? 'Play' : 'Save'} it anyway?`,
+    + `${asked} it anyway?`,
   );
   if (!ok) {
-    say(`not ${verb === 'play' ? 'played' : 'saved'}: ${blocking.length} problem${blocking.length === 1 ? '' : 's'} to fix first`);
+    say(`not ${done}: ${blocking.length} problem${blocking.length === 1 ? '' : 's'} to fix first`);
     return false;
   }
   return true;
 }
+
+// PUBLISH, beside save. A file is how a level is KEPT: it is committed, it
+// ships, it survives the database being turned off, and none of that changes.
+// This is how a level is SENT: it goes to the levels table and comes back as a
+// short URL somebody else can play. Same guard, same document, different door.
+const publishLevel = createPublishAction({
+  getDoc: () => doc,
+  guard: guardPasses,
+  say,
+});
 
 function saveFile({ anyway = false } = {}) {
   // NOT A QUIET SAVE. The generator used to be the last thing between a broken
@@ -1624,6 +1775,14 @@ function drawRight() {
         el('button', { class: 'grow', text: 'open', onclick: pickFile }),
       ]),
       el('div', { class: 'row' }, [
+        el('button', {
+          class: 'grow',
+          text: 'publish',
+          title: 'Put this level online and get a short link for it. The file on disk is still how a level is kept; this is how it gets sent to somebody.',
+          onclick: publishLevel,
+        }),
+      ]),
+      el('div', { class: 'row' }, [
         el('button', { class: 'grow', text: 'undo', title: 'ctrl+z', onclick: undo, disabled: undoStack.length ? null : '' }),
         el('button', { class: 'grow', text: 'redo', title: 'ctrl+shift+z', onclick: redo, disabled: redoStack.length ? null : '' }),
         // THE FRONT DOOR. Every level starts here now, so what it gives has to
@@ -1926,6 +2085,7 @@ const KEYS_OPEN = 'graveyard-editor/keys/v1';
 hintEl.innerHTML = [
   'selected: drag the middle to move, drag the ring to turn',
   'or <b>drag</b> to move, <b>alt</b>-drag to turn, <b>shift</b> to snap, <b>[ ]</b> to nudge',
+  'a fence snaps to what is already there, to square, and to whole panels: <b>alt</b> frees it',
   '<b>space</b> or middle drag pans · <b>wheel</b> zooms · <b>tab</b> swaps camera and plan',
   'runs: click points, <b>enter</b> finishes, <b>c</b> closes · <b>ctrl+z</b> undo · <b>ctrl+s</b> save',
 ].join('\n');
@@ -1990,6 +2150,7 @@ window.__editor = {
   select(id) { selection.clear(); if (id) selection.add(id); refresh(); },
   // How many palette pictures exist, and whether a batch is running. A harness
   // waits on these rather than on a timer.
+  fencePreview: (x, z, free) => fencePreview(x, z, free),
   thumbsDrawn: () => thumbs.size,
   thumbsBusy: () => drawing.size,
   scene,

@@ -602,7 +602,7 @@ export function createEditorScene({ canvas }) {
 
   function syncOverlay(world, doc, {
     selection = new Set(), flagged = new Set(), hover = null, brush = null, wedges = [],
-    gizmo = null, ghost = null, wallHover = null, wallMarks = [],
+    gizmo = null, ghost = null, wallHover = null, wallMarks = [], fence = null,
   } = {}) {
     clearOverlay();
     const d = world._derived;
@@ -728,6 +728,36 @@ export function createEditorScene({ canvas }) {
       const kz = gizmo.z + Math.cos(gizmo.yaw) * gizmo.ring;
       overlay.add(ringOf(kx, kz, gizmo.knob, 0x1f6fe0, 1));
       overlay.add(ringOf(kx, kz, gizmo.knob * 0.55, 0x1f6fe0, 1));
+    }
+
+    // THE FENCE ABOUT TO BE DRAWN. The line from the last corner to where the
+    // click will land, green when it can be built and red when it cannot, and
+    // a ring on whatever it has attached itself to. This is the same indicator
+    // the props have; a run used to be drawn only after each click, so an
+    // author found out whether a segment was allowed by committing it.
+    if (fence) {
+      const colour = fence.ok ? 0x2f9e5f : 0xd23b3b;
+      if (fence.a) {
+        overlay.add(lineOf([[fence.a.x, fence.a.z], [fence.at.x, fence.at.z]], colour, 1));
+        // The panels it would be built out of, ticked along it, so a run that
+        // is a whole number of them looks like one before it is committed.
+        const dx = fence.at.x - fence.a.x;
+        const dz = fence.at.z - fence.a.z;
+        const len = Math.hypot(dx, dz);
+        for (let d = 2; d < len - 0.01; d += 2) {
+          const t = d / len;
+          const px = fence.a.x + dx * t;
+          const pz = fence.a.z + dz * t;
+          overlay.add(ringOf(px, pz, 0.1, colour, 0.7));
+        }
+      }
+      overlay.add(ringOf(fence.at.x, fence.at.z, 0.22, colour, 1));
+      // What it attached to, so the snap is a thing you can see happening.
+      if (fence.to) overlay.add(ringOf(fence.to.x, fence.to.z, 0.5, 0xf0902a, 0.9));
+      if (!fence.ok) {
+        overlay.add(lineOf([[fence.at.x - 0.3, fence.at.z - 0.3], [fence.at.x + 0.3, fence.at.z + 0.3]], colour, 1));
+        overlay.add(lineOf([[fence.at.x - 0.3, fence.at.z + 0.3], [fence.at.x + 0.3, fence.at.z - 0.3]], colour, 1));
+      }
     }
 
     if (hover) overlay.add(ringOf(hover.x, hover.z, 0.2, 0x2f3542, 0.5));

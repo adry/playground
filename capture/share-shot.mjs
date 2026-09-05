@@ -5,50 +5,93 @@
 //   node capture/share-shot.mjs --seed 3 --card 1     also writes the static
 //                                                     unfurl card
 //
-// Nothing here fakes a game over: the ghost wanders badly, the skeletons catch
-// it three times, and the image comes out of the ring buffer that was filling
-// the whole time. The only thing the script does that a player does not is read
-// window.__share instead of clicking a link.
+// Nothing here fakes a game over: a driver plays badly, the skeletons catch the
+// ghost three times, and the image comes out of the ring buffer that was
+// filling the whole time. The only thing the script does that a player does not
+// is read window.__share instead of clicking a link.
+//
+// TWO RESOLUTIONS, and the reason is the software rasteriser. Every frame in a
+// headless container is drawn on the CPU, so playing a whole run out at the
+// size the picture wants costs many minutes of wall clock for frames that are
+// thrown away. So the run is played at --small, and the canvas is grown to
+// --w/--h for the last stretch, which is exactly the stretch the ring keeps.
+// The recorder measures the canvas on every sample and resizes its slots to
+// suit, so the escalation costs nothing and is the same code path a player
+// resizing their window takes.
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { openLab, grabPNG, parseArgs } from './session.mjs';
 
 const a = parseArgs(process.argv.slice(2));
-// Bigger than the game's own window on purpose. The crop keeps just over half
-// the frame height, so the source needs about twice the output's pixels for the
-// picture to be a downsample rather than an upscale. A real browser gets this
-// free from a device pixel ratio of 2.
+// The picture keeps just over half the frame height, so the source wants about
+// twice the output's pixels for the crop to be a downsample rather than a
+// stretch. A real browser gets that free from a device pixel ratio of 2.
 const width = Number(a.w || 1920);
 const height = Number(a.h || 1440);
+const small = Number(a.small || 640);
 const outDir = a.out || 'out/share';
-const maxSeconds = Number(a.max || 240);
+const maxSeconds = Number(a.max || 300);
 
 const lab = await openLab({
   width, height, entry: '/lab/',
   query: `game=1&test=1&seed=${a.seed || 3}&view=${a.view || 9}`,
   readyFlag: '__gameReady', verbose: !!a.verbose,
 });
-await lab.page.evaluate((o) => window.__game.setSize(o.w, o.h), { w: width, h: height });
 await mkdir(outDir, { recursive: true });
+const setSize = (w, h) => lab.page.evaluate((o) => window.__game.setSize(o.w, o.h), { w, h });
+await setSize(small, Math.round(small * height / width));
 
-// A bad player. The stick swings on a slow irrational period so the ghost keeps
-// moving and keeps turning, which is what makes the frames worth keeping, and
-// it never runs away, which is what makes the run end.
-const DT = 1 / 60;
+// The driver. A player who walks INTO the thing chasing them, which is the
+// fastest honest way to the third death, except on the last life, where it
+// runs across the skeleton's path instead so the frames the ring keeps are a
+// chase rather than a head-on collision.
+const DT = 1 / 30;
 let t = 0;
 let over = false;
+let big = false;
 while (t < maxSeconds && !over) {
-  over = await lab.page.evaluate((o) => {
-    for (let i = 0; i < 30; i++) {
-      const s = o.t + i * o.dt;
-      window.__game.step(o.dt, { x: Math.cos(s * 0.9), y: Math.sin(s * 0.61) });
+  const res = await lab.page.evaluate((o) => {
+    const foeOf = (st) => {
+      let best = null;
+      let bd = Infinity;
+      for (const s of st.skeletons) {
+        if (s.state !== 'hunting' && s.state !== 'leaving') continue;
+        const d = Math.hypot(s.x - st.ghost.x, s.z - st.ghost.z);
+        if (d < bd) { bd = d; best = s; }
+      }
+      return best;
+    };
+    for (let i = 0; i < 15; i++) {
+      const st = window.__game.state();
+      const foe = foeOf(st);
+      let axis = { x: Math.cos((o.t + i * o.dt) * 0.9), y: Math.sin((o.t + i * o.dt) * 0.61) };
+      if (foe) {
+        const dx = foe.x - st.ghost.x;
+        const dz = foe.z - st.ghost.z;
+        const L = Math.hypot(dx, dz) || 1;
+        // Straight at it while there are lives to spend; on the last one, 70
+        // degrees off, which closes slowly and photographs.
+        const turn = st.lives <= 1 ? 1.22 : 0;
+        const c = Math.cos(turn);
+        const s = Math.sin(turn);
+        axis = { x: (dx * c - dz * s) / L, y: (dx * s + dz * c) / L };
+      }
+      window.__game.step(o.dt, axis);
     }
-    return window.__game.run().over;
+    const r = window.__game.run();
+    return { over: r.over, lives: window.__game.state().lives, score: r.score, flies: r.fireflies };
   }, { t, dt: DT });
-  t += 30 * DT;
-  if (Math.round(t) % 20 === 0) {
-    const r = await lab.page.evaluate(() => window.__game.run());
-    console.log(`  t=${t.toFixed(0)}s score=${r.score} fireflies=${r.fireflies} lives=${r.lives}`);
+  t += 15 * DT;
+  over = res.over;
+  // The last life is the one that gets photographed, so that is where the
+  // pixels go.
+  if (!big && res.lives <= 1) {
+    await setSize(width, height);
+    big = true;
+    console.log(`  t=${t.toFixed(0)}s last life, canvas up to ${width}x${height}`);
+  }
+  if (Math.abs(t % 10) < 1e-9) {
+    console.log(`  t=${t.toFixed(0)}s lives=${res.lives} score=${res.score} fireflies=${res.flies}`);
   }
 }
 if (!over) { console.log('run did not end inside --max seconds'); await lab.close(); process.exit(1); }
@@ -58,51 +101,54 @@ console.log('over:', JSON.stringify(run));
 
 // The card builds its image asynchronously, because canvas.toBlob is async and
 // the whole point is that the blob is ready before anybody clicks.
-await lab.page.waitForFunction(() => window.__share && window.__share.dataUrl, null, { timeout: 60000 });
+await lab.page.waitForFunction(() => window.__share && window.__share.dataUrl, null, { timeout: 120000 });
 const shot = await lab.page.evaluate(() => window.__share.dataUrl);
 const png = Buffer.from(shot.slice(shot.indexOf(',') + 1), 'base64');
 const file = path.join(outDir, `graveyard-${run.score}.png`);
 await writeFile(file, png);
-console.log(file, png.length, 'bytes');
+const dims = await lab.page.evaluate(() => {
+  const i = new Image();
+  i.src = window.__share.dataUrl;
+  return i.decode().then(() => [i.naturalWidth, i.naturalHeight]);
+});
+console.log(file, png.length, 'bytes', dims.join('x'), 'canShare(files):', await lab.page.evaluate(() => window.__share.files));
 
-// What the end card itself looks like with the picture in it, so the card and
-// the picture can be judged together.
+// The end card itself with the picture in it, so the card and the picture can
+// be judged together.
 await writeFile(path.join(outDir, 'card.png'), await lab.page.screenshot({ fullPage: false }));
-console.log(path.join(outDir, 'card.png'));
 
-// The still the raw canvas would have given instead, for comparison. This is
-// the thing the feature exists not to post.
+// The still a raw canvas grab would have given instead. This is the thing the
+// feature exists in order not to post.
 await writeFile(path.join(outDir, 'raw-canvas.png'), await grabPNG(lab.page));
+console.log(path.join(outDir, 'card.png'), path.join(outDir, 'raw-canvas.png'));
 
 // The static unfurl card: the same composition with the run's own facts taken
-// out, cropped to the 1.91:1 that X gives a link preview. One picture for the
-// whole site, which is all route 2 can ever be without a server generating one
-// per run.
+// out, cropped to the 1.91:1 X gives a link preview. One picture for the whole
+// site, which is all route 2 can ever be without a server rendering one per run.
 if (a.card) {
   const dataUrl = await lab.page.evaluate(() => {
     const frame = window.__share.pick();
-    const big = window.__share.compose({
+    const big2 = window.__share.compose({
       frame: frame && frame.canvas,
       caption: {
-        badge: 'GRAVEYARD',
+        badge: null,
         headline: 'Sweep the graveyard before the dead find you.',
         subline: 'One skeleton at first. Five once you are any good at it.',
         stats: null,
       },
     });
-    // 1200x628 is X's link card. Taken out of the middle of the 16:9 so the
-    // caption panel survives the crop.
     const c = document.createElement('canvas');
     c.width = 1200; c.height = 628;
     const g = c.getContext('2d');
     g.imageSmoothingQuality = 'high';
+    // Taken out of the middle of the 16:9, so the caption panel survives.
     const sh = Math.round(1600 * 628 / 1200);
-    g.drawImage(big, 0, Math.round((900 - sh) / 2), 1600, sh, 0, 0, 1200, 628);
+    g.drawImage(big2, 0, Math.round((900 - sh) / 2), 1600, sh, 0, 0, 1200, 628);
     return c.toDataURL('image/png');
   });
   const buf = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
   await writeFile('public/share-card.png', buf);
-  console.log('public/share-card.png', buf.length, 'bytes');
+  console.log('public/share-card.png', buf.length, 'bytes 1200x628');
 }
 
 await lab.close();

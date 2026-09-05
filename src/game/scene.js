@@ -51,6 +51,12 @@ import { createGame, TUNING } from './rules.js';
 import {
   loadBoard, submitScore, shareUrl, shareText,
 } from './run.js';
+// THE SHARED BOARD AND THE PUBLISHED LEVELS, both of them additive and both of
+// them allowed to be missing. isLevelSlug is the rule that tells a published
+// level's code from a file URL; see src/net/supabase.js, which owns both ends
+// of it. Nothing in either import is on the path of a game that has no network.
+import { isLevelSlug, fetchPublishedDoc } from '../net/supabase.js';
+import * as boards from '../net/leaderboard.js';
 import { createShareRecorder } from './share.js';
 import { createTombstone } from '../ghost/props/stones/index.js';
 import { createPumpkin } from '../ghost/props/pumpkin.js';
@@ -60,6 +66,7 @@ import { createSkeletonRig } from '../ghost/props/skeleton/model.js';
 import { createSkeletonPerformance } from '../ghost/props/skeleton/perform.js';
 import { createGraveHole } from '../ghost/props/ground/hole.js';
 import { createPropCache, createPropField } from '../ghost/props/instancing.js';
+import { createFrameHud } from './frame-hud.js';
 
 const D = Math.PI / 180;
 
@@ -77,6 +84,11 @@ function hashKey(str) {
 export async function startGame({ canvas, params }) {
   const seed = Number(params.get('seed')) || 1;
   const testMode = params.get('test') === '1';
+  // Frame-time readout. Off unless asked for, and F2 toggles it at any time.
+  const fperf = createFrameHud({
+    enabled: params.get('perf') === '1',
+    buckets: ['sim', 'skels', 'bake', 'props', 'render'],
+  });
 
   // --- the level -------------------------------------------------------------
   //
@@ -126,7 +138,16 @@ export async function startGame({ canvas, params }) {
     // silently got a different one is worse off than somebody who got nothing.
     let first;
     try {
-      first = await format.loadLevelFrom(levelUrl);
+      // A PUBLISHED LEVEL IS A CODE, NOT A URL. `level=k3f9qz2mrt` is ten
+      // characters somebody was sent; `level=/levels/demo.json` is a file and
+      // `level=session` is the editor's own token. isLevelSlug is the whole of
+      // the distinction and it cannot be ambiguous: a code has no slash, no dot
+      // and no colon, and every URL has at least one of the three. The document
+      // that comes back goes through exactly the same normalise-and-build as one
+      // read off disk, so nothing downstream can tell where a level came from.
+      first = isLevelSlug(levelUrl)
+        ? format.createLevelWorld(format.normalizeLevel(await fetchPublishedDoc(levelUrl)))
+        : await format.loadLevelFrom(levelUrl);
     } catch (err) {
       const card = document.createElement('div');
       card.className = 'card';
@@ -754,8 +775,11 @@ export async function startGame({ canvas, params }) {
     ghost.pos.set(layout.spawn.x, ghost.pos.y, layout.spawn.z);
     ghost.vel.set(0, 0, 0);
     // The sheet has to be told, or it stretches across the whole graveyard from
-    // wherever the last maze left it.
-    ghost.cloth.reset(ghost.matrix);
+    // wherever the last maze left it. resetCloth rebuilds the body matrix
+    // first: ghost.matrix still describes the PREVIOUS spawn at this point, and
+    // resetting against it was pinning the sheet there and dragging it across
+    // the arena over the next six frames.
+    ghost.resetCloth();
     camTarget.set(layout.spawn.x, 0.75, layout.spawn.z);
     placeCamera();
   }
@@ -851,6 +875,17 @@ export async function startGame({ canvas, params }) {
     // anchor above still works exactly as it did if it fails.
     shots.attach(share, { run: { ...run, duration: Math.round(run.time) }, best: place === 1 });
 
+    // THE SHARED BOARD, and the score going to it. Additive in the same way and
+    // for the same reason: the card above is finished and about to be shown,
+    // this returns at once, and everything it does happens into a card that is
+    // already on screen. With no network it draws nothing at all and the card
+    // is exactly the card it was before. A run on a published level carries its
+    // code, so that level gets a board of its own as well as the global one.
+    boards.attach(card, {
+      run: { score: run.score, fireflies: run.fireflies, seconds: Math.round(run.time) },
+      levelSlug: isLevelSlug(levelUrl) ? levelUrl : null,
+    });
+
     card.hidden = false;
   }
 
@@ -912,6 +947,7 @@ export async function startGame({ canvas, params }) {
 
     ghost.update(dt, axis);
     placeGhost(st);
+    fperf.mark();
 
     for (let i = 0; i < st.skeletons.length; i++) {
       const s = st.skeletons[i];
@@ -939,6 +975,7 @@ export async function startGame({ canvas, params }) {
       r.set({ x: s.x, z: s.z, yaw: s.yaw, dist: Math.hypot(s.x - st.ghost.x, s.z - st.ghost.z) });
       r.perf.update(dt, null);
     }
+    fperf.mark();
 
     // The cue list. The rules never touch a mesh, so this is the only place a
     // firefly is told it has been eaten, and the only place the run's totals
@@ -955,6 +992,7 @@ export async function startGame({ canvas, params }) {
     // Any prop template this wave still owes. Costs nothing once the level is
     // complete, which after the first wave transition is almost always.
     if (world.field?.pending) world.field.pump(BAKE_BUDGET_MS);
+    fperf.mark();
 
     world.flies.update(time, dt);
     // An authored level's own props: the fountain's water, a lantern's flame.
@@ -962,6 +1000,7 @@ export async function startGame({ canvas, params }) {
     for (const a of world.animated) a.update(time, dt);
     follow(dt);
     drawHud(st);
+    fperf.mark();
 
     // --- the endless part ----------------------------------------------------
     // Both of these are read off `state`, never worked out here. A maze is
@@ -979,10 +1018,12 @@ export async function startGame({ canvas, params }) {
   function frame(now) {
     requestAnimationFrame(frame);
     if (!live) return;
+    fperf.frameStart(now);
     const dt = Math.min((now - last) / 1000, 1 / 20);
     last = now;
     advance(dt);
     renderer.render(scene, camera);
+    fperf.frameEnd();
   }
   requestAnimationFrame(frame);
 
@@ -993,8 +1034,10 @@ export async function startGame({ canvas, params }) {
     step(dt = 1 / 60, axis = null) {
       live = false;
       scripted = axis;
+      fperf.frameStart(performance.now());
       advance(dt);
       renderer.render(scene, camera);
+      fperf.frameEnd();
     },
     state: () => game.state,
     run: () => ({ ...run }),
@@ -1028,6 +1071,11 @@ export async function startGame({ canvas, params }) {
     pending: () => world?.field?.pending ?? 0,
     // The named buckets buildWorld parents its work under.
     buckets: () => world?.buckets || {},
+    // Frame times, hitch counts and where the worst frame went. The same
+    // numbers the on-screen readout shows, for a headless probe to read.
+    frames: () => fperf.stats(),
+    resetFrames: () => fperf.reset(),
+    showFrames: (on) => fperf.show(on),
   };
   window.__gameReady = true;
 }

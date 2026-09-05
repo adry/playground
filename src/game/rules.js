@@ -269,11 +269,22 @@ export const TUNING = {
   //                is the owner's "but not all the time".
   //   spawnPeriod  and readiness is time since the last one came up, over
   //                this. So the chance is ZERO immediately after a spawn and
-  //                climbs back to spawnChance over nine seconds. That is the
-  //                answer to "the probability should not be flat": a flat
-  //                chance lets an unlucky player walk past three stones in two
-  //                seconds and meet three skeletons, which is a death nobody
-  //                could have played around.
+  //                climbs back over six seconds. That is half the answer to
+  //                "the probability should not be flat": a flat chance lets an
+  //                unlucky player walk past three stones in two seconds and
+  //                meet three skeletons, which is a death nobody could have
+  //                played around.
+  //
+  // THE OTHER HALF IS PRESSURE, and it is what makes "gradually more" actually
+  // happen. The roll is also multiplied by how far the herd is BELOW its
+  // allowance, (cap - up) / cap. At the start, where the cap is one and one is
+  // up, that is zero and no stone produces anything: the opening is a single
+  // skeleton and the stones are quiet, which is the right first minute. As the
+  // cap climbs the pressure opens up, and as the herd fills toward the cap it
+  // closes again, so the population converges on the allowance instead of
+  // wandering below it. Without this the measured mean was 1.75 up against a
+  // cap of five and the ramp the owner asked for did not exist: retirement was
+  // outrunning a flat roll.
   //   spawnQuiet   and a stone that has just produced one is quiet for this
   //                long, so pacing back and forth past one stone does not
   //                farm it.
@@ -293,12 +304,12 @@ export const TUNING = {
   // rather than a description of the late game.
   skelMax: 5,
   skelPerFly: 6,
-  spawnRange: 5.0,
+  spawnRange: 6.5,
   spawnMin: 2.0,
-  spawnChance: 0.55,
-  spawnPeriod: 9.0,
+  spawnChance: 0.85,
+  spawnPeriod: 4.5,
   spawnQuiet: 12.0,
-  retireAfter: 34.0,
+  retireAfter: 45.0,
 
   // --- scoring --------------------------------------------------------------
   fireflyScore: 100,
@@ -753,7 +764,8 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
       if (herd.liveCount() >= state.skeletonCap) continue;
       if ((quiet.get(m.id) ?? -1e9) > state.time) continue;
       const readiness = Math.min(1, Math.max(0, (state.time - lastSpawn) / T.spawnPeriod));
-      if (rng() < T.spawnChance * readiness) wakeAt(m);
+      const pressure = Math.max(0, (state.skeletonCap - herd.liveCount()) / state.skeletonCap);
+      if (rng() < T.spawnChance * readiness * pressure) wakeAt(m);
     }
     inRing.clear();
     for (const id of now) inRing.add(id);

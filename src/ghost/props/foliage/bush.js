@@ -388,7 +388,13 @@ function clippedBush(kind, rand) {
   bakeFoliageTint(massGeo, { top, floor: 0.42, ceil: 0.78, down: 0.72, rand });
   bakeFoliageTint(napGeo, { top, floor: 0.58, ceil: 1.18, down: 0.62, root: 0.38, spread: 0.22, rand });
 
-  // The wind, and this is the single easiest way to lose the trimmed read.
+  // The wind. OFF in the shipped scene, and these numbers are what it does
+  // when something switches it on: see setWindEnabled in wind.js, which every
+  // plant reads at build time. They are kept rather than deleted because the
+  // hard part of a clipped plant's wind is not the machinery, it is the
+  // amplitude, and the amplitude is what was worked out here.
+  //
+  // It is the single easiest way to lose the trimmed read.
   // Clipped topiary that sways like a shrub is not clipped, so the mass barely
   // moves. Two numbers do it. The stiffness power goes to 2.6 from the wild
   // bush's 1.8, so a vertex at half the height moves 0.16 of what the crown

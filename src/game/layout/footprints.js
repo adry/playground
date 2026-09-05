@@ -170,7 +170,7 @@ export const MISC = {
 // A caller that names no variant gets the ball, which is what a level written
 // before the topiary existed is holding when it says `bush`.
 export const BUSHES = {
-  ball: { shape: 'disc', r: 0.482, height: 0.775 },
+  ball: { shape: 'disc', r: 0.600, height: 0.813 },
   cone: { shape: 'disc', r: 0.405, height: 1.270 },
   box: { shape: 'box', halfU: 0.450, halfV: 0.436, height: 0.809 },
   wild: { shape: 'disc', r: 0.576, height: 0.760 },

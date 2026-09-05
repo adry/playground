@@ -109,7 +109,11 @@ export function isBest(score) {
 //
 // The four skeletons are named for what they do, and which one ended the run is
 // the single most characterful fact available, so it goes first when we have it.
-const CAUGHT_BY = {
+// Exported because the share PICTURE wants the clause on its own. Its caption
+// panel states the duration as a stat, so a headline reading "... after 3.5
+// minutes" beside a stat reading "LASTED 3.5m" says the same thing twice. See
+// src/game/share.js, which takes the clause and leaves the sentence.
+export const CAUGHT_BY = {
   chaser: 'The chaser ran me down',
   ambusher: 'The ambusher was waiting for me',
   flanker: 'The flanker cut me off',

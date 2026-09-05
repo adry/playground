@@ -73,7 +73,7 @@
 // no longer standing between a hand-made level and the player, this IS the
 // fairness guarantee.
 
-import { BODY, propRecord, graveProps } from './format.js';
+import { BODY, propRecord, graveProps, segmentsCross } from './format.js';
 import { spawnZones, spawnFault, SPAWN_FLOOR } from '../world/spawn.js';
 import { isSolid } from './catalogue.js';
 import {
@@ -583,6 +583,55 @@ export function reviewLevel(world) {
 export function placementProps(entry) {
   if (entry.grave) return graveProps({ id: 'new', ...entry.grave });
   return [propRecord({ id: 'new', ...entry })];
+}
+
+// MAY THIS PIECE OF FENCE GO HERE? The same question for a line rather than a
+// thing, asked while the author is still moving the cursor and answered before
+// the click lands.
+//
+// The local questions about a segment are: is it inside the wall, does anything
+// stand in it, does it cross a fence that is already there, does it pass
+// through a gateway. Sealing a region off and making a wedge are NOT local --
+// they are properties of the whole arena and they need the flood -- so they
+// stay on the slow pass exactly as they do for a prop, and a red line here
+// never means "this would be unfair", only "this cannot be built".
+//
+// ONE RULE HERE IS STRICTER THAN THE AUDIT and it is worth naming: the audit
+// has nothing to say about two fences crossing, because the generator could
+// never produce one. Two runs through the same ground is not a matter of
+// degree, it is a thing that cannot be built, so it is refused.
+export function segmentCheck(world, a, b, { ignore = null } = {}) {
+  const half = world.BARRIER_HALF;
+  const box = world.bounds;
+  const len = Math.hypot(b.x - a.x, b.z - a.z);
+  if (len < 0.25) return { ok: false, why: 'too short to be a fence' };
+  for (const p of [a, b]) {
+    if (p.x < box.minX - 1e-6 || p.x > box.maxX + 1e-6
+      || p.z < box.minZ - 1e-6 || p.z > box.maxZ + 1e-6) {
+      return { ok: false, why: 'outside the wall' };
+    }
+  }
+  const bar = barrierPoly({ x0: a.x, z0: a.z, x1: b.x, z1: b.z, half });
+  for (const q of world.props()) {
+    // Broad phase against the segment rather than a box, because a fence is
+    // long and thin and its bounding box is mostly empty.
+    if (pointSegD(q.x, q.z, a.x, a.z, b.x, b.z) > q.radius + half + FENCE_MARGIN) continue;
+    if (gapBetween(auditShape(q), bar) < FENCE_MARGIN - 1e-6) {
+      return { ok: false, why: `the ${q.kind} is in the way` };
+    }
+  }
+  for (const s of world.barriers()) {
+    if (ignore && s.run === ignore) continue;
+    if (segmentsCross(a.x, a.z, b.x, b.z, s.x0, s.z0, s.x1, s.z1)) {
+      return { ok: false, why: s.kind === 'wall' ? 'it goes through the wall' : 'it crosses another fence' };
+    }
+  }
+  for (const g of world.gates()) {
+    if (pointSegD(g.sweep.x, g.sweep.z, a.x, a.z, b.x, b.z) < g.sweep.r) {
+      return { ok: false, why: 'it goes through a gateway' };
+    }
+  }
+  return { ok: true, why: '' };
 }
 
 export function placementCheck(world, cands) {
