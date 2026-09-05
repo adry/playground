@@ -75,7 +75,12 @@ for (const variant of BUSH_VARIANTS) {
   // layer is scattered, so the widest of two seeds is a noticeably softer
   // bound than the widest of six. The box variant is measured as a box: it
   // has faces, and a circumscribed circle round a square is 41% too big.
-  add(`bush/${variant}`, variant === 'box' ? 'box' : 'disc',
+  // The box and the two hedge segments have faces and are measured as boxes.
+  // A hedge is 1.0 by 0.6, and a circle round that is 58% wider than the thing
+  // it is meant to bound, which for a prop whose whole purpose is to abut its
+  // neighbour would be absurd.
+  const boxy = variant === 'box' || variant.startsWith('hedge');
+  add(`bush/${variant}`, boxy ? 'box' : 'disc',
     measure((seed) => createBush({ seed, variant }), 6));
 }
 

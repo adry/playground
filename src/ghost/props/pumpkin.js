@@ -1958,14 +1958,7 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // the lantern read as a lantern in THIS scene's light.
   const GLOW_LAMP = { min: 0.52, max: 1.12 };   // rides the same flicker
   const glowLamp = new THREE.PointLight(
-    // AT REST, NOT AT ZERO, and the zero it used to be built at is most of why
-    // a placed pumpkin lit nothing beside it. update() is what sets this every
-    // frame, and update() is not called on a prop that has been INSTANCED: the
-    // field clones the lights and steps the template. Everything else in this
-    // file is built at the middle of its own swing so that a pumpkin nobody
-    // ever updates is a pumpkin with a steady flame rather than a broken one;
-    // this was the exception, and being the exception made it invisible.
-    new THREE.Color(PALETTE.glow), ((GLOW_LAMP.min + GLOW_LAMP.max) / 2) * sizeK,
+    new THREE.Color(PALETTE.glow), 0,
     // Far enough out that the cutoff window is not what ends the glow.
     // Inverse-square already has it down to a twentieth by two body-lengths;
     // clip it much nearer than this and the glow stops rather than fades.
@@ -1983,230 +1976,162 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // silhouette on its own, and the patch was doing what the tombstones' did:
   // painting an even dark ring on every side, including the lit one, where a
   // real shadow only lies on one. Checked by looking, patch on and patch off.
-  // Named so a CLONE of this group can be walked and the three of them found
-  // again. See attach() below: a prop that carries lights is cloned per
-  // placement by the instancing field, and nothing else in the clone is
-  // identifiable once the meshes have been flattened out of it.
-  light.name = 'jack.flame';
-  lightTarget.name = 'jack.aim';
-  glowLamp.name = 'jack.lantern';
   group.add(shell, wall, face, stem, light, lightTarget, glowLamp);
   group.scale.setScalar(scale);
 
   const lightHome = light.position.clone();
-  // The last time the flame was stepped, shared by every placement of this
-  // template: they all read the same materials off it, so the noise only has to
-  // be evaluated once a frame however many pumpkins are drawn from it.
-  let lastStep = -1;
-
-  function stepFlame(time) {
-    // A candle is mostly steady, and it is never still. Four things are going
-    // on at once here and the light only reads as a flame when all four are:
-    // a fine tremble that never stops, a slower wander breathing under it,
-    // the rare event -- a gutter that ducks hard, or a flare as the flame
-    // straightens and stands up -- and the flame physically moving while it
-    // does the rest.
-    //
-    // This is the third pass. The first swung +-0.21 about 0.84 and spent 37%
-    // of its time visibly down: a strobe. The second cut that to three small
-    // noise rates about 0.90 bottoming near 0.78, and came back as too
-    // subtle. What the second one got wrong is not its range, which is very
-    // nearly the range kept here. It is that it stood still: sampled at
-    // 60fps, 30% of its frames were within 0.002 of the frame before and 63%
-    // within 0.005, so a third of the time the light was doing nothing at
-    // all. No amount of extra amplitude fixes that -- it makes a bigger
-    // nothing with bigger jumps between.
-    //
-    // The cause is the noise itself. Smoothstep value noise has zero
-    // derivative at every lattice node, so a channel at f Hz stalls f times a
-    // second by construction and summing three of them just gives three sets
-    // of stalls that sometimes line up. Which is why the tremble below is not
-    // summed noise any more.
-    const t = time + flickerPhase;
-    const swing = (f, o) => (noise(t * f + o) - 0.5) * 2; // -1..1
-
-    // Tremble: a carrier at a flame's own flicker rate whose PHASE is dragged
-    // about by slow noise. A flame's flutter has a frequency; what wanders is
-    // where in the cycle it has got to, not whether it is happening at all.
-    // Frequency-modulated like this it never stalls and never repeats, where
-    // the bare sine underneath it would read as a hum. Two carriers, both
-    // inside the 5..15Hz band a real candle flickers in and nothing faster:
-    // at 60fps a 20Hz carrier is three frames to a period and comes out as
-    // sparkle rather than as tremble.
-    const wobble = (f, drift, o) => Math.sin(Math.PI * 2 * (t * f + noise(t * drift + o) * 4));
-    const tremble = 0.034 * wobble(7.3, 0.6, 12.4) + 0.020 * wobble(12.9, 0.9, 55.1);
-
-    // Wander: the slow breathing underneath, over a second or two. Summed
-    // noise is right for this one and its stalls are a feature here -- a lull
-    // is exactly what the slow channel is for, and the tremble is still
-    // running through it.
-    const wander = 0.048 * swing(0.79, 0) + 0.034 * swing(2.3, 17.5);
-
-    // Gutter. Only the top of a slow channel counts, so the events are
-    // separate things that happen rather than a rhythm, and squaring the ramp
-    // keeps the deep part of each one brief while its onset and recovery stay
-    // soft. Its depth wobbles on a fast channel of its own, because a flame
-    // fighting for air does not duck smoothly.
-    const g = noise(t * 0.45 + 77.3);
-    const gutter = g > 0.73 ? (g - 0.73) / 0.27 : 0;
-    const dip = gutter * gutter * (0.40 + 0.28 * noise(t * 9.3 + 5.1));
-
-    // Flare, the gutter's other half and the one that was missing: now and
-    // then the flame straightens, stands up and the whole face goes pale for
-    // a second. Built the same way off a slow channel of its own, and set
-    // rarer than the gutter, because a flame droops far more often than it
-    // draws itself up.
-    const fl = noise(t * 0.37 + 143.9);
-    const flareRamp = fl > 0.80 ? (fl - 0.80) / 0.20 : 0;
-    const flare = flareRamp * flareRamp * (0.11 + 0.07 * noise(t * 7.1 + 91.2));
-
-    // A soft ceiling rather than a clamp, and this is what lets the flare be
-    // as big as it is without undoing the carving. Clamped at 1, every flare
-    // and a good many ordinary peaks landed flat on the ceiling and sat
-    // there, which pins the plate at GLOW.max -- the one state in which the
-    // per-vertex falloff stops separating the openings and the cut walls go
-    // back to being invisible. This bends the top over instead, matching both
-    // value and slope at the knee and asymptoting above it, so a flare comes
-    // out as a peak with a shape on it and the plate never quite arrives.
-    const KNEE = 0.90;
-    const raw = 0.900 + tremble + wander + flare - dip;
-    // 0 = guttering, 1 = flaring
-    const level = raw <= KNEE
-      ? Math.max(0, raw)
-      : 1 - (1 - KNEE) * Math.exp(-(raw - KNEE) / (1 - KNEE));
-
-    // What all of that measures, over ten simulated minutes a seed at 60fps,
-    // against the pass it replaces:
-    //
-    //                          this      previous
-    //   mean level             0.876     0.877     unchanged, on purpose
-    //   spread (sd)            0.084     0.080     the range is NOT the fix
-    //   1st percentile         0.50      0.53
-    //   99th / max             0.97/0.99 0.98/1.00 no longer pinned
-    //   mean step per frame    0.0182    0.0047    four times as much motion
-    //   frames within 0.002    8.7%      30.2%     this is the fix
-    //
-    // and as events, counted with a 0.05 re-arm so the tremble is not
-    // miscounted as an event: a duck below 0.80 every 3 seconds, below 0.70
-    // every 11, a real gutter past 0.50 every 17 to 33, the deepest past 0.40
-    // every 40 to 100, and a flare over 0.96 every 4. The previous pass, on
-    // the same metric, went below 0.80 every 10 seconds and past 0.50 every
-    // 37 -- fewer events, and nothing at all happening between them.
-
-    const at = (range) => range.min + (range.max - range.min) * level;
-    light.intensity = at(LAMP) * LAMP_GAIN;
-    // The shell glows off the same flame, so it rides the same level and the
-    // same colour. Scaled with the prop rather than with the prop squared:
-    // it stands in for an area source whose area goes as sizeK^2 seen from a
-    // distance that goes as sizeK, and those two mostly cancel.
-    glowLamp.intensity = at(GLOW_LAMP) * sizeK;
-    // Lamp, carving and bloom all come off the one value: that is the whole
-    // trick. The carving's range is shallower because a real cut-out stays
-    // near saturation even as the spill on the ground drops away.
-    faceMat.emissiveIntensity = at(GLOW);
-    shellMat.emissiveIntensity = at(SKIN_GLOW);
-    wallMat.emissiveIntensity = at(WASH);
-    // A guttering flame reddens as it drops and a flaring one goes whiter, so
-    // the colour rides the same value rather than sitting at a fixed warm
-    // white. The plate has to do it too, not just the lamp: the openings are
-    // most of what is on screen, and a dip that only dims them reads as a
-    // dimmer where a dip that reddens them reads as a flame short of air.
-    //
-    // Fed the level straight, though, the mix only ever travelled the top
-    // quarter of ember..flame, because that is where the level lives. So it
-    // is levered about the level's own mean instead: the resting colour is
-    // the one this file was tuned to, to three figures, and only the
-    // excursions change -- a real gutter now runs the whole way down to ember
-    // and a flare the whole way up to flame.
-    const hue = Math.min(1, Math.max(0, HUE_MID + (level - HUE_MID) * HUE_GAIN));
-    light.color.copy(EMBER).lerp(FLAME, hue);
-    glowLamp.color.copy(light.color);
-    faceMat.emissive.copy(PLATE_EMBER).lerp(PLATE_FLAME, hue);
-
-    // The flame is an object and it moves, and this is the half of the effect
-    // that modulating intensity cannot reach. Brightening and dimming in
-    // place can only pump the pool; moving the source swings the cone, slides
-    // the gobo's projected face across the floor and changes which side of
-    // every cut wall is lit. The lamp's target is parented to the group and
-    // stays where it is, so a step sideways is also a small yaw of the cone.
-    //
-    // Taken in the flame's own frame: `across` runs along the face, `into`
-    // back through the shell. Both ride sizeK, or the tiny one's flame would
-    // be swinging a third of its own body across the inside of its shell.
-    // Across is half slow noise and half a carrier of its own, so the tip
-    // whips at about the rate the brightness trembles at instead of drifting
-    // smoothly while the light flickers.
-    const across = 0.040 * sizeK * (0.55 * swing(0.83, 5.5) + 0.45 * wobble(5.9, 0.5, 71.6));
-    const into = 0.030 * sizeK * swing(0.61, 2.7);
-    // Up on a flare, down in a gutter, and a fine bob the rest of the time: a
-    // flame that stands up is a flame reaching higher, and one starved of air
-    // sinks back into the shell. Tied to the same two events, so a gutter
-    // drops the pool nearer the pumpkin as it dims it.
-    const rise = sizeK * (0.018 * swing(1.3, 8.1) + 0.055 * flare - 0.045 * dip);
-    light.position.set(
-      lightHome.x + faceTan.x * across + faceDir.x * into,
-      lightHome.y + rise,
-      lightHome.z + faceTan.z * across + faceDir.z * into,
-    );
-  }
 
   return {
     group,
     update(time) {
-      if (time === lastStep) return;
-      lastStep = time;
-      stepFlame(time);
-    },
+      // A candle is mostly steady, and it is never still. Four things are going
+      // on at once here and the light only reads as a flame when all four are:
+      // a fine tremble that never stops, a slower wander breathing under it,
+      // the rare event -- a gutter that ducks hard, or a flare as the flame
+      // straightens and stands up -- and the flame physically moving while it
+      // does the rest.
+      //
+      // This is the third pass. The first swung +-0.21 about 0.84 and spent 37%
+      // of its time visibly down: a strobe. The second cut that to three small
+      // noise rates about 0.90 bottoming near 0.78, and came back as too
+      // subtle. What the second one got wrong is not its range, which is very
+      // nearly the range kept here. It is that it stood still: sampled at
+      // 60fps, 30% of its frames were within 0.002 of the frame before and 63%
+      // within 0.005, so a third of the time the light was doing nothing at
+      // all. No amount of extra amplitude fixes that -- it makes a bigger
+      // nothing with bigger jumps between.
+      //
+      // The cause is the noise itself. Smoothstep value noise has zero
+      // derivative at every lattice node, so a channel at f Hz stalls f times a
+      // second by construction and summing three of them just gives three sets
+      // of stalls that sometimes line up. Which is why the tremble below is not
+      // summed noise any more.
+      const t = time + flickerPhase;
+      const swing = (f, o) => (noise(t * f + o) - 0.5) * 2; // -1..1
 
-    // A PLACEMENT'S OWN LIGHTS.
-    //
-    // props/instancing.js draws a field of pumpkins as instances of ONE
-    // template and clones whatever the flatten could not swallow -- here the
-    // two lights and the spot's aim -- once per placement. Those clones are not
-    // what update() drives: update() drives the objects hanging off `group`,
-    // and `group` is the template, which is in nobody's scene. So a placement
-    // asks for an updater of its own, and this is the only code that knows how
-    // to find the three objects inside a clone of this prop.
-    //
-    // Two things it has to put right, and both of them are why an instanced
-    // pumpkin lit the wrong things:
-    //
-    //   THE AIM. three's SpotLight.copy() does `this.target =
-    //   source.target.clone()`, so a cloned spot points at a fresh detached
-    //   Object3D and NOT at the clone of the aim sitting right beside it in the
-    //   same group. Nothing ever updates a detached object's world matrix, so
-    //   it keeps the world position the template's aim had -- two units along
-    //   the face axis from the origin -- and every pumpkin in the level throws
-    //   its beams at that one point near the middle of the arena instead of out
-    //   through its own carving. Re-pointing the clone's target at the clone's
-    //   own aim is the whole fix, and it is why the aim is a named child rather
-    //   than an anonymous one.
-    //
-    //   THE FLAME. The clone's lights hold whatever values the template's held
-    //   at the moment it was cloned, for ever. They are copied across here each
-    //   frame instead, which also keeps every placement of one template in step
-    //   -- correct, since they share the emissive materials as well and two
-    //   props off one template are bit-identical by design.
-    attach(root) {
-      const spot = root.getObjectByName(light.name);
-      const aim = root.getObjectByName(lightTarget.name);
-      const lantern = root.getObjectByName(glowLamp.name);
-      if (!spot && !lantern) return null;
-      if (spot && aim) spot.target = aim;
-      return {
-        update(time) {
-          if (time !== lastStep) { lastStep = time; stepFlame(time); }
-          if (spot) {
-            spot.intensity = light.intensity;
-            spot.color.copy(light.color);
-            spot.position.copy(light.position);
-          }
-          if (lantern) {
-            lantern.intensity = glowLamp.intensity;
-            lantern.color.copy(light.color);
-          }
-        },
-      };
+      // Tremble: a carrier at a flame's own flicker rate whose PHASE is dragged
+      // about by slow noise. A flame's flutter has a frequency; what wanders is
+      // where in the cycle it has got to, not whether it is happening at all.
+      // Frequency-modulated like this it never stalls and never repeats, where
+      // the bare sine underneath it would read as a hum. Two carriers, both
+      // inside the 5..15Hz band a real candle flickers in and nothing faster:
+      // at 60fps a 20Hz carrier is three frames to a period and comes out as
+      // sparkle rather than as tremble.
+      const wobble = (f, drift, o) => Math.sin(Math.PI * 2 * (t * f + noise(t * drift + o) * 4));
+      const tremble = 0.034 * wobble(7.3, 0.6, 12.4) + 0.020 * wobble(12.9, 0.9, 55.1);
+
+      // Wander: the slow breathing underneath, over a second or two. Summed
+      // noise is right for this one and its stalls are a feature here -- a lull
+      // is exactly what the slow channel is for, and the tremble is still
+      // running through it.
+      const wander = 0.048 * swing(0.79, 0) + 0.034 * swing(2.3, 17.5);
+
+      // Gutter. Only the top of a slow channel counts, so the events are
+      // separate things that happen rather than a rhythm, and squaring the ramp
+      // keeps the deep part of each one brief while its onset and recovery stay
+      // soft. Its depth wobbles on a fast channel of its own, because a flame
+      // fighting for air does not duck smoothly.
+      const g = noise(t * 0.45 + 77.3);
+      const gutter = g > 0.73 ? (g - 0.73) / 0.27 : 0;
+      const dip = gutter * gutter * (0.40 + 0.28 * noise(t * 9.3 + 5.1));
+
+      // Flare, the gutter's other half and the one that was missing: now and
+      // then the flame straightens, stands up and the whole face goes pale for
+      // a second. Built the same way off a slow channel of its own, and set
+      // rarer than the gutter, because a flame droops far more often than it
+      // draws itself up.
+      const fl = noise(t * 0.37 + 143.9);
+      const flareRamp = fl > 0.80 ? (fl - 0.80) / 0.20 : 0;
+      const flare = flareRamp * flareRamp * (0.11 + 0.07 * noise(t * 7.1 + 91.2));
+
+      // A soft ceiling rather than a clamp, and this is what lets the flare be
+      // as big as it is without undoing the carving. Clamped at 1, every flare
+      // and a good many ordinary peaks landed flat on the ceiling and sat
+      // there, which pins the plate at GLOW.max -- the one state in which the
+      // per-vertex falloff stops separating the openings and the cut walls go
+      // back to being invisible. This bends the top over instead, matching both
+      // value and slope at the knee and asymptoting above it, so a flare comes
+      // out as a peak with a shape on it and the plate never quite arrives.
+      const KNEE = 0.90;
+      const raw = 0.900 + tremble + wander + flare - dip;
+      // 0 = guttering, 1 = flaring
+      const level = raw <= KNEE
+        ? Math.max(0, raw)
+        : 1 - (1 - KNEE) * Math.exp(-(raw - KNEE) / (1 - KNEE));
+
+      // What all of that measures, over ten simulated minutes a seed at 60fps,
+      // against the pass it replaces:
+      //
+      //                          this      previous
+      //   mean level             0.876     0.877     unchanged, on purpose
+      //   spread (sd)            0.084     0.080     the range is NOT the fix
+      //   1st percentile         0.50      0.53
+      //   99th / max             0.97/0.99 0.98/1.00 no longer pinned
+      //   mean step per frame    0.0182    0.0047    four times as much motion
+      //   frames within 0.002    8.7%      30.2%     this is the fix
+      //
+      // and as events, counted with a 0.05 re-arm so the tremble is not
+      // miscounted as an event: a duck below 0.80 every 3 seconds, below 0.70
+      // every 11, a real gutter past 0.50 every 17 to 33, the deepest past 0.40
+      // every 40 to 100, and a flare over 0.96 every 4. The previous pass, on
+      // the same metric, went below 0.80 every 10 seconds and past 0.50 every
+      // 37 -- fewer events, and nothing at all happening between them.
+
+      const at = (range) => range.min + (range.max - range.min) * level;
+      light.intensity = at(LAMP) * LAMP_GAIN;
+      // The shell glows off the same flame, so it rides the same level and the
+      // same colour. Scaled with the prop rather than with the prop squared:
+      // it stands in for an area source whose area goes as sizeK^2 seen from a
+      // distance that goes as sizeK, and those two mostly cancel.
+      glowLamp.intensity = at(GLOW_LAMP) * sizeK;
+      // Lamp, carving and bloom all come off the one value: that is the whole
+      // trick. The carving's range is shallower because a real cut-out stays
+      // near saturation even as the spill on the ground drops away.
+      faceMat.emissiveIntensity = at(GLOW);
+      shellMat.emissiveIntensity = at(SKIN_GLOW);
+      wallMat.emissiveIntensity = at(WASH);
+      // A guttering flame reddens as it drops and a flaring one goes whiter, so
+      // the colour rides the same value rather than sitting at a fixed warm
+      // white. The plate has to do it too, not just the lamp: the openings are
+      // most of what is on screen, and a dip that only dims them reads as a
+      // dimmer where a dip that reddens them reads as a flame short of air.
+      //
+      // Fed the level straight, though, the mix only ever travelled the top
+      // quarter of ember..flame, because that is where the level lives. So it
+      // is levered about the level's own mean instead: the resting colour is
+      // the one this file was tuned to, to three figures, and only the
+      // excursions change -- a real gutter now runs the whole way down to ember
+      // and a flare the whole way up to flame.
+      const hue = Math.min(1, Math.max(0, HUE_MID + (level - HUE_MID) * HUE_GAIN));
+      light.color.copy(EMBER).lerp(FLAME, hue);
+      glowLamp.color.copy(light.color);
+      faceMat.emissive.copy(PLATE_EMBER).lerp(PLATE_FLAME, hue);
+
+      // The flame is an object and it moves, and this is the half of the effect
+      // that modulating intensity cannot reach. Brightening and dimming in
+      // place can only pump the pool; moving the source swings the cone, slides
+      // the gobo's projected face across the floor and changes which side of
+      // every cut wall is lit. The lamp's target is parented to the group and
+      // stays where it is, so a step sideways is also a small yaw of the cone.
+      //
+      // Taken in the flame's own frame: `across` runs along the face, `into`
+      // back through the shell. Both ride sizeK, or the tiny one's flame would
+      // be swinging a third of its own body across the inside of its shell.
+      // Across is half slow noise and half a carrier of its own, so the tip
+      // whips at about the rate the brightness trembles at instead of drifting
+      // smoothly while the light flickers.
+      const across = 0.040 * sizeK * (0.55 * swing(0.83, 5.5) + 0.45 * wobble(5.9, 0.5, 71.6));
+      const into = 0.030 * sizeK * swing(0.61, 2.7);
+      // Up on a flare, down in a gutter, and a fine bob the rest of the time: a
+      // flame that stands up is a flame reaching higher, and one starved of air
+      // sinks back into the shell. Tied to the same two events, so a gutter
+      // drops the pool nearer the pumpkin as it dims it.
+      const rise = sizeK * (0.018 * swing(1.3, 8.1) + 0.055 * flare - 0.045 * dip);
+      light.position.set(
+        lightHome.x + faceTan.x * across + faceDir.x * into,
+        lightHome.y + rise,
+        lightHome.z + faceTan.z * across + faceDir.z * into,
+      );
     },
     dispose() {
       for (const g of [shellGeo, wallGeo, faceGeo, stemGeo]) g.dispose();

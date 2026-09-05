@@ -93,6 +93,9 @@ if (numbersOnly) {
   const total = Number(args.seconds || 45);
   const out = await lab.page.evaluate(async (o) => {
     const marks = window.__zlab.run(Math.round(o.total * 60));
+    // Traced after the run, so it is a steady shamble and not the first two
+    // strides out of the grave.
+    const trace = window.__zlab.trace(4);
     const m = window.__zlab.metrics();
     return {
       marks,
@@ -105,6 +108,7 @@ if (numbersOnly) {
       short: m.short,
       overLimit: m.overLimit,
       head: m.head,
+      trace,
     };
   }, { total });
   console.log('\n--- phases -----------------------------------------------------');
@@ -114,6 +118,15 @@ if (numbersOnly) {
   console.log(`  worst in a single frame   ${out.slip.worstFrameMm} mm`);
   console.log(`  mean over ${String(out.slip.stances).padStart(3)} stances      ${out.slip.meanStanceMm} mm`);
   console.log(`  toe vs where it was put   ${out.slip.worstAbsMm} mm worst, ${out.slip.meanAbsMm} mm mean`);
+  console.log('\n--- the gait, over four seconds of steady shamble ---------------');
+  console.log('  (degrees unless marked; range is what the walk actually moves it through)');
+  for (const [k, v] of Object.entries(out.trace)) {
+    if (v.rangeMm !== undefined) {
+      console.log(`  ${k.padEnd(16)} ${String(v.minMm).padStart(8)} .. ${String(v.maxMm).padStart(8)} mm   range ${v.rangeMm} mm`);
+    } else {
+      console.log(`  ${k.padEnd(16)} ${String(v.min).padStart(8)} .. ${String(v.max).padStart(8)}      range ${v.range}`);
+    }
+  }
   console.log('\n--- reach and limits -------------------------------------------');
   console.log(`  IK out of reach  L ${out.short.L.toFixed(5)}  R ${out.short.R.toFixed(5)} m`);
   console.log(`  past joint stop  ${out.overLimit.toFixed(5)} rad`);

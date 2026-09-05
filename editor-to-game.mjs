@@ -217,8 +217,16 @@ await editor.page.waitForTimeout(2500);
 
 // A REAL click, because window.open without user activation is a blocked popup
 // and a test that used a scripted click would be testing the popup blocker.
-const popup = editor.page.waitForEvent('popup', { timeout: 60000 }).catch(() => null);
-await editor.page.getByRole('button', { name: 'play this' }).click();
+// NOT AWAITED, and the click's own timeout is swallowed. A real click is
+// required -- window.open without user activation is a blocked popup -- but the
+// tab it opens starts loading the whole game, and on the capture harness's
+// software rasteriser that starves the editor tab for long enough that
+// Playwright's post-click stability check times out. The popup event is the
+// signal that matters.
+const popup = editor.page.waitForEvent('popup', { timeout: 180000 }).catch(() => null);
+editor.page.getByRole('button', { name: 'play this' })
+  .click({ noWaitAfter: true, timeout: 120000 })
+  .catch(() => {});
 const played = await popup;
 claim(!!played, 'the play button opens the game');
 if (played) {

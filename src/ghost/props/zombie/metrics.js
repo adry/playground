@@ -156,11 +156,11 @@ export const M = {
     jawHingeZ: f(-0.026),
     // How much narrower the head is at the chin than at the cheekbones, as a
     // fraction of width. A chibi jaw is barely tapered; 1.0 would be a ball.
-    jawTaper: 0.72,
+    jawTaper: 0.80,
     // Flatten the back of the cranium slightly. Stops the three-quarter
     // silhouette being a perfect circle, which is what makes a big head read
     // as a balloon.
-    occiputFlat: 0.94,
+    occiputFlat: 0.93,
   },
 
   // Deep, dark, and EMPTY: no eyeball, just shadow. The depth matters more
@@ -170,7 +170,7 @@ export const M = {
   // material trickery.
   socket: {
     width: f(0.090),
-    height: f(0.082),
+    height: f(0.086),
     depth: f(0.038),
     // Centre to centre. f(0.115) was the first pass and the two sockets came
     // within 0.02 of touching over the bridge, which read as one wide dark
@@ -179,14 +179,14 @@ export const M = {
     separation: f(0.140),
     // How far the upper rim cuts down toward the nose. The skeleton's note
     // applies verbatim: 0.60 is a glare, this is a stare. Change knowingly.
-    slant: 0.05,
+    slant: 0.02,
   },
 
   // Lipless: the mouth is a slot cut into the face, not lips laid on it, so
   // the teeth sit in a dark trough and read as bright blocks on black. That
   // contrast is the whole reason the grin survives to 34 px.
   grin: {
-    width: f(0.170),          // 0.567 of head width
+    width: f(0.186),          // 0.62 of head width
     height: f(0.062),
     depth: f(0.030),
     curve: 0.55,              // how far the corners rise, as a fraction of height

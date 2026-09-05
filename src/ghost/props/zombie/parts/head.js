@@ -231,6 +231,47 @@ function vAtHeight(y) {
   return 0.5 + Math.asin(s) / Math.PI;
 }
 
+// A dark disc laid IN a dent, following the dent's own floor and standing a
+// hair proud of it, with a smooth analytic outline.
+//
+// This is the third answer to "how do you make a socket black", and the first
+// two are worth recording because both are the obvious thing to try.
+//
+//  - A dark BALL seated in the dent. An ellipsoid falls away from its own pole
+//    faster than the face does, so it is flush only at the very middle and the
+//    rest of the socket stays green. That is the version that looked like two
+//    coffee beans.
+//  - CUTTING A HOLE in the cranium with a dark wall behind it, the way the
+//    chest cavity works. The darkness is perfect and the edge is not: a quad
+//    grid can only cut on its own cell boundaries, so a socket comes out as a
+//    ragged star. On the chest that is fixed by a lip ribbon following the
+//    true outline, but a socket has no lip to hide behind, and a torn-looking
+//    eye is a different character.
+//
+// So: a disc, parameterised in the SOCKET's own polar coordinates rather than
+// the head's, mapped onto the face through frontUV and then displaced along
+// one fixed axis. Polar means the outline is a smooth ellipse at any
+// resolution. One fixed axis, rather than the local surface normal, because
+// the normal swings wildly across the steep wall of a dent and a patch pushed
+// along it comes through the skin in fingers.
+function dentDisc({ cx, cy, hw, hh, slant = 0, side = 1, scale = 0.95, offset, lift = null, sectors = 20, rings = 5 }) {
+  const [uc, vc] = frontUV(cx, cy);
+  const axis = surfaceNormal(uc, vc, { mouth: false, sockets: false });
+  return gridSurface({
+    uSteps: sectors, vSteps: rings, closedU: true,
+    point: (a, r) => {
+      const th = a * Math.PI * 2;
+      const ex = scale * hw * r * Math.cos(th);
+      const ey = scale * hh * r * Math.sin(th);
+      const x = cx + ex;
+      // Undo the slant shear, so the disc matches the dent it sits in.
+      const y = cy + ey + slant * side * ex + (lift ? lift(x) : 0);
+      const [u, vv] = frontUV(x, y);
+      return surfacePoint(u, vv).addScaledVector(axis, offset);
+    },
+  }).geometry;
+}
+
 // --- teeth --------------------------------------------------------------------
 //
 // Five up, four down, and the gaps are deliberate. Ten teeth in a 0.31 unit
@@ -335,25 +376,6 @@ export function buildHead({ materials }) {
     uAt: (i) => concentrate(i / U, U_FRONT, 0.55),
     vAt: (j) => vWarp(j / V, V_FACE, 0.45),
     point: (u, vv) => surfacePoint(u, vv),
-    // THE MOUTH IS A REAL HOLE. The trough alone was not enough: a dark shell
-    // placed behind an intact trough is behind opaque skin and never shows,
-    // and placed in front of it reads as a sticker. So the middle of the lens
-    // is cut out of the cranium, exactly as the chest cavity is cut out of the
-    // torso, and the dark below is what you see through it. Same rule, same
-    // reason: no alpha anywhere, so an opening has to be an opening.
-    keepQuad: (u, vv) => {
-      const p = surfacePoint(u, vv);
-      if (p.z <= 0) return true;
-      if (grinR(p.x, p.y) <= 0.74) return false;
-      // The sockets are holes as well, for the same reason the mouth is. A
-      // dent alone is lit: its floor faces the same way the face does, takes
-      // the same key light, and comes back a mid green with a dark speck in
-      // the middle of it. A hole with a dark wall a socket-depth behind it is
-      // black from every angle the fixed camera can reach, which is what "no
-      // eyeball, just shadow" actually needs.
-      for (const side of [1, -1]) if (socketR(p.x, p.y, side) <= 0.68) return false;
-      return true;
-    },
   });
   put(group, shell.geometry, materials.skin);
 
@@ -367,17 +389,12 @@ export function buildHead({ materials }) {
   // is not RZ deep, it is RZ times the cosine of the latitude times the jaw
   // taper, and the dent then takes another socket.depth out of it.
   for (const side of [1, -1]) {
-    const uA = uForX(side * (SOCK_X - SOCK_HW * 1.45), BROW_Y);
-    const uB = uForX(side * (SOCK_X + SOCK_HW * 1.45), BROW_Y);
-    const vLo = vAtHeight(BROW_Y - SOCK_HH * 1.5);
-    const vHi = vAtHeight(BROW_Y + SOCK_HH * 1.5);
-    put(group, gridSurface({
-      uSteps: 14, vSteps: 12, closedU: false,
-      uAt: (i) => uA + (uB - uA) * (i / 14),
-      vAt: (j) => vLo + (vHi - vLo) * (j / 12),
-      point: (u, vv) => surfacePoint(u, vv)
-        .addScaledVector(surfaceNormal(u, vv), -M.socket.depth * 0.60),
-    }).geometry, materials.socket);
+    put(group, dentDisc({
+      cx: side * SOCK_X, cy: BROW_Y,
+      hw: SOCK_HW, hh: SOCK_HH,
+      slant: M.socket.slant, side,
+      scale: 0.88, offset: M.socket.depth * 0.10,
+    }), materials.socket);
   }
 
   // The dark inside the mouth.
@@ -390,16 +407,13 @@ export function buildHead({ materials }) {
   // along its own normal, so it is exactly parallel to the trough everywhere
   // and the whole slot is dark from every angle.
   {
-    const uM = Math.abs(uForX(GRIN_HW * 1.18, GRIN_Y) - U_FRONT);
-    const vLo = vAtHeight(GRIN_Y - GRIN_HH * 1.55);
-    const vHi = vAtHeight(GRIN_Y + GRIN_HH * 1.55);
-    put(group, gridSurface({
-      uSteps: 20, vSteps: 12, closedU: false,
-      uAt: (i) => U_FRONT - uM + (2 * uM) * (i / 20),
-      vAt: (j) => vLo + (vHi - vLo) * (j / 12),
-      point: (u, vv) => surfacePoint(u, vv)
-        .addScaledVector(surfaceNormal(u, vv), -M.grin.depth * 0.85),
-    }).geometry, materials.socket);
+    put(group, dentDisc({
+      cx: 0, cy: GRIN_Y,
+      hw: GRIN_HW, hh: GRIN_HH,
+      scale: 0.92, offset: M.grin.depth * 0.10,
+      lift: (x) => M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(x) / GRIN_HW), 2),
+      sectors: 24, rings: 5,
+    }), materials.socket);
   }
 
   // Upper teeth ride on the cranium.

@@ -55,9 +55,18 @@ export function buildJacket({ materials }) {
   const top = M.jacket.top;
 
   const hemAt = (u) => M.jacket.hem + tornEdge(u, 9, M.jacket.tatter, 3);
+  // The top edge is NOT a flat ring. u = 0 and u = 1 are the two front edges,
+  // u = 0.5 the middle of the back, so this drops the front of the garment
+  // away from the collarbone and keeps it up behind the neck, which is what a
+  // jacket does. Built as a flat ring it came out as a barrel hoop round the
+  // throat, with the head sitting in it like a bucket.
+  const topAt = (u) => {
+    const front = 1 - Math.min(1, Math.abs(u - 0.5) * 2.4);
+    return top - 0.050 * M.height * (1 - front);
+  };
   const yAt = (u, vv) => {
     const h = hemAt(u);
-    return h + (top - h) * vv;
+    return h + (topAt(u) - h) * vv;
   };
   // Radius, with a slow fold running round the garment. Cloth that follows the
   // body exactly reads as paint; three shallow folds are enough to break the
@@ -68,7 +77,7 @@ export function buildJacket({ materials }) {
   // through it, which read as bare shoulders with a bib hung under them.
   const yoke = (y) => {
     const t = Math.max(0, (y - (M.y.shoulder - 0.075 * M.height)) / (0.075 * M.height));
-    return 1 + 0.30 * Math.min(1, t) * Math.min(1, t);
+    return 1 + 0.16 * Math.min(1, t) * Math.min(1, t);
   };
   const radAt = (u, y, out) => {
     const [hw, hd] = trunkProfile(y);
@@ -99,14 +108,14 @@ export function buildJacket({ materials }) {
     uSteps: 52, vSteps: 16, closedU: false, outer, inner, keepQuad,
   }), materials.jacket);
 
-  // A collar: the same sheet again, short, standing a little further off the
-  // body. It gives the shoulders a step and stops the head looking like it was
-  // dropped onto a bare torso.
+  // A short collar behind the neck only, riding the raised part of the top
+  // edge. It gives the shoulders a step without ringing the throat.
   put(group, shell2({
-    uSteps: 40, vSteps: 3, closedU: false,
-    outer: (u, vv) => radAt(u, top - 0.020 * M.height + vv * 0.032 * M.height,
-      M.jacket.thickness + vv * 0.012 * M.height),
-    inner: (u, vv) => radAt(u, top - 0.020 * M.height + vv * 0.032 * M.height, vv * 0.006 * M.height),
+    uSteps: 20, vSteps: 3, closedU: false,
+    uAt: (i) => 0.30 + 0.40 * (i / 20),
+    outer: (u, vv) => radAt(u, topAt(u) - 0.012 * M.height + vv * 0.026 * M.height,
+      M.jacket.thickness + vv * 0.010 * M.height),
+    inner: (u, vv) => radAt(u, topAt(u) - 0.012 * M.height + vv * 0.026 * M.height, vv * 0.005 * M.height),
   }), materials.jacketDark);
 
   const geometries = [];

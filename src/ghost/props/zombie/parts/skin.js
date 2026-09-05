@@ -35,7 +35,7 @@ export const PALETTE = {
   // Not black. Pure black at this scale flattens into a hole with no form at
   // all; a very dark warm grey still takes a little bounce off the cheek and
   // keeps the socket looking deep rather than punched out.
-  socket: '#1b1719',
+  socket: '#17141a',
   jacket: '#aba08a',
   jacketDark: '#7d745f',
   shorts: '#7d8365',
@@ -56,7 +56,7 @@ export function zombieMaterials() {
     muscle: mk(PALETTE.muscle, 0.70),
     bone: mk(PALETTE.bone, 0.74),
     tooth: mk(PALETTE.tooth, 0.55),
-    socket: mk(PALETTE.socket, 0.95),
+    socket: mk(PALETTE.socket, 1.0),
     jacket: mk(PALETTE.jacket, 0.94),  // cloth, the roughest thing on the model
     jacketDark: mk(PALETTE.jacketDark, 0.94),
     shorts: mk(PALETTE.shorts, 0.94),
