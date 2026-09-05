@@ -426,10 +426,12 @@ export const M = {
     // A vertical SLASH, not an oval. An oval wound with a lip on a torso reads
     // as a second mouth, which is a joke this character does not need; a tall
     // narrow tear reads as damage.
-    woundWide: 0.70,
-    woundTall: 0.88,
+    // A SLASH. Tall and narrow, so it cannot be mistaken for a second mouth.
+    // It was 0.70 by 0.88, which is nearly round, and with a bone splinter
+    // across it the chest had the same construction as the grin.
+    woundWide: 0.34,
+    woundTall: 0.90,
     woundDepth: f(0.030),
-    splinterRadius: f(0.0075),
   },
 
   // --- clothing -------------------------------------------------------------
@@ -457,7 +459,7 @@ export const M = {
     // the wound's azimuth and height rather than by being positioned by eye.
     tearAt: 0.20,             // radians of azimuth, matching the wound's axis
     woundY: 0.966,            // world height of the wound's centre
-    tearWide: 0.072,          // half-extent in u, i.e. fraction of the way round
+    tearWide: 0.040,          // half-extent in u, i.e. fraction of the way round
     tearTall: 0.140,          // half-extent in v, i.e. fraction of the coat's drop
     thickness: f(0.013),
     // FIVE big torn points. A fine sawtooth at this size is a fuzzy edge and a

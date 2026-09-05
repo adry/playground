@@ -109,7 +109,7 @@ export const PALETTE = {
   // wound.
   socket: '#48222f',
   socketDeep: '#24111a',
-  flesh: '#6e2f2b',
+  flesh: '#5c2724',
   bone: '#ddd2b8',
   tooth: '#efe8d2',
   nail: '#2e251d',

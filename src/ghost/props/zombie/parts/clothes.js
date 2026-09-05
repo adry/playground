@@ -82,8 +82,17 @@ function topAt(u) {
 // the drawn arm's bulb reaches x = 0.172 and a coat cut at 0.176 there has the
 // shoulder poking through it in pale blotches, which is what the first closed
 // version did.
+// The first two stations are THE COLLAR, and they are not cosmetic.
+//
+// Cut at 0.180 the coat's top is a wide open ring with a 0.133 neck standing
+// in the middle of it, and the walk tilts the head 19 degrees every stride, so
+// what a player sees constantly is a bucket with a stick in it: you look
+// straight down inside the garment. The collar has to close on the neck, and
+// the shoulder has to get from there out to the deltoid quickly enough that
+// the coat still has shoulders.
 const STATIONS = [
-  [J.top, 0.180, 0.146],
+  [J.top, 0.152, 0.146],
+  [1.120, 0.196, 0.156],
   [1.062, 0.208, 0.162],
   [0.900, 0.182, 0.150],
   [0.720, 0.164, 0.140],
@@ -108,7 +117,7 @@ export function buildJacket({ materials }) {
   const geos = [];
   const track = (g) => { geos.push(g); return g; };
 
-  const U = 52, V = 18;
+  const U = 64, V = 20;
   const point = (u, v) => {
     const a = azOf(u);
     // Five big torn points. The sawtooth is measured UP from the hem so it

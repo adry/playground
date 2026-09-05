@@ -158,18 +158,54 @@ So the zombie is **six shapes**:
 5. one dark coat: a closed bell from the jaw to mid-thigh, torn hem, one tear;
 6. two green arms with clawed hands, two green legs, two dark boots.
 
-Plus **one wound**, behind the coat's one tear.
+Plus **one wound**: a plain dark slash behind the coat's one tear, with nothing
+in it. It had a bone splinter for one round and that was a mistake worth
+recording: with the ribcage gone it is the only feature on the torso, so the
+eye goes to it, and an irregular dark opening with something pale inside is
+exactly what the grin is. Two of those on a figure whose whole identity is its
+face, and the chest starts competing with the head.
 
-**Value first, hue second.** Three even rungs against the skin: skin 1.00, coat
-0.59, boots 0.22. Hue does almost nothing at 105 px; what the eye resolves is a
-light mass, a dark mass and the boundary between them. The coat spent a round
-at 0.36 and was not a dark mass but a void, with all its own form gone.
+### The value ladder
+
+**This is a rule for every character and prop in this scene, not a fact about
+this coat.**
+
+Decide what a figure's masses are, then space them evenly by RELATIVE
+LUMINANCE, and check the spacing as numbers rather than by eye. This one is
+three rungs against its own skin:
+
+```
+skin  1.00        #a6c47f      the head, the arms, the legs
+coat  0.59        #6b7060      the body
+boot  0.22        #2b2825      the feet
+```
+
+Hue does almost nothing at 105 px. What the eye resolves is a light mass, a
+dark mass, and where the boundary between them is. Two failures were had here
+and they are the two ends of the same mistake:
+
+- **Too close.** The third pass had the cloth at 0.85 of the skin. The torso
+  came out as one mottled area with no boundary in it anywhere, and every
+  round of added detail made it muddier. That is what "muddy" meant.
+- **Too far.** The fourth pass overcorrected to 0.36, which is nearly the
+  boots. The result was not a dark mass but a VOID: every fold, edge and
+  shaded face in the garment went to the same black, the coat lost all its own
+  form, and the figure read as a head and two legs with a hole between them.
+
+**A mass has to be dark enough to separate and light enough to still be
+shaded.** Somewhere near 0.6 of its neighbour is the working range for a matte
+material under this key light. Below about 0.4 it stops being a mass.
+
+The corollary is what makes it worth writing down: **if two masses are not
+separating, the answer is almost never more detail.** Detail at 105 px is
+noise. Move the values apart.
 
 ### Deleted in the fourth pass, and what was lost
 
 | gone | what it cost | what was lost |
 | --- | --- | --- |
 | the exposed ribcage (window, funnel, flesh column, 3 rib pairs, sternum, 5 spine knobs) | ~17 meshes | a dim smudge at game scale |
+| the wound's bone splinter | 1 mesh | it made the chest a second grin |
 | the nasal aperture | 8,600 triangles of face grid it forced | two pixels of grey |
 | the stripped forearm (cuff, tear ring, 2 bones, flexor) | 5 volumes | a thin pale line |
 | the shorts (waistband, 2 cuffs, 4 holes, wrinkles, rolled lip) | 3 meshes | nothing, the coat covers it |
@@ -179,8 +215,8 @@ at 0.36 and was not a dark mass but a void, with all its own form gone.
 | the coat's three worn holes | | noise |
 | stitched scars | already gone | |
 
-**49,394 triangles to 27,638; 60 draw calls to 45.** Five on screen is 138,190
-triangles and 225 draw calls. The saving is a symptom rather than a goal: every
+**49,394 triangles to 29,202; 60 draw calls to 44.** Five on screen is 146,010
+triangles and 220 draw calls. The saving is a symptom rather than a goal: every
 one of those deletions was made because the feature could not be seen, and the
 triangles went with them.
 
@@ -221,6 +257,36 @@ which is the chest cavity's lip-ribbon trick applied everywhere.
 `grommet(...).cut(rhoCut, cellAngle)` **throws** if the rim cannot cover the
 ragged band, because that failure is silent from most angles and unmistakable
 from one.
+
+### A feature smaller than its host's cells is not a small feature, it is an expensive one
+
+The guard above is what makes this visible, so read the two together.
+
+A feature's hole is cut on the host's grid, so the ragged edge is plus or minus
+half a cell **measured in units of the feature's own size**. On a big feature
+that is a few per cent and any rim covers it. On a feature the size of a cell
+it is plus or minus half the feature, and no rim can cover it without reaching
+so far that it collides with whatever is next to it. The only remedies are to
+make the feature bigger, make the whole host's grid finer, or delete it.
+
+**Refining the grid is almost always the wrong one**, and the nasal aperture is
+the worked example. It was six degrees across against four-and-a-half degree
+cells. Covering its cut needed the face grid to go from 84x56 to 116x78:
+
+```
+8,600 triangles       a fifth of the entire figure
+                      spent so that a rim could cover one hole
+for two pixels of grey between the sockets and the grin at game scale
+```
+
+It was deleted and **the head reads harder without it**, because two sockets
+and a grin no longer have a third small dark mark competing with them. The grid
+came back down with it.
+
+So when the guard throws, the first question is not "how much finer does the
+grid need to be" but **"what is this feature worth, and can I see it at 105
+px?"** If the honest answer is no, delete it: the triangles it was costing were
+never buying the feature, they were buying its edge.
 
 Two more things that throw rather than being trusted, both for the reason
 recorded in postmortem 2.2: `assertOutward` on every closed volume (the winding

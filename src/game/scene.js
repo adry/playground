@@ -64,6 +64,8 @@ import { createFenceRun } from '../ghost/props/fence/panel.js';
 import { createFireflies } from '../ghost/props/fireflies.js';
 import { createSkeletonRig } from '../ghost/props/skeleton/model.js';
 import { createSkeletonPerformance } from '../ghost/props/skeleton/perform.js';
+import { createZombieRig } from '../ghost/props/zombie/model.js';
+import { createZombiePerformance } from '../ghost/props/zombie/perform.js';
 import { createGraveHole } from '../ghost/props/ground/hole.js';
 import { createPropCache, createPropField } from '../ghost/props/instancing.js';
 import { createFrameHud } from './frame-hud.js';
@@ -765,17 +767,29 @@ export async function startGame({ canvas, params }) {
   // Rebuilding four rigs every wave would be the most expensive thing on the
   // page and would buy nothing: they are the same four skeletons.
   const rigs = [];
+  // WHICH SLOTS ARE ZOMBIES. Fixed by index rather than rolled, so a run is the
+  // same cast every time and a player learns that the second and fourth things
+  // out of the ground are the squat ones. Both figures publish the same joint
+  // names and both performances take the same options and answer to the same
+  // PHASE map below, so nothing downstream knows or cares which it is holding:
+  // that is the whole point of the shared contract, and it is why this is a
+  // two line change rather than a second code path.
+  const ZOMBIE_SLOT = (i) => i % 2 === 1;
+
   function ensureRigs(n) {
     while (rigs.length < n) {
       const i = rigs.length;
-      const rig = createSkeletonRig();
+      const zombie = ZOMBIE_SLOT(i);
+      const rig = zombie ? createZombieRig() : createSkeletonRig();
       scene.add(rig.group);
       let want = null;
-      const perf = createSkeletonPerformance({
+      const make = zombie ? createZombiePerformance : createSkeletonPerformance;
+      const perf = make({
         rig, scene, renderer, seed: 5 + i, driver: () => want,
       });
       rigs.push({
-        rig, perf, set: (w) => { want = w; },
+        rig, perf, kind: zombie ? 'zombie' : 'skeleton',
+        set: (w) => { want = w; },
         homeId: null, homeX: NaN, homeZ: NaN,
       });
     }

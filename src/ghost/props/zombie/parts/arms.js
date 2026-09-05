@@ -140,12 +140,16 @@ export function buildArm({ materials, side = 'L' }) {
     const nail = track(limb(tip, tip.clone().addScaledVector(nailDir, HAND.nailLength).add(v3(0, 0, HAND.nailLength * 0.5)),
       HAND.nailRadius, HAND.nailRadius * 0.18, { radial: 5, segments: 2 }));
     put(node, nail, materials.nail, { name: 'claw' });
-    // Shed by the skeleton's names, so one shed plan drives either figure.
-    // Recentred first, so a shed finger tumbles about itself rather than about
-    // the wrist it left.
-    if ((side === 'L' && k === 3) || (side === 'R' && k === 2)) {
+    // The shed pieces, and all three are claws now that the wound has nothing
+    // in it to drop. `perform.js` takes `[...rig.shed.keys()].slice(0, 3)` and
+    // pops them in order, and its own comment says it "has no business knowing
+    // whether it publishes a jacket scrap, a finger or a rib", so the names are
+    // a courtesy to the skeleton's plan rather than an interface. What the
+    // interface needs is three self-contained subtrees whose world transform
+    // survives reparenting, which is what `recentre` guarantees.
+    if ((side === 'L' && (k === 3 || k === 1)) || (side === 'R' && k === 2)) {
       recentre(node);
-      shed.set(side === 'L' ? 'fingerL4' : 'fingerR3', node);
+      shed.set(side === 'L' ? (k === 3 ? 'fingerL4' : 'fingerL2') : 'fingerR3', node);
     }
   }
   // The thumb, out to the side and a little forward.

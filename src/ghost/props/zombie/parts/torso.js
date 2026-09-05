@@ -178,26 +178,14 @@ export function buildTorso({ materials }) {
   put(spineUpper, wound.dish, materials.flesh, { name: 'wound' });
   put(spineUpper, wound.rim, materials.skin, { name: 'wound-lip' });
 
-  // The one splinter. Pale against the dark red, across the hole, and it is
-  // the only small thing left on the torso. It is also the third shed piece;
-  // `perform.js` takes whatever `rig.shed` offers in order and does not care
-  // what the pieces are called.
-  {
-    const node = new THREE.Object3D();
-    spineUpper.add(node);
-    const pts = [];
-    for (let i = 0; i <= 6; i++) {
-      const f = i / 6;
-      const d = wound.dirAt(mix(-1.02, 1.02, f), 0.28);
-      pts.push(d.clone().multiplyScalar(chestR(d) - C.woundDepth * mix(0.30, 0.62, Math.sin(Math.PI * f)))
-        .add(chestCentreLocal));
-    }
-    const sp = track(arcTube(pts, C.splinterRadius, C.splinterRadius * 0.72, { radial: 7 }));
-    assertInsideRadial(sp, chestCentreLocal, chestR, 'splinter', 1e-4);
-    put(node, sp, materials.bone, { name: 'splinter' });
-    recentre(node);
-    shed.set('ribL3', node);
-  }
+  // NO SPLINTER, and the wound is a plain slash.
+  //
+  // With the ribcage gone this is the only feature on the torso, so the eye
+  // goes to it, and an irregular dark opening with something pale inside it is
+  // exactly what the grin is. Two of those, one above the other, on a figure
+  // whose whole identity is its face, and the chest starts competing with the
+  // head. A tall narrow tear with nothing in it reads as damage and stops
+  // asking to be looked at.
 
   // --- the shoulder yoke ------------------------------------------------------
   //
@@ -221,11 +209,16 @@ export function buildTorso({ materials }) {
   // inside the skull, so it is hidden at both ends and all it ever contributes
   // is filling that band. It hangs off `neck`, so the small follow-through the
   // animation puts there carries it.
+  // TAPERED, and wide at the bottom on purpose: its lower end plugs the coat's
+  // collar from inside so there is no ring to look down into, and its upper
+  // end narrows to something the size of the underside of a jaw, because above
+  // the collar the head's chin is a point and anything wider than that reads
+  // as a green disc stuck under the skull.
   const neckTube = track(limb(
-    v3(0, M.y.shoulderTop - M.neck.length * 1.6 - M.y.neck, 0),
-    v3(0, M.y.chin + M.neck.length * 0.9 - M.y.neck, -M.neck.radius * 0.10),
-    M.neck.radius * 1.02, M.neck.radius * 0.94,
-    { radial: 12, segments: 3, waist: 0.96 }));
+    v3(0, M.y.shoulderTop - M.neck.length * 1.9 - M.y.neck, 0),
+    v3(0, M.y.chin + M.neck.length * 1.3 - M.y.neck, -M.neck.radius * 0.10),
+    M.neck.radius * 1.25, M.neck.radius * 0.55,
+    { radial: 14, segments: 4, waist: 0.98 }));
   put(neck, neckTube, materials.skin, { name: 'neck' });
 
   return {
