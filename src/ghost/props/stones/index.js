@@ -18,6 +18,7 @@ import './book.js';       // 0.81, an open volume on a lectern wedge
 import './chest.js';     // 0.85 tall and 1.63 long, a closed box tomb
 import './cairn.js';      // 0.90, a heap of field stones and a leaned plaque
 import './kerb.js';      // a 2.35 by 0.90 plot, the largest footprint
+import './sundial.js';    // 1.15, the only piece whose face points at the sky
 import './urn.js';        // 1.55, pedestal and draped vessel
 import './column.js';     // 1.23 to 1.38, broken
 import './pyramid.js';   // 1.21, the squattest upright
