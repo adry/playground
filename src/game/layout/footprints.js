@@ -30,7 +30,7 @@
 
 // --- headstones ------------------------------------------------------------
 //
-// All 18 registered variants, in the order stones/index.js loads them, which is
+// All 28 registered variants, in the order stones/index.js loads them, which is
 // small to large. `face` is what the inscription faces: local +Z, so a stone
 // yawed to face the camera is at PI/4 in the screen frame.
 //
@@ -46,6 +46,9 @@ export const STONES = {
   bench:   { halfU: 0.730, halfV: 0.290, height: 0.833 },
   book:    { halfU: 0.666, halfV: 0.500, height: 0.871 },
   chest:   { halfU: 0.834, halfV: 0.393, height: 0.831 },
+  lamb:    { halfU: 0.438, halfV: 0.257, height: 0.876 },
+  cairn:   { halfU: 0.456, halfV: 0.547, height: 0.909 },
+  sundial: { halfU: 0.341, halfV: 0.354, height: 1.174 },
   urn:     { halfU: 0.350, halfV: 0.258, height: 1.551 },
   column:  { halfU: 0.349, halfV: 0.340, height: 1.389 },
   pyramid: { halfU: 0.579, halfV: 0.518, height: 1.213 },
@@ -57,6 +60,13 @@ export const STONES = {
   draped:  { halfU: 0.479, halfV: 0.302, height: 1.599 },
   celtic:  { halfU: 0.498, halfV: 0.233, height: 1.613 },
   gothic:  { halfU: 0.419, halfV: 0.203, height: 1.696 },
+  stele:   { halfU: 0.418, halfV: 0.221, height: 1.724 },
+  // The widest headstone by a distance, and the only building. Its box is
+  // nearly square, so unlike every other stone here a yaw does not shrink it:
+  // it needs 2.11 across whichever way it is turned, and it will simply be
+  // refused in a 2.0 cell rather than nudged.
+  vault:   { halfU: 0.748, halfV: 0.733, height: 1.768 },
+  calvary: { halfU: 0.523, halfV: 0.467, height: 1.822 },
   obelisk: { halfU: 0.379, halfV: 0.318, height: 1.848 },
 };
 
@@ -69,12 +79,13 @@ export const STONES = {
 // height, because a row is laid out short at the front and tall at the back and
 // the motifs walk this list rather than sorting one of their own.
 export const UPRIGHT = [
-  'heart', 'fred', 'pyramid', 'stump', 'cracked', 'column', 'wheel',
-  'twin', 'bat', 'wings', 'urn', 'cross', 'draped', 'celtic', 'gothic', 'obelisk',
+  'heart', 'fred', 'sundial', 'pyramid', 'stump', 'cracked', 'column', 'wheel',
+  'twin', 'bat', 'wings', 'urn', 'cross', 'draped', 'celtic', 'gothic', 'stele',
+  'vault', 'calvary', 'obelisk',
 ];
 // Low stones. They go at the front of a plot, where a tall one would hide
 // whatever is behind it.
-export const LOW = ['ledger', 'chest', 'scroll', 'book'];
+export const LOW = ['ledger', 'chest', 'scroll', 'book', 'lamb', 'cairn'];
 
 // --- pumpkins --------------------------------------------------------------
 // Round in plan to within a millimetre, so a disc. The design doc's 0.16 / 0.40

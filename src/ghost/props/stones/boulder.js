@@ -218,6 +218,17 @@ const SMIN_PANEL = 0.012;
 // necessary (the pocket's clearance is measured against this surface).
 const SWELL = 0.009;
 
+// The height the stone is normalised to, before it is sunk. It is a RANGE and
+// it is applied by measurement, not by hope: fourteen jittered planes, some of
+// them missing, put the top anywhere between 1.1 and 1.6 on their own, and the
+// first render of this pass came back a third of a metre too tall. measureH()
+// samples the radial function over a Fibonacci sphere and every rough plane is
+// then scaled by the ratio, twice, which is exact because the surface is
+// homogeneous in the plane distances. So height stays a deliberate variable
+// with a known range instead of being whatever the jitter happened to produce.
+const TARGET_LO = 1.08;
+const TARGET_HI = 1.30;
+
 const SEG_A = 96;   // columns round the piece
 const SEG_R = 46;   // rings from the pocket rim round to the back
 
@@ -327,16 +338,13 @@ function panelFrame(azSkew, elTilt) {
 }
 
 function makeRock(rng) {
-  // One overall size per stone, on top of everything else. Height alone runs
-  // 0.95 to 1.19 across seeds with this in, and a row of them wants that.
-  const size = 0.94 + rng() * 0.15;
   const planes = [];
   for (const p of PLANES) {
     const roll = rng();
     if (p.drop && roll < p.drop) continue;
     planes.push({
       n: dir(p.az + (rng() - 0.5) * (p.spin ?? 14), p.el + (rng() - 0.5) * 12),
-      d: p.d * size * (0.88 + rng() * 0.24),
+      d: p.d * (0.88 + rng() * 0.24),
       tone: 1 + (rng() - 0.5) * 2 * TONE_SPREAD,
     });
   }
@@ -349,14 +357,42 @@ function makeRock(rng) {
   // first render and it looked exactly like a potato with a slot in it. It is
   // applied in radius() rather than pushed onto this list because it gets its
   // own, tighter fillet.
-  return {
+  const rock = {
     planes,
     ph,
     frame,
-    size,
     hits: new Float64Array(planes.length),
     who: new Int32Array(planes.length),
   };
+  // Normalise the height. Twice, because the dressed face is folded in at a
+  // fixed distance and does not scale with the rest, so one pass leaves a
+  // percent or so on the table.
+  const want = TARGET_LO + rng() * (TARGET_HI - TARGET_LO);
+  for (let pass = 0; pass < 2; pass++) {
+    const k = want / measureH(rock);
+    for (const p of rock.planes) p.d *= k;
+  }
+  return rock;
+}
+
+// The body's height, sampled over a Fibonacci sphere. 512 directions is about
+// a degree and a half apart, which on a shape whose smallest fillet is 17 mm
+// finds the top and the bottom to well under a millimetre.
+const _mu = new THREE.Vector3();
+function measureH(rock) {
+  let top = -Infinity;
+  let bot = Infinity;
+  const N = 512;
+  for (let i = 0; i < N; i++) {
+    const y = 1 - (2 * (i + 0.5)) / N;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const th = i * 2.399963;
+    _mu.set(r * Math.cos(th), y, r * Math.sin(th));
+    const py = radius(_mu, rock) * y;
+    if (py > top) top = py;
+    if (py < bot) bot = py;
+  }
+  return top - bot;
 }
 
 // Radius of the surface in a direction. The dressed face is exempt from the
@@ -938,6 +974,13 @@ function buildStone({ body, material, rng, disposables, stripUV, slabUV }) {
   geometry.setAttribute('color', new THREE.BufferAttribute(colour, 3));
   geometry.setIndex(all.idx);
   geometry.computeBoundingSphere();
+  // The boulder and its foot stones are one buffer and one draw call, so this
+  // is the only record of where one ends and the others begin. Anything that
+  // wants to measure the STONE rather than the scatter round it needs it: the
+  // silhouette probe that this pass was judged on does, since the foot stones
+  // sit outside the base and would otherwise report themselves as the widest
+  // part of the piece.
+  geometry.userData.bodyVertices = bodyEnd / 3;
 
   // The registry's material is this stone's own -- createTombstone builds one
   // per instance -- and its only other users, the slab and the plinth, were

@@ -95,6 +95,13 @@ spoil heap 1.9 units from the hole it came out of.
    cut costs a distance test per ground fragment. This is an engine constraint
    rather than a taste one, and it caps the ghost pen.
 
+   In practice the pen gets **three**, not four: `layout.js` reserves one of the
+   four for a loose dug grave elsewhere in the level. So `spawns.graves.length`
+   is 3 while a checker counting hole PROPS reports 4, and they are both right.
+   Four skeleton personalities therefore share three graves, staggered so that
+   two never occupy one at the same time. The cap is on simultaneous cuts and
+   not on how many things ever climb out of a hole.
+
 ## Navigation
 
 The skeletons run on a **graph of corridor centrelines**, not a navmesh. Nodes
@@ -131,6 +138,11 @@ createLayout({ seed, cells = [7, 5], frame = 'screen' }) -> {
   // and, for a checker or a renderer that should not have to rebuild the grid:
   gate, walls, paths, corridor, grid,
 }
+// `graph.nodes` and `corridor.tiles` each publish `u, v`, their grid
+// coordinates, alongside the world `x, z`. That is part of the contract and not
+// an implementation detail: a rules implementation given only `x, z` has to
+// carry its own copy of the frame's isometry to do anything with the maze, and
+// then there are two of them to keep in step.
 
 // rules.js
 createGame({ layout }) -> {
