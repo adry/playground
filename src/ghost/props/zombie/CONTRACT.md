@@ -139,6 +139,51 @@ The skeleton's `perform.js` shed plan also names `ribL6` and `ribR7`. This
 figure has three rib pairs, not eight, so those two are absent and
 `shed.get()` returns undefined for them.
 
+## What this figure is, and what was deleted to get there
+
+**The target is the ghost, not a reference photograph.** A white sheet with two
+black eyes is the best-loved thing in this project, and it is loved because you
+can read it as a shape from across the room. This medium is hand-written
+procedural geometry with flat matte materials: it is superb at hard objects
+made of simple forms and it cannot reproduce a sculpt. Three passes were spent
+adding fine detail at a size where fine detail cannot read, and each one made
+the figure muddier rather than closer.
+
+So the zombie is **six shapes**:
+
+1. a pale green ball head, slightly flattened at the back;
+2. two big sunken dark sockets with a brow rim;
+3. one wide grin with five big uneven teeth;
+4. two small round ears, which exist for the silhouette and nothing else;
+5. one dark coat: a closed bell from the jaw to mid-thigh, torn hem, one tear;
+6. two green arms with clawed hands, two green legs, two dark boots.
+
+Plus **one wound**, behind the coat's one tear.
+
+**Value first, hue second.** Three even rungs against the skin: skin 1.00, coat
+0.59, boots 0.22. Hue does almost nothing at 105 px; what the eye resolves is a
+light mass, a dark mass and the boundary between them. The coat spent a round
+at 0.36 and was not a dark mass but a void, with all its own form gone.
+
+### Deleted in the fourth pass, and what was lost
+
+| gone | what it cost | what was lost |
+| --- | --- | --- |
+| the exposed ribcage (window, funnel, flesh column, 3 rib pairs, sternum, 5 spine knobs) | ~17 meshes | a dim smudge at game scale |
+| the nasal aperture | 8,600 triangles of face grid it forced | two pixels of grey |
+| the stripped forearm (cuff, tear ring, 2 bones, flexor) | 5 volumes | a thin pale line |
+| the shorts (waistband, 2 cuffs, 4 holes, wrinkles, rolled lip) | 3 meshes | nothing, the coat covers it |
+| the sleeves | 2 meshes | nothing, they were inside the coat |
+| the lapels and the collar roll | 3 meshes | the coat closed instead |
+| the socket pits and the ear conchae | 4 meshes | a second value in a hole |
+| the coat's three worn holes | | noise |
+| stitched scars | already gone | |
+
+**49,394 triangles to 27,638; 60 draw calls to 45.** Five on screen is 138,190
+triangles and 225 draw calls. The saving is a symptom rather than a goal: every
+one of those deletions was made because the feature could not be seen, and the
+triangles went with them.
+
 ## How the body is built, in one page
 
 Everything is a CLOSED VOLUME. There is no shared parametric shell with
