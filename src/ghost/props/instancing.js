@@ -68,6 +68,14 @@ export function createPropCache({ build, limit = 48 }) {
   return {
     size: () => templates.size,
 
+    // Is this key already built? A field needs to know without building it,
+    // because the whole point of the pump below is to decide WHEN to pay.
+    peek(key) {
+      const t = templates.get(key);
+      if (t) t.used = ++clock;
+      return t || null;
+    },
+
     // Held by a live field, so it cannot be evicted.
     retain(t) { if (t) t.refs += 1; },
     release(t) { if (t) t.refs = Math.max(0, t.refs - 1); },
@@ -145,14 +153,30 @@ export function createPropCache({ build, limit = 48 }) {
 // placements are grouped into square tiles first and a chunk behind the camera
 // still drops out. Nothing else about it matters -- a tile is a culling unit,
 // not a world concept.
-export function createPropField({ placements = [], cache, tile = 16 }) {
+export function createPropField({ placements = [], cache, tile = 16, spread = true }) {
   const group = new THREE.Group();
-  const buckets = new Map();
   const held = new Set();
 
+  // Templates this field needs and the cache does not have yet.
+  //
+  // `spread` bakes the missing templates one a frame instead of all at once, so
+  // a level fills in rather than stalling. It is OFF by default and scene.js
+  // carries the measurement that says why: interleaving a bake with a render
+  // puts every bake in the expensive regime and costs ten times more than
+  // baking them back to back. The machinery is kept because the finding is
+  // specific to a software rasteriser and may not hold on a GPU.
+  //
+  // Props whose template is already cached are placed immediately either way,
+  // which for every wave after the first is most of them.
+  const queue = [];
+  const ready = [];
   for (const p of placements) {
-    const t = cache.get(p.key);
-    if (!t) continue;
+    const hit = spread ? cache.peek(p.key) : cache.get(p.key);
+    if (hit) ready.push([p, hit]);
+    else queue.push(p);
+  }
+
+  const place = (p, t, buckets) => {
     if (!held.has(t)) { held.add(t); cache.retain?.(t); }
     for (let i = 0; i < t.parts.length; i++) {
       const bk = `${p.key}#${i}@${Math.floor(p.x / tile)},${Math.floor(p.z / tile)}`;
@@ -169,13 +193,19 @@ export function createPropField({ placements = [], cache, tile = 16 }) {
       if (p.scale) c.scale.multiplyScalar(p.scale);
       group.add(c);
     }
-  }
+  };
 
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const e = new THREE.Euler();
   const at = new THREE.Vector3();
   const sc = new THREE.Vector3();
+
+  // Buckets are emitted as soon as their contents are known. A pumped batch
+  // adds its own meshes rather than rebuilding every bucket, so a field that
+  // fills in over ten frames does ten small pieces of work and not ten
+  // increasingly large ones.
+  const emit = (buckets) => {
   for (const b of buckets.values()) {
     const mesh = new THREE.InstancedMesh(b.part.geometry, b.part.material, b.items.length);
     mesh.castShadow = b.part.castShadow;
@@ -193,6 +223,16 @@ export function createPropField({ placements = [], cache, tile = 16 }) {
     mesh.computeBoundingSphere();
     group.add(mesh);
   }
+  };
+
+  const flush = (items) => {
+    const buckets = new Map();
+    for (const [p, t] of items) place(p, t, buckets);
+    emit(buckets);
+  };
+
+  // Everything the cache already had, now.
+  flush(ready);
 
   // Now that this chunk's templates are retained, the cache may drop whatever
   // an older chunk left behind.
@@ -200,6 +240,31 @@ export function createPropField({ placements = [], cache, tile = 16 }) {
 
   return {
     group,
+    // How many templates are still to bake. Zero means the level is complete.
+    get pending() { return queue.length; },
+    // Bake at most `budget` milliseconds' worth, then stop. A bake cannot be
+    // cut in half, so this overruns by however long the last one took; the
+    // budget decides how many are attempted, not how long the frame is.
+    pump(budget = 0) {
+      if (!queue.length) return 0;
+      const t0 = performance.now();
+      let done = 0;
+      do {
+        const p = queue.shift();
+        // Every placement of this key at once, or each would get an instanced
+        // mesh of its own and the pump would undo the batching it exists to
+        // protect.
+        const same = [p];
+        for (let i = queue.length - 1; i >= 0; i--) {
+          if (queue[i].key === p.key) same.unshift(queue.splice(i, 1)[0]);
+        }
+        const t = cache.get(p.key);
+        if (t) flush(same.map((q2) => [q2, t]));
+        done += 1;
+      } while (queue.length && performance.now() - t0 < budget);
+      cache.trim?.();
+      return done;
+    },
     update() {},
     // The geometries and materials belong to the cache and are NOT freed here.
     // Only the instanced meshes are this field's own. Releasing is what makes

@@ -210,13 +210,20 @@ export function createEditorScene({ canvas }) {
   }
 
   function syncWall(doc) {
-    const s = sig([doc.wall.points, doc.size]);
+    const s = sig([doc.wall.points, doc.size, doc.wall.variant, doc.wall.styles]);
     if (s === wallSig) return;
     wallSig = s;
     if (wallBuilt) { level.remove(wallBuilt.group); wallBuilt.dispose?.(); }
     const group = new THREE.Group();
+    // variant and styles go straight through: `at` on a style change is a
+    // distance along the centreline from points[0], which is the same
+    // coordinate a gate uses, so the editor places one with the code it has.
     const made = createWall({
-      seed: 1, points: doc.wall.points.map(([x, z]) => ({ x, z })), closed: true,
+      seed: 1,
+      points: doc.wall.points.map(([x, z]) => ({ x, z })),
+      closed: true,
+      variant: doc.wall.variant,
+      styles: doc.wall.styles && doc.wall.styles.length ? doc.wall.styles : null,
     });
     group.add(made.group);
     const h = doc.size / 2;

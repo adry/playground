@@ -74,6 +74,18 @@ const SOFT_KINDS = new Set(['hole', 'dirt']);
 // between two solid props for the same reason.
 export const BAND_LO = 1.11;
 export const BAND_HI = 1.66;
+// A WIDER BAND FOR ANYTHING THE REPAIR PASS MAY NOT REMOVE.
+//
+// The band's lower edge is where the CHANNEL stops conducting, and below it the
+// repair pass is the safety net: it finds the pocket beside the channel and
+// takes the prop out. A grave's own headstone is marked keep and cannot be
+// taken out, so for those there is no net and the placement itself has to be
+// right. One arena in a hundred and fifty ended with a two cell wedge between
+// the divider and a headstone standing 1.05 off it, a hair under the band, and
+// the repair could only report it. Keep props are therefore either snug against
+// the fence, where there is no room beside them for a pocket, or the whole band
+// clear of it.
+export const KEEP_BAND_LO = 0.60;
 
 const BUCKET = 4;
 
@@ -226,9 +238,10 @@ export function createPlacer({ field, box, barriers = [], gates = [] }) {
     }
     // The forbidden band, against every fence and every solid neighbour.
     if (prop.solid) {
+      const lo = prop.keep ? KEEP_BAND_LO : BAND_LO;
       for (const seg of barriers) {
         const c = barrierChannel(prop, seg);
-        if (c > BAND_LO && c < BAND_HI) return 'band';
+        if (c > lo && c < BAND_HI) return 'band';
       }
     }
     const reach = Math.max(OVERLAP_REACH, OCCLUSION_REACH);

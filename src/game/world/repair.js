@@ -397,6 +397,76 @@ const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -
 
 // --- the pass ---------------------------------------------------------------
 //
+// THE WEDGE CHECK, ON ITS OWN, FOR A LEVEL NOBODY GENERATED.
+//
+// The repair pass below finds wedges in order to remove the prop making one.
+// A hand-authored level wants the finding without the removal: tell the author
+// where it is and let them decide. Same code, same two masks, same
+// generous-then-exact confirmation, so the editor and the generator cannot
+// disagree about what a wedge is.
+//
+//   findWedges({ box, barriers, gates, props, spawn }) -> [{ x, z, cells }]
+//
+// One entry per pocket, at its centre, with the number of cells in it. An
+// empty array is the level saying every place a body can stand is somewhere a
+// body could have walked to. Everything is world space and the arguments are
+// the same records world.barriers(), world.gates() and world.props() publish,
+// so a level loaded out of a file is checked by exactly this call.
+//
+// SINGLE CELLS ARE NOT REPORTED, and the floor is the same MIN_POCKET the
+// repair uses. The confirmation samples a cell on a five by five, so a cell
+// whose extreme corner clears the body by a millimetre counts as a place to
+// stand and its neighbours do not. Over sixty generated arenas that produced
+// seventeen findings of exactly one cell and none of two or more, against a
+// soak that reports those arenas clean at a raster of 0.15. One cell is the
+// instrument; two is a place.
+export function findWedges({ box, barriers, gates, props, spawn, cell = NAV_CELL, minCells = MIN_POCKET }) {
+  const grid = navGrid(box, barriers, gates, props, spawn, cell);
+  const { label } = components(grid);
+  const spawnCell = nearestWide(grid, spawn.x, spawn.z);
+  if (spawnCell < 0) return [];
+  const reachable = dilate(grid, label, label[spawnCell], FRINGE, grid.unfit);
+  const N = grid.n * grid.n;
+  const flagged = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    if (grid.unfit[i] || reachable[i]) continue;
+    const x = grid.wx(i);
+    const z = grid.wz(i);
+    if (x <= box.minX || x >= box.maxX || z <= box.minZ || z >= box.maxZ) continue;
+    if (!bodyFits(barriers, props, x, z, cell)) continue;
+    flagged[i] = 1;
+  }
+  // One finding per pocket rather than per cell, because an author wants to be
+  // sent to a place and not to a list of quarter unit squares.
+  const seen = new Uint8Array(N);
+  const out = [];
+  for (let s = 0; s < N; s++) {
+    if (!flagged[s] || seen[s]) continue;
+    const stack = [s];
+    seen[s] = 1;
+    let sx = 0;
+    let sz = 0;
+    let count = 0;
+    while (stack.length) {
+      const i = stack.pop();
+      sx += grid.wx(i);
+      sz += grid.wz(i);
+      count++;
+      const a = i % grid.n;
+      for (let d = 0; d < 8; d++) {
+        const [dx, dz] = DIR8[d];
+        if (a + dx < 0 || a + dx >= grid.n) continue;
+        const j = i + dz * grid.n + dx;
+        if (j < 0 || j >= N || seen[j] || !flagged[j]) continue;
+        seen[j] = 1;
+        stack.push(j);
+      }
+    }
+    if (count >= minCells) out.push({ x: sx / count, z: sz / count, cells: count });
+  }
+  return out;
+}
+
 // Returns what it had to take out, and the walkable grid the collectibles are
 // then placed against, so a firefly is never put somewhere nothing can walk.
 export function repairLevel({ box, barriers, gates, graves, spawn, placer, rounds = 40 }) {
@@ -406,7 +476,15 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
   // can do about them. They are SKIPPED rather than fatal: giving up on the
   // level the moment one appears leaves every other problem in it unfixed,
   // which is how a widened margin made the failure rate go UP.
+  //
+  // The list is FORGOTTEN whenever a prop comes out, because "no prop is to
+  // blame" is a statement about the level as it stood in that round and not
+  // about the level. One arena in a hundred and fifty ended with a two cell
+  // wedge between a headstone and the divider that this pass had written off
+  // in an early round, when its neighbours were still standing and the pocket
+  // reached no further than the fence.
   const unfixable = new Set();
+  const forget = () => unfixable.clear();
 
   for (let round = 0; round < rounds; round++) {
     report.rounds = round + 1;
@@ -426,6 +504,7 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
       const bad = blockers(props, spawn.x, spawn.z, NAV_R + 0.4);
       if (!bad.length) { report.stuck = 'spawn'; break; }
       placer.drop(bad);
+      forget();
       report.removed += bad.length;
       report.spawn++;
       continue;
@@ -485,6 +564,7 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
       let best = -1;
       for (const [p, v] of votes) if (v > best) { best = v; pick = p; }
       placer.drop([pick]);
+      forget();
       report.removed++;
       continue;
     }
@@ -499,6 +579,7 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
       const bad = blockers(props, g.x, g.z, SKEL_R + 0.5);
       if (!bad.length) continue;
       placer.drop(bad);
+      forget();
       report.removed += bad.length;
       report.grave++;
       fixed = true;
@@ -517,6 +598,7 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
       }
       if (!bad.length) continue;
       placer.drop(bad);
+      forget();
       report.removed += bad.length;
       report.gate++;
       fixed = true;

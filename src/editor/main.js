@@ -37,8 +37,10 @@ import { createEditorScene } from './scene.js';
 import {
   emptyLevel, normalizeLevel, serializeLevel, createLevelWorld, renumberGraves,
   packPaint, unpackPaint, GROUND_MATERIALS, LEVEL_FORMAT,
+  WALL_VARIANTS, WALL_JOINTS, MAX_STYLES, wallLength,
 } from '../game/level/format.js';
 import { validateLevel } from '../game/level/validate.js';
+import { checkFairness, FAIR_MESSAGES } from '../game/level/fairness.js';
 import { PALETTE, PERSONALITIES, MAX_SPAWNS, levelFootprint } from '../game/level/catalogue.js';
 import { LEVEL_SIZE } from '../game/world/field.js';
 
@@ -55,6 +57,11 @@ const YAW_SNAP = Math.PI / 12;
 let doc = load() || emptyLevel({ size: LEVEL_SIZE, seed: 7, name: 'graveyard' });
 let world = null;
 let report = null;
+// The soak's eight, run on a timer after the last change rather than on every
+// pointer move: it rasters the whole arena at 0.5 and floods it several times,
+// which is tens of milliseconds. See level/fairness.js.
+let fair = { fail: [], where: {}, stale: true };
+let fairTimer = 0;
 
 const undoStack = [];
 const redoStack = [];
@@ -163,6 +170,26 @@ function refresh({ deep = !editing } = {}) {
   world = createLevelWorld(doc);
   report = validateLevel(doc, world, { deep });
   scene.sync(world, doc, { selection, flagged: report.flagged, hover, brush: tool === 'paint' && hover ? { ...hover, r: brush.radius } : null });
+  fair.stale = true;
+  clearTimeout(fairTimer);
+  fairTimer = setTimeout(runFairness, 260);
+  drawPanels();
+  drawStatus();
+}
+
+// THE EIGHT. Nothing now stands between a hand-made level and the player, so
+// this is not advisory: F3 in particular is invisible on screen and it is the
+// property most likely to be broken by accident.
+function runFairness() {
+  if (!world) return;
+  try {
+    const out = checkFairness(world);
+    fair = { ...out, stale: false };
+  } catch (err) {
+    // A level mid-edit can be geometry nav.js has never been asked about. A
+    // check that throws must not take the tool down with it.
+    fair = { fail: [], where: {}, stale: false, error: err.message };
+  }
   drawPanels();
   drawStatus();
 }
@@ -264,10 +291,19 @@ function addSpawn(x, z) {
   }
   const taken = new Set(doc.graves.map((g) => g.personality));
   const free = PERSONALITIES.find((p) => !taken.has(p)) || PERSONALITIES[0];
-  doc.graves.push({
-    id: freshId('g'), x, z, yaw: FACE_YAW, order: doc.graves.length, personality: free,
-  });
+  const g = {
+    id: freshId('g'), x, z, yaw: FACE_YAW, order: doc.graves.length, personality: free, pile: 1,
+  };
+  doc.graves.push(g);
   renumberGraves(doc);
+  // The heap goes on whichever long side is clear. Trying both here saves the
+  // author an error they did not cause and would not guess the fix for.
+  const errs = (side) => {
+    g.pile = side;
+    const w = createLevelWorld(doc);
+    return validateLevel(doc, w, { deep: false }).errors.length;
+  };
+  if (errs(1) > errs(-1)) g.pile = -1; else g.pile = 1;
   return true;
 }
 
@@ -615,7 +651,22 @@ window.addEventListener('keyup', (e) => { if (e.code === 'Space') spaceDown = fa
 
 // --- files -------------------------------------------------------------------------
 
-function saveFile() {
+function saveFile({ anyway = false } = {}) {
+  // NOT A QUIET SAVE. The generator used to be the last thing between a broken
+  // level and a player and it is gone, so a level that fails a fairness
+  // property or carries a geometry error has to be refused out loud. The owner
+  // can still force it -- it is their tool -- but never by accident.
+  const blocking = [
+    ...report.errors.map((e) => e.message),
+    ...fair.fail.map((f) => `${f}: ${FAIR_MESSAGES[f] || f}`),
+  ];
+  if (blocking.length && !anyway) {
+    const ok = confirm(
+      `This level is not playable:\n\n  ${blocking.slice(0, 6).join('\n  ')}\n\n`
+      + 'Save it anyway?',
+    );
+    if (!ok) { say(`not saved: ${blocking.length} problem${blocking.length === 1 ? '' : 's'} to fix first`); return; }
+  }
   const text = serializeLevel(doc);
   const blob = new Blob([text], { type: 'application/json' });
   const a = document.createElement('a');
@@ -624,6 +675,27 @@ function saveFile() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   say(`saved ${a.download}. open it with /lab/?world=1&level=<url>`);
+}
+
+// THE GENERATOR AS A BLANK PAGE. It no longer competes with the editor: it
+// produces one complete, fairness-checked arena which the owner then edits by
+// hand. Imported lazily so a page that never presses the button never pays for
+// the generator's module graph.
+async function generateInto(seed) {
+  say('generating...');
+  const [{ createWorld }, { levelFromWorld }] = await Promise.all([
+    import('../game/world/index.js'),
+    import('../game/level/import.js'),
+  ]);
+  const gen = createWorld({ seed, size: doc.size });
+  commit(() => {
+    doc = levelFromWorld(gen, { name: `${doc.name || 'level'}` });
+    doc.seed = seed;
+    doc.fireflies.seed = seed;
+    selection.clear();
+    pending = null;
+  });
+  say(`generated seed ${seed}: ${doc.props.length} props, ${doc.fences.length} fences, ${doc.graves.length} spawns. Now move things.`);
 }
 
 async function openFile(file) {
@@ -810,6 +882,39 @@ function drawRight() {
         commit(() => { doc = emptyLevel({ size: doc.size, seed: doc.seed, name: 'graveyard' }); selection.clear(); });
       } }),
     ]),
+    el('div', { class: 'row' }, [
+      el('button', {
+        class: 'grow',
+        text: 'generate a starting level',
+        title: 'Fill the arena from the procedural generator at this seed, then edit it by hand. Undo puts it back.',
+        onclick: () => generateInto(doc.seed),
+      }),
+    ]),
+
+    el('h2', { text: 'wall' }),
+    el('div', { class: 'row' }, [
+      el('label', { text: 'stone' }),
+      select(WALL_VARIANTS, doc.wall.variant, (v) => commit(() => { doc.wall.variant = v; })),
+    ]),
+    ...doc.wall.styles.map(styleRow),
+    el('div', { class: 'row' }, [
+      el('button', {
+        class: 'grow',
+        text: `add a change of stone (${doc.wall.styles.length}/${MAX_STYLES - 1})`,
+        disabled: doc.wall.styles.length >= MAX_STYLES - 1 ? '' : null,
+        onclick: () => commit(() => {
+          const len = wallLength(doc.wall.points);
+          const n = doc.wall.styles.length;
+          doc.wall.styles.push({
+            at: Math.round((len * (n + 1)) / (MAX_STYLES + 1)),
+            variant: WALL_VARIANTS[(WALL_VARIANTS.indexOf(doc.wall.variant) + 1 + n) % WALL_VARIANTS.length],
+            joint: 'pier',
+          });
+          doc.wall.styles.sort((a, b) => a.at - b.at);
+        }),
+      }),
+    ]),
+    el('p', { class: 'note', text: `the wall runs ${wallLength(doc.wall.points).toFixed(0)} units from the first corner, anticlockwise. A change at that distance holds until the next one.` }),
 
     el('h2', { text: 'view' }),
     el('div', { class: 'row' }, [
@@ -833,6 +938,9 @@ function drawRight() {
 
     el('h2', { text: 'selection' }),
     sel.length === 1 ? inspector(sel[0]) : el('p', { class: 'note', text: sel.length ? `${sel.length} selected` : 'nothing selected' }),
+
+    el('h2', { text: 'fairness' }),
+    fairnessList(),
 
     el('h2', { text: `problems  ${report ? report.errors.length : 0} / ${report ? report.warnings.length : 0}` }),
     issuesList(),
@@ -911,6 +1019,20 @@ function inspector(id) {
       el('button', { class: 'grow', text: 'face the camera', onclick: () => commit(() => { r.yaw = FACE_YAW; }) }),
     ]));
   }
+  if (k === 'grave') {
+    rows.push(el('div', { class: 'row' }, [
+      el('label', { text: 'spawn' }),
+      select(PERSONALITIES, r.personality, (v) => commit(() => { r.personality = v; })),
+    ]));
+    rows.push(el('div', { class: 'row' }, [
+      el('button', {
+        class: 'grow',
+        text: 'throw the spoil the other way',
+        title: 'Which long side the heap lands on. The wrong side puts it through a fence.',
+        onclick: () => commit(() => { r.pile = (r.pile || 1) * -1; }),
+      }),
+    ]));
+  }
   if (k === 'path') {
     rows.push(el('div', { class: 'row' }, [
       el('label', { text: 'material' }),
@@ -934,6 +1056,44 @@ function inspector(id) {
 }
 
 const round = (v) => Math.round(v * 100) / 100;
+
+// One change of stone along the perimeter. `at` is a distance from the first
+// corner, exactly as a gate's is, so this is the gate placement UI wearing a
+// different hat.
+function styleRow(st, i) {
+  const len = wallLength(doc.wall.points);
+  return el('div', { class: 'row' }, [
+    el('span', { class: 'n', text: String(i + 1) }),
+    number(st.at, 0, Math.round(len), 0.5, (v) => commit(() => {
+      st.at = Math.max(0, Math.min(len, v));
+      doc.wall.styles.sort((a, b) => a.at - b.at);
+    })),
+    select(WALL_VARIANTS, st.variant, (v) => commit(() => { st.variant = v; })),
+    select(WALL_JOINTS, st.joint, (v) => commit(() => { st.joint = v; })),
+    el('button', { text: '×', title: 'remove', onclick: () => commit(() => {
+      doc.wall.styles.splice(i, 1);
+    }) }),
+  ]);
+}
+
+// The eight the soak checks, as they stand on THIS level. See level/fairness.js
+// for what each one means and why F3 is the one to read first.
+function fairnessList() {
+  if (fair.error) {
+    return el('ul', { class: 'issues' }, [el('li', { 'data-severity': 'error', text: `the fairness check could not run: ${fair.error}` })]);
+  }
+  if (fair.stale) {
+    return el('ul', { class: 'issues' }, [el('li', { class: 'none', text: 'checking the eight fairness properties...' })]);
+  }
+  if (!fair.fail.length) {
+    return el('ul', { class: 'issues' }, [el('li', { class: 'none', text: 'passes all eight: spawn, F1 chase, F2 sealed, F3 safe spot, F4 pin, firefly reach, grave clearance, gate width' })]);
+  }
+  return el('ul', { class: 'issues' }, fair.fail.map((code) => el('li', {
+    'data-severity': 'error',
+    text: `${code} - ${FAIR_MESSAGES[code] || ''}`,
+    onclick: () => { const w = fair.where[code]; if (w) scene.lookAt(w.x, w.z); },
+  })));
+}
 
 function issuesList() {
   if (!report || !report.issues.length) {
@@ -981,10 +1141,14 @@ function resize(size) {
 function drawStatus() {
   const s = scene.stats();
   const errors = report ? report.errors.length : 0;
+  const unfair = fair.fail.length;
   statusEl.innerHTML = [
     `<b>${doc.props.length}</b> props · <b>${doc.graves.length}</b> spawns · <b>${world ? world.fireflies().length : 0}</b> fireflies (auto)`,
     `${s.cuts}/${s.max} floor cuts · ${world ? world._derived.gates.length : 0} gates`,
-    errors ? `<span class="bad">${errors} error${errors === 1 ? '' : 's'}</span>` : 'playable',
+    errors ? `<span class="bad">${errors} error${errors === 1 ? '' : 's'}</span>` : 'geometry ok',
+    fair.stale ? 'fairness: checking' : unfair
+      ? `<span class="bad">fails ${fair.fail.join(', ')}</span>`
+      : 'fairness: all eight pass',
     message ? `<span>${message}</span>` : '',
   ].filter(Boolean).join('<br>');
 }

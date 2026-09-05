@@ -50,10 +50,21 @@
 //                                 fireflies, so a file renders the same twice
 //   "spawn": { "x": 0, "z": 0 },  where the ghost starts
 //
-//   "wall": { "points": [[x,z],...], "closed": true },
-//                                 ONE CLOSED LOOP, which is what
+//   "wall": {
+//     "points": [[x,z],...],      ONE CLOSED LOOP, which is what
 //                                 src/ghost/props/fence/wall.js takes. Not
 //                                 four runs; see that file's header for why.
+//     "closed": true,
+//     "variant": "ashlar",        the style the wall STARTS in: ashlar, brick,
+//                                 rubble or iron
+//     "styles": [                 style changes along the run
+//       { "at": 22, "variant": "brick", "joint": "tooth" },
+//       { "at": 58, "variant": "rubble", "joint": "pier", "jointVariant": "iron" }
+//     ]                           `at` is a distance along the centreline from
+//                                 points[0], the same coordinate a gate uses.
+//                                 joint is 'pier', 'tooth' or 'step'. At most
+//                                 MAX_STYLES distinct styles on one wall.
+//   },
 //
 //   "fences": [                   pens and dividers, one polyline each
 //     { "id": "f0",
@@ -87,11 +98,16 @@
 //
 //   "graves": [
 //     { "id": "g0", "x": 3, "z": -2, "yaw": 0.78,
-//       "order": 0, "personality": "chaser" }
+//       "order": 0, "personality": "chaser", "pile": 1 }
 //                                 THE SPAWN ORDER. `order` is which skeleton
 //                                 climbs out and when: 0 first. At most four,
 //                                 because ground.js cuts at most four holes
 //                                 and rules.js runs four personalities.
+//                                 `pile` is which long side the spoil heap is
+//                                 thrown onto, 1 or -1. The generator chooses
+//                                 the side away from the nearest path; here it
+//                                 is the author's, because the wrong side puts
+//                                 a heap through a fence.
 //   ],
 //
 //   "powerups": [ { "id": "jack0", "x": 8, "z": 8 } ],
@@ -124,6 +140,7 @@ import {
 } from '../world/fence.js';
 import { GATE } from '../layout/gate.js';
 import { LEVEL_SIZE, WALL_HALF, WALL_HEIGHT, PATH_HALF } from '../world/field.js';
+import { WALL, MAX_STYLES } from '../../ghost/props/fence/wall.js';
 import { levelFootprint, boundingRadius, isSolid, MAX_SPAWNS, PERSONALITIES } from './catalogue.js';
 import { placeFireflies, DEFAULT_FLY_RULE } from './fireflies.js';
 
@@ -137,6 +154,12 @@ export const LEVEL_VERSION = 1;
 export const BODY = 0.60;
 
 export const GROUND_MATERIALS = ['grass', 'sand', 'gravel', 'earth'];
+
+// Read off the prop rather than written down twice. wall.js publishes the four
+// it builds and the cap on how many one wall may carry.
+export const WALL_VARIANTS = WALL.variants.slice();
+export const WALL_JOINTS = ['pier', 'tooth', 'step'];
+export { MAX_STYLES };
 export const GROUND_CELL = 0.5;
 
 const num = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
@@ -146,6 +169,17 @@ export const levelBoxOf = (size) => ({
 });
 
 // The perimeter, as the one closed loop wall.js wants.
+// How long the wall's centreline is, which is the range every `at` lives in.
+export function wallLength(points) {
+  let total = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    total += Math.hypot(b[0] - a[0], b[1] - a[1]);
+  }
+  return total;
+}
+
 export function wallLoop(size) {
   const h = size / 2;
   return [[-h, -h], [h, -h], [h, h], [-h, h]];
@@ -164,7 +198,7 @@ export function emptyLevel({ size = LEVEL_SIZE, seed = 1, name = 'untitled' } = 
     size,
     seed,
     spawn: { x: 0, z: 0 },
-    wall: { points: wallLoop(size), closed: true },
+    wall: { points: wallLoop(size), closed: true, variant: WALL_VARIANTS[0], styles: [] },
     fences: [],
     props: [],
     paths: [],
@@ -191,8 +225,24 @@ export function normalizeLevel(raw) {
   const doc = emptyLevel({ size, seed: num(raw.seed, 1), name: String(raw.name || 'untitled') });
 
   if (raw.spawn) doc.spawn = { x: num(raw.spawn.x, 0), z: num(raw.spawn.z, 0) };
-  if (raw.wall?.points?.length >= 3) {
-    doc.wall = { points: raw.wall.points.map((p) => [num(p[0], 0), num(p[1], 0)]), closed: true };
+  if (raw.wall) {
+    const w = raw.wall;
+    if (w.points?.length >= 3) {
+      doc.wall.points = w.points.map((p) => [num(p[0], 0), num(p[1], 0)]);
+    }
+    doc.wall.variant = WALL_VARIANTS.includes(w.variant) ? w.variant : WALL_VARIANTS[0];
+    // A style change past the end of the run, or one wall.js would refuse for
+    // carrying too many styles, is dropped rather than thrown: a file the owner
+    // hand-edited should open.
+    doc.wall.styles = (w.styles || [])
+      .map((st) => ({
+        at: Math.max(0, num(st.at, 0)),
+        variant: WALL_VARIANTS.includes(st.variant) ? st.variant : WALL_VARIANTS[1],
+        joint: WALL_JOINTS.includes(st.joint) ? st.joint : 'pier',
+        ...(WALL_VARIANTS.includes(st.jointVariant) ? { jointVariant: st.jointVariant } : {}),
+      }))
+      .sort((a, b) => a.at - b.at)
+      .slice(0, MAX_STYLES - 1);
   }
 
   doc.fences = (raw.fences || []).map((f, i) => ({
@@ -227,6 +277,7 @@ export function normalizeLevel(raw) {
     x: num(g.x, 0), z: num(g.z, 0), yaw: num(g.yaw, 0),
     order: num(g.order, i),
     personality: PERSONALITIES.includes(g.personality) ? g.personality : PERSONALITIES[i % 4],
+    pile: num(g.pile, 1) < 0 ? -1 : 1,
   }));
   renumberGraves(doc);
 
@@ -476,7 +527,7 @@ export function deriveLevel(doc) {
       propRecord({ id: `${g.id}/hole`, kind: 'hole', variant: 'grave', x: g.x, z: g.z, yaw: g.yaw }),
       propRecord({
         id: `${g.id}/dirt`, kind: 'dirt', variant: null,
-        x: g.x + s * 1.2, z: g.z + c * 1.2, yaw: g.yaw,
+        x: g.x + s * 1.2 * (g.pile || 1), z: g.z + c * 1.2 * (g.pile || 1), yaw: g.yaw,
       }),
     );
   }
@@ -485,7 +536,7 @@ export function deriveLevel(doc) {
     id: p.id, material: p.material, width: p.width, points: p.points.map((q) => [q[0], q[1]]),
   }));
   const graves = doc.graves.map((g) => ({
-    id: g.id, x: g.x, z: g.z, yaw: g.yaw, order: g.order, personality: g.personality,
+    id: g.id, x: g.x, z: g.z, yaw: g.yaw, order: g.order, personality: g.personality, pile: g.pile,
   }));
   const powerups = doc.powerups.map((p, i) => ({
     id: p.id || `jack${i}`, kind: 'jack', x: p.x, z: p.z, yaw: Math.PI / 4,

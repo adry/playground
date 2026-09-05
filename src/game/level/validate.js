@@ -59,9 +59,16 @@ export function shapeOf(p) {
   return { disc: false, x: p.x, z: p.z, yaw: p.yaw || 0, hu: f.halfU, hv: f.halfV };
 }
 
+// The disc, in the box's own frame. A yaw of theta puts the box's local X axis
+// at (cos, -sin) in world and its local Z at (sin, cos), which is what a
+// three.js rotation about Y does, so the projection onto those two axes IS the
+// local coordinate. Writing it as a rotation by -theta instead, which is the
+// obvious thing to try, gets the sign of one term wrong in each row and turns
+// the test into a different box: an eighteen unit fence then reads as
+// overlapping a bush six units away from it.
 function discBox(d, b, pad) {
-  const c = Math.cos(-b.yaw);
-  const s = Math.sin(-b.yaw);
+  const c = Math.cos(b.yaw);
+  const s = Math.sin(b.yaw);
   const dx = d.x - b.x;
   const dz = d.z - b.z;
   const lx = dx * c - dz * s;
@@ -113,11 +120,31 @@ export function pointSegD(px, pz, x0, z0, x1, z1) {
   return Math.hypot(px - (x0 + dx * t), pz - (z0 + dz * t));
 }
 
-// A prop against a line with a thickness. The prop is taken at its bounding
-// radius here on purpose: a segment test against a turned box is a lot more
-// work for a question whose answer, at these sizes, differs by a centimetre.
-function propNearSegment(p, x0, z0, x1, z1, half) {
-  return pointSegD(p.x, p.z, x0, z0, x1, z1) < half + p.radius;
+// A prop against a CAPSULE: a fence, a wall, or a gate's approach corridor.
+//
+// It has to be the prop's real footprint and not its bounding circle. A
+// headstone is 0.54 wide and 0.22 deep, so its circumscribed circle is 0.29
+// bigger than its own depth, and a row of stones standing a comfortable
+// hand's width from a fence reads as four errors under the circle test. That
+// was not hypothetical: the generator's own levels, which the placer proves
+// clear against the same fences, came back with three "stone stands in the
+// fence" the first time this was written with a circle.
+//
+// A capsule is exactly a rectangle plus a disc at each end -- it IS the
+// Minkowski sum of the segment and the disc -- so the test is three exact
+// tests and no approximation anywhere.
+function shapeNearCapsule(p, x0, z0, x1, z1, r) {
+  const len = Math.hypot(x1 - x0, z1 - z0);
+  if (len > 1e-6) {
+    const bar = {
+      x: (x0 + x1) / 2, z: (z0 + z1) / 2,
+      yaw: Math.atan2(-(z1 - z0), x1 - x0),
+      foot: { shape: 'box', halfU: len / 2, halfV: r },
+    };
+    if (shapesOverlap(p, bar)) return true;
+  }
+  const cap = (x, z) => shapesOverlap(p, { x, z, yaw: 0, foot: { shape: 'disc', r } });
+  return cap(x0, z0) || cap(x1, z1);
 }
 
 // --- the flood fill -------------------------------------------------------------
@@ -286,18 +313,18 @@ export function validateLevel(doc, world, { deep = true } = {}) {
       add('error', 'arena', `${p.kind} is outside the wall`, p, [p.id]);
     }
     for (const b of d.barriers) {
-      if (propNearSegment(p, b.x0, b.z0, b.x1, b.z1, b.half)) {
+      if (shapeNearCapsule(p, b.x0, b.z0, b.x1, b.z1, b.half)) {
         add('error', 'barrier', `${p.kind} stands in the ${b.kind}`, p, [p.id]);
         break;
       }
     }
     if (p.solid) {
       for (const g of d.gates) {
-        if (Math.hypot(p.x - g.sweep.x, p.z - g.sweep.z) < g.sweep.r + p.radius) {
+        if (shapesOverlap(p, { x: g.sweep.x, z: g.sweep.z, yaw: 0, foot: { shape: 'disc', r: g.sweep.r } })) {
           add('error', 'gate', `${p.kind} is inside the gate leaf's sweep`, p, [p.id, g.id]);
           break;
         }
-        if (pointSegD(p.x, p.z, g.clear.x0, g.clear.z0, g.clear.x1, g.clear.z1) < g.clear.r + p.radius) {
+        if (shapeNearCapsule(p, g.clear.x0, g.clear.z0, g.clear.x1, g.clear.z1, g.clear.r)) {
           add('error', 'gate', `${p.kind} blocks the approach to a gate`, p, [p.id, g.id]);
           break;
         }

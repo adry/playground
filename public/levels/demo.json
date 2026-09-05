@@ -27,7 +27,20 @@
         15
       ]
     ],
-    "closed": true
+    "closed": true,
+    "variant": "ashlar",
+    "styles": [
+      {
+        "at": 34,
+        "variant": "brick",
+        "joint": "tooth"
+      },
+      {
+        "at": 76,
+        "variant": "rubble",
+        "joint": "pier"
+      }
+    ]
   },
   "fences": [
     {
@@ -515,7 +528,8 @@
       "z": -9,
       "yaw": 0.7853981633974483,
       "order": 0,
-      "personality": "chaser"
+      "personality": "chaser",
+      "pile": 1
     },
     {
       "id": "g1",
@@ -523,7 +537,8 @@
       "z": -6.6,
       "yaw": 0.7853981633974483,
       "order": 1,
-      "personality": "ambusher"
+      "personality": "ambusher",
+      "pile": 1
     },
     {
       "id": "g2",
@@ -531,7 +546,8 @@
       "z": 9.5,
       "yaw": 1.1353981633974484,
       "order": 2,
-      "personality": "flanker"
+      "personality": "flanker",
+      "pile": 1
     },
     {
       "id": "g3",
@@ -539,7 +555,8 @@
       "z": 4.5,
       "yaw": 0.4853981633974483,
       "order": 3,
-      "personality": "loner"
+      "personality": "loner",
+      "pile": 1
     }
   ],
   "powerups": [

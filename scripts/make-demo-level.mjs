@@ -15,8 +15,18 @@ import {
   emptyLevel, normalizeLevel, serializeLevel, createLevelWorld, renumberGraves, packPaint,
 } from '../src/game/level/format.js';
 import { validateLevel } from '../src/game/level/validate.js';
+import { checkFairness, FAIR_MESSAGES } from '../src/game/level/fairness.js';
 
 const doc = emptyLevel({ size: 30, seed: 7, name: 'demo' });
+
+// The wall changes hands twice on its way round. `at` is a distance along the
+// centreline from the first corner, the same coordinate a gate uses, and the
+// perimeter of a 30 by 30 arena is 120.
+doc.wall.variant = 'ashlar';
+doc.wall.styles = [
+  { at: 34, variant: 'brick', joint: 'tooth' },
+  { at: 76, variant: 'rubble', joint: 'pier' },
+];
 
 // --- the fences: one pen and one divider, each with its gate ------------------
 doc.fences.push({
@@ -49,7 +59,7 @@ const spawns = [
   { x: -9.5, z: 9.5, yaw: Math.PI / 4 + 0.35, personality: 'flanker' },
   { x: 9.0, z: 4.5, yaw: Math.PI / 4 - 0.3, personality: 'loner' },
 ];
-spawns.forEach((s, i) => doc.graves.push({ id: `g${i}`, order: i, ...s }));
+spawns.forEach((s, i) => doc.graves.push({ id: `g${i}`, order: i, pile: 1, ...s }));
 renumberGraves(doc);
 
 // --- the pellets ---------------------------------------------------------------
@@ -172,3 +182,9 @@ console.log(`props ${out.props.length} (${dropped} candidates dropped for not fi
 console.log(`gates ${world._derived.gates.length}  graves ${out.graves.length}  fireflies ${world.fireflies().length}`);
 console.log(`errors ${check.errors.length}  warnings ${check.warnings.length}`);
 for (const i of check.issues) console.log(`  ${i.severity}: ${i.message}`);
+
+// And the eight the soak checks, which is what actually decides whether this
+// is playable now that nothing procedural stands between it and a player.
+const fair = checkFairness(world);
+console.log(fair.fail.length ? `FAILS ${fair.fail.join(', ')}` : 'fairness: all eight pass');
+for (const f of fair.fail) console.log(`  ${f}: ${FAIR_MESSAGES[f]}`);

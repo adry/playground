@@ -239,26 +239,15 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
     const centre = frame.toGrid(cx, cz);
     const rng = rngAt(seed, tag, Math.round(cx * 8), Math.round(cz * 8));
     let pick = null;
-    // 1: inside a pen, AT THE FAR END FROM THE GATE, so the player must either
-    // walk the length of the pen from the gate or drop straight in over the
-    // rail. Clamping to the nearest interior point instead, which is what this
-    // did first, tends to land the firefly on the gate's own side, where the
-    // ground route and the hop cost the same and the pen may as well not be
-    // there. The gate side is the expensive one BY CONSTRUCTION: the gate faces
-    // the nearest path, which is the way the player is most likely to arrive.
+    // 1: inside a pen, so the player must gate it or hop the rail.
     for (const run of runs) {
       if (!run.interior || pick) continue;
       const it = run.interior;
       const hu = Math.max(0, it.halfU - 0.9);
       const hv = Math.max(0, it.halfV - 0.9);
-      let u = Math.max(it.u - hu, Math.min(it.u + hu, centre.u));
-      let v = Math.max(it.v - hv, Math.min(it.v + hv, centre.v));
-      const out = it.gateOut;
-      if (out) {
-        if (out.du) u = it.u - Math.sign(out.du) * hu;
-        if (out.dv) v = it.v - Math.sign(out.dv) * hv;
-      }
-      if (Math.hypot(u - centre.u, v - centre.v) <= reach + 2.0) pick = { u, v, why: 'pen' };
+      const u = Math.max(it.u - hu, Math.min(it.u + hu, centre.u));
+      const v = Math.max(it.v - hv, Math.min(it.v + hv, centre.v));
+      if (Math.hypot(u - centre.u, v - centre.v) <= reach) pick = { u, v, why: 'pen' };
     }
     // 2: just past a gate, where the player and the skeleton meet at a choke.
     if (!pick) {

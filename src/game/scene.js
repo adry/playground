@@ -268,6 +268,41 @@ export async function startGame({ canvas, params }) {
   // it; slots no level uses cost nothing. When a level finally does force a
   // repeat it is between the seventh casting of a variant and the first, not
   // between any two of them.
+  // How long a frame may spend baking prop templates it did not have. A single
+  // bake overruns this -- it is one pass over a canvas and cannot be split --
+  // so the budget decides how MANY are attempted per frame, not how long the
+  // frame is.
+  const BAKE_BUDGET_MS = 8;
+
+  // SPREADING THE BAKES ACROSS FRAMES IS OFF, and it is off because it was
+  // measured and it lost. This is the opposite of what everyone expected,
+  // including me, so the numbers are here rather than in a commit message.
+  //
+  // The idea is sound on its face: a level needs eighteen prop templates, a
+  // template is a canvas bake of a few hundred milliseconds, so bake one a
+  // frame and the player walks around a graveyard that fills in instead of
+  // watching a stall. createPropField implements exactly that and it works.
+  //
+  // On the page it is ten times worse. Measured at 1000x800, seed 1, same
+  // level, the only difference this flag:
+  //
+  //                       build    worst frame   level complete
+  //   all in one frame    7569 ms      4012 ms          4012 ms
+  //   one bake a frame    4485 ms     46599 ms         93626 ms
+  //
+  // The cause is the thing the sand path taught us. A canvas bake costs about
+  // five times more when it runs after the renderer has drawn than when it runs
+  // in a batch before anything is drawn -- 216 ms a template cold against
+  // 1082 ms warm, measured. Interleaving one bake per frame does not spread the
+  // cost, it puts EVERY bake in the expensive regime. Baking them back to back
+  // pays that penalty once.
+  //
+  // So the batch stays, and the honest caveat is that all of this is measured
+  // on a software rasteriser, where canvas raster and the renderer share a CPU.
+  // On a real GPU the two might not contend at all and the spread might win.
+  // ?spread=1 turns it on; the numbers above are what to beat.
+  const SPREAD = params.get('spread') === '1';
+
   const SLOTS = 6;
   const propCache = createPropCache({
     build(key) {
@@ -416,9 +451,17 @@ export async function startGame({ canvas, params }) {
         if (made.registerWith) made.registerWith(ground);
       }
     }
-    const field = createPropField({ placements, cache: propCache });
+    // The props go in as instances the moment their template exists, and the
+    // templates that do not exist yet are BAKED OVER THE FOLLOWING FRAMES
+    // rather than in this one. See advance(): a bake is a few hundred
+    // milliseconds and cannot be cut in half, so the choice is one stall of
+    // several seconds or a handful of slow frames the player can still move
+    // through. Every wave after the first finds its templates already built
+    // and this costs nothing at all.
+    const field = createPropField({ placements, cache: propCache, spread: SPREAD });
     propBucket.add(field.group);
     built.parts.push(field);
+    built.field = field;
 
     charge('prop');
 
@@ -718,6 +761,10 @@ export async function startGame({ canvas, params }) {
       else if (e.type === 'death') run.caughtBy = e.by;
     }
 
+    // Any prop template this wave still owes. Costs nothing once the level is
+    // complete, which after the first wave transition is almost always.
+    if (world.field?.pending) world.field.pump(BAKE_BUDGET_MS);
+
     world.flies.update(time, dt);
     for (const l of world.lanterns) l.update?.(time, dt);
     follow(dt);
@@ -791,6 +838,8 @@ export async function startGame({ canvas, params }) {
     // hold. The gap between this and rebuild() is what a template bake costs.
     rebuildWave(n) { startWave(n); return world.buildMs; },
     templates: () => propCache.size(),
+    // Templates this wave still owes. Zero means the level is fully built.
+    pending: () => world?.field?.pending ?? 0,
     // The named buckets buildWorld parents its work under.
     buckets: () => world?.buckets || {},
   };

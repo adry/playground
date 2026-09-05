@@ -381,7 +381,8 @@ export function createSandPath({ seed = 1, width = 1.2, points, scale = 1 } = {}
   geo.computeBoundingSphere();
 
   // --- maps --------------------------------------------------------------
-  const tex = typeof document !== 'undefined' ? buildMaps(rng, width, length) : null;
+  // Pooled, not baked per ribbon. See pooledMaps.
+  const tex = typeof document !== 'undefined' ? pooledMaps(seed, width, length) : null;
 
   const material = toyMaterial('#ffffff', {
     roughness: 0.97,
@@ -459,8 +460,10 @@ export function createSandPath({ seed = 1, width = 1.2, points, scale = 1 } = {}
       pebbleGeo.dispose();
       pebbleMat.dispose();
       pebbles.dispose();
-      tex?.map.dispose();
-      tex?.normalMap.dispose();
+      // The maps are the pool's, not this ribbon's. releaseMaps drops a
+      // reference; the bake itself outlives the level so the next one does not
+      // pay for it again.
+      releaseMaps(tex);
     },
   };
 }
@@ -487,11 +490,64 @@ const SAND_DRY = '#c3bcac';   // the crown and the wear, where it has dried out
 const SAND_DAMP = '#9a9488';  // pressed down, in a rut or a print
 const GRIT = '#c6c0b4';
 
-const T = (globalThis.__pathT = globalThis.__pathT || { alloc: 0, draw: 0, normal: 0, geo: 0, calls: 0, px: 0 });
-const now = () => (globalThis.performance ? performance.now() : 0);
+// --- the bake pool ----------------------------------------------------------
+//
+// The ribbon GEOMETRY is per path and always will be: it follows a route the
+// level chose and no two are the same shape. The MAPS are not. They are a strip
+// of dirt with grit and wheel hollows in it, drawn at a resolution derived from
+// the ribbon's length, and nothing in them refers to where the ribbon goes.
+//
+// Baking them per ribbon was 215 ms of every level build once the readback was
+// fixed, which is 78% of what a warm rebuild costs. Two paths of similar length
+// get the same dirt, and at 38 degrees on a floor that is not a thing anyone
+// can see -- but a whole level of one repeated strip would be, so the key
+// carries a slot as well and adjacent ribbons draw different bakes.
+//
+// LENGTH IS BUCKETED, which means a bake made for a 28 unit ribbon gets used on
+// a 30 unit one and stretches 7% along the path. That is safe here and would
+// not be on a texture with a rhythm in it: this one is grit and smudges with no
+// repeat and no feature whose size the eye knows. The bucket is 2 units, so the
+// worst stretch on the shortest ribbon the arena makes is about a tenth.
+const BUCKET = 2;
+const SLOTS = 2;
+const POOL_LIMIT = 8;
+const pool = new Map();
+pool.clock = 0;
+
+function pooledMaps(seed, width, length) {
+  const key = `${width.toFixed(2)}:${Math.max(BUCKET, Math.round(length / BUCKET) * BUCKET)}:${Math.abs(seed | 0) % SLOTS}`;
+  let e = pool.get(key);
+  if (e) { e.refs += 1; e.used = ++pool.clock; return e.tex; }
+  // A pool that only ever grows is a leak. Past the limit, the least recently
+  // used bake that nothing is drawing is freed; if everything is in use the
+  // pool simply grows for this level and settles on the next teardown.
+  if (pool.size >= POOL_LIMIT) {
+    const idle = [...pool.entries()].filter(([, v]) => v.refs === 0).sort((a, b) => a[1].used - b[1].used)[0];
+    if (idle) {
+      idle[1].tex.map.dispose();
+      idle[1].tex.normalMap.dispose();
+      pool.delete(idle[0]);
+    }
+  }
+  // The bake is seeded from the KEY, not from the ribbon, or which ribbon
+  // happened to be built first would decide what every other one looks like.
+  e = { tex: buildMaps(mulberry32(hashPath(key)), width, length), refs: 1, used: ++pool.clock, key };
+  pool.set(key, e);
+  return e.tex;
+}
+
+function releaseMaps(tex) {
+  if (!tex) return;
+  for (const e of pool.values()) if (e.tex === tex) { e.refs = Math.max(0, e.refs - 1); return; }
+}
+
+function hashPath(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) || 1;
+}
 
 function buildMaps(rng, width, length) {
-  const _t0 = now();
   const px = Math.max(26, Math.min(88, 2048 / Math.max(1, length)));
   const w = Math.max(48, Math.min(256, Math.round(width * px)));
   const h = Math.max(64, Math.min(2048, Math.round(length * px)));
@@ -520,8 +576,6 @@ function buildMaps(rng, width, length) {
   // canvas above does NOT get it: that one really is uploaded as a texture and
   // wants to stay where the GPU can reach it.
   const hc = height.getContext('2d', { willReadFrequently: true });
-  T.alloc += now() - _t0; T.calls += 1; T.px += w * h;
-  const _t1 = now();
 
   cc.fillStyle = SAND;
   cc.fillRect(0, 0, w, h);
@@ -653,9 +707,6 @@ function buildMaps(rng, width, length) {
     blot(cc, x, y, r * 1.25, r * (pxV / pxU) * 1.15, 0, proud ? STONE : DAMP, 0.34);
   }
 
-  T.draw += now() - _t1;
-  const _t2 = now();
-
   const map = new THREE.CanvasTexture(colour);
   map.colorSpace = THREE.SRGBColorSpace;
   map.wrapS = THREE.ClampToEdgeWrapping;
@@ -666,7 +717,6 @@ function buildMaps(rng, width, length) {
   const normalMap = heightToNormalMap(height, 3.4);
   normalMap.wrapS = THREE.ClampToEdgeWrapping;
   normalMap.wrapT = THREE.ClampToEdgeWrapping;
-  T.normal += now() - _t2;
 
   return { map, normalMap };
 }

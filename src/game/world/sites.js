@@ -25,6 +25,7 @@ import { footprintOf, STONES, UPRIGHT, LOW, PATH_LANTERNS } from '../layout/foot
 import { graveGroup, FACE } from '../layout/motifs.js';
 import { rngAt, PATH_HALF, GRAVES, SPAWN_CLEAR, gridBoxOf } from './field.js';
 import { segGap } from './fence.js';
+import { KEEP_BAND_LO, BAND_HI } from './placer.js';
 
 const TALL = UPRIGHT.filter((n) => STONES[n]);
 const SHORT = LOW.filter((n) => STONES[n]);
@@ -306,6 +307,19 @@ export function placeGraves({ field, placer, box, spawn, runs, rng }) {
           // re-homed to, so the mouth keeps a whole body's clearance from every
           // fence rather than the 0.15 a prop needs.
           if (barriers.some((b) => segDist(group[0].x, group[0].z, b) < BODY_CLEAR)) {
+            placer.drop(group);
+            continue;
+          }
+          // AND NOT IN THE BAND EITHER, which the placer cannot enforce for
+          // these: it widens the band for props the repair may not remove, and
+          // a grave's pieces are only marked keep once the whole group is down.
+          // See KEEP_BAND_LO. A headstone 1.05 off the divider leaves a two cell
+          // wedge that nothing in the pipeline after this point can undo.
+          const banded = group.some((q) => q.solid && barriers.some((b) => {
+            const c = segDist(q.x, q.z, b) - b.half - q.radius;
+            return c > KEEP_BAND_LO && c < BAND_HI;
+          }));
+          if (banded) {
             placer.drop(group);
             continue;
           }

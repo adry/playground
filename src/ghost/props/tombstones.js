@@ -433,7 +433,7 @@ function drawInscription(variant, w, h, rng) {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
-  const ctx = c.getContext('2d');
+  const ctx = c.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#000000';
 
   const reg = REGISTRY.get(variant);
@@ -477,7 +477,7 @@ function lipMask(marks, dx, dy, colour) {
   const c = document.createElement('canvas');
   c.width = marks.width;
   c.height = marks.height;
-  const ctx = c.getContext('2d');
+  const ctx = c.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(marks, 0, 0);
   ctx.globalCompositeOperation = 'destination-out';
   ctx.drawImage(marks, dx, dy);
@@ -632,7 +632,7 @@ function buildTextures(variant, faceAspect, rng) {
   const colour = document.createElement('canvas');
   colour.width = w;
   colour.height = FH;
-  const cc = colour.getContext('2d');
+  const cc = colour.getContext('2d', { willReadFrequently: true });
   // White base: the palette colour lives on the material, the map only carries
   // detail, so PALETTE.stone stays the single source of truth for the hue.
   cc.fillStyle = '#ffffff';

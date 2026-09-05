@@ -44,6 +44,7 @@ import { Ghost } from '../ghost/ghost.js';
 import { Input } from '../ghost/input.js';
 import { createWorld } from './world/index.js';
 import { createFencePanel } from '../ghost/props/fence/panel.js';
+import { createWall, createVoid } from '../ghost/props/fence/wall.js';
 import { createGate } from '../ghost/props/fence/gate.js';
 import { createFireflies } from '../ghost/props/fireflies.js';
 // The prop switch this file used to carry lives here now, so the editor at
@@ -152,6 +153,41 @@ export async function startViewer({ canvas, params }) {
   }
   refreshCover();
 
+  // THE PERIMETER IS A WALL, and only for a level that came out of a file.
+  //
+  // The streaming loop below draws every barrier as fence panels, which is what
+  // this page has always done and is why a generated arena's perimeter reads as
+  // a very long picket fence. That is left exactly as it was: this page ships,
+  // it is being worked on for render cost, and changing what a generated world
+  // looks like is not this change's business.
+  //
+  // A FILE is different. A level file carries the wall's variant and its style
+  // transitions, the owner picks both in the editor, and a page that draws them
+  // as pickets is a page where that choice does nothing. So when a level is
+  // loaded, the real wall is built once from the file's own closed loop and the
+  // wall barriers are skipped in the panel loop below.
+  let walled = null;
+  if (levelUrl && world.doc?.wall) {
+    const spec = world.doc.wall;
+    const made = createWall({
+      seed: 1,
+      points: spec.points.map(([x, z]) => ({ x, z })),
+      closed: true,
+      variant: spec.variant,
+      styles: spec.styles && spec.styles.length ? spec.styles : null,
+    });
+    const b = world.bounds;
+    const dusk = createVoid({
+      bounds: {
+        x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2,
+        halfX: (b.maxX - b.minX) / 2, halfZ: (b.maxZ - b.minZ) / 2,
+      },
+    });
+    walled = new THREE.Group();
+    walled.add(made.group, dusk.group);
+    scene.add(walled);
+  }
+
   // What is currently built, by the world's own stable ids, so a prop is never
   // built twice and never lost. The world guarantees an id is deterministic in
   // the seed and the chunk, which is what makes this a set membership problem
@@ -213,6 +249,8 @@ export async function startViewer({ canvas, params }) {
       }
     }
     for (const b of world.barriers(box)) {
+      // Already standing as one merged stone enclosure; see `walled` above.
+      if (walled && b.kind === 'wall') continue;
       // A run is drawn as whole panels along its own line. The world guarantees
       // a run is a whole number of panels precisely so this is possible.
       const len = Math.hypot(b.x1 - b.x0, b.z1 - b.z0);

@@ -204,3 +204,28 @@ soak's leak threshold is in cells, so a lip of fixed physical size grows in cell
 count as the raster refines and the rule tightens roughly sixfold between step
 0.5 and step 0.2 on the same world. That is how a converging world can look like
 a diverging one.
+
+
+## Firefly spacing: what a 30 by 30 arena can actually hold
+
+The owner asked to have to cross the screen for the next firefly, which put the
+target at 15 to 25 units between neighbours. Measured over 40 arenas, points
+placed for distance alone and nothing else, so this is the CEILING and not a
+result:
+
+| fireflies | nearest neighbour, mean | min |
+|---|---|---|
+| 3 to 5 | 19.8 | 19.7 |
+| 6 | 15.9 | 14.0 |
+| 7 | 14.8 | 14.0 |
+| 8 | 13.9 | 13.6 |
+| 9 | 13.8 | 13.6 |
+
+So the requirement is reachable at FIVE fireflies and not at nine: nine on a
+perfect lattice in this arena is 14 apart, and that is a wall set by the arena's
+size rather than by any placement rule. Once they also have to avoid props,
+fences and each other, nine come out at about 11.
+
+It is the arena shrinking under the requirement. The straight choice is nine at
+about 11, or five at about 20, and it is the owner's to make now that levels are
+authored by hand.
