@@ -639,6 +639,13 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
   let jumps = 0;
   let vaults = 0;
   let refused = 0;
+  // The herd's population over the run: how many came out of a stone, how many
+  // the floor had to force, the time-weighted mean of how many were up and
+  // whether the run ever reached the cap of five.
+  let spawns = 0;
+  let forced = 0;
+  let upIntegral = 0;
+  let hitCap = false;
   const maxSteps = Math.ceil(limit / dt);
   let bad = null;
   const jam = { t: 0, x: 0, z: 0, dt };
@@ -662,7 +669,7 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
     const dz = Math.min(s.ghost.z - b.minZ, b.maxZ - s.ghost.z);
     return (dx < NEAR ? 1 : 0) + (dz < NEAR ? 1 : 0);
   };
-  while (steps < maxSteps && s.phase !== 'over' && s.phase !== 'cleared') {
+  while (steps < maxSteps && s.phase !== 'over') {
     const input = bot.step(s, dt);
     s = game.update(dt, input);
     if (b && s.phase === 'play') {
@@ -680,7 +687,10 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
       }
       if (e.type === 'jump') { jumps++; if (e.overFence) vaults++; }
       if (e.type === 'jumpRefused') refused++;
+      if (e.type === 'spawn') { spawns++; if (e.forced) forced++; }
     }
+    upIntegral += s.skeletonsUp * dt;
+    if (s.skeletonsUp >= 5) hitCap = true;
     if (!bad) bad = check(game, s) || crossCheck(cross, game, s, dt) || jamCheck(jam, s) || stallCheck(stall, s, dt);
     steps++;
   }
@@ -688,6 +698,7 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
     seed, phase: s.phase, time: s.time, score: s.score, lives: s.lives,
     collected: s.collected, bestStreak: s.bestStreak, distance: s.distance,
     deaths, jumps, vaults, refused, firstDeath, bad,
+    spawns, forced, hitCap, meanUp: s.time > 0 ? upIntegral / s.time : 0,
     threat: bot.stats.threatTime, panic: bot.stats.panicTime,
     plannedVaults: bot.stats.plannedVaults || 0,
     bot: bot.stats,
@@ -739,7 +750,7 @@ function check(game, s) {
     if (!Number.isFinite(k.x) || !Number.isFinite(k.z)) return 'nan-skeleton';
     // A skeleton is allowed to be somewhere a walker could not be for exactly
     // one reason: it is underground, or part way out of the ground.
-    if (k.state === 'buried' || k.state === 'emerging' || k.state === 'sinking') continue;
+    if (k.state === 'dormant' || k.state === 'emerging' || k.state === 'sinking') continue;
     if (!nav.discClear(k.x, k.z, SKEL_RADIUS * 0.9)) return 'skeleton-in-fence';
     // The window relation nav.js's comment promises: nothing the rules steer
     // may be further from the ghost than the window minus its slack, or it is
@@ -756,16 +767,16 @@ function playMany(seeds, opts, title) {
   for (const seed of pick.list) rows.push(playOne(seed, opts));
   if (pick.skipped) console.log(`\n  (--faironly: ${pick.skipped} seeds skipped for failing a fairness property, ${pick.list.length} played)`);
   const over = rows.filter((r) => r.phase === 'over');
-  const cleared = rows.filter((r) => r.phase === 'cleared');
+  const cleared = [];      // nothing clears any more; see rules.js
   const alive = rows.filter((r) => r.survived);
   const bad = rows.filter((r) => r.bad);
   const times = rows.map((r) => r.time);
   console.log(`\n--- ${title}, ${seeds} runs, limit ${opts.limit}s, ${((Date.now() - t0) / 1000).toFixed(1)}s ---`);
   console.log(`  lost all lives ${String(over.length).padStart(4)}  ${pct(over.length, seeds)}     still alive at the limit ${alive.length}  ${pct(alive.length, seeds)}`);
-  if (cleared.length) console.log(`  CLEARED the arena ${String(cleared.length).padStart(3)}  ${pct(cleared.length, seeds)}   in a mean ${mean(cleared.map((r) => r.time)).toFixed(0)}s, median ${median(cleared.map((r) => r.time)).toFixed(0)}s, with ${mean(cleared.map((r) => r.lives)).toFixed(2)} of 3 lives left`);
   console.log(`  run length     mean ${mean(times).toFixed(0)}s  median ${median(times).toFixed(0)}s  p10 ${quant(times, 0.1).toFixed(0)}s  p90 ${quant(times, 0.9).toFixed(0)}s`);
   console.log(`  score          mean ${mean(rows.map((r) => r.score)).toFixed(0)}  median ${median(rows.map((r) => r.score)).toFixed(0)}  best ${Math.max(...rows.map((r) => r.score))}`);
   console.log(`  fireflies      mean ${mean(rows.map((r) => r.collected)).toFixed(1)} a run, ${(mean(rows.map((r) => r.collected)) / (mean(times) / 60)).toFixed(1)} a minute, best streak ${mean(rows.map((r) => r.bestStreak)).toFixed(1)}`);
+  console.log(`  the herd       ${mean(rows.map((r) => r.spawns)).toFixed(1)} came out of a stone a run (${mean(rows.map((r) => r.forced)).toFixed(2)} forced), mean ${mean(rows.map((r) => r.meanUp)).toFixed(2)} up, ${pct(rows.filter((r) => r.hitCap).length, rows.length)} reached five`);
   console.log(`  deaths         mean ${mean(rows.map((r) => r.deaths)).toFixed(2)}   first death median ${median(rows.filter((r) => r.firstDeath > 0).map((r) => r.firstDeath)).toFixed(0)}s`);
   console.log(`  jumps          ${mean(rows.map((r) => r.jumps)).toFixed(1)} a run, ${mean(rows.map((r) => r.vaults)).toFixed(1)} of them over a fence, ${mean(rows.map((r) => r.refused)).toFixed(2)} refused`);
   console.log(`  travel         ${mean(rows.map((r) => r.distance)).toFixed(0)} units a run, ${(mean(rows.map((r) => r.distance)) / Math.max(0.01, mean(times))).toFixed(2)} units a second`);

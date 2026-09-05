@@ -1,103 +1,20 @@
-// A RUN: the endless part, the score that survives a maze, and the board.
+// A RUN: one arena, played until you are caught, and the board it leaves.
 //
-// One wave is one generated maze. Clear every firefly in it and the next maze
-// is generated on the spot, harder, with the score and the lives carried over.
-// A run ends when the third life goes, and what it leaves behind is a number
-// and a story: how far you got, how many mazes you swept, what caught you.
+// THERE ARE NO WAVES ANY MORE. There was a whole difficulty curve here: one
+// wave was one generated maze, clearing every firefly in it generated the next
+// one harder, and `waveTuning` spent four axes of difficulty over eight waves.
+// The owner has replaced the whole idea with a board that refills for ever, so
+// there is nothing to clear, nothing to progress to and no curve to spend. What
+// is left is the run's own arithmetic: the score, the board and the share text.
 //
-// This file is headless on purpose, like the rest of src/game. It decides the
-// difficulty curve, keeps the board and writes the share text; it never touches
-// a mesh. That means the whole progression can be simulated by the soak without
-// a canvas, which is the only way anyone will find out whether wave 9 is
-// possible before a player does.
-
-import { DEFAULT_SPEEDS } from './chase.js';
-import { TUNING } from './rules.js';
-
-// --- the curve ---------------------------------------------------------------
+// WHERE THE DIFFICULTY WENT, since a run with no curve is a run with no shape.
+// It is in rules.js now and it is the HERD: one skeleton at the start, one more
+// allowed every six fireflies, up to five. That is the curve, it is driven by
+// how well the player is doing rather than by how long they have survived, and
+// it is the owner's own rule rather than an invention of this file.
 //
-// Pac-Man raises difficulty on four axes at once and never tells you. The same
-// four are available here and three of them are used.
-//
-// WHY NOT SPEED ALONE. The skeleton's speed is a CADENCE: perform.js drives the
-// walk from distance travelled, so steps per second is speed / 0.629. The
-// shipped 2.15 is 3.42 steps a second and the measured ceiling before it reads
-// as a cartoon scramble is about 4.0, which is 2.49. So speed has roughly 16%
-// of headroom in it, total, and a curve that spends it by wave four has nothing
-// left and no way to get harder. It is the axis with the least room, so it is
-// spent slowest.
-//
-// The room is in the other three: how long you are hunted rather than how fast,
-// how much a power pellet is worth, and how big the maze is.
-export function waveTuning(wave) {
-  const w = Math.max(1, wave);
-  // Speed: 2.15 up to the 2.49 ceiling, reached at wave 8 and held. Two thirds
-  // of the total headroom is spent over the first four waves, because the
-  // difference between wave 1 and wave 2 has to be FELT or the curve does not
-  // read as a curve at all.
-  const t = Math.min(1, (w - 1) / 7);
-  const walk = 2.15 + (2.49 - 2.15) * Math.sqrt(t);
-
-  // THE PELLET WAS THE SHARPEST KNOB HERE AND IT IS GONE. A wave used to
-  // shorten the power time from 10.0 s to 4.0, which was the original's own
-  // curve and the one axis the player could feel without being told. With the
-  // pellet out of the game the curve rests on two axes instead of three, speed
-  // and scatter, and it is correspondingly flatter: see rules.js for what else
-  // went with it.
-
-  // Scatter: the periods when nothing is hunting you. This is the axis with the
-  // most room and the least visible, which is exactly why the original uses it.
-  // By wave 6 there is essentially no rest.
-  const scatterScale = Math.max(0.15, 1 - (w - 1) * 0.17);
-
-  return {
-    // TUNING.waves is the mode schedule, alternating scatter and chase. Only
-    // the scatter entries are scaled: shortening the chases would make the game
-    // EASIER, which is the opposite of a curve, and the last chase is Infinity
-    // and cannot be scaled at all.
-    waves: TUNING.waves.map((p) => (
-      p.mode === 'scatter' && Number.isFinite(p.t)
-        ? { ...p, t: Math.max(1.5, p.t * scatterScale) }
-        : p
-    )),
-    speeds: {
-      ...DEFAULT_SPEEDS,
-      walk,
-      // Cruise Elroy bites earlier and harder as the waves go up.
-      elroy: [
-        { left: Math.min(0.45, 0.25 + (w - 1) * 0.03), mul: 1.08 },
-        { left: Math.min(0.25, 0.10 + (w - 1) * 0.02), mul: 1.16 },
-      ],
-    },
-    scatterScale,
-  };
-}
-
-// The maze grows too, but slowly and to a ceiling. A level the player cannot
-// see the shape of is not harder, it is just longer, and the camera is fixed.
-export function waveCells(wave) {
-  const w = Math.max(1, wave);
-  if (w <= 2) return [5, 4];
-  if (w <= 4) return [6, 4];
-  if (w <= 7) return [7, 5];
-  return [8, 5];
-}
-
-// Each wave is its own maze. Derived from the run's seed so a whole run is
-// reproducible from one number, which is what makes a shared score checkable
-// later and what lets the soak replay a run that went wrong.
-export function waveSeed(runSeed, wave) {
-  let a = (runSeed ^ (wave * 0x9e3779b1)) >>> 0;
-  a = Math.imul(a ^ (a >>> 16), 2246822507) >>> 0;
-  a = Math.imul(a ^ (a >>> 13), 3266489909) >>> 0;
-  return (a ^ (a >>> 16)) >>> 0;
-}
-
-// A wave cleared is worth something on its own, and it climbs, so a player deep
-// in a run is playing for more than the fireflies in front of them.
-export function clearBonus(wave) {
-  return 500 * Math.max(1, wave);
-}
+// This file is headless on purpose, like the rest of src/game. It keeps the
+// board and writes the share text; it never touches a mesh.
 
 // --- the board ---------------------------------------------------------------
 //
@@ -121,8 +38,6 @@ export const BOARD_SIZE = 10;
 // replay one in milliseconds.
 export const SCHEMA = {
   score: 'integer, the whole run',
-  wave: 'integer, mazes reached (1 based)',
-  cleared: 'integer, mazes actually swept',
   fireflies: 'integer, collected across the run',
   seed: 'integer, the run seed. every maze derives from it',
   duration: 'seconds of play, rounded',
@@ -135,12 +50,14 @@ export const SCHEMA = {
 // speed, the curve above, the scoring, the maze sizes. A board that mixes
 // versions is a board that lies.
 //
-// TWO, because the power pellet is gone. Every version 1 score was made in a
-// game where four lanterns paid 500 each and a chain of four skeletons paid
-// 3000 on top, and where the wave curve had a third axis. Nothing in version 2
-// can reach those numbers, so mixing them would be the board lying in exactly
-// the way this constant exists to prevent.
-export const RULES_VERSION = 2;
+// THREE. Version 1 was the game with the power pellet in it, where four
+// lanterns paid 500 each and a chain of four skeletons paid 3000 on top.
+// Version 2 was that game with the pellet removed. Version 3 is a different
+// game again: no waves, no clear bonus, a board that refills for ever, a ghost
+// twenty per cent faster and a herd that grows from one to five. A run in it is
+// unbounded where a version 2 run ended when the arena ran out of fireflies, so
+// the scores are not comparable in either direction.
+export const RULES_VERSION = 3;
 
 function readStore() {
   // Every read and write is wrapped, and both are allowed to do nothing. A
@@ -202,17 +119,16 @@ const CAUGHT_BY = {
 export function shareText(run) {
   const lines = [];
   const who = CAUGHT_BY[run.caughtBy];
-  if (who) lines.push(`${who} in maze ${run.wave}.`);
-  else lines.push(`Made it to maze ${run.wave}.`);
+  const mins = Math.max(0, Math.round((run.duration || 0) / 6) / 10);
+  if (who) lines.push(`${who} after ${mins} minutes in the graveyard.`);
+  else lines.push(`${mins} minutes in the graveyard.`);
 
   lines.push(`${run.score.toLocaleString('en-US')} points, ${run.fireflies} fireflies.`);
 
-  // The near miss is the bit that makes someone want to try it. Only mentioned
-  // when it was genuinely near, because a game that tells you every run was
-  // nearly a win is a game nobody believes.
-  if (run.remaining > 0 && run.remaining <= 12) {
-    lines.push(`${run.remaining} fireflies from clearing it.`);
-  }
+  // THE NEAR MISS IS GONE with the thing it was about. It used to say how few
+  // fireflies were left to clear the arena, and an arena cannot be cleared any
+  // more, so there is no near miss to report: a run does not end short of
+  // anything, it ends when something catches you.
   return lines.join('\n');
 }
 

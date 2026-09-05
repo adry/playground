@@ -439,6 +439,32 @@ const SHARED = {
   uWindGust: { value: 0.42 },
 };
 
+// --- the switch --------------------------------------------------------------
+//
+// THE WIND IS OFF UNLESS SOMETHING ASKS FOR IT. The shipped scene is still.
+//
+// It was on, because the plants were commissioned "fluffy and animated so that
+// leaves move in the wind", and having seen a yard where everything green
+// breathes at once, the owner does not want it. That is what looking at a
+// thing is for. The machinery stays, whole and tested, because a breeze is one
+// call away the day it is wanted.
+//
+// Off means OFF and not merely small: attachWind below skips the shader patch
+// entirely, so a still plant costs no vertex work, no second and third program
+// for the depth and distance passes, and no compile at build time. The price
+// of that is the one thing worth knowing about this switch: it is read when a
+// plant is BUILT, not when it is drawn. Turn it on before you build anything
+// you want to move. The labs that exist to judge motion (bush-lab, grass-lab,
+// flowers-lab) do exactly that at the top of the page.
+//
+// setWind({ strength }) is the other, finer control and still works as it did:
+// on plants that were built with the wind enabled it scales the whole thing,
+// zero included, per frame.
+let windOn = false;
+
+export function setWindEnabled(on) { windOn = !!on; }
+export function windEnabled() { return windOn; }
+
 export function windUniforms() { return SHARED; }
 
 export function updateWind(time) { SHARED.uTime.value = time; }
@@ -593,6 +619,16 @@ export function attachWind(mesh, {
     uLag: { value: lag },
     uScatter: { value: scatter },
   };
+
+  // Off: the mesh keeps its shadow flags and nothing else happens to it. No
+  // onBeforeCompile, so it compiles and draws as the plain toy material every
+  // other prop in the yard uses, and its shadow comes from three's own depth
+  // material rather than from a patched copy of it.
+  if (!windOn) {
+    mesh.castShadow = castShadow;
+    mesh.receiveShadow = receiveShadow;
+    return null;
+  }
 
   // A per-instance salt. three keys its compiled programs by material
   // parameters, so two foliage materials that happen to share a colour and a

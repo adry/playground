@@ -428,7 +428,14 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
   // or rule-placed positions, spread for the spacing DESIGN.md measured and
   // known to be reachable, and the refill draws from it. Only when the pool
   // cannot supply enough does `inventSpot` make one up.
-  const pool = (bounds ? world.fireflies(bounds) : world.fireflies()).map((f) => ({ x: f.x, z: f.z }));
+  // The pool box. A bounded world hands over the arena; an endless one has no
+  // bounds and has to be asked for a window, which is the same window the
+  // sampler falls back to below.
+  const poolBox = bounds || {
+    minX: world.spawn.x - 24, maxX: world.spawn.x + 24,
+    minZ: world.spawn.z - 24, maxZ: world.spawn.z + 24,
+  };
+  const pool = world.fireflies(poolBox).map((f) => ({ x: f.x, z: f.z }));
   let flySeq = 0;
   let flyPool = [];
 

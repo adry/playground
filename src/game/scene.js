@@ -802,7 +802,7 @@ export async function startGame({ canvas, params }) {
     // made while testing shares the level the site ships instead.
     const shareLevel = levelUrl && levelUrl !== SESSION ? `&level=${encodeURIComponent(levelUrl)}` : '';
     const url = shareUrl(
-      { ...run, remaining: game.state.flyRemaining },
+      { ...run, duration: Math.round(run.time) },
       `${location.origin}${location.pathname}?game=1${shareLevel}`,
     );
 
@@ -813,7 +813,7 @@ export async function startGame({ canvas, params }) {
 
     const story = document.createElement('p');
     story.className = 'story';
-    story.textContent = shareText({ ...run, remaining: game.state.flyRemaining });
+    story.textContent = shareText({ ...run, duration: Math.round(run.time) });
     card.appendChild(story);
 
     if (board.length) {
@@ -849,7 +849,7 @@ export async function startGame({ canvas, params }) {
 
     // Everything additive about the share lives behind this one call, and the
     // anchor above still works exactly as it did if it fails.
-    shots.attach(share, { run: { ...run, remaining: game.state.flyRemaining }, best: place === 1 });
+    shots.attach(share, { run: { ...run, duration: Math.round(run.time) }, best: place === 1 });
 
     card.hidden = false;
   }
@@ -1002,7 +1002,7 @@ export async function startGame({ canvas, params }) {
     // What is actually loaded, so a harness can prove that the file it saved is
     // the file being played rather than infer it from a screenshot.
     level: () => (authored ? { url: levelUrl, name: authored.doc.name, size: authored.doc.size } : null),
-    share: () => shareUrl({ ...run, remaining: game.state.flyRemaining }, ''),
+    share: () => shareUrl({ ...run, duration: Math.round(run.time) }, ''),
     get layout() { return layout; },
   };
   // For the performance probe. renderer.info is the only honest source for

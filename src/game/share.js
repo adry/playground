@@ -296,7 +296,9 @@ export function composeShareImage({ frame, run = null, best = false, caption = n
     stats: run ? [
       ['SCORE', run.score.toLocaleString('en-US')],
       ['FIREFLIES', String(run.fireflies)],
-      ['MAZE', String(run.wave)],
+      // No maze number: there is one arena and it is played until you are
+      // caught, so how long you lasted is the third fact worth showing.
+      ['LASTED', `${Math.max(0, Math.round((run.duration || 0) / 6) / 10)}m`],
     ] : null,
     ...(caption || {}),
   };
