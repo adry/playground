@@ -326,12 +326,23 @@ export function wallSections(wall) {
 // because with sections a boundary either has a joint or it is not a boundary.
 // A jointVariant written by hand is not preserved through this; it has no
 // control in the tool and it is documented above for a file somebody edits.
+//
+// A BOUNDARY WITH A GATEWAY IN IT IS ALWAYS TOOTHED, whatever the author chose,
+// and this is the one place the two features meet. The stone still changes
+// there -- the sections either side are different and both have to be drawn --
+// but there is no wall at that distance for a joint to be part of, and a pier
+// is the one joint that would put GEOMETRY in the middle of the opening. A
+// tooth is by definition two materials meeting with no pier and no change of
+// section, so across an opening it draws nothing at all, which is right.
 export function setWallSections(wall, sections, joint = 'pier') {
   wall.variant = sections[0];
+  const gates = wall.gates || [];
   const styles = [];
   for (let i = 1; i < sections.length; i++) {
     if (sections[i] === sections[i - 1]) continue;
-    styles.push({ at: i * WALL_SECTION, variant: sections[i], joint });
+    const at = i * WALL_SECTION;
+    const gated = gates.some((g) => Math.abs(g - at) < 1e-6);
+    styles.push({ at, variant: sections[i], joint: gated ? 'tooth' : joint });
   }
   wall.styles = styles;
   return wall;

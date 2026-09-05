@@ -305,7 +305,11 @@ export const M = {
   // and the holes are real openings, for the same no-alpha reason as above.
   jacket: {
     top: f(0.616),            // sits on the deltoid
-    hem: f(0.395),
+    // The hem hangs BELOW the shorts' waistband (0.400), not level with it.
+    // Level, the jacket, the waistband and the cuffs stacked into three bands
+    // of cloth round the hips and the figure read as if it were wearing a
+    // barrel. Overlapping, it reads as a jacket worn over shorts.
+    hem: f(0.352),
     // The front gap is WIDER than the cavity (0.62), not narrower, so the two
     // lapels frame the ribcage instead of covering its edges. The reference
     // has them overlapping and built that way it ate a fifth of a feature

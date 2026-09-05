@@ -1035,6 +1035,37 @@ export function createZombiePerformance({
       shedLeft = rig.shed ? [...rig.shed.keys()].slice(0, 3) : [];
       shedFired = [];
     }
+    // THE SECOND CLIMB HAS TO LOOK LIKE THE FIRST.
+    //
+    // The autonomous scene only ever emerges once, so this branch is invisible
+    // there and it is the one the GAME lives in: its rules put a figure back
+    // under (dormant) and bring it up again somewhere else, many times a run,
+    // and they can also jump it straight from hunting to emerging without
+    // passing through dormant at all. Everything the climb consumes therefore
+    // has to be re-armed here and not only in enter('buried').
+    //
+    // shakeFired is the one that actually bit. It is a bitmask of which dirt
+    // shakes have fired and it was cleared only in reset(), so every emergence
+    // after the first played with no head shake at all: the single most
+    // characterful beat in the climb, silently missing from the second one
+    // onward, and nothing about it would show up in a clip of a fresh scene.
+    if (next === 'emerging') {
+      setClipping(true);
+      shakeFired = 0;
+      handsDown = false;
+      armBlend = 0;
+      legBlend = 0;
+      cursor = 0;
+      cursorFix = 0;
+      speed = 0;
+      yawVel = 0;
+      shedLeft = rig.shed ? [...rig.shed.keys()].slice(0, 3) : [];
+      shedFired = [];
+      // Started from where the figure IS, not snapped to the hole, so a rules
+      // change of mind mid-stride reads as the ground taking it back rather
+      // than as a cut.
+      T.lift = BURIED_Y;
+    }
     if (next === 'rising') {
       riseSteps = 0;
       // The push off the floor. A rise that is only an ease has no moment where
@@ -1297,7 +1328,7 @@ export function createZombiePerformance({
 
     // THE HEAD IS NOT POSED HERE. Only its intent is: it wants to look at the
     // ghost, and that is one clamped number. Everything else it does arrives
-    // through driveHead, out of the body's own acceleration.
+    // through measureBody, out of the body's own acceleration.
     T.headYaw = clamp(err, -0.6, 0.6);
     // Against the chest, and the chest is already leaning forward, so a small
     // negative here is a head held level and staring straight ahead. Which is

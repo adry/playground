@@ -137,6 +137,7 @@ if (numbersOnly) {
   console.log(`  update()  ${out.cost.updateUs} us/frame (in the harness loop, which also samples slip)`);
   console.log(`  five of them  ${(out.bench * 5 / 1000).toFixed(2)} ms/frame of a 16.7 ms budget`);
   console.log(`  draw      ${out.cost.triangles} triangles, ${out.cost.calls} calls, ${out.drawMs} ms on this rasteriser`);
+  console.log(`  the figure alone  ${out.cost.rigTriangles} triangles in ${out.cost.rigMeshes} meshes; five of them ${((out.cost.rigTriangles || 0) * 5 / 1e6).toFixed(2)} M`);
   console.log(`  travelled ${out.travel.toFixed(2)} m at ${out.speed.toFixed(3)} m/s`);
   await lab.close();
   process.exit(0);

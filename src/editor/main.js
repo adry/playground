@@ -737,16 +737,10 @@ function paintWallSection(x, z) {
     say(`a wall can be built of ${MAX_STYLES} stones at once and this one already uses ${[...wallStones()].join(', ')}`);
     return false;
   }
-  // A JOINT NEEDS WALL TO JOIN. A change of stone lands on the boundary at the
-  // start of the section, and if there is a gateway standing in that boundary
-  // there is no wall there for a pier or a tooth to be part of.
-  const gates = doc.wall.gates || [];
-  const boundary = hit.i * WALL_SECTION;
-  if (hit.i > 0 && gates.some((g) => Math.abs(g - boundary) < 1e-6)
-    && sections[hit.i - 1] !== wallPick.variant) {
-    say('there is a gateway on that join, so the stone cannot change there');
-    return false;
-  }
+  // A change of stone on a boundary with a gateway in it is allowed and is
+  // toothed rather than piered, because there is no wall at that distance for a
+  // pier to stand in. setWallSections is where that is decided; nothing here
+  // needs to know, which is the point of it being decided there.
   sections[hit.i] = wallPick.variant;
   setWallSections(doc.wall, sections, wallPick.joint);
   return true;

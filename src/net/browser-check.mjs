@@ -185,9 +185,13 @@ try {
 
     await signIn(page);
     eq(fake.users.size, 1, 'creating an account makes one');
-    const authReq = fake.seen.filter((r) => r.path.startsWith('/auth/v1/'));
+    // OPTIONS is excluded on purpose: a preflight carries no apikey, because a
+    // preflight carries no headers at all beyond the ones it is asking about.
+    const authReq = fake.seen.filter((r) => r.path.startsWith('/auth/v1/') && r.method !== 'OPTIONS');
     ok(authReq.some((r) => r.path.includes('signup')), 'over /auth/v1/signup');
     eq(authReq[0].headers.apikey, KEY, 'with the publishable key in the apikey header');
+    ok(fake.seen.some((r) => r.method === 'OPTIONS' && r.path.startsWith('/auth/v1/')),
+      'and the browser preflighted it, because auth is cross origin too');
 
     await page.click('.go button:text-is("save to my account")');
     await page.waitForFunction(() => /saved to your account/.test(document.querySelector('.go p.ok')?.textContent || ''));
