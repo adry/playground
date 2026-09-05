@@ -90,31 +90,47 @@ const TOTAL = PLATE_Y + PLATE.height; // 1.08
 // The measured question. The registry's 0.13 minimum belongs to the arc sweep,
 // not to the scene: a lathe has no rim radius to invert, so the post is free to
 // be as slender as it can be SEEN. What decides that is the framing. The
-// shipped camera is 6.2 half-heights, so on a 1080 canvas it is about 87 pixels
-// a world unit and the post is its own diameter times 87 across -- and it is a
-// round bar, so its LIT band is perhaps a third of that.
+// shipped camera is 6.2 half-heights, which is about 87 pixels a world unit on
+// a 1080 canvas and 52 on a 640 one, so the post is a few pixels wide either
+// way and the eye cannot count them off a render. They were counted off the
+// pixels instead, row by row, at the shipped framing on a 640 canvas:
 //
-// Rendered at 0.044, 0.060, 0.076 and 0.092 across, at the shipped framing and
-// with the shipped shadow map. See the widths block in the report.
+//   0.044 across   2 px. Six seeds side by side and no two of them the same
+//                  weight: the lean puts each post at a different subpixel
+//                  phase, so some are a line and some are a grey scratch, and
+//                  the cast shadow breaks up with them.
+//   0.060          3 px. Holds as a line on every seed.
+//   0.076          4 px on the shaft, 5 at the foot. Solid on all six.
+//   0.092          5 to 6 px. Reads, and the plate stops looking heavy on it:
+//                  the piece turns into a small signpost.
+//
+// The other half of the measurement was the surprise and it is worth writing
+// down. A scanline across the shaft reads 14 to 19 out of 99 against a floor at
+// 60, at EVERY one of those widths. The post has no lit side at scene size: a
+// dark 40mm bar under a key 56 degrees up returns almost nothing, so it is a
+// flat dark LINE and not a modelled cylinder, and the only thing width buys is
+// how much of that line survives antialiasing. Which is why the answer is 4 px
+// rather than 3: three pixels of line is legible, four is unambiguous, and the
+// cost of the extra one is nothing.
 //
 // 0.076 at the collar and 0.088 at the foot. The taper is the real object's --
-// a driven post is cast heavier where the ground works at it -- and it also
-// puts the extra pixel at the bottom, where the post is nearest the floor's own
-// value and needs it most.
+// a driven post is cast heavier where the ground works at it -- and it puts the
+// extra pixel at the bottom, nearest the floor's own value, where it is needed.
 const POST = { rTop: 0.038, rBot: 0.044, bottom: -0.07 };
 // The collar. A short rolled swelling just under the plate, which is where a
 // real one has the socket the plate is cast into. It is not decoration: without
-// it the post is a bare cylinder from the ground to the point of the lozenge
-// and the joint between them is a mathematical tangency that reads as glue. Two
-// pixels of shoulder is enough to say the two parts are made rather than stuck.
+// it the post is a bare cylinder running from the ground to the point of the
+// lozenge and the joint between them is a mathematical tangency that reads as
+// glue. Two pixels of shoulder is enough to say the two parts are made rather
+// than stuck. At scene size it is barely a pixel and costs nothing.
 const COLLAR = { r: 0.050, y: 0.405, half: 0.020, roll: 0.017 };
 // How far the post runs up inside the plate. Well past the light's 0.006
 // normalBias, under which a buried joint shadows itself in a dotted band that
 // looks exactly like z-fighting.
 const POST_BITE = 0.15;
 // A bar 76mm across never needs the set's 48 steps round. street.js runs 28 on
-// a post twice this width; 20 is under four pixels a facet at scene size and
-// the silhouette is smooth under its own highlight.
+// a post twice this width; 20 is under four pixels a facet at scene size, and
+// since the shaft has no highlight to band there is nothing for more to buy.
 const POST_SEG = 20;
 
 // --- the iron ---------------------------------------------------------------
@@ -129,8 +145,19 @@ const POST_SEG = 20;
 // V is the one number that differs from the lanterns'. They sit at 0.42. This
 // is not a lantern: it is a solid plate holding a fifth of a square metre of
 // flat surface at a grazing angle to the only real light in the scene, where a
-// lantern is a cage of 20mm bars that catch the key edge-on all over. See the
-// values block in the report for what 0.42 and 0.55 actually rendered as.
+// lantern is a cage of 20mm bars that catch the key edge-on all over.
+//
+// Measured off the render, as luminance out of 99 over the same window on the
+// plate, at the shipped framing. The floor reads 60 there and a limestone
+// stone's lit face reads 70 to 73:
+//
+//   V 0.38   plate runs 3 to 24. Every value it has is in the bottom quarter,
+//            the mottle is gone, and the bead is the only thing left. A hole.
+//   V 0.47   5 to 31. A 26-point range, so the lit edges and the shaded face
+//            are a real gradient apart and the mottle is still in there.
+//   V 0.58   8 to 41. Two thirds of the floor at its lit edge: it reads as a
+//            blue-grey painted thing rather than as the dark object in the yard,
+//            and that contrast with the limestone is the whole point of it.
 //
 // It lives here rather than in style.js for ground.js's reason: this is a
 // change the prop makes to the house palette, not a change to the palette.

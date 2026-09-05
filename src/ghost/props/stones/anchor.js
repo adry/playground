@@ -15,41 +15,48 @@ import { registerStone, buildSlabGeometry, inkText } from '../tombstones.js';
 // WHY THE ANCHOR IS GEOMETRY AND NOT INK
 //
 // The ink budget for a face is 3 to 5 per cent, and the stones rejected for
-// busy lettering measured 12 to 19. An incised anchor was built first and
-// measured: cut as grooves 0.045 wide, the anchor plus two words covers 12.4
-// per cent of this face. That is not a tuning problem. Ink on a line drawing
-// goes as perimeter times groove width, and an anchor is nearly all perimeter:
-// a ring, a stock, a shank, two arms, two flukes and a coil, about 3.4 units of
-// outline on a face 1.17 units square. Halving the groove to 0.022 buys 7 per
-// cent and puts the wall under the ~17 texel floor where the two lip masks
-// overlap and the cut reads as a smudge. Shrinking the motif to fit the budget
-// gives a small anchor on a big empty slab, which is a worse stone.
+// busy lettering measured 12 to 19. The incised anchor was built and MEASURED
+// off its own colour map rather than guessed at: cut as grooves 0.045 wide, the
+// anchor plus two words covers 15.0 per cent of this face, against cross's 3.6
+// and fred's 6.4 counted the same way. That is not a tuning problem. Ink on a
+// line drawing goes as perimeter times groove width, and an anchor is nearly
+// all perimeter: a ring, a stock, a shank, a crescent, two flukes and a coil,
+// something over three units of outline on a face 1.17 units square. Halving
+// the groove buys half of it back and puts the wall under the ~17 texel floor
+// where the two lip masks overlap and a cut reads as a smudge; shrinking the
+// motif to fit the budget gives a small anchor on a big empty slab, which is a
+// worse stone.
 //
 // So the anchor is relief. Built as solids standing off the face it costs
 // nothing in ink at all, and the face's whole budget goes to two words and the
-// three grooves in the rope. Measured: 3.9 per cent. That is the light end of
-// the band, which is where a piece carrying a large motif belongs.
+// three grooves in the rope: 3.5 to 4.0 per cent across seeds. That is the
+// light end of the band, which is where a piece carrying a large motif
+// belongs.
 //
 // HOW FAR PROUD. Three positions were built and rendered side by side at
 // 300x400:
 //
-//   * INCISED, the flat one. Legible, and the cheapest thing to build, but it
-//     is 12.4 per cent ink and at scene distance the whole motif greys out into
-//     one soft stain: a groove has no silhouette, and the two lip masks that
-//     make it read as cut are a texel wide by the time the stone is 80 px tall.
-//   * PROUD, 0.05 off the face. What a stonemason actually cuts. Every limb
-//     gets a lit top and its own cast shadow down its left side, which is the
-//     one cue that survives at any distance, because it is real geometry and
-//     not a texture. This is what ships.
-//   * HALF FREE, the ring and the ends of the stock standing clear of the
-//     stone's outline. The boldest, and it was rendered rather than argued
-//     about. Two things went wrong. The free ring is a 0.13 loop of stone at
-//     0.15 deep with sky behind it, and against the pale background it reads
-//     as a wire hoop rather than as carved stone; and lifting the anchor far
-//     enough for the stock to break a half-round arch costs 0.20 of stone
-//     under it, so the piece grows past 1.5 tall and the face empties out. The
-//     escaping ring is a lovely silhouette and it belongs on a different,
-//     taller monument.
+//   * INCISED, the flat one. The most legible of the three at scene size, and
+//     the cheapest to build, and it still loses. At 15 per cent ink it is a
+//     tone apart from everything standing next to it: in a row with cross and
+//     fred it reads as a printed sign among carved stones, which is precisely
+//     what the postmortem records the last set being rejected for.
+//   * PROUD, 0.075 off the face. What a mason actually cuts. Every limb gets a
+//     lit top and its own cast shadow down one side, which is the cue that
+//     survives distance, because it is geometry and not a texture; and the
+//     stone stays at the light end of the ink band, so it sits in the row
+//     rather than shouting over it. This is what ships.
+//   * HALF FREE, the ring and the ends of the stock standing clear of a
+//     half-round arch. Bold from dead in front, and it fails the moment the
+//     camera moves, which it has: the shipped camera is 45 degrees round. The
+//     free ring is a 0.22 loop of stone 0.17 thick, and three quarters on its
+//     hole is edge on and invisible, so it reads as a knob; the free ends of
+//     the stock read as two handles bolted to the stone; and the whole thing
+//     stops being a headstone and starts being a hand cart. Lifting the anchor
+//     also costs the face 0.16 of its height, so the stone had to come down to
+//     1.14 to stay inside 1.5 overall and the motif ends up filling it corner
+//     to corner. The escaping ring is a good silhouette and it belongs on a
+//     taller monument with a narrower motif.
 //
 // HOW THE PIECES ARE MADE. Six solids, all overlapping, merged into one
 // geometry and one draw call: shank, stock and rope are the registry's own
@@ -126,11 +133,11 @@ const LIFT = MODE === 'free' ? 0.08 : 0;
 // Its arms were the lower HALF of a torus, which is a bowl, and its flukes
 // raked up into the space under the stock, which filled the bowl in: the motif
 // came out as a cup with a beehive in it, and nobody looking at it said anchor.
-// What fixes it is the gaps. The arms are a 132 degree crescent, so they read
-// as two limbs leaving a crown rather than as a rim; and the bills end 0.24
-// below the stock, so there is daylight all the way across the piece between
-// them. Every hole on the motif is at least 0.05 across, which is 11 px at the
-// ~230 px a unit gets in the scene.
+// What fixes it is the gaps. The arms are a 156 degree crescent, so they read
+// as two limbs leaving a crown rather than as a rim; the bills end 0.14 below
+// the stock, so there is daylight all the way across the piece between them;
+// and the ring clears the stock by 0.046. Every hole on the motif is at least
+// 0.04 across, which is 10 px at the ~230 px a unit gets in the scene.
 const RING = { y: 1.100 + LIFT, maj: 0.076, tube: 0.036 }; // outer 0.112, hole 0.080
 const STOCK = { y: 0.885 + LIFT, hl: MODE === 'free' ? 0.365 : 0.335, ht: 0.057 };
 const SHANK = { y0: 0.460 + LIFT, y1: 1.100 + LIFT, ht: 0.066 };
@@ -140,10 +147,13 @@ const SHANK = { y0: 0.460 + LIFT, y1: 1.100 + LIFT, ht: 0.066 };
 // a wedge whose base is wider than the arm it grows from is a blob, and the
 // joint between two solids of different width is a crease exactly where the eye
 // is trying to follow one limb. So the arms are a swept tube of VARYING radius
-// -- 0.060 at the crown, swelling to 0.089 for the palm three quarters of the
-// way out, closing to 0.034 at the bill -- one continuous surface from bill to
-// bill with the flukes as swellings in it. That is also what the anchor glyph
-// everyone recognises actually is.
+// -- 0.065 at the crown, thinning to 0.045 along the arm, swelling back to
+// 0.076 for the palm at 0.82 of the way out and closing to 0.033 at the bill --
+// one continuous surface from bill to bill with the flukes as swellings in it.
+// That is also what the anchor glyph everyone recognises actually is. The bills
+// are the one place on the piece under the 0.13 minimum, at 0.066 across, and
+// they are allowed to be: that floor is the swept front face pinching shut, and
+// nothing here is swept. A tapering tip is what a fluke has.
 const CROWN = { y: 0.706 + LIFT, r: 0.245, t: 0.065, half: 78, bill: 0.030, palm: 0.040, palmAt: 0.82, palmW: 0.11 };
 const COIL = { y: 0.677 + LIFT, hw: 0.102, h: 0.176, r: 0.056 };
 
@@ -161,7 +171,6 @@ const GROOVE = { w: 0.019, len: 0.204, span: 0.104 };
 const INCISED = 0.045;
 
 const D2R = Math.PI / 180;
-const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 // --- the pose ---------------------------------------------------------------
 //

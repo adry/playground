@@ -24,15 +24,20 @@ import { Profile, createSink, sinkToGeometry, latheInto, transformRange } from '
 // camera, hung on a round member. That is the only flat surface on the piece
 // and it is where the inscription lives.
 //
-// THE FOUR THINGS THAT MAKE IT READ AS TIMBER, AND WHAT EACH ONE COST
+// THE FIVE THINGS THAT MAKE IT READ AS TIMBER, AND WHAT EACH ONE COST
 //
-//   1. BARK AS RIDGES, NOT AS NOISE. Fine vertical bark at this camera is the
-//      film grain the house style bans and it aliases. So the bark here is FIVE
-//      broad longitudinal ridges raised to a power, so the ridges are wide and
-//      the gaps between them narrow, plus two deep splits running the length of
-//      each member. At the 300 x 400 judging shot a log is about 34 px across
-//      and three ridges show on it, so a ridge is around 11 px and a split
-//      around 5. That is the smallest a feature on this piece is allowed to be.
+//   1. BARK AS FURROWS, NOT AS NOISE. Fine vertical bark at this camera is the
+//      film grain the house style bans and it aliases away to a grey sheen. So
+//      the bark here is FOUR broad crowns separated by four narrow furrows, and
+//      two of the four furrows open into splits a third of the way into the
+//      log. On a member 0.196 through, a furrow is 0.050 across and a split
+//      0.045, which at the size the piece is judged is seven and six pixels.
+//      That is the floor. What this cost is angular resolution: at 44 steps the
+//      splits were in the geometry and invisible in the render, because the
+//      lathe takes its normals by central difference over one step either side
+//      and a step 0.14 radians wide averages a 0.19 radian wall away. 72 steps
+//      is what makes the split a split, and it is most of why this piece is the
+//      second heaviest in the set.
 //   2. BRANCH STUBS. The single strongest cue that a cylinder is a log, and the
 //      one most at risk from the 0.13 floor. Four on the whole piece, and fat:
 //      the thinnest is 0.120 across at its sawn tip and 0.148 at its collar.
@@ -55,6 +60,20 @@ import { Profile, createSink, sinkToGeometry, latheInto, transformRange } from '
 //      two fat coils or it is nothing, which is the same answer the anchor's
 //      rope reached. They are part of the member's own lathe profile, so they
 //      cost no extra geometry, have no seam and no normal to reconcile.
+//
+//   5. THE BOW. Both members wander sideways by a quadratic that is zero at
+//      both ends, in a direction drawn per seed, at most 0.055 on the upright
+//      and 0.032 on the bar. It is the cheapest of the five and close to the
+//      most effective: a dead straight round member is a dowel however good its
+//      surface is, and eight degrees of wander at the ends is the difference
+//      between a signpost and a piece of wood. Everything seated on a member
+//      reads the same bow, so the stubs and the plaque follow it.
+//
+// It keeps the registry's own lean and its own sink, which nothing else in this
+// file has to know about: the upright runs to 0.22 below the floor with a butt
+// 0.28 across, so there is no underside for a lean to lift and no seating
+// problem to solve. calvary and the chest tomb both had one because they stand
+// on a wide flat pad; this stands on a post.
 //
 // Construction: the upright, the crossbar and the four stubs are one lathe
 // surface each, appended into one sink from fountain/lathe.js, so the whole
