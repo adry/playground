@@ -13,7 +13,7 @@
 // on screen.
 
 import { createSurface, toPNG, text } from '../layout/plot.js';
-import { gridBoxOf, worldBoxOf } from './field.js';
+import { gridBoxOf } from './field.js';
 
 const C = {
   bg: [14, 16, 20, 255],
@@ -21,6 +21,8 @@ const C = {
   path: [52, 58, 68, 255],
   pathEdge: [70, 78, 92, 255],
   fence: [214, 176, 96, 255],
+  wall: [190, 120, 90, 255],
+  dark: [8, 8, 10, 255],
   gate: [90, 230, 140, 255],
   sweep: [60, 130, 90, 255],
   stone: [206, 200, 186, 255],
@@ -43,20 +45,20 @@ const C = {
 // [x, z] the checker actually walked, which is the thing that turns a picture
 // of a generator into a picture of a game.
 export function drawRegion(world, {
-  centre = { x: 0, z: 0 }, size = 160, scale = 5, walk = null, label = null,
+  centre = { x: 0, z: 0 }, size = 44, scale = 22, walk = null, label = null,
 } = {}) {
   const frame = world.frame;
-  // The picture is a grid aligned square, because that is what the camera sees.
-  // A grid square is a diamond in world, so the box everything is QUERIED with
-  // is the world bounding box of the picture and not the picture itself, or the
-  // four corners of the image come out half empty.
+  // The picture is a grid aligned square, because that is what the camera sees,
+  // and the arena is a world aligned square, so the arena is a DIAMOND in the
+  // picture and the four corners of the image are the darkness beyond the wall.
+  // That is the level as the player sees it, which is the point of drawing it
+  // this way rather than straightening the arena out.
   const want = {
     minX: centre.x - size / 2, maxX: centre.x + size / 2,
     minZ: centre.z - size / 2, maxZ: centre.z + size / 2,
   };
   const g = gridBoxOf(frame, want);
-  const box = worldBoxOf(frame, g);
-  world.ensureAround(centre.x, centre.z, size * 1.1);
+  const box = world.bounds;
   const w = Math.ceil((g.maxU - g.minU) * scale);
   const h = Math.ceil((g.maxV - g.minV) * scale);
   const s = createSurface(w, h, C.bg);
@@ -64,18 +66,15 @@ export function drawRegion(world, {
   const Y = (v) => (g.maxV - v) * scale;
   const G = (x, z) => frame.toGrid(x, z);
 
-  // Chunk seams, faint, so you can see that they are not visible in anything
-  // else that is drawn on top of them.
-  for (const chunk of world._store.built()) {
-    const corners = [
-      [chunk.box.minX, chunk.box.minZ], [chunk.box.maxX, chunk.box.minZ],
-      [chunk.box.maxX, chunk.box.maxZ], [chunk.box.minX, chunk.box.maxZ],
-    ].map(([x, z]) => G(x, z));
-    for (let i = 0; i < 4; i++) {
-      const a = corners[i];
-      const b = corners[(i + 1) % 4];
-      s.line(X(a.u), Y(a.v), X(b.u), Y(b.v), C.chunk);
-    }
+  // The floor's own grid, a major line every 5.0, which is the thing the arena
+  // was sized against: six large squares a side.
+  for (let t = box.minX; t <= box.maxX + 1e-9; t += 5) {
+    const a = G(t, box.minZ);
+    const b = G(t, box.maxZ);
+    s.line(X(a.u), Y(a.v), X(b.u), Y(b.v), C.chunk);
+    const c = G(box.minX, t);
+    const d = G(box.maxX, t);
+    s.line(X(c.u), Y(c.v), X(d.u), Y(d.v), C.chunk);
   }
 
   // Paths, as ribbons: the centreline plus its two edges, so the clear width is
@@ -121,9 +120,22 @@ export function drawRegion(world, {
     }
   }
 
+  // The wall, thicker than a fence and a different colour, because the ghost
+  // can cross one of them and not the other.
+  for (const b of world.wall) {
+    const a = G(b.x0, b.z0);
+    const e = G(b.x1, b.z1);
+    for (let off = -0.3; off <= 0.3; off += 0.12) {
+      s.line(X(a.u) + off * scale, Y(a.v), X(e.u) + off * scale, Y(e.v), C.wall);
+      s.line(X(a.u), Y(a.v) + off * scale, X(e.u), Y(e.v) + off * scale, C.wall);
+    }
+  }
+
   // Fences, thick, because they are the thing the picture is about. A gate is a
-  // gap in them and is drawn as the gap it is, with its sweep disc.
+  // gap in them and is drawn as the gap it is, with its sweep disc and the
+  // capsule a body needs to reach it.
   for (const b of world.barriers(box)) {
+    if (!b.jumpable) continue;
     const a = G(b.x0, b.z0);
     const e = G(b.x1, b.z1);
     for (const off of [-0.09, 0, 0.09]) {
@@ -139,6 +151,11 @@ export function drawRegion(world, {
     s.disc(X(e.u), Y(e.v), Math.max(2, scale * 0.28), C.gate);
     const sw = G(gate.sweep.x, gate.sweep.z);
     s.ring(X(sw.u), Y(sw.v), gate.sweep.r * scale, C.sweep, 0.75);
+    const c0 = G(gate.clear.x0, gate.clear.z0);
+    const c1 = G(gate.clear.x1, gate.clear.z1);
+    s.line(X(c0.u), Y(c0.v), X(c1.u), Y(c1.v), C.sweep, 0.7);
+    s.ring(X(c0.u), Y(c0.v), gate.clear.r * scale, C.sweep, 0.4);
+    s.ring(X(c1.u), Y(c1.v), gate.clear.r * scale, C.sweep, 0.4);
   }
 
   // Graves, power pellets and fireflies. The fireflies get a halo because there
@@ -146,18 +163,17 @@ export function drawRegion(world, {
   // matter.
   for (const gr of world.graves(box)) {
     const q = G(gr.x, gr.z);
-    s.ring(X(q.u), Y(q.v), Math.max(3, scale * 1.1), C.grave, 0.9);
+    s.ring(X(q.u), Y(q.v), Math.max(3, scale * 0.8), C.grave, 0.9);
   }
   for (const p of world.powerups(box)) {
     const q = G(p.x, p.z);
-    s.disc(X(q.u), Y(q.v), Math.max(3, scale * 0.62), C.jack);
-    s.ring(X(q.u), Y(q.v), Math.max(6, scale * 1.5), C.jack, 0.4);
+    s.disc(X(q.u), Y(q.v), Math.max(3, scale * 0.42), C.jack);
+    s.ring(X(q.u), Y(q.v), Math.max(6, scale * 0.9), C.jack, 0.4);
   }
   for (const f of world.fireflies(box)) {
     const q = G(f.x, f.z);
-    s.ring(X(q.u), Y(q.v), Math.max(7, scale * 1.6), C.flyHalo, 0.55);
-    s.ring(X(q.u), Y(q.v), Math.max(4, scale * 0.95), C.flyHalo, 0.8);
-    s.disc(X(q.u), Y(q.v), Math.max(2, scale * 0.42), C.firefly);
+    s.ring(X(q.u), Y(q.v), Math.max(6, scale * 0.85), C.flyHalo, 0.5);
+    s.disc(X(q.u), Y(q.v), Math.max(2, scale * 0.28), C.firefly);
   }
 
   // The walk, which is the only thing here that is not the world: it is the
@@ -175,10 +191,8 @@ export function drawRegion(world, {
   }
 
   const sp = G(world.spawn.x, world.spawn.z);
-  if (sp.u > g.minU && sp.u < g.maxU && sp.v > g.minV && sp.v < g.maxV) {
-    s.ring(X(sp.u), Y(sp.v), Math.max(4, scale * 1.4), C.spawn);
-    s.ring(X(sp.u), Y(sp.v), world.START_CLEAR * scale, C.spawn, 0.25);
-  }
+  s.ring(X(sp.u), Y(sp.v), Math.max(4, scale * 1.4), C.spawn);
+  s.ring(X(sp.u), Y(sp.v), 4.0 * scale, C.spawn, 0.25);
 
   if (label !== null) text(s, label, 6, 6, C.label, Math.max(1, Math.round(scale / 2)));
   return s;

@@ -1,32 +1,26 @@
-// The placer, again, for a world with no lattice in it.
+// The placer, again, for an arena with no lattice in it.
 //
 // layout/place.js already solved the placement rules properly and this file
 // keeps its answers: the same margins, the same footprints, the same
 // separating-axis test, the same arithmetic for rule 5, and the same protocol
 // where a composition asks "can this go here" and gets a yes or a no rather
 // than a nudge. What it cannot keep is the lattice: there are no corridor
-// tiles to test against, no level bounds to be inside, and no single pass over
-// a finite level, so three things are new.
+// tiles to test against and no cells to put props in, so three things differ.
 //
 // 1. THE PATH TEST REPLACES THE CORRIDOR TEST. A path is a wandering curve
 //    rather than a union of squares, so a corridor tile against a footprint
 //    becomes a curve against a footprint: the bounding circle for a fast
-//    accept, and the curve sampled at 0.12 against the oriented box when the
-//    circle is not decisive. The sampled minimum always OVERSTATES the
-//    distance, so a step of it is given back, which leaves the generator
-//    strictly harder to satisfy than the checker.
+//    accept, and the curve sampled finely against the oriented box when the
+//    circle is not decisive. A sampled minimum always OVERSTATES the distance,
+//    which is the unsafe direction, so a step of it is given back and the
+//    generator ends up strictly harder to satisfy than the checker.
 //
-// 2. A CHUNK RESOLVES AGAINST ITS NEIGHBOURS, NOT AGAINST THE WORLD. Building a
-//    chunk is allowed to look at the eight around it and nothing else. Within
-//    the chunk, candidates are accepted in generation order, which is what
-//    keeps a row looking like a row. Across a seam the order would depend on
-//    which chunk the player walked into first, so it is replaced by a fixed
-//    total order on chunks: a candidate yields to any RAW candidate of a
-//    higher priority neighbour, whether or not that neighbour ends up keeping
-//    it. Both sides of a seam compute the same answer from the same two raw
-//    lists, so the world is the same however it is walked. The cost is a few
-//    props lost to neighbours that then dropped them, which world-check.mjs
-//    counts as `seam`.
+// 2. THE KEEP-OUT AT A GATE IS A CAPSULE. The rules half found a prop a
+//    thousandth outside a disc keep-out that still plugged the mouth of a gate
+//    and cost three percent of their worlds their fairness, because the
+//    question is not whether a body FITS through an opening but whether it can
+//    REACH it. So the shape that has to stay clear is the approach corridor
+//    through the gate, and it is tested here as a long thin box.
 //
 // 3. HEIGHT IS CHOSEN, NOT ROLLED. This is the interesting one, and it is the
 //    answer to the tension in the brief: organic placement that hides half the
@@ -43,46 +37,44 @@ import { gap } from '../layout/geom.js';
 import { boundingRadius } from '../layout/footprints.js';
 import { OCCLUSION, K } from '../layout/frame.js';
 import { PROP_MARGIN, CORRIDOR_MARGIN, OCCLUSION_MARGIN, halfAcross } from '../layout/place.js';
-import { PATH_HALF } from './field.js';
-import { FENCE_MARGIN } from './fence.js';
+import { PATH_HALF, WALL_HALF } from './field.js';
+import { FENCE_MARGIN, GATE_CLEAR_R, gridYawAlong } from './fence.js';
 
-// The tallest thing the world places is the obelisk at 1.85, so nothing can
+// The tallest thing the arena places is the obelisk at 1.85, so nothing can
 // argue with anything more than this far away in screen depth.
 export const OCCLUSION_REACH = 1.9 / OCCLUSION;
-// And nothing can overlap anything more than this far away in the plane.
 export const OVERLAP_REACH = 4.2;
+// How much daylight a prop leaves against the perimeter wall.
+export const WALL_MARGIN = 0.25;
 
 // Kinds that stop a body. A hole is a hole and a spoil heap is a mound you walk
-// over; everything else in the world is something you go round.
+// over; everything else in the arena is something you go round.
 const SOFT_KINDS = new Set(['hole', 'dirt']);
 
 const BUCKET = 4;
 
-export function createPlacer({ field, chunk, hard = [], blockers = [], barriers = [], gates = [] }) {
+export function createPlacer({ field, box, barriers = [], gates = [] }) {
   const frame = field.frame;
   const props = [];
-  const rejects = { path: 0, fence: 0, gate: 0, overlap: 0, occlusion: 0, seam: 0, height: 0, placed: 0 };
+  const rejects = { bounds: 0, path: 0, fence: 0, gate: 0, overlap: 0, occlusion: 0, placed: 0 };
 
-  // Everything that can argue with a candidate, in one bucket grid over grid
-  // coordinates. `weight` says which arguments it wins: hard content is fences,
-  // gates and graves, which nothing may push aside.
   const buckets = new Map();
   const key = (a, b) => a + ':' + b;
   const put = (item) => {
-    const a = Math.floor(item.u / BUCKET);
-    const b = Math.floor(item.v / BUCKET);
-    const k = key(a, b);
+    const k = key(Math.floor(item.u / BUCKET), Math.floor(item.v / BUCKET));
     const list = buckets.get(k);
     if (list) list.push(item); else buckets.set(k, [item]);
   };
+  const take = (item) => {
+    const list = buckets.get(key(Math.floor(item.u / BUCKET), Math.floor(item.v / BUCKET)));
+    if (!list) return;
+    const i = list.indexOf(item);
+    if (i >= 0) list.splice(i, 1);
+  };
   const near = (u, v, reach) => {
     const out = [];
-    const a0 = Math.floor((u - reach) / BUCKET);
-    const a1 = Math.floor((u + reach) / BUCKET);
-    const b0 = Math.floor((v - reach) / BUCKET);
-    const b1 = Math.floor((v + reach) / BUCKET);
-    for (let b = b0; b <= b1; b++) {
-      for (let a = a0; a <= a1; a++) {
+    for (let b = Math.floor((v - reach) / BUCKET); b <= Math.floor((v + reach) / BUCKET); b++) {
+      for (let a = Math.floor((u - reach) / BUCKET); a <= Math.floor((u + reach) / BUCKET); a++) {
         const list = buckets.get(key(a, b));
         if (list) for (const item of list) out.push(item);
       }
@@ -90,15 +82,38 @@ export function createPlacer({ field, chunk, hard = [], blockers = [], barriers 
     return out;
   };
 
-  for (const p of hard) put({ ...p, hard: true });
-  for (const p of blockers) put({ ...p, hard: false, seam: true });
+  // Barriers and gate keep-outs are not props and never occlude anything: a
+  // fence is 0.86 of open pickets and layout.js never judged a wall against a
+  // stone either. They are pure keep-outs, each with the margin it wants.
+  const keepOuts = [];
+  for (const s of barriers) {
+    if (s.grid) keepOuts.push({ shape: s.grid.shape, margin: FENCE_MARGIN, why: 'fence' });
+  }
+  for (const g of gates) {
+    keepOuts.push({ shape: g.grid.sweep, margin: 0, why: 'gate' });
+    const c = g.grid.clear;
+    const du = c.bu - c.au;
+    const dv = c.bv - c.av;
+    const len = Math.hypot(du, dv);
+    keepOuts.push({
+      // The approach capsule, as a long thin box. The separating axis test
+      // understates the gap for a corner meeting, which is the direction that
+      // keeps things out rather than the one that lets them in.
+      shape: {
+        shape: 'box', x: (c.au + c.bu) / 2, z: (c.av + c.bv) / 2,
+        yaw: gridYawAlong(du / len, dv / len), halfU: len / 2, halfV: 0.001,
+      },
+      margin: GATE_CLEAR_R, why: 'gate',
+    });
+  }
 
-  // Barriers and gate discs are not props and never occlude anything: a fence
-  // is 0.86 of open pickets and layout.js never judged a wall against a stone
-  // either. They are pure keep-outs.
-  const fenceShapes = barriers.map((s) => s.grid.shape);
-  const gateShapes = [];
-  for (const g of gates) { gateShapes.push(g.grid.sweep); gateShapes.push(g.grid.clear); }
+  // Inside the wall. The wall itself is a barrier the props keep off, but the
+  // cheap test is the arena box, done in world because that is where the arena
+  // is square.
+  const wallBox = {
+    minX: box.minX + WALL_HALF + WALL_MARGIN, maxX: box.maxX - WALL_HALF - WALL_MARGIN,
+    minZ: box.minZ + WALL_HALF + WALL_MARGIN, maxZ: box.maxZ - WALL_HALF - WALL_MARGIN,
+  };
 
   function makeProp({ kind, variant = null, u, v, gridYaw = Math.PI, foot }) {
     const radius = boundingRadius(foot);
@@ -127,22 +142,10 @@ export function createPlacer({ field, chunk, hard = [], blockers = [], barriers 
     return front.height >= back.height + (front.depth - back.depth) * OCCLUSION - OCCLUSION_MARGIN;
   }
 
-  // Rule 2, against the real footprint.
-  //
-  // The first version of this tested the prop's BOUNDING CIRCLE against the
-  // curve, which is conservative and therefore safe, and it cost the world one
-  // grave in a hundred chunks: a grave hole is 2.0 by 0.9, its circle is 1.10,
-  // and at a crossroads the difference between needing 2.45 of clearance and
-  // needing 1.80 is the difference between a grave fitting in the quadrant and
-  // not fitting anywhere. Since the density floor is a promise to the rules
-  // half, the test is now the same exact one the checker does: the curve,
-  // sampled finely, against the oriented box. The circle survives as the fast
-  // accept, which is what it is good for.
   const PATH_NEED = PATH_HALF + CORRIDOR_MARGIN;
   const PATH_STEP = 0.12;
-  // A sampled minimum can only ever OVERSTATE the distance, and overstating it
-  // is the unsafe direction, so half a step of the curve is given back.
   const PATH_SLACK = PATH_STEP;
+  const NEAR_SLACK = 0.05;
   const probe = { shape: 'disc', x: 0, z: 0, r: 0 };
 
   function pathGap(shape, u, v, reach) {
@@ -169,35 +172,29 @@ export function createPlacer({ field, chunk, hard = [], blockers = [], barriers 
     return best - PATH_SLACK;
   }
 
-  // nearestPath refines to 0.04 of curve parameter, so its answer can be up to
-  // that much too large, and too large is the unsafe direction.
-  const NEAR_SLACK = 0.05;
-
   function pathClear(prop) {
-    const near = field.nearestPath(prop.u, prop.v, PATH_NEED + prop.radius + 1).dist - NEAR_SLACK;
-    if (near >= PATH_NEED + prop.radius) return true;
-    if (near < PATH_NEED) return false;
+    const d = field.nearestPath(prop.u, prop.v, PATH_NEED + prop.radius + 1).dist - NEAR_SLACK;
+    if (d >= PATH_NEED + prop.radius) return true;
+    if (d < PATH_NEED) return false;
     if (prop.foot.shape === 'disc') return false;
     return pathGap(prop.shape, prop.u, prop.v, prop.radius) >= PATH_NEED;
   }
 
-  function reject(prop, { asHard = false } = {}) {
+  function reject(prop) {
+    if (prop.x - prop.radius < wallBox.minX || prop.x + prop.radius > wallBox.maxX
+      || prop.z - prop.radius < wallBox.minZ || prop.z + prop.radius > wallBox.maxZ) return 'bounds';
     if (!pathClear(prop)) return 'path';
-    for (const s of fenceShapes) {
-      if (Math.hypot(prop.u - s.x, prop.v - s.z) > prop.radius + s.halfU + s.halfV + FENCE_MARGIN) continue;
-      if (gap(prop.shape, s) < FENCE_MARGIN) return 'fence';
-    }
-    for (const s of gateShapes) {
-      if (Math.hypot(prop.u - s.x, prop.v - s.z) > prop.radius + s.r) continue;
-      if (gap(prop.shape, s) < 0) return 'gate';
+    for (const k of keepOuts) {
+      const s = k.shape;
+      const reach = prop.radius + (s.shape === 'disc' ? s.r : s.halfU + s.halfV) + k.margin;
+      if (Math.hypot(prop.u - s.x, prop.v - s.z) > reach) continue;
+      if (gap(prop.shape, s) < k.margin) return k.why;
     }
     const reach = Math.max(OVERLAP_REACH, OCCLUSION_REACH);
     for (const other of near(prop.u, prop.v, reach + prop.radius)) {
-      if (asHard && !other.hard) continue;
-      if (Math.hypot(prop.u - other.u, prop.v - other.v) <= prop.radius + other.radius + PROP_MARGIN) {
-        if (gap(prop.shape, other.shape) < PROP_MARGIN) return other.seam ? 'seam' : 'overlap';
-      }
-      if (hides(prop, other) || hides(other, prop)) return other.seam ? 'seam' : 'occlusion';
+      if (Math.hypot(prop.u - other.u, prop.v - other.v) <= prop.radius + other.radius + PROP_MARGIN
+        && gap(prop.shape, other.shape) < PROP_MARGIN) return 'overlap';
+      if (hides(prop, other) || hides(other, prop)) return 'occlusion';
     }
     return null;
   }
@@ -216,10 +213,8 @@ export function createPlacer({ field, chunk, hard = [], blockers = [], barriers 
       if (Math.abs(across - other.across) >= halfA + other.halfAcross) continue;
       const dd = depth - other.depth;
       if (dd > 0) {
-        // I would be in front of it, so I must stay under its allowance.
         if (other.height > 0.05) hi = Math.min(hi, other.height + dd * OCCLUSION - OCCLUSION_MARGIN - 0.02);
       } else if (dd < 0) {
-        // It is in front of me, so I have to be tall enough not to vanish.
         lo = Math.max(lo, other.height + dd * OCCLUSION + OCCLUSION_MARGIN + 0.02);
       }
     }
@@ -232,80 +227,54 @@ export function createPlacer({ field, chunk, hard = [], blockers = [], barriers 
     heightWindow,
     make: makeProp,
 
-    // Add a prop that nothing may push aside: a fence, a grave, the things the
-    // world guarantees a floor of. Still tested against the other hard things.
-    tryHard(spec) {
-      const prop = makeProp(spec);
-      const why = reject(prop, { asHard: true });
-      if (why) { rejects[why]++; return null; }
-      prop.hard = true;
-      props.push(prop);
-      put(prop);
-      rejects.placed++;
-      return prop;
-    },
-
     try(spec) {
       const prop = makeProp(spec);
       const why = reject(prop);
       if (why) { rejects[why]++; return null; }
+      rejects.placed++;
       props.push(prop);
       put(prop);
-      rejects.placed++;
       return prop;
     },
 
     // All or nothing, for a grave: a pit with no heap beside it reads as a
     // mistake rather than as a grave.
-    tryGroup(specs, { asHard = false } = {}) {
+    tryGroup(specs) {
       const made = [];
       for (const spec of specs) {
         const prop = makeProp(spec);
-        const why = reject(prop, { asHard });
+        const why = reject(prop);
         if (why) {
           rejects[why]++;
-          for (const p of made) {
-            props.splice(props.indexOf(p), 1);
-            const a = Math.floor(p.u / BUCKET);
-            const b = Math.floor(p.v / BUCKET);
-            const list = buckets.get(key(a, b));
-            if (list) list.splice(list.indexOf(p), 1);
-          }
+          api.drop(made);
           return null;
         }
-        if (asHard) prop.hard = true;
+        rejects.placed++;
         props.push(prop);
         put(prop);
-        rejects.placed++;
         made.push(prop);
       }
       return made;
     },
 
     // Would this fit, without keeping it? The grave search asks this of the
-    // mouth of the hole before it asks for the whole grave.
-    wouldFit(spec, opts) {
-      return reject(makeProp(spec), opts) === null;
+    // mouth of a hole before it asks for the whole grave.
+    wouldFit(spec) {
+      return reject(makeProp(spec)) === null;
     },
 
-    // Take a group back out again. Only the grave uses it, when a group placed
-    // legally still turns out to be somewhere a body could not stand.
-    drop(group) {
-      for (const p of group) {
+    // Take props back out. The grave uses it when a group placed legally still
+    // turns out to be somewhere a body could not stand, and the pen uses it
+    // when its furniture has cut the interior in two.
+    drop(list) {
+      for (const p of list) {
         const i = props.indexOf(p);
         if (i >= 0) props.splice(i, 1);
-        const a = Math.floor(p.u / BUCKET);
-        const b = Math.floor(p.v / BUCKET);
-        const list = buckets.get(key(a, b));
-        if (list) {
-          const j = list.indexOf(p);
-          if (j >= 0) list.splice(j, 1);
-        }
+        take(p);
       }
     },
   };
 
-  void chunk;
   return api;
 }
 

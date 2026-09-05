@@ -493,7 +493,7 @@ function lipMask(marks, dx, dy, colour) {
 // low contrast on purpose: this is a toy headstone, not a granite scan.
 // The speckle pass is colour-only -- on the height map its high frequencies
 // would come back through the normals as sandpaper.
-export function mottle(ctx, w, h, rng, light, dark, strength, speckle = true) {
+export function mottle(ctx, w, h, rng, light, dark, strength, speckle = true, speckleScale = 1) {
   for (let i = 0; i < 130; i++) {
     const x = rng() * w;
     const y = rng() * h;
@@ -508,9 +508,26 @@ export function mottle(ctx, w, h, rng, light, dark, strength, speckle = true) {
     ctx.fill();
   }
   if (!speckle) return;
+  // speckleScale is the map's resolution relative to the one these numbers were
+  // chosen at, so a half-size map gets half-size dots at a quarter of the count
+  // and the speckle covers the same fraction of the STONE rather than the same
+  // fraction of the canvas. Without it, halving the map doubles the grain and
+  // the stone comes back sandpapered.
+  //
+  // The loop still runs 2600 times and still draws three numbers off the stream
+  // every time, whatever the scale. That is not an accident: this rng is the
+  // stone's own and everything after it -- the inscription, the lean, a broken
+  // corner -- is drawn from what is left. Consuming a different amount here
+  // would silently re-roll every stone in the set.
+  const keep = Math.max(1, Math.round(1 / (speckleScale * speckleScale)));
+  const dot = 1.5 * speckleScale;
   for (let i = 0; i < 2600; i++) {
-    ctx.fillStyle = `rgba(${rng() < 0.5 ? light : dark}, ${strength * 0.55})`;
-    ctx.fillRect(rng() * w, rng() * h, 1.5, 1.5);
+    const style = `rgba(${rng() < 0.5 ? light : dark}, ${strength * 0.55})`;
+    const x = rng() * w;
+    const y = rng() * h;
+    if (i % keep) continue;
+    ctx.fillStyle = style;
+    ctx.fillRect(x, y, dot, dot);
   }
 }
 
@@ -520,9 +537,18 @@ export function mottle(ctx, w, h, rng, light, dark, strength, speckle = true) {
 // derivatives, so the carving would soften as the camera pulls back. Slopes
 // baked here hold up at any distance, and the strength is a number rather than
 // a happy accident of texture resolution.
-export function heightToNormalMap(canvas, strength) {
+//
+// `step` is how many texels apart the two height samples are taken, and it must
+// follow the map's resolution. The gradient is a rise over a run measured in
+// TEXELS, so a groove sampled two texels apart on a 1024 map and two texels
+// apart on a 512 map is sampled over twice the WORLD distance on the smaller
+// one and comes back half as steep. Halve the map, halve the step, and the two
+// spans are the same fraction of the stone -- so `strength` keeps meaning what
+// it meant and needs no compensation. 2 is what a 1024-row map wants.
+export function heightToNormalMap(canvas, strength, step = 2) {
   const w = canvas.width;
   const h = canvas.height;
+  const d = Math.max(1, Math.round(step));
   const src = canvas.getContext('2d').getImageData(0, 0, w, h).data;
   const at = (x, y) => src[((y < 0 ? 0 : y > h - 1 ? h - 1 : y) * w + (x < 0 ? 0 : x > w - 1 ? w - 1 : x)) * 4] / 255;
   const out = new Uint8Array(w * h * 4);
@@ -531,8 +557,8 @@ export function heightToNormalMap(canvas, strength) {
     // CanvasTexture colour map gets for free has to happen here by hand.
     const row = (h - 1 - y) * w;
     for (let x = 0; x < w; x++) {
-      const gx = at(x + 2, y) - at(x - 2, y);
-      const gy = at(x, y + 2) - at(x, y - 2);
+      const gx = at(x + d, y) - at(x - d, y);
+      const gy = at(x, y + d) - at(x, y - d);
       // v runs up the stone while canvas y runs down, hence the sign on gy.
       const nx = -gx * strength;
       const ny = gy * strength;
@@ -557,13 +583,41 @@ export function heightToNormalMap(canvas, strength) {
 // from the bottom -- i.e. how far into the grime band it sits.
 export const GRIME = 0.2;
 
+// Rows in a stone's face map, and the most expensive number in this file.
+//
+// It was 1024, and 1024 is four megapixels of colour plus four of normal per
+// stone once the strip is counted -- about nine megabytes with mips, times
+// however many stones are standing. Fifty-odd props came to 379 MB of texture
+// and half a minute of building, nearly all of it the pixel loop in
+// heightToNormalMap.
+//
+// What the stone can actually use, measured rather than assumed. The game
+// camera is an orthographic 9 over an 800px viewport, which is 44 pixels per
+// world unit, so a 1.37 tall stone is 61 pixels of screen and its face is
+// sampled somewhere around mip 3 of a 512 map. The free-roam page is looser
+// still. The one framing that gets near the texture's own resolution is the
+// prop lab, which renders a single stone at 300x400: about 350 pixels of face,
+// which a 512 map serves at mip 0 with a little to spare.
+//
+// So 512, and the treatment survives it because every number in it is a
+// FRACTION of this one: the groove wall is FH * 0.011, its lip FH * 0.006, the
+// strip FH * 0.156, the speckle scales with speckleScale and the normal bake
+// with its step. Halving this halves the groove in texels and in world units
+// leaves it exactly where it was. See the letter-height floor above for the
+// separate question of how small a letter may go, which is a property of the
+// treatment and not of the map.
+//
+// Raise it if a close-up ever needs it. It is one number and everything follows
+// it.
+export const FACE_ROWS = 1024;
+
 // Colour map + height map for one stone. The face artwork occupies a region of
 // exact face aspect on the left; the narrow strip on the right is plain stone
 // that the sides and back sample, so nothing wraps around the corner.
 function buildTextures(variant, faceAspect, rng) {
-  const FH = 1024;
+  const FH = FACE_ROWS;
   const FW = Math.round(FH * faceAspect);
-  const STRIP = 160;
+  const STRIP = Math.round(FH * (160 / 1024));
   const w = FW + STRIP;
 
   const colour = document.createElement('canvas');
@@ -574,7 +628,8 @@ function buildTextures(variant, faceAspect, rng) {
   // detail, so PALETTE.stone stays the single source of truth for the hue.
   cc.fillStyle = '#ffffff';
   cc.fillRect(0, 0, w, FH);
-  mottle(cc, w, FH, rng, '120,116,110', '255,255,255', 0.085);
+  const res = FH / 1024;
+  mottle(cc, w, FH, rng, '120,116,110', '255,255,255', 0.085, true, res);
 
   // A wash of ground grime along the bottom edge. It also does a second job:
   // the plinth samples nothing but this band, which stops an up-facing slab of
@@ -647,7 +702,12 @@ function buildTextures(variant, faceAspect, rng) {
   const map = new THREE.CanvasTexture(colour);
   map.colorSpace = THREE.SRGBColorSpace;
   map.anisotropy = 8;
-  return { map, normalMap: heightToNormalMap(height, 14), frontFrac: FW / w, stripFrac: STRIP / w };
+  return {
+    map,
+    normalMap: heightToNormalMap(height, 14, 2 * res),
+    frontFrac: FW / w,
+    stripFrac: STRIP / w,
+  };
 }
 
 // ---------------------------------------------------------------------------

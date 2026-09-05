@@ -31,6 +31,26 @@ const DEFAULTS = {
   maxSpeed: 4.5,
   accelTime: 0.12,
   turnRate: 11.0,
+
+  // THE HOP, and why it is two numbers rather than a hard-coded pair.
+  //
+  // 3.6 up against 9.0 down is 0.80 s in the air with an apex of 0.72, and it
+  // was authored as CHARACTER: a slow floaty bob that suits a ghost drifting
+  // round a graveyard, on the page where the hop means nothing but delight.
+  //
+  // The game needs the same hop to be an ACTION, because a jump is now how the
+  // player crosses a fence, and 0.80 s is 2.4 units of committed travel that
+  // sails past any fence it was aimed at. The game passes 5.0 and 20.0, which
+  // is 0.50 s with an apex of 0.625: the arc looks almost the same and happens
+  // in five eighths of the time. The apex is what you SEE and the air time is
+  // what you FEEL, and only the second was wrong for the game.
+  //
+  // Both live here as options rather than one of them winning, because the two
+  // pages want genuinely different things and there is no version that is right
+  // for both. /ghostly/ keeps the hop it shipped with.
+  jumpUp: 3.6,
+  jumpGravity: 9.0,
+
   seed: undefined,
 };
 
@@ -380,13 +400,13 @@ export class Ghost {
     // Hop. The interesting part is not the arc, it is what the skirt does on
     // the way down.
     if (input.jump && this.grounded) {
-      this.airV = 3.6;
+      this.airV = o.jumpUp;
       this.grounded = false;
       this.squash = -0.55;
       if (this.eyes) this.eyes.startle = 1;
     }
     if (!this.grounded) {
-      this.airV -= 9.0 * h;
+      this.airV -= o.jumpGravity * h;
       this.airY += this.airV * h;
       if (this.airY <= 0) {
         this.airY = 0;

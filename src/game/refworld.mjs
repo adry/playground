@@ -225,13 +225,19 @@ function rawChunk(seed, cx, cz, spacing, fence) {
 // one flag the rules read: a wall barrier cannot be vaulted. Everything else
 // about it is a fence.
 //
-// LANE is a clear ring inside the wall. It is the single most load bearing
-// number in here and it is a fairness device, not a look one: it is Pac-Man's
-// outer corridor. Without it a pen can sit against the wall and make a pocket
-// with one way in, and a player running the perimeter can be stopped dead by a
-// prop. With it the boundary is a loop you can always run, which turns a corner
-// from a dead end into a 90 degree turn.
-export function createArena({ seed = 1, size = 30, lane = 2.6, wallHalf = 0.35, fireflies = 9 } = {}) {
+// LANE is a clear ring inside the wall, and it is the single most load bearing
+// number in here. It is a fairness device and not a look one: it is Pac-Man's
+// outer corridor, the loop that means the edge of the board is somewhere you
+// run rather than somewhere you are cornered.
+//
+// 3.5 is derived. The wall's own half thickness is 0.35 and a body needs 0.555
+// of clearance from each side, so a lane of L leaves L - 0.35 - 1.11 of
+// walkable width: 2.6 leaves 1.14, which is passable but so tight that a 0.75
+// raster cannot always see it, and 3% of arenas failed F3 on strips between a
+// pen and the wall that a skeleton could not be proved to fit down. 3.5 leaves
+// 2.04, which is the corridor width the original lattice design used and had
+// its own reasons for: two bodies pass in it.
+export function createArena({ seed = 1, size = 30, lane = 3.5, wallHalf = 0.35, fireflies = 9 } = {}) {
   const r = mulberry32(hashInt(seed ^ 0x1a7e91, 7, 13));
   const h = size / 2;
   const bounds = { minX: -h, minZ: -h, maxX: h, maxZ: h };
@@ -245,13 +251,15 @@ export function createArena({ seed = 1, size = 30, lane = 2.6, wallHalf = 0.35, 
     half: wallHalf, wall: true, end0: 'joint', end1: 'joint',
   }));
 
+  const pens = [];
   const inner = h - lane;
-  const clear = (x, z, rad) => {
+  const clear = (x, z, rad, offFence = 0) => {
     if (Math.abs(x) > inner - rad || Math.abs(z) > inner - rad) return false;
-    for (const b of out.barriers) if (!b.wall && segPointDist(b, x, z) < rad + b.half) return false;
+    for (const b of out.barriers) if (!b.wall && segPointDist(b, x, z) < rad + b.half + offFence) return false;
     for (const p of out.props) if (Math.hypot(p.x - x, p.z - z) < rad + p.radius) return false;
     return true;
   };
+  const inPen = (x, z, pad = 0) => pens.some((q) => x > q.x0 - pad && x < q.x1 + pad && z > q.z0 - pad && z < q.z1 + pad);
   const inGate = (x, z, rad) => {
     for (const g of out.gates) {
       const nx = -g.dz;
@@ -267,7 +275,6 @@ export function createArena({ seed = 1, size = 30, lane = 2.6, wallHalf = 0.35, 
   // not touching each other. A pen is the case where the vault is worth the
   // most, so the arena is mostly pens on purpose.
   const want = 2 + ((r() * 2) | 0);
-  const pens = [];
   for (let tries = 0; tries < 200 && pens.length < want; tries++) {
     const w = 3 + ((r() * 2) | 0);
     const d = 3 + ((r() * 2) | 0);
@@ -300,16 +307,31 @@ export function createArena({ seed = 1, size = 30, lane = 2.6, wallHalf = 0.35, 
     }
   }
 
-  const place = (list, rad, n, extra) => {
+  const place = (list, rad, n, extra, offFence = 0, banPen = false) => {
     for (let i = 0, tries = 0; i < n && tries < 400; tries++) {
       const x = -inner + r() * inner * 2;
       const z = -inner + r() * inner * 2;
-      if (!clear(x, z, rad) || inGate(x, z, rad)) continue;
+      if (!clear(x, z, rad, offFence) || inGate(x, z, rad)) continue;
+      if (banPen && inPen(x, z, 0.5)) continue;
       list.push({ id: `${list.length}`, x, z, ...(extra ? extra(r) : {}) });
       i++;
     }
   };
-  place(out.props, 0.45, 10 + ((r() * 8) | 0), (rr) => ({ kind: 'stone', yaw: rr() * 6.28, radius: 0.30 + rr() * 0.16, solid: true }));
+  // TWO CONSTRAINTS ON PROPS, and both are fairness rather than looks. They are
+  // the two the soak found on the endless stand-in and they cost 5% of arenas
+  // their F4 and 3% their F3 before they were here.
+  //
+  //   1.5 OFF A FENCE. A vault takes off 0.65 from the fence's centreline and
+  //   lands 0.88 the other side, and the ghost's disc needs 0.55 there. A stone
+  //   any nearer than that makes a stretch of fence unvaultable, and a pen whose
+  //   fence cannot be vaulted and which has one gate is the pin that
+  //   2-edge-connectivity used to forbid.
+  //
+  //   NOT INSIDE A PEN. Two stones can partition a pen's interior, and the half
+  //   the gate does not open into is then a place the ghost can vault in to and
+  //   no skeleton can ever walk to. That is F3, the safe spot, and it is the one
+  //   that ends the game rather than annoying anybody.
+  place(out.props, 0.45, 10 + ((r() * 8) | 0), (rr) => ({ kind: 'stone', yaw: rr() * 6.28, radius: 0.30 + rr() * 0.16, solid: true }), 1.5, true);
   out.props.forEach((p, i) => { p.id = `s${i}`; });
   place(out.fireflies, 0.70, fireflies);
   out.fireflies.forEach((f, i) => { f.id = `f${i}`; });

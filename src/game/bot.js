@@ -184,10 +184,35 @@ export function createBot(game, opts = {}) {
   };
 
   function ensureGrid(x, z) {
-    if (grid && Math.hypot(x - gridX, z - gridZ) < S.regrid) return;
-    grid = nav.makeGrid({ x, z, half: S.half, cell: S.cell, radius: game.tuning.ghostRadius });
-    gridX = x;
-    gridZ = z;
+    // In a BOUNDED arena the raster is the whole level, built once and never
+    // moved. That is both faster and better play: the horizon derivation below
+    // exists only because a moving window has a horizon, and a window covering
+    // everything has none. It also stops the planner spending half its
+    // Dijkstra on the ground outside the wall, which it can never reach.
+    const bb = nav.bounds;
+    if (bb) {
+      if (grid) return;
+      const cx = (bb.minX + bb.maxX) / 2;
+      const cz = (bb.minZ + bb.maxZ) / 2;
+      // A FINER CELL in an arena. 1.5 is right for a 68 unit planning window
+      // on an open plane, where it buys speed and costs nothing that matters.
+      // In a 30 unit arena it is a quarter of the board's width per cell, a
+      // gate is barely more than one cell across, and the planner routes the
+      // ghost into gaps it does not fit through: the recovery shove fired 180
+      // times in a five minute run and the bot collected four of nine
+      // fireflies. The arena is small enough to afford 0.75.
+      grid = nav.makeGrid({
+        x: cx, z: cz, cell: Math.min(S.cell, 0.75), radius: game.tuning.ghostRadius,
+        half: Math.max(bb.maxX - cx, bb.maxZ - cz) + 1,
+      });
+      gridX = cx;
+      gridZ = cz;
+    } else {
+      if (grid && Math.hypot(x - gridX, z - gridZ) < S.regrid) return;
+      grid = nav.makeGrid({ x, z, half: S.half, cell: S.cell, radius: game.tuning.ghostRadius });
+      gridX = x;
+      gridZ = z;
+    }
     if (N !== grid.n * grid.n) {
       N = grid.n * grid.n;
       dist = new Float64Array(N);
@@ -277,21 +302,34 @@ export function createBot(game, opts = {}) {
         const m = n + dz * grid.n + dx;
         const a = n % grid.n;
         if (a + dx < 0 || a + dx >= grid.n || m < 0 || m >= N) continue;
+        if (grid.wall[n * 8 + d]) continue;
         const step = (dx && dz ? Math.SQRT2 : 1) * grid.cell;
-        let c = Infinity;
-        let jumped = 0;
-        if (!grid.wall[n * 8 + d]) {
-          c = dn + step * riskMul(m);
-        } else if (grid.fence[n * 8 + d] && !grid.blocked[m] && !dx !== !dz) {
-          // A vault. Only on the four axis steps, because the real jump carries
-          // 1.53 units at top speed and a diagonal cell step is 1.77.
-          c = dn + step * S.jumpCost * riskMul(m);
-          jumped = 1;
-        } else continue;
+        const c = dn + step * riskMul(m);
         if (c >= dist[m]) continue;
         dist[m] = c;
         prev[m] = n;
-        prevJump[m] = jumped;
+        prevJump[m] = 0;
+        heap.push(m, c);
+      }
+      // THE VAULT EDGES, and they come from nav's jump table rather than from
+      // the wall mask. A vault is never a step to the ADJACENT cell: a fence
+      // keeps a 0.55 disc 0.65 away on each side, so the cell across a fence
+      // from you is always blocked and the one you land in is two or three
+      // further on. An earlier version of this looked for an adjacent cell
+      // across a fence bit, found one exactly never, and gave the bot no vault
+      // edges at all. It was invisible in the output because a bot that cannot
+      // vault and a bot that has decided not to vault look identical: the
+      // jumpCost sweep printed the same row seven times, at every price from
+      // free to never, and that is what gave it away.
+      for (let ax = 0; ax < 4; ax++) {
+        const m = grid.jump[n * 4 + ax];
+        if (m < 0) continue;
+        const dist2 = Math.hypot(grid.wx(m) - grid.wx(n), grid.wz(m) - grid.wz(n));
+        const c = dn + dist2 * S.jumpCost * riskMul(m);
+        if (c >= dist[m]) continue;
+        dist[m] = c;
+        prev[m] = n;
+        prevJump[m] = 1;
         heap.push(m, c);
       }
     }
@@ -346,9 +384,17 @@ export function createBot(game, opts = {}) {
     if (goalKey && goalKey !== best.key && goalPt) {
       const c = grid.index(goalPt.x, goalPt.z);
       const cell = c >= 0 && grid.blocked[c] ? grid.nearestOpen(goalPt.x, goalPt.z) : c;
+      // A goal is only still there if the THING is still there. `s` goals are
+      // frightened skeletons, and the unconditional `|| goalKey[0] === 's'`
+      // that used to be here meant that when the lantern burned out the bot
+      // kept chasing the memory of one: it walked to the spot where the
+      // skeleton had been, arrived, found nothing, and stood on it for the rest
+      // of the run because the hysteresis would not let it change its mind.
+      // That was two thirds of the arena's fireflies left uncollected.
       const stillThere = (goalKey[0] === 'f' && state.fireflies.some((f) => `f${f.id}` === goalKey))
         || (goalKey[0] === 'p' && state.powerups.some((p) => `p${p.id}` === goalKey))
-        || goalKey[0] === 's';
+        || (goalKey[0] === 's' && state.power
+          && game.herd.list.some((k) => `s${k.id}` === goalKey && k.state === 'frightened'));
       if (stillThere && cell >= 0 && dist[cell] < Infinity && dist[cell] < bestC + S.switchMargin * Math.abs(bestC)) {
         goalCost = dist[cell];
         return { key: goalKey, cell, x: goalPt.x, z: goalPt.z };
@@ -373,7 +419,10 @@ export function createBot(game, opts = {}) {
     // Nothing to steer with while in the air, and the stick is ignored anyway.
     if (g.airborne) { jamTime = 0; return { x: 0, y: 0, jump: false }; }
 
-    if (Math.hypot(g.x - jamX, g.z - jamZ) > 0.4) { jamTime = 0; jamX = g.x; jamZ = g.z; }
+    // Only while actually playing. The ready beat and the death pause are
+    // 1.8 and 1.6 seconds of the ghost legitimately not moving, and counting
+    // them made every single life start with a spurious recovery shove.
+    if (state.phase !== 'play' || Math.hypot(g.x - jamX, g.z - jamZ) > 0.4) { jamTime = 0; jamX = g.x; jamZ = g.z; }
     else jamTime += dt;
     if (shove > 0) {
       shove -= dt;
@@ -388,7 +437,7 @@ export function createBot(game, opts = {}) {
       shoveX = Math.cos(a);
       shoveZ = Math.sin(a);
       shove = 0.33;
-      grid = null;
+      if (!nav.bounds) grid = null;
       route.length = 0;
       cool = 0;
       return { x: shoveX, y: shoveZ, jump: false };

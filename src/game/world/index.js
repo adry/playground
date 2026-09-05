@@ -1,517 +1,424 @@
-// THE WORLD. An endless graveyard, generated as it is reached.
+// THE WORLD. A walled graveyard, 30 by 30, built once.
 //
 // ============================================================================
 // THE CONTRACT WITH THE NAVIGATION HALF
 // ============================================================================
 //
-// Everything below is world space. There is no grid, no 2.0 lattice and no
-// frame on the caller's side of this line: `x` and `z` are the same x and z the
-// renderer and the rules use. A `box` is always { minX, minZ, maxX, maxZ } and
-// every query is answered from the chunks that box touches and from nowhere
-// else, so the cost of a query is the size of the box and not the size of the
-// world.
+// WHAT CHANGED FROM THE ENDLESS VERSION, in one paragraph, because the rules
+// half is building against the old shape. The world is BOUNDED. `CHUNK`,
+// `chunkAt`, `ensureAround` and `release` are gone; `bounds` is no longer null
+// but the arena rectangle; there is a new `wall`, which is a barrier like any
+// other except that it is the perimeter and the ghost CANNOT HOP IT. Every
+// query below has the same name, the same box argument and the same record
+// shape it had before, so a caller that only ever asked `barriers(box)` and
+// `props(box)` needs no change at all. Two fields are new on every barrier:
+// `kind` ('wall' or 'fence') and `jumpable` (false for the wall, true for the
+// fences), and one field changed shape: a gate's `clear` keep-out is now a
+// CAPSULE rather than a disc, for the reason under GATES below.
 //
-//   createWorld({ seed }) -> world
+// Everything is world space. There is no grid, no lattice and no frame on the
+// caller's side of this line. A `box` is always { minX, minZ, maxX, maxZ }.
 //
-//   world.CHUNK                 24. World units on a side of one chunk.
+//   createWorld({ seed, size = 30 }) -> world
+//
+//   world.size                  30. The arena is size by size, centred on the
+//                               origin, because the owner sized it off the
+//                               floor grid in src/ghost/ground.js: a major line
+//                               every 5.0, six of them a side.
+//   world.bounds                { minX, minZ, maxX, maxZ }. The arena.
 //   world.spawn                 { x, z }. Where the ghost starts. (0, 0).
-//   world.bounds                null. There are none. That is the point.
 //
-//   world.chunkAt(cx, cz)       build or fetch one chunk. Deterministic in
-//                               (seed, cx, cz) and in nothing else.
-//   world.ensureAround(x, z, r) build every chunk within r of (x, z).
-//   world.release(x, z, r)      forget the ones beyond it.
-//
-//   world.barriers(box) -> [{ id, x0, z0, x1, z1, half, height, run, yaw }]
-//   world.gates(box)    -> [{ id, barrier, x, z, dx, dz, half, sweep, clear,
-//                             hinge, prop }]
+//   world.barriers(box) -> [{ id, x0, z0, x1, z1, half, height, kind, jumpable,
+//                             run, yaw }]
+//   world.wall          -> the four perimeter barriers, also in barriers()
+//   world.gates(box)    -> [{ id, barrier, x, z, dx, dz, nx, nz, half,
+//                             sweep, clear, hinge, prop }]
 //   world.props(box)    -> [{ id, kind, x, z, yaw, radius, height, solid,
 //                             variant, foot }]
 //   world.fireflies(box)-> [{ id, x, z }]
 //   world.powerups(box) -> [{ id, x, z }]
 //   world.graves(box)   -> [{ id, x, z, yaw }]
 //   world.paths(box)    -> [{ id, points: [[x, z], ...], width }]
+//   world.blocks(x0, z0, x1, z1) -> the first barrier a move crosses, or null
 //
-// A BARRIER is a straight fence segment. It blocks a skeleton and it does not
-// block the ghost, who hops it. `half` is half its thickness in plan, 0.0775,
-// which is half of a 0.155 post: the rules half assumed 0.10, which is a safe
-// over estimate and nothing breaks if they keep it. `height` is 0.86, the
-// fence's own post height, which is what the ghost's hop has to clear.
-//
-// A PATH is walking surface, 2.3 wide, and it is NOT a corridor: it blocks
-// nothing and neither does anything beside it. It is where the fireflies mostly
-// are and it is the only thing in open ground a player can navigate by, and the
-// only rule attached to it is that no prop stands in one.
+// BARRIERS. A barrier is a straight segment. `half` is half its thickness in
+// plan: 0.0775 for a fence, which is half of a 0.155 post, and 0.25 for the
+// wall. The rules half assumed 0.10, which is a safe over estimate for a fence
+// and an under estimate for the wall, so read `half`. `height` is 0.86 for a
+// fence, which is what a hop has to clear, and 3.2 for the wall, which is what
+// a hop cannot. `jumpable` says which is which in one flag: THE GHOST MAY CROSS
+// A FENCE AND MAY NOT CROSS THE WALL, and a skeleton may cross neither.
 //
 // A GATE IS A HOLE IN THE BARRIER LIST, NOT AN EXCEPTION TO IT. The segments
 // either side of an opening stop at the opening's edges, so "does this move
 // cross a fence" is a plain segment against segment test with no gate case in
 // it anywhere. The gate record exists so a path finder can AIM at an opening
-// and a renderer can build the leaf, and it is not needed to get the blocking
-// right. `x, z` is the middle of the opening; `dx, dz` is a unit vector along
-// the fence; `half` is half the clear opening, 1.0, so a disc of radius 0.60
-// passes with 0.4 either side. `sweep` is the leaf's own keep-out disc about
-// `hinge`, and `prop` is where to build the mesh, which is not the same point.
+// and a renderer can build the leaf. `x, z` is the middle of the opening;
+// `dx, dz` is a unit vector along the fence and `nx, nz` one through it; `half`
+// is half the clear opening, 1.0, so a 0.60 body passes with 0.4 either side.
+// `sweep` is the leaf's own keep-out disc about `hinge`. `clear` is the
+// APPROACH CORRIDOR and it is a capsule, { x0, z0, x1, z1, r }, reaching 2.2
+// either side of the opening: a disc keep-out let a prop sit a thousandth
+// outside it and plug the mouth, because the question is not whether a body
+// fits through an opening but whether it can reach it.
 //
-// FOUR THINGS ARE TRUE OF EVERY BARRIER SET THIS WORLD PUBLISHES, EVERYWHERE,
-// AND THEY ARE TRUE BY CONSTRUCTION RATHER THAN BY INSPECTION. fence.js is
-// where they are argued; the short form is:
+// WHAT IS TRUE OF EVERY LEVEL, BY CONSTRUCTION RATHER THAN BY INSPECTION.
+// fence.js and level.js argue these; the short form is:
 //
-//   1. every run has a gate;
-//   2. no closed loop of segments is gateless, so there is no sealed pen for a
-//      ghost to stand in for ever;
-//   3. no two runs come within two units of each other, so the free ground is
-//      one connected piece and a skeleton can always reach the ghost;
-//   4. a gate is a gap and never an end, so an endpoint that no other segment
-//      shares really is the end of a fence you can walk round.
+//   1. every fence run has exactly one gate;
+//   2. no fenced region is sealed, so there is no pocket a ghost can vault into
+//      and no skeleton can reach. The perimeter wall is the one closed loop
+//      without a gate, on purpose: it is the edge of the level;
+//   3. no two runs come within 2.4 of each other, so no pocket is closed
+//      BETWEEN two runs either;
+//   4. a gate is a gap and never an end, so an endpoint no other segment shares
+//      really is the end of a fence you can walk round;
+//   5. no prop partitions the inside of a pen. Every part of every interior
+//      that admits a 0.60 body can be walked to from outside the gate, checked
+//      with a flood fill after everything is placed and enforced by taking
+//      props back out.
 //
-// DENSITY FLOORS, true of EVERY box anywhere and not merely on average:
-//
-//   one grave in every 32 by 32     one per chunk, within 3.8 of its centre
-//   one pellet in every 64 by 64    a 52 lattice with 5 of jitter
-//   one firefly per 20 by 20 cell   see below
-//
-// AND THE CEILING THAT COMES WITH THE GRAVES. src/ghost/ground.js can only cut
-// the floor MAX_GROUND_HOLES = 4 times and THROWS at the fifth. The geometry
-// above guarantees AT MOST FOUR GRAVES WITHIN world.HOLE_RADIUS = 20 OF
-// ANYWHERE, which is exactly the budget, and world.nearestGraves(x, z) hands
-// them back nearest first. Cut holes for those and for nothing else: an endless
-// world has no level to count holes over, so the budget is managed by distance
-// or it is not managed at all.
-//
-// ============================================================================
-// FIREFLIES
-// ============================================================================
-//
-// One per 20 by 20 cell, pulled up to 4 units off the cell centre toward
-// something worth walking to. That is roughly one per screen at the camera's
-// view of 9.0, and it is a deliberate hundredfold cut from the old maze's one
-// per unit of corridor: at one a metre the player grazes, at one a screen they
-// have to choose a direction and commit, so where the next one is IS the level
-// design. The pull order is
-//
-//   1. inside a fenced family plot, so the player must gate it or hop it;
-//   2. beside a gate, so the player and the skeleton meet at a choke point;
-//   3. the far side of a fence line, so the player meets a hop on the way;
-//   4. on a path, so the trail reads as somewhere to walk;
-//   5. the cell centre, in the open.
-//
-// and then off any prop it would be standing in. world-check.mjs measures the
-// spacing that comes out of it, and how often the next one is on screen.
+// FENCES ARE PENS AND DIVIDERS, NOT SHORT RUNS, and that is the whole of what
+// the rules half's measurement bought. A short open run has two free ends and
+// walking round an end costs a skeleton about what the vault costs the ghost,
+// which is why a bot that never jumped scored within four percent of one that
+// did. A PEN is a closed rectangle with one gate: the ghost is over the rail in
+// half a second and the skeleton walks the perimeter. A DIVIDER runs wall to
+// wall with one gate in it and has no free ends at all. Every level gets one to
+// three pens, and a divider slightly more often than not.
 //
 // ============================================================================
+// WHAT THE ARENA HOLDS, AND WHY THOSE NUMBERS
+// ============================================================================
+//
+// 900 square units, which the camera shows most of at once: at view 9.0 the
+// frame is 22 world units across the screen by 37 deep, so the arena is about
+// one and a half screens.
+//
+//   props      one per about 25 square units, so 35 or so. The old level ran at
+//              one per 26 and looked right, and this arena has to hold four
+//              characters running, so it is not made denser.
+//   fireflies  NINE, on a 3 by 3 lattice pulled toward whatever is worth
+//              walking to, giving a mean nearest neighbour near 9. The owner
+//              asked for one per screen and a level you can clear; in an arena
+//              a screen and a half across you cannot have both, and 9 units is
+//              the compromise: about half a screen between them, seventy units
+//              of running to sweep a level, and nine times fewer than the first
+//              build's one per unit of corridor.
+//   pellets    four, one per quadrant, on a path crossing where there is one.
+//              Pac-Man's number and Pac-Man's placement.
+//   graves     four, one per quadrant. That is exactly MAX_GROUND_HOLES, so a
+//              bounded arena has no hole budget to manage at all: every grave
+//              can be cut at once and the fifth that would throw cannot exist.
+//              One per quadrant puts one within about twelve units of anywhere,
+//              which is the range a dead skeleton re-homes over.
+//   fence      about one unit per 11 square units of ground. That is four times
+//              the endless world's and half the old maze's, and the shape is
+//              what matters rather than the total: it is two or three closed
+//              pens and a divider rather than corridor walls.
 //
 // Nothing in this package imports three or touches a canvas, with the single
 // exception every file in src/game already makes: two published constants come
 // off the props themselves rather than being written down twice.
 
-import { createField, CHUNK, chunkOf, chunkBox, gridBoxOf, padBox, boxesOverlap,
-  FLY_CELL, FLY_REACH, POWER_CELL, POWER_REACH, HOLE_RADIUS, MAX_NEAR_HOLES,
-  PATH_HALF, START_CLEAR, GRAVE_BOX, rngAt } from './field.js';
-import { createChunkStore, PROP_OVERHANG, discClearOfProps } from './chunk.js';
-import { BARRIER_HEIGHT, FENCE_HALF, GATE_HALF, PANEL } from './fence.js';
+import {
+  levelBox, gridBoxOf, worldBoxOf, padBox, boxesOverlap, inBox, rngAt,
+  LEVEL_SIZE, PATH_HALF, FLY_CELL, FLY_REACH, POWERUPS, SPAWN_CLEAR, WALL_HEIGHT, WALL_HALF,
+} from './field.js';
+import { buildLevel, BODY } from './level.js';
+import { GATE_HALF, PANEL, FENCE_HALF, BARRIER_HEIGHT, segGap } from './fence.js';
 import { footprintOf } from '../layout/footprints.js';
 
+// How far a prop's centre may sit outside the box it is asked for and still
+// have its footprint inside it.
+const PROP_REACH = 2.2;
 const FLY_CLEAR = 0.45;
 const PELLET_CLEAR = footprintOf('pumpkin', 'classic').r + 0.25;
+// The edge of the arena the collectible lattices keep off, so nothing is
+// jammed against the wall where a body cannot get round it.
+const EDGE = 4.0;
 
-export function createWorld({ seed = 1 } = {}) {
-  const field = createField(seed);
-  const store = createChunkStore(field);
+export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
+  const level = buildLevel({ seed, size });
+  const { field, box, props, barriers, gates, graves, wall, runs, spawn } = level;
   const frame = field.frame;
 
-  // --- which chunks a box touches --------------------------------------------
-  function chunksIn(box, pad = 0) {
-    const b = padBox(box, pad);
-    const a = chunkOf(b.minX, b.minZ);
-    const c = chunkOf(b.maxX, b.maxZ);
-    const out = [];
-    for (let cz = a.cz; cz <= c.cz; cz++) {
-      for (let cx = a.cx; cx <= c.cx; cx++) out.push(store.chunkAt(cx, cz));
-    }
-    return out;
-  }
-
-  // --- paths, which are a field and not chunk content -------------------------
-  //
-  // A path is a curve you can evaluate anywhere, so it is never built, stored
-  // or streamed: ask for the piece that crosses a box and it is sampled on the
-  // spot. That is also why there is never a seam in one.
-  // Fine enough that the straight chords are the curve. A 1.5 step leaves the
-  // chord up to 0.007 inside the curve it stands for, which is small until
-  // something measures a clearance against the polyline and gets a different
-  // answer from the generator, which measured it against the curve.
+  // --- paths, which are a field and not a list --------------------------------
   const PATH_STEP = 0.6;
-  function paths(box) {
-    const g = gridBoxOf(frame, padBox(box, 3));
+  function paths(query = box) {
+    const g = gridBoxOf(frame, padBox(query, 2));
     const out = [];
+    const clipped = (points) => points.filter(([x, z]) => inBox(padBox(box, 0.5), x, z));
     for (const k of field.uPathsNear((g.minU + g.maxU) / 2, (g.maxU - g.minU) / 2 + 3)) {
-      const points = [];
-      for (let v = Math.floor(g.minV / PATH_STEP) * PATH_STEP; v <= g.maxV + PATH_STEP; v += PATH_STEP) {
+      const pts = [];
+      for (let v = g.minV; v <= g.maxV + PATH_STEP; v += PATH_STEP) {
         const w = frame.toWorld(field.uPathAt(k, v), v);
-        points.push([w.x, w.z]);
+        pts.push([w.x, w.z]);
       }
-      if (points.length > 1) out.push({ id: `path/u/${k}`, family: 'u', k, points, width: PATH_HALF * 2 });
+      const c = clipped(pts);
+      if (c.length > 1) out.push({ id: `path/u/${k}`, family: 'u', k, points: c, width: PATH_HALF * 2 });
     }
     for (const m of field.vPathsNear((g.minV + g.maxV) / 2, (g.maxV - g.minV) / 2 + 3)) {
-      const points = [];
-      for (let u = Math.floor(g.minU / PATH_STEP) * PATH_STEP; u <= g.maxU + PATH_STEP; u += PATH_STEP) {
+      const pts = [];
+      for (let u = g.minU; u <= g.maxU + PATH_STEP; u += PATH_STEP) {
         const w = frame.toWorld(u, field.vPathAt(m, u));
-        points.push([w.x, w.z]);
+        pts.push([w.x, w.z]);
       }
-      if (points.length > 1) out.push({ id: `path/v/${m}`, family: 'v', k: m, points, width: PATH_HALF * 2 });
+      const c = clipped(pts);
+      if (c.length > 1) out.push({ id: `path/v/${m}`, family: 'v', k: m, points: c, width: PATH_HALF * 2 });
     }
     return out;
   }
 
-  // --- fireflies --------------------------------------------------------------
-  const flyCache = new Map();
-  function flyAt(fx, fz) {
-    const k = fx + ',' + fz;
-    let got = flyCache.get(k);
-    if (got !== undefined) return got;
-    const cxw = (fx + 0.5) * FLY_CELL;
-    const czw = (fz + 0.5) * FLY_CELL;
-    const centre = frame.toGrid(cxw, czw);
-    const rng = rngAt(seed, 'fly', fx, fz);
+  // --- the collectibles ---------------------------------------------------------
+  //
+  // Both lattices work the same way: a cell of the arena, a point in it chosen
+  // by what is worth walking to, and then a nudge off anything it would be
+  // standing in. Where the next one is IS the level design when there are only
+  // nine of them, so the order below is the design: inside a pen, beside a
+  // gate, past a fence, on a path, and only then in the open.
 
-    // Everything the cell could be pulled toward, gathered from the chunks the
-    // cell overlaps. A cell is 18 and a chunk 24, so that is at most four.
-    const near = chunksIn({ minX: cxw - FLY_REACH, maxX: cxw + FLY_REACH, minZ: czw - FLY_REACH, maxZ: czw + FLY_REACH });
+  // The least ground the player must cover between two of them. Nine fireflies
+  // pulled toward the same pen or the same gate end up on top of each other,
+  // and two fireflies two units apart are one firefly: the walk between them is
+  // the whole point.
+  const FLY_GAP = 4.5;
 
-    let pick = null;
-    // 1: inside a family plot.
-    for (const chunk of near) {
-      for (const run of chunk.runs) {
-        if (!run.interior || pick) continue;
-        const inner = run.interior;
-        const hu = Math.max(0, inner.halfU - 0.7);
-        const hv = Math.max(0, inner.halfV - 0.7);
-        const u = Math.max(inner.u - hu, Math.min(inner.u + hu, centre.u));
-        const v = Math.max(inner.v - hv, Math.min(inner.v + hv, centre.v));
-        if (Math.hypot(u - centre.u, v - centre.v) <= FLY_REACH) pick = { u, v, why: 'plot' };
-      }
-    }
-    // 2: beside a boundary gate.
-    if (!pick) {
-      for (const chunk of near) {
-        for (const gate of chunk.gates) {
-          if (pick) break;
-          const g = frame.toGrid(gate.x, gate.z);
-          const along = frame.toGrid(gate.dx, gate.dz);
-          const side = rng.chance(0.5) ? 1 : -1;
-          // The opening's normal in grid, which is the along vector turned a
-          // quarter turn.
-          const u = g.u + -along.v * 3.2 * side;
-          const v = g.v + along.u * 3.2 * side;
-          if (Math.hypot(u - centre.u, v - centre.v) <= FLY_REACH) pick = { u, v, why: 'gate' };
-        }
-      }
-    }
-    // 3: the far side of a fence line, so the player meets it on the way.
-    if (!pick) {
-      let best = null;
-      for (const chunk of near) {
-        for (const s of chunk.barriers) {
-          const c = closestOnSegment(cxw, czw, s.x0, s.z0, s.x1, s.z1);
-          if (c.d < 0.5 || c.d > FLY_REACH) continue;
-          if (!best || c.d < best.d) best = c;
-        }
-      }
-      if (best) {
-        // Away from the cell centre, so whoever comes for it has the fence in
-        // the way from the side the cell drew them in on.
-        const nx = (best.x - cxw) / best.d;
-        const nz = (best.z - czw) / best.d;
-        const x = best.x + nx * 2.6;
-        const z = best.z + nz * 2.6;
-        const g = frame.toGrid(x, z);
-        if (Math.hypot(x - cxw, z - czw) <= FLY_REACH + 2.6) pick = { u: g.u, v: g.v, why: 'fence' };
-      }
-    }
-    // 4: on a path.
-    if (!pick) {
-      const p = field.nearestPath(centre.u, centre.v, FLY_REACH + 1);
-      if (p.dist <= FLY_REACH) pick = { u: p.u, v: p.v, why: 'path' };
-    }
-    // 5: the open ground of the cell itself.
-    if (!pick) {
-      pick = {
-        u: centre.u + rng.float(-2.5, 2.5),
-        v: centre.v + rng.float(-2.5, 2.5),
-        why: 'open',
-      };
-    }
-
-    // The fence rule is allowed to reach a little further than the others,
-    // because 2.6 of it is spent stepping over the line rather than wandering.
-    const reach = pick.why === 'fence' ? FLY_REACH + 2.6 : FLY_REACH;
-    const spot = nudge(pick, centre, reach, FLY_CLEAR);
-    const w = frame.toWorld(spot.u, spot.v);
-    got = { id: `fly/${fx},${fz}`, x: w.x, z: w.z, why: pick.why };
-    flyCache.set(k, got);
-    return got;
-  }
-
-  // Off any prop it would be standing in, and out of any gate's sweep, without
-  // leaving the cell it belongs to.
-  function nudge(pick, centre, reach, clear) {
+  function nudge(pick, centre, reach, clear, apart = []) {
     const tries = [{ du: 0, dv: 0 }];
-    for (const r of [0.7, 1.4, 2.1, 2.8]) {
-      for (let a = 0; a < 8; a++) {
-        tries.push({ du: Math.cos((a * Math.PI) / 4) * r, dv: Math.sin((a * Math.PI) / 4) * r });
-      }
+    for (const r of [0.6, 1.2, 1.8, 2.4]) {
+      for (let a = 0; a < 8; a++) tries.push({ du: Math.cos((a * Math.PI) / 4) * r, dv: Math.sin((a * Math.PI) / 4) * r });
     }
     for (const t of tries) {
       const u = pick.u + t.du;
       const v = pick.v + t.dv;
       if (Math.hypot(u - centre.u, v - centre.v) > reach) continue;
       const w = frame.toWorld(u, v);
-      const home = chunkOf(w.x, w.z);
-      const chunk = store.chunkAt(home.cx, home.cz);
-      if (!discClearOfProps(chunk.props, w.x, w.z, clear, field)) continue;
-      let inSweep = false;
-      for (const ch of chunksIn({ minX: w.x - 3, maxX: w.x + 3, minZ: w.z - 3, maxZ: w.z + 3 })) {
-        for (const g of ch.gates) {
-          if (Math.hypot(w.x - g.sweep.x, w.z - g.sweep.z) < g.sweep.r + 0.15) inSweep = true;
+      if (w.x < box.minX + 1.2 || w.x > box.maxX - 1.2 || w.z < box.minZ + 1.2 || w.z > box.maxZ - 1.2) continue;
+      let bad = false;
+      for (const p of props) {
+        if (!p.solid) continue;
+        if (Math.hypot(w.x - p.x, w.z - p.z) < clear + p.radius) { bad = true; break; }
+      }
+      if (!bad) {
+        for (const g of gates) {
+          if (Math.hypot(w.x - g.sweep.x, w.z - g.sweep.z) < g.sweep.r + 0.15) { bad = true; break; }
         }
       }
-      if (inSweep) continue;
-      return { u, v };
+      if (!bad) {
+        for (const s of barriers) {
+          if (segGap(w.x, w.z, w.x, w.z, s.x0, s.z0, s.x1, s.z1) < BODY + s.half) { bad = true; break; }
+        }
+      }
+      if (!bad) {
+        for (const o of apart) {
+          if (Math.hypot(w.x - o.x, w.z - o.z) < FLY_GAP) { bad = true; break; }
+        }
+      }
+      if (!bad) return { u, v };
     }
     return pick;
   }
 
-  function fireflies(box) {
-    const out = [];
-    const f0 = Math.floor(box.minX / FLY_CELL) - 1;
-    const f1 = Math.floor(box.maxX / FLY_CELL) + 1;
-    const g0 = Math.floor(box.minZ / FLY_CELL) - 1;
-    const g1 = Math.floor(box.maxZ / FLY_CELL) + 1;
-    for (let fz = g0; fz <= g1; fz++) {
-      for (let fx = f0; fx <= f1; fx++) {
-        const f = flyAt(fx, fz);
-        if (f && f.x >= box.minX && f.x <= box.maxX && f.z >= box.minZ && f.z <= box.maxZ) out.push(f);
-      }
-    }
-    return out;
-  }
-
-  // --- power pellets ----------------------------------------------------------
-  const pelletCache = new Map();
-  function pelletAt(px, pz) {
-    const k = px + ',' + pz;
-    let got = pelletCache.get(k);
-    if (got !== undefined) return got;
-    const cxw = (px + 0.5) * POWER_CELL;
-    const czw = (pz + 0.5) * POWER_CELL;
-    const centre = frame.toGrid(cxw, czw);
-    // A pellet belongs at a crossroads if there is one within reach, because a
-    // crossroads is the one landmark this world has, and on a path otherwise.
+  function collectible(cx, cz, reach, clear, tag, apart = []) {
+    const centre = frame.toGrid(cx, cz);
+    const rng = rngAt(seed, tag, Math.round(cx * 8), Math.round(cz * 8));
     let pick = null;
-    for (const k2 of field.uPathsNear(centre.u, POWER_REACH + 2)) {
-      for (const m of field.vPathsNear(centre.v, POWER_REACH + 2)) {
-        const c = field.crossing(k2, m);
-        if (Math.hypot(c.u - centre.u, c.v - centre.v) <= POWER_REACH) pick = { u: c.u, v: c.v, why: 'cross' };
-      }
+    // 1: inside a pen, so the player must gate it or hop the rail.
+    for (const run of runs) {
+      if (!run.interior || pick) continue;
+      const it = run.interior;
+      const hu = Math.max(0, it.halfU - 0.9);
+      const hv = Math.max(0, it.halfV - 0.9);
+      const u = Math.max(it.u - hu, Math.min(it.u + hu, centre.u));
+      const v = Math.max(it.v - hv, Math.min(it.v + hv, centre.v));
+      if (Math.hypot(u - centre.u, v - centre.v) <= reach) pick = { u, v, why: 'pen' };
     }
+    // 2: just past a gate, where the player and the skeleton meet at a choke.
     if (!pick) {
-      const p = field.nearestPath(centre.u, centre.v, POWER_REACH + 1);
-      pick = p.dist <= POWER_REACH ? { u: p.u, v: p.v, why: 'path' } : { u: centre.u, v: centre.v, why: 'open' };
+      for (const gate of gates) {
+        if (pick) break;
+        const g = frame.toGrid(gate.x, gate.z);
+        const n = frame.toGrid(gate.nx, gate.nz);
+        for (const side of [1, -1]) {
+          const u = g.u + n.u * 3.0 * side;
+          const v = g.v + n.v * 3.0 * side;
+          if (!pick && Math.hypot(u - centre.u, v - centre.v) <= reach) pick = { u, v, why: 'gate' };
+        }
+      }
     }
-    const spot = nudge(pick, centre, POWER_REACH, PELLET_CLEAR);
+    // 3: the far side of a fence line, so the player meets a hop on the way.
+    if (!pick) {
+      let best = null;
+      for (const s of barriers) {
+        if (!s.jumpable) continue;
+        const t = closestOnSegment(cx, cz, s.x0, s.z0, s.x1, s.z1);
+        if (t.d < 0.5 || t.d > reach) continue;
+        if (!best || t.d < best.d) best = t;
+      }
+      if (best) {
+        const nx = (best.x - cx) / best.d;
+        const nz = (best.z - cz) / best.d;
+        const g = frame.toGrid(best.x + nx * 2.4, best.z + nz * 2.4);
+        pick = { u: g.u, v: g.v, why: 'fence' };
+      }
+    }
+    // 4: on a path, so the trail reads as somewhere to walk.
+    if (!pick) {
+      const p = field.nearestPath(centre.u, centre.v, reach + 1);
+      if (p.dist <= reach) pick = { u: p.u, v: p.v, why: 'path' };
+    }
+    // 5: the open ground of the cell itself.
+    if (!pick) pick = { u: centre.u + rng.jitter(1.4), v: centre.v + rng.jitter(1.4), why: 'open' };
+
+    const wide = pick.why === 'fence' ? reach + 2.4 : reach;
+    // Separation first, and only then the cell centre as a last resort: a
+    // firefly in the open at the middle of its cell is a worse firefly than one
+    // beside a gate, but two on the same spot are worse than either.
+    let spot = nudge(pick, centre, wide, clear, apart);
+    if (apart.some((o) => Math.hypot(frame.toWorld(spot.u, spot.v).x - o.x, frame.toWorld(spot.u, spot.v).z - o.z) < FLY_GAP)) {
+      spot = nudge({ u: centre.u, v: centre.v }, centre, wide, clear, apart);
+    }
     const w = frame.toWorld(spot.u, spot.v);
-    got = {
-      id: `jack/${px},${pz}`, kind: 'jack',
-      x: w.x, z: w.z, yaw: frame.yawFor(0, -1),
-      radius: footprintOf('pumpkin', 'classic').r, why: pick.why,
-    };
-    pelletCache.set(k, got);
-    return got;
+    return { x: w.x, z: w.z, why: pick.why };
   }
 
-  function powerups(box) {
+  // Nine fireflies on a 3 by 3 lattice of the arena, inset from the wall.
+  const flyList = (() => {
+    const span = size - 2 * EDGE;
+    const n = Math.max(2, Math.round(span / FLY_CELL));
     const out = [];
-    const a0 = Math.floor(box.minX / POWER_CELL) - 1;
-    const a1 = Math.floor(box.maxX / POWER_CELL) + 1;
-    const b0 = Math.floor(box.minZ / POWER_CELL) - 1;
-    const b1 = Math.floor(box.maxZ / POWER_CELL) + 1;
-    for (let pz = b0; pz <= b1; pz++) {
-      for (let px = a0; px <= a1; px++) {
-        const p = pelletAt(px, pz);
-        if (p.x >= box.minX && p.x <= box.maxX && p.z >= box.minZ && p.z <= box.maxZ) out.push(p);
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const cx = box.minX + EDGE + ((i + 0.5) * span) / n;
+        const cz = box.minZ + EDGE + ((j + 0.5) * span) / n;
+        // The middle cell of a 3 by 3 lattice lands exactly where the ghost
+        // starts, so it is pushed out of the clearing rather than dropped: with
+        // nine of them in the level, losing one to arithmetic is losing an
+        // eighth of the level.
+        let px = cx;
+        let pz = cz;
+        const d = Math.hypot(cx - spawn.x, cz - spawn.z);
+        if (d < SPAWN_CLEAR + 1) {
+          const a = rngAt(seed, 'flyshove', i, j).float(0, Math.PI * 2);
+          px = spawn.x + Math.cos(a) * (SPAWN_CLEAR + 1.6);
+          pz = spawn.z + Math.sin(a) * (SPAWN_CLEAR + 1.6);
+        }
+        const c = collectible(px, pz, FLY_REACH, FLY_CLEAR, 'fly', out);
+        out.push({ id: `fly/${i},${j}`, ...c });
       }
     }
     return out;
-  }
+  })();
 
-  // --- the published queries ---------------------------------------------------
-  const inBox = (box, x, z) => x >= box.minX && x <= box.maxX && z >= box.minZ && z <= box.maxZ;
-
-  function props(box) {
+  // Four pellets, one per quadrant, on a crossroads where the quadrant has one.
+  const pelletList = (() => {
+    const q = size / 4;
     const out = [];
-    for (const chunk of chunksIn(box, PROP_OVERHANG)) {
-      for (const p of chunk.props) {
-        if (p.x + p.radius < box.minX || p.x - p.radius > box.maxX) continue;
-        if (p.z + p.radius < box.minZ || p.z - p.radius > box.maxZ) continue;
-        out.push(p);
+    let i = 0;
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      if (out.length >= POWERUPS) break;
+      const cx = sx * q;
+      const cz = sz * q;
+      const centre = frame.toGrid(cx, cz);
+      let pick = null;
+      for (const k of field.uPathsNear(centre.u, 5)) {
+        for (const m of field.vPathsNear(centre.v, 5)) {
+          const c = field.crossing(k, m);
+          if (Math.hypot(c.u - centre.u, c.v - centre.v) <= 5) pick = c;
+        }
       }
+      if (!pick) {
+        const p = field.nearestPath(centre.u, centre.v, 6);
+        pick = p.dist <= 6 ? { u: p.u, v: p.v } : centre;
+      }
+      const spot = nudge({ u: pick.u, v: pick.v }, centre, 6, PELLET_CLEAR);
+      const w = frame.toWorld(spot.u, spot.v);
+      out.push({
+        id: `jack/${i++}`, kind: 'jack', x: w.x, z: w.z,
+        yaw: frame.yawFor(0, -1), radius: footprintOf('pumpkin', 'classic').r,
+      });
     }
     return out;
-  }
+  })();
 
-  function barriers(box) {
-    const out = [];
-    for (const chunk of chunksIn(box, 1)) {
-      for (const s of chunk.barriers) if (boxesOverlap(s.box, box)) out.push(s);
-    }
-    return out;
-  }
-
-  function gates(box) {
-    const out = [];
-    for (const chunk of chunksIn(box, 1)) {
-      for (const g of chunk.gates) if (boxesOverlap(g.box, box)) out.push(g);
-    }
-    return out;
-  }
-
-  function graves(box) {
-    const out = [];
-    for (const chunk of chunksIn(box, PROP_OVERHANG)) {
-      for (const g of chunk.graves) if (inBox(box, g.x, g.z)) out.push(g);
-    }
-    return out;
-  }
-
-  // The graves whose holes the floor may cut, nearest first and never more than
-  // the floor allows. This is the whole of the hole budget in an endless world.
-  function nearestGraves(x, z, n = MAX_NEAR_HOLES, radius = HOLE_RADIUS) {
-    const found = graves({ minX: x - radius, maxX: x + radius, minZ: z - radius, maxZ: z + radius })
-      .map((g) => ({ g, d: Math.hypot(g.x - x, g.z - z) }))
-      .filter((e) => e.d <= radius)
-      .sort((a, b) => a.d - b.d);
-    return found.slice(0, n).map((e) => e.g);
-  }
-
-  // Does this move cross a fence? One segment test per barrier in the box the
-  // move sweeps, and no gate case, because a gate is already a gap.
-  function blocks(x0, z0, x1, z1) {
-    const box = {
-      minX: Math.min(x0, x1) - 0.2, maxX: Math.max(x0, x1) + 0.2,
-      minZ: Math.min(z0, z1) - 0.2, maxZ: Math.max(z0, z1) + 0.2,
-    };
-    for (const s of barriers(box)) {
-      if (segmentsCross(x0, z0, x1, z1, s.x0, s.z0, s.x1, s.z1)) return s;
-    }
-    return null;
-  }
-
-  // --- streaming ----------------------------------------------------------------
-  function ensureAround(x, z, r) {
-    const a = chunkOf(x - r, z - r);
-    const b = chunkOf(x + r, z + r);
-    const made = [];
-    for (let cz = a.cz; cz <= b.cz; cz++) {
-      for (let cx = a.cx; cx <= b.cx; cx++) {
-        const box = chunkBox(cx, cz);
-        const dx = Math.max(box.minX - x, 0, x - box.maxX);
-        const dz = Math.max(box.minZ - z, 0, z - box.maxZ);
-        if (Math.hypot(dx, dz) > r) continue;
-        if (!store.has(cx, cz)) made.push(store.chunkAt(cx, cz));
-        else store.chunkAt(cx, cz);
-      }
-    }
-    return made;
-  }
-
-  function release(x, z, r) {
-    const dropped = store.forgetBeyond((key) => {
-      const [cx, cz] = key.split(',').map(Number);
-      const box = chunkBox(cx, cz);
-      const dx = Math.max(box.minX - x, 0, x - box.maxX);
-      const dz = Math.max(box.minZ - z, 0, z - box.maxZ);
-      return Math.hypot(dx, dz) <= r;
-    });
-    // The lattice layers are keyed by cell, not by chunk, and they hold nothing
-    // but a point each, but an endless walk still has to be able to let them go.
-    if (dropped) {
-      for (const [key, f] of flyCache) {
-        if (Math.hypot(f.x - x, f.z - z) > r + FLY_CELL) flyCache.delete(key);
-      }
-      for (const [key, p] of pelletCache) {
-        if (Math.hypot(p.x - x, p.z - z) > r + POWER_CELL) pelletCache.delete(key);
-      }
-    }
-    return dropped;
-  }
+  // --- the queries -----------------------------------------------------------------
+  const clip = (list, query) => (query ? list.filter((e) => inBox(padBox(query, PROP_REACH), e.x, e.z)) : list);
 
   return {
     seed,
+    size,
     field,
     frame,
-    CHUNK,
-    HOLE_RADIUS,
-    MAX_NEAR_HOLES,
-    GRAVE_BOX,
+    bounds: box,
+    spawn,
+    // The numbers a caller might want to reason with rather than rediscover.
+    BODY,
+    WALL_HEIGHT,
+    WALL_HALF,
     BARRIER_HEIGHT,
     BARRIER_HALF: FENCE_HALF,
     GATE_HALF,
     PANEL,
     PATH_HALF,
-    FLY_CELL,
-    POWER_CELL,
-    START_CLEAR,
-    // There are none. That is the point.
-    bounds: null,
-    spawn: { x: 0, z: 0 },
 
-    chunkAt: store.chunkAt,
-    ensureAround,
-    release,
-    loaded: store.counts,
+    wall: wall.segments,
+    runs,
 
-    barriers,
-    gates,
-    props,
-    fireflies,
-    powerups,
-    graves,
+    props(query) {
+      if (!query) return props;
+      return props.filter((p) => p.x + p.radius >= query.minX && p.x - p.radius <= query.maxX
+        && p.z + p.radius >= query.minZ && p.z - p.radius <= query.maxZ);
+    },
+    barriers(query) {
+      if (!query) return barriers;
+      return barriers.filter((s) => boxesOverlap(s.box, query));
+    },
+    gates(query) {
+      if (!query) return gates;
+      return gates.filter((g) => boxesOverlap(g.box, query));
+    },
+    graves: (query) => clip(graves, query),
+    fireflies: (query) => clip(flyList, query),
+    powerups: (query) => clip(pelletList, query),
     paths,
-    nearestGraves,
-    blocks,
 
-    // For the checker and the plotter, which want the layers rather than the
-    // published view.
-    _store: store,
-    _flyAt: flyAt,
-    _pelletAt: pelletAt,
+    blocks(x0, z0, x1, z1) {
+      for (const s of barriers) {
+        if (segmentsCross(x0, z0, x1, z1, s.x0, s.z0, s.x1, s.z1)) return s;
+      }
+      return null;
+    },
+
+    // The bounded world builds everything at once, so these are here only so
+    // that a caller written against the endless one keeps working. They do
+    // nothing, and they cost nothing.
+    ensureAround: () => [],
+    release: () => 0,
+
+    stats: level.stats,
+    _level: level,
   };
 }
 
 export function closestOnSegment(px, pz, x0, z0, x1, z1) {
   const ex = x1 - x0;
   const ez = z1 - z0;
-  const l2 = ex * ex + ez * ez;
-  const t = l2 ? Math.max(0, Math.min(1, ((px - x0) * ex + (pz - z0) * ez) / l2)) : 0;
+  const l2 = ex * ex + ez * ez || 1;
+  const t = Math.max(0, Math.min(1, ((px - x0) * ex + (pz - z0) * ez) / l2));
   const x = x0 + ex * t;
   const z = z0 + ez * t;
   return { x, z, t, d: Math.hypot(px - x, pz - z) };
 }
 
-// Standard segment intersection, written out because this package imports
-// nothing that has one.
 export function segmentsCross(ax, az, bx, bz, cx, cz, dx, dz) {
-  const d1 = cross(cx, cz, dx, dz, ax, az);
-  const d2 = cross(cx, cz, dx, dz, bx, bz);
-  const d3 = cross(ax, az, bx, bz, cx, cz);
-  const d4 = cross(ax, az, bx, bz, dx, dz);
-  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
-  return false;
-}
-function cross(ax, az, bx, bz, px, pz) {
-  return (bx - ax) * (pz - az) - (bz - az) * (px - ax);
+  const s = (px, pz, qx, qz, rx, rz) => (qx - px) * (rz - pz) - (qz - pz) * (rx - px);
+  const d1 = s(cx, cz, dx, dz, ax, az);
+  const d2 = s(cx, cz, dx, dz, bx, bz);
+  const d3 = s(ax, az, bx, bz, cx, cz);
+  const d4 = s(ax, az, bx, bz, dx, dz);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 }
 
-export { CHUNK } from './field.js';
+export { LEVEL_SIZE, levelBox, worldBoxOf };
 export default createWorld;

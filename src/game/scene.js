@@ -33,14 +33,26 @@ import {
 } from './run.js';
 import { createTombstone } from '../ghost/props/stones/index.js';
 import { createPumpkin } from '../ghost/props/pumpkin.js';
-import { createFencePanel } from '../ghost/props/fence/panel.js';
+import { createFenceRun } from '../ghost/props/fence/panel.js';
 import { createFireflies } from '../ghost/props/fireflies.js';
 import { createSkeletonRig } from '../ghost/props/skeleton/model.js';
 import { createSkeletonPerformance } from '../ghost/props/skeleton/perform.js';
 import { createGraveHole } from '../ghost/props/ground/hole.js';
 import { createSandPath } from '../ghost/props/ground/sandpath.js';
+import { createPropCache, createPropField } from '../ghost/props/instancing.js';
 
 const D = Math.PI / 180;
+
+// A small string hash, so a cache key is also its own seed. Nothing subtle: it
+// only has to spread and to be the same number every run.
+function hashKey(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
 
 export async function startGame({ canvas, params }) {
   const seed = Number(params.get('seed')) || 1;
@@ -127,7 +139,68 @@ export async function startGame({ canvas, params }) {
     key.target.updateMatrixWorld();
   }
 
+  // The tallest thing that can cast into the frame. The obelisk is 1.85 and the
+  // skeleton 2.5; 3.2 is those with room over the top. It only decides how far
+  // OUTSIDE the visible floor a caster still has to be drawn, so being generous
+  // here is cheap and being mean is a shadow that pops in at the frame edge.
+  const CASTER_HEIGHT = 3.2;
+
   let shadowTexel = 0.01;
+
+  // How big the shadow box actually has to be.
+  //
+  // It was VIEW * aspect * 2.6, copied from main.js, and 2.6 is a number that
+  // covers the floor with a lot to spare -- 29 units of half extent at this
+  // view against the 20 the frame can actually see. Everything inside that box
+  // is drawn again into the shadow map, so the spare is paid for twice: once in
+  // draw calls for casters that could never appear, and once in resolution,
+  // because 2048 texels spread over a box half again too big are half again too
+  // coarse.
+  //
+  // So it is fitted rather than guessed. The four corners of the camera's
+  // frustum are dropped onto the floor to give the quad the player can actually
+  // see, that quad is lifted to CASTER_HEIGHT, and the eight points are
+  // measured in the LIGHT's own frame. The answer is the smallest box that
+  // cannot clip a shadow belonging to anything on screen.
+  //
+  // It stays SQUARE on purpose even though the fitted quad is not. The snapping
+  // in follow() rounds the light's target to a whole shadow texel to stop every
+  // shadow edge crawling as the camera moves, and one texel size is what that
+  // code is written against. A rectangle would buy perhaps a fifth more and
+  // wants the snap done per axis in light space; it is a fair next step, not a
+  // free one.
+  const fitReach = (aspect) => {
+    const cam = new THREE.OrthographicCamera(-VIEW * aspect, VIEW * aspect, VIEW, -VIEW, 0.1, 200);
+    cam.position.copy(CAM_DIR).multiplyScalar(40);
+    cam.lookAt(0, 0, 0);
+    cam.updateMatrixWorld();
+    cam.updateProjectionMatrix();
+    const forward = new THREE.Vector3(0, 0, -1).transformDirection(cam.matrixWorld);
+    // The light's frame, built the same way three builds the shadow camera's:
+    // it looks from the offset back at the target, so its basis is fixed and
+    // only its position follows the player.
+    const lamp = new THREE.Object3D();
+    lamp.position.copy(LIGHT_OFFSET);
+    lamp.lookAt(0, 0, 0);
+    lamp.updateMatrixWorld();
+    const toLight = lamp.matrixWorld.clone().invert();
+    const p = new THREE.Vector3();
+    let reach = 0;
+    for (const sx of [-1, 1]) {
+      for (const sy of [-1, 1]) {
+        const corner = new THREE.Vector3(sx, sy, -1).unproject(cam);
+        // Onto the floor. A frustum corner and the floor always meet: this
+        // camera looks down at 29 degrees and cannot be levelled.
+        corner.addScaledVector(forward, -corner.y / forward.y);
+        for (const y of [0, CASTER_HEIGHT]) {
+          p.set(corner.x, y, corner.z).applyMatrix4(toLight);
+          reach = Math.max(reach, Math.abs(p.x), Math.abs(p.y));
+        }
+      }
+    }
+    return reach;
+  };
+
   function resize() {
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
@@ -138,9 +211,7 @@ export async function startGame({ canvas, params }) {
     camera.bottom = -VIEW;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
-    // The shadow box has to cover the visible floor, which at this camera runs
-    // far past the frame. Same fit as main.js, scaled to this view size.
-    const reach = VIEW * Math.max(1, aspect) * 2.6;
+    const reach = fitReach(aspect);
     key.shadow.camera.left = -reach;
     key.shadow.camera.right = reach;
     key.shadow.camera.top = reach;
@@ -152,6 +223,53 @@ export async function startGame({ canvas, params }) {
   // --- the floor -------------------------------------------------------------
   const ground = createGround({ fadeStart: 60, fadeEnd: 260 });
   scene.add(ground);
+
+  // --- the prop cache --------------------------------------------------------
+  //
+  // Built once for the RUN, not once for the wave, and that is the whole point:
+  // a stone costs about half a second to build, almost all of it baking a
+  // thousand-row canvas and walking it pixel by pixel to make a normal map, and
+  // a wave that builds fifty-seven of them spends half a minute doing it. Waves
+  // two onward now build none.
+  //
+  // SLOTS is the compromise and it should be read as one. Two props sharing a
+  // key are bit-identical -- same lean, same mottle, same worn letters -- so
+  // this is how much per-casting variety survives. Four bakes of each variant
+  // against a level that places two or three of any one variant means a repeat
+  // is uncommon and never adjacent by construction, since a repeat needs both
+  // the same variant AND the same slot. Raising it costs one bake and about
+  // 9 MB of texture per extra slot per variant that actually gets used; the
+  // honest fix for a level that wants more variety than this is more variants.
+  // The power pellets live here for the same reason: built once for the run and
+  // moved between waves. Parented straight to the scene, so a wave's teardown
+  // cannot take them with it.
+  const lanternHome = new THREE.Group();
+  lanternHome.userData.perf = 'lantern';
+  scene.add(lanternHome);
+  const lanterns = [];
+  function ensureLanterns(n) {
+    while (lanterns.length < n) {
+      // createPumpkin has no unlit mode: every one carries its candle, which is
+      // exactly what a power pellet wants.
+      const made = createPumpkin({ variant: 'classic', seed: 40 + lanterns.length });
+      lanternHome.add(made.group);
+      lanterns.push(made);
+    }
+  }
+
+  const SLOTS = 4;
+  const propCache = createPropCache({
+    build(key) {
+      const [kind, variant, slot] = key.split('|');
+      // The seed is the KEY's, not the placement's, or a cached prop would
+      // depend on which of its placements happened to be built first and a
+      // chunk rebuilt in a different order would come back looking different.
+      const seed = (hashKey(key) & 0x7fffffff) || 1;
+      if (kind === 'stone') return createTombstone({ variant, seed });
+      if (kind === 'pumpkin') return createPumpkin({ variant, seed });
+      return null;
+    },
+  });
 
   // --- one wave's world ------------------------------------------------------
   //
@@ -178,24 +296,45 @@ export async function startGame({ canvas, params }) {
     const pathBucket = bucket('path');
     const propBucket = bucket('prop');
     const flyBucket = bucket('flies');
-    const lanternBucket = bucket('lantern');
+    // The lanterns are the run's, not the wave's, so their group is not one of
+    // this wave's children. It is still named here so the probe can charge
+    // their draw calls to them.
+    built.buckets = {
+      fence: fenceBucket, path: pathBucket, prop: propBucket, flies: flyBucket, lantern: lanternHome,
+    };
+    // Per-bucket build cost. A chunk that streams in mid-run is a hitch or it
+    // is not, and knowing which of these five is the hitch is the difference
+    // between fixing it and rewriting all of it.
+    const spent = { fence: 0, path: 0, prop: 0, flies: 0, lantern: 0 };
+    let mark = performance.now();
+    const charge = (name) => { const t = performance.now(); spent[name] += t - mark; mark = t; };
+    built.spent = spent;
 
     // Walls are whole fence runs, which is why the lattice is the panel's own
     // length: `panels` is an integer and no panel is ever cut.
+    //
+    // The placements are collected first and handed to createFenceRun in one
+    // go. It was a panel at a time, which meant 138 props, 1518 meshes and
+    // 1116 draw calls in the camera pass alone for a fence that is one object
+    // repeated. See createFenceRun: same panels, same places, six geometries
+    // and a dozen instanced draws.
+    const panels = [];
     for (const wall of lay.walls) {
       for (let i = 0; i < wall.panels; i++) {
         const t = (i + 0.5) / wall.panels;
-        const panel = createFencePanel({ seed: (wall.panels * 31 + i * 7) | 0 });
-        panel.group.position.set(
-          wall.a.x + (wall.b.x - wall.a.x) * t,
-          0,
-          wall.a.z + (wall.b.z - wall.a.z) * t,
-        );
-        panel.group.rotation.y = wall.yaw;
-        fenceBucket.add(panel.group);
-        built.parts.push(panel);
+        panels.push({
+          x: wall.a.x + (wall.b.x - wall.a.x) * t,
+          z: wall.a.z + (wall.b.z - wall.a.z) * t,
+          yaw: wall.yaw,
+          seed: (wall.panels * 31 + i * 7) | 0,
+        });
       }
     }
+    const fence = createFenceRun({ panels });
+    fenceBucket.add(fence.group);
+    built.parts.push(fence);
+
+    charge('fence');
 
     // Paths, which are what make a corridor legible as a corridor rather than
     // as the gap between two fences.
@@ -206,44 +345,66 @@ export async function startGame({ canvas, params }) {
       built.parts.push(path);
     }
 
+    charge('path');
+
+    // Stones and pumpkins go through the cache and come out as instances; a
+    // grave hole does not, because it cuts the floor and the floor outlives the
+    // wave. Anything else the layout emits that this page cannot build yet is
+    // skipped rather than guessed at. The level is still valid: a missing bench
+    // changes nothing about whether a corridor is clear.
+    const placements = [];
     for (const p of lay.props) {
-      let made = null;
-      if (p.kind === 'stone') made = createTombstone({ variant: p.variant, seed: (p.x * 977 + p.z * 131) | 0 });
-      else if (p.kind === 'pumpkin') made = createPumpkin({ variant: p.variant, seed: (p.x * 613 + p.z * 89) | 0 });
-      else if (p.kind === 'hole' && built.holes.length < 4) {
-        made = createGraveHole({ seed: (p.x * 331) | 0 });
-        built.holes.push(made);
+      if (p.kind === 'stone' || p.kind === 'pumpkin') {
+        // The same per-placement seed as before, folded down to a slot. Derived
+        // from the position, so a prop keeps its look wherever its chunk is
+        // rebuilt, which is what an endless world needs.
+        const seed = p.kind === 'stone'
+          ? (p.x * 977 + p.z * 131) | 0
+          : (p.x * 613 + p.z * 89) | 0;
+        const slot = (hashKey(`${seed}`) >>> 0) % SLOTS;
+        placements.push({ key: `${p.kind}|${p.variant}|${slot}`, x: p.x, z: p.z, yaw: p.yaw || 0 });
+        continue;
       }
-      // Anything else the layout emits that this page cannot build yet is
-      // skipped rather than guessed at. The level is still valid: a missing
-      // bench changes nothing about whether a corridor is clear.
-      if (!made) continue;
-      made.group.position.set(p.x, 0, p.z);
-      made.group.rotation.y = p.yaw || 0;
-      propBucket.add(made.group);
-      built.parts.push(made);
-      // A hole cuts the FLOOR, which outlives the wave, so its cut has to be
-      // taken back on teardown or the next maze inherits four holes in the
-      // wrong places and the fifth registration throws.
-      if (made.registerWith) made.registerWith(ground);
+      if (p.kind === 'hole' && built.holes.length < 4) {
+        const made = createGraveHole({ seed: (p.x * 331) | 0 });
+        built.holes.push(made);
+        made.group.position.set(p.x, 0, p.z);
+        made.group.rotation.y = p.yaw || 0;
+        propBucket.add(made.group);
+        built.parts.push(made);
+        // A hole cuts the FLOOR, which outlives the wave, so its cut has to be
+        // taken back on teardown or the next maze inherits four holes in the
+        // wrong places and the fifth registration throws.
+        if (made.registerWith) made.registerWith(ground);
+      }
     }
+    const field = createPropField({ placements, cache: propCache });
+    propBucket.add(field.group);
+    built.parts.push(field);
+
+    charge('prop');
 
     // One field for the whole level: one draw call however many there are, and
     // collect(i) indexes it by the same i the rules use.
     built.flies = createFireflies({ seed: 5, points: lay.fireflies });
     flyBucket.add(built.flies.group);
 
-    // The power pellets. A lit jack-o'-lantern is the brightest object in the
-    // scene, which is the joke and also why they read from across a level.
-    built.lanterns = lay.powerups.map((p, i) => {
-      // createPumpkin has no unlit mode: every one carries its candle, which is
-      // exactly what a power pellet wants.
-      const made = createPumpkin({ variant: 'classic', seed: 40 + i });
-      made.group.position.set(p.x, 0, p.z);
-      lanternBucket.add(made.group);
-      return made;
-    });
+    charge('flies');
 
+    // The power pellets, moved rather than rebuilt. A lit jack-o'-lantern is
+    // the brightest object in the scene, which is the joke and also why they
+    // read from across a level -- and it is three seconds of building, every
+    // one of which the player would watch again at every wave for four objects
+    // that are the same four objects. Same argument as the skeleton rigs above.
+    ensureLanterns(lay.powerups.length);
+    for (let i = 0; i < lanterns.length; i++) {
+      const p = lay.powerups[i];
+      lanterns[i].group.visible = !!p;
+      if (p) lanterns[i].group.position.set(p.x, 0, p.z);
+    }
+    built.lanterns = lanterns.slice(0, lay.powerups.length);
+
+    charge('lantern');
     built.buildMs = performance.now() - t0;
     return built;
   }
@@ -256,7 +417,7 @@ export async function startGame({ canvas, params }) {
     for (const h of w.holes) h.dispose?.();
     for (const p of w.parts) if (p !== w.holes[0]) p.dispose?.();
     w.flies?.dispose?.();
-    for (const l of w.lanterns) l.dispose?.();
+    // NOT the lanterns. They belong to the run and the next wave moves them.
     scene.remove(w.group);
   }
 
@@ -563,15 +724,15 @@ export async function startGame({ canvas, params }) {
     // How long the last wave's props took to build, which is the number that
     // decides whether a streamed chunk is a hitch or not.
     buildMs: () => world?.buildMs ?? 0,
+    buildParts: () => {
+      const s = world?.spent || {};
+      return Object.fromEntries(Object.entries(s).map(([k, v]) => [k, +v.toFixed(1)]));
+    },
     // Rebuild the same wave, so the build can be timed more than once without
     // a page reload changing the level under the measurement.
     rebuild() { startWave(run.wave); return world.buildMs; },
     // The named buckets buildWorld parents its work under.
-    buckets() {
-      const out = {};
-      world?.group.children.forEach((c) => { if (c.userData.perf) out[c.userData.perf] = c; });
-      return out;
-    },
+    buckets: () => world?.buckets || {},
   };
   window.__gameReady = true;
 }

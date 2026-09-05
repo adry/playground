@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import F from './metrics.js';
 import { board, pointedTop, rng, woodMaterial } from './wood.js';
+import { mergeGeometries } from '../merge.js';
 
 // One intact fence panel: a row of pickets, two rails behind them, a post at
 // each end. Origin at the centre of the panel's footprint, on the ground; the
@@ -165,6 +166,16 @@ function paintBoard(geo, rand, { groundEnd = true, axis = 0 } = {}) {
 
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.setAttribute('aGrain', new THREE.BufferAttribute(grain, 2));
+  // The board's own space, frozen before anything moves the board.
+  //
+  // The grain is evaluated from this rather than from the vertex position, and
+  // the two are the same number right up until a panel is baked into one
+  // buffer. After that the position is in panel space and reading the grain off
+  // it would run the streaks straight through seven pickets as if they had been
+  // sawn from one plank -- which is exactly what the first merged panel looked
+  // like. Copying the position here costs 12 bytes a vertex and is the entire
+  // reason a panel can be one mesh.
+  geo.setAttribute('aBoard', new THREE.BufferAttribute(Float32Array.from(pos.array), 3));
   return geo;
 }
 
@@ -175,7 +186,13 @@ function paintBoard(geo, rand, { groundEnd = true, axis = 0 } = {}) {
 // picketGeometry and friends needs this material or its boards come out plain
 // next to an intact neighbour's. A fresh break wants F.wood.torn instead, which
 // is what the `color` option is for; the streaks come along either way.
-export function woodPanelMaterial(options = {}) {
+// `boardSpace` opts into reading the grain off the aBoard attribute rather than
+// off the vertex position. It is OFF by default and must stay that way: the
+// shed, the debris pile, the gate and the broken panels all write their own
+// aGrain without an aBoard beside it, and a missing attribute does not fail, it
+// reads as zero and takes the grain with it. Only geometry that has been
+// through paintBoard -- which is to say, an intact panel -- may ask for it.
+export function woodPanelMaterial({ boardSpace = false, ...options } = {}) {
   const uniforms = {
     uGrain: { value: GRAIN.clone() },
     uGrainDepth: { value: F.grain.depth },
@@ -190,6 +207,7 @@ export function woodPanelMaterial(options = {}) {
 
     shader.vertexShader = `
       attribute vec2 aGrain;
+      ${boardSpace ? 'attribute vec3 aBoard;' : ''}
       varying vec3 vBoard;
       varying vec2 vGrain;
       ${shader.vertexShader}`.replace(
@@ -198,7 +216,13 @@ export function woodPanelMaterial(options = {}) {
       // Object space on purpose. A picket's lean and twist are on the mesh, so
       // its grain has to be read before them or the streaks shear off the
       // board as it goes out of true.
-      vBoard = transformed;
+      //
+      // Once a whole panel is baked into one buffer, object space is the
+      // PANEL's, and reading the grain off it runs the streaks through seven
+      // pickets as if they had been sawn from one plank. aBoard is each
+      // vertex's position in its own board's space, written by paintBoard
+      // before anything moves the board, and boardSpace switches to it.
+      vBoard = ${boardSpace ? 'aBoard' : 'transformed'};
       vGrain = aGrain;`,
     );
 
@@ -236,8 +260,9 @@ export function woodPanelMaterial(options = {}) {
     );
   };
   // Without this every fence material recompiles into its own program, because
-  // three keys the cache on the stock shader and these two are not stock.
-  material.customProgramCacheKey = () => 'fence-wood-grain';
+  // three keys the cache on the stock shader and these two are not stock. The
+  // two grain spaces are two programs and have to key apart.
+  material.customProgramCacheKey = () => (boardSpace ? 'fence-wood-grain-board' : 'fence-wood-grain');
   return material;
 }
 
@@ -430,36 +455,40 @@ export function panelParts({ seed = 1, postSeeds = [POST_SEED, POST_SEED] } = {}
 // ---------------------------------------------------------------------------
 // the panel
 
-export function createFencePanel({ seed = 1, scale = 1, postSeeds } = {}) {
+// One panel's eleven boards, transformed into place and baked into a single
+// buffer.
+//
+// A panel was eleven meshes for as long as there was one of it. A level is a
+// hundred and thirty-eight, which is fifteen hundred meshes and, once the
+// shadow pass has had its turn, three thousand draw calls for a fence. The
+// boards already shared a material and already never move relative to each
+// other, so there was never anything for eleven meshes to buy.
+//
+// Nothing about the panel's SHAPE changes here. The same three geometry
+// builders are called with the same seeds and put in the same places; the only
+// difference is that the placement is baked into the vertices instead of
+// living on a Mesh. See paintBoard's aBoard for the one thing that had to
+// change to make that safe.
+export function panelGeometry({ seed = 1, postSeeds } = {}) {
   const parts = panelParts(postSeeds ? { seed, postSeeds } : { seed });
-
-  const material = woodPanelMaterial();
-
-  const group = new THREE.Group();
-  const geometries = new Set();
-
-  const add = (geo, part, { lean = 0, twist = 0 } = {}) => {
-    geometries.add(geo);
-    const mesh = new THREE.Mesh(geo, material);
-    mesh.position.set(part.x, part.y, part.z);
-    mesh.rotation.z = lean;
-    mesh.rotation.y = twist;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-    return mesh;
+  const entries = [];
+  const own = [];
+  const place = (geo, part, { lean = 0, twist = 0 } = {}) => {
+    own.push(geo);
+    const m = new THREE.Matrix4()
+      .makeRotationFromEuler(new THREE.Euler(0, twist, lean, 'XYZ'))
+      .setPosition(part.x, part.y, part.z);
+    entries.push({ geometry: geo, matrix: m });
   };
 
   // Rails first, so the back of the fence is built before the things that hide
   // it. Nothing depends on the order; it just matches the way the piece reads.
-  for (const r of parts.rails) {
-    add(railGeometry({ rand: rng(r.seed), length: r.length }), r);
-  }
+  for (const r of parts.rails) place(railGeometry({ rand: rng(r.seed), length: r.length }), r);
 
   for (const p of parts.pickets) {
     // The lean pivots about the picket's foot, which is where a leaning picket
     // actually pivots: it is still nailed down, it has just gone out of true.
-    add(picketGeometry({ rand: rng(p.seed), height: p.height, width: p.width }), p, {
+    place(picketGeometry({ rand: rng(p.seed), height: p.height, width: p.width }), p, {
       lean: p.lean,
       twist: p.twist,
     });
@@ -467,13 +496,41 @@ export function createFencePanel({ seed = 1, scale = 1, postSeeds } = {}) {
 
   // Two posts sharing one geometry when they share a seed, which is the
   // default. Both ends of a run then match, and so do the two halves of every
-  // shared post between panels.
+  // shared post between panels. Baked, the two posts are two copies of the same
+  // vertices at two offsets, which is the same guarantee by another route.
   const postGeos = new Map();
   for (const p of parts.posts) {
     if (!postGeos.has(p.seed)) postGeos.set(p.seed, postGeometry({ rand: rng(p.seed) }));
-    add(postGeos.get(p.seed), p);
+    place(postGeos.get(p.seed), p);
   }
 
+  const merged = mergeGeometries(entries);
+  // The eleven parts have been copied into the merged buffer and are dead.
+  for (const g of own) g.dispose();
+  return merged;
+}
+
+// The one material every intact panel is drawn with.
+//
+// It carries no per-panel state -- three uniforms, all constants -- so a
+// material per panel bought a hundred and thirty-eight uniform binds and a
+// hundred and thirty-eight things that cannot batch. Built lazily so importing
+// this module still costs nothing on a page that draws no fence.
+let SHARED_MATERIAL = null;
+export function sharedPanelMaterial() {
+  if (!SHARED_MATERIAL) SHARED_MATERIAL = woodPanelMaterial({ boardSpace: true });
+  return SHARED_MATERIAL;
+}
+
+export function createFencePanel({ seed = 1, scale = 1, postSeeds } = {}) {
+  const geometry = panelGeometry({ seed, postSeeds });
+  const material = sharedPanelMaterial();
+
+  const group = new THREE.Group();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
   group.scale.setScalar(scale);
 
   // No painted contact patch under this one, for the reason tombstones.js
@@ -484,10 +541,86 @@ export function createFencePanel({ seed = 1, scale = 1, postSeeds } = {}) {
 
   return {
     group,
+    mesh,
     update() {}, // static prop, but the other props have one and callers loop over it
     dispose() {
-      for (const geo of geometries) geo.dispose();
-      material.dispose();
+      geometry.dispose();
+      // The material is shared and outlives the panel. Nothing to free.
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// a whole run of fence, in a handful of draw calls
+//
+//   createFenceRun({ panels: [{ x, z, yaw, seed }, ...] })
+//
+// A hundred and thirty-eight panels is a hundred and thirty-eight of the same
+// object at different places, which is what an InstancedMesh is for. Two things
+// decide how it is cut up:
+//
+//   variants  how many DISTINCT panels get built. Every panel drawn from the
+//             same variant is bit-identical, so this is the whole of the
+//             fence's variety and it is worth being honest about: at 6, a
+//             level's panels repeat, but a picket's lean is a few millimetres
+//             and the repeat is invisible next to the fact that all 138 were
+//             already the same panel design. Raise it and the only cost is
+//             build time and vertex memory.
+//   tile      instancing kills per-panel frustum culling: one InstancedMesh
+//             spanning a level is either drawn whole or not at all. Panels are
+//             therefore grouped into square tiles first, so a run behind the
+//             camera still culls. The tile wants to be about the size of the
+//             chunk a streaming world hands over; smaller costs draw calls,
+//             larger costs triangles.
+export function createFenceRun({ panels = [], variants = 6, tile = 16, postSeeds } = {}) {
+  const group = new THREE.Group();
+  const material = sharedPanelMaterial();
+  const geometries = new Map();
+  const buckets = new Map();
+
+  for (const p of panels) {
+    // The variant is chosen from the panel's own seed, so a panel keeps the
+    // shape it had wherever it is rebuilt -- which is what a chunk that streams
+    // out and back in again needs, or the fence changes behind the player.
+    const v = Math.abs(p.seed | 0) % variants;
+    const key = `${v}:${Math.floor(p.x / tile)}:${Math.floor(p.z / tile)}`;
+    let b = buckets.get(key);
+    if (!b) { b = { variant: v, items: [] }; buckets.set(key, b); }
+    b.items.push(p);
+  }
+
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const one = new THREE.Vector3(1, 1, 1);
+  const at = new THREE.Vector3();
+  for (const b of buckets.values()) {
+    if (!geometries.has(b.variant)) {
+      geometries.set(b.variant, panelGeometry({ seed: b.variant * 7919 + 13, postSeeds }));
+    }
+    const mesh = new THREE.InstancedMesh(geometries.get(b.variant), material, b.items.length);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    b.items.forEach((p, i) => {
+      e.set(0, p.yaw || 0, 0);
+      q.setFromEuler(e);
+      at.set(p.x, p.y || 0, p.z);
+      m.compose(at, q, one);
+      mesh.setMatrixAt(i, m);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+    group.add(mesh);
+  }
+
+  return {
+    group,
+    meshes: group.children,
+    update() {},
+    dispose() {
+      for (const g of geometries.values()) g.dispose();
+      for (const c of group.children) c.dispose?.();
+      group.clear();
     },
   };
 }

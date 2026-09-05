@@ -11,6 +11,7 @@
 //   node src/game/soak.mjs --power             the lantern duration
 //   node src/game/soak.mjs --schedule          the mode schedule controls
 //   node src/game/soak.mjs --score             the leaderboard distribution
+//   node src/game/soak.mjs --arena ...         any of the above, in the arena
 //
 // ===========================================================================
 // WHAT FAIRNESS MEANS NOW
@@ -79,11 +80,68 @@
 // dodge; the last three are what stop the whole feature quietly doing nothing.
 //
 // THE FLAGS
+//   --arena [N]      run everything against the bounded N by N walled level
+//                    (default 30) instead of the endless plane
+//   --standin        with --arena, use refworld.mjs's arena rather than the
+//                    real src/game/world/ generator
 //   --limit N        how long one run may last, simulated seconds (300)
+//   --faircell N     fairness raster step (0.5 in an arena, 0.75 on the plane)
 //   --spacing N      mean firefly spacing in the stand-in world (18)
 //   --fencescale N   how much fence the stand-in puts down, 1 is its default
 
-import { createWorld, FLY_SPACING } from './refworld.mjs';
+// ===========================================================================
+// WHAT IT SAID LAST TIME IT WAS RUN IN FULL
+// ===========================================================================
+//
+// THE ARENA, 30 by 30 with a wall round it, against src/game/refworld.mjs's
+// stand-in. `--arena --selftest --fair 400 --play 30 --passive 30 --players 16
+// --jump 10 --stability 4`:
+//
+//   self test    all 20 checks and load-bearing rules fired on their own case
+//   fairness     400 arenas, 13.6 fence segments, 3.1 gates and 9.0 fireflies
+//                each, 0 failures on any of the eight properties
+//   careful bot  96.7% cleared the arena, in a mean 36 s with 2.97 of 3 lives
+//                left. 0.13 deaths a run, 2.74 units a second of travel, 10.2%
+//                of the run within 8.0 units of a skeleton and 3.2% within 4.0
+//   passive      83.3% lost all three lives, first at a median of 15 s. The
+//                other 16.7% is a known defect: see skeleton-stalled below
+//   stability    84k frames across ten timesteps from 1/240 to 3.0 s, clean
+//
+//   THE VAULT, which is the question the whole redirection turns on:
+//
+//     jumpCost   clear   vaults/min   journeys walked round
+//       1.0       31s       9.60             6.4
+//       1.5       32s       5.42            37.5
+//       3.0       34s       3.38            46.3
+//       9.0       38s       0.47            90.2
+//       never     38s       0.00           110.3
+//
+//   So the jump is worth 18% off the clear time at any price, the price
+//   controls how often it is taken without changing what it is worth, and a
+//   player who has not learned it is not lost, only slower. It is an
+//   efficiency edge and not a decisive one, and the honest reading is in the
+//   report rather than in this table.
+//
+// THE ENDLESS PLANE, kept because the rules work in either and the comparison
+// is informative. `--play 16 --passive 16`:
+//
+//   careful bot  100% survived 300 s, 0.50 deaths, 39.9 fireflies at 8.0 a
+//                minute, 2.93 units a second, 15.4% threat and 2.1% danger
+//   passive      100% lost all three lives, median 56 s
+//
+// KNOWN DEFECT, not fixed and not hidden: `skeleton-stalled` still fires in
+// about one arena in twenty against the stand-in world, which is the same
+// thing as the 16.7% of arenas a motionless player survives. The steering has
+// a wedge case left in it. chase.js's five second give-up caps how long any
+// one instance lasts; the check is what will say when it is gone.
+
+// THE ONE LINE. `createArena` is the stand-in this half wrote to unblock
+// itself; `createLevel` is the real generator. Both satisfy the same contract
+// and --standin picks the stand-in, which is worth keeping for a while: two
+// generators that pass the same eight fairness properties is a much stronger
+// statement about the properties than one is.
+import { createWorld as createLevel } from './world/index.js';
+import { createWorld, createArena, FLY_SPACING } from './refworld.mjs';
 import { createGame, TUNING } from './rules.js';
 import { createNav, WINDOW, SLACK } from './nav.js';
 import { SKEL_RADIUS, DEFAULT_CHASE } from './chase.js';
@@ -101,7 +159,16 @@ const FENCE = num('--fencescale', 1);
 // How long a single run is allowed to last, in simulated seconds. The sweeps
 // trade resolution for wall clock with it; the headline sections do not.
 const LIMIT = num('--limit', 300);
-const makeWorld = (seed, fence = FENCE) => createWorld({ seed, spacing: SPACING, fence });
+// --arena runs everything against the bounded 30 by 30 walled level instead of
+// the endless plane. Both stay available because the rules work in either, and
+// the soak is the only place that says which one is being measured.
+const ARENA = has('--arena');
+const ARENA_SIZE = num('--arena', 30);
+const STANDIN = has('--standin');
+const makeWorld = (seed, fence = FENCE) => {
+  if (!ARENA) return createWorld({ seed, spacing: SPACING, fence });
+  return STANDIN ? createArena({ seed, size: ARENA_SIZE }) : createLevel({ seed, size: ARENA_SIZE });
+};
 
 const pct = (a, b) => (b ? ((100 * a) / b).toFixed(1) + '%' : '-');
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
@@ -174,7 +241,12 @@ export function pen(cx, cz, w, h, gates = 0) {
 // widened. 44 minus 26 is 18 units of margin, longer than the longest fence.
 const FAIR_HALF = 44;
 const FAIR_JUDGE = 26;
-const FAIR_CELL = 0.75;
+// The raster step. A bounded arena is small enough to afford a finer one, and
+// it needs one: a gate mouth is 2.0 wide and a body needs 1.31 of it, so at
+// 0.75 there are worlds where no cell centre lands in the passable part and a
+// perfectly good gate is invisible to the check. That reported 3% of arenas as
+// having a safe spot they did not have.
+const FAIR_CELL = num('--faircell', ARENA ? 0.5 : 0.75);
 // One radius for both floods. The skeleton needs 0.555 of clearance and the
 // ghost 0.55, so the larger of the two is used for the raster and the ghost is
 // treated as very slightly fatter than it is. That direction is the safe one:
@@ -248,12 +320,22 @@ function components(grid) {
 }
 
 function fairOne(world, at) {
+  // A bounded world judges its whole interior and rasters a little beyond the
+  // wall, so the wall is represented rather than falling off the raster's edge.
+  let judge = FAIR_JUDGE;
+  let half = FAIR_HALF;
+  if (world.bounds) {
+    const b = world.bounds;
+    at = { x: (b.minX + b.maxX) / 2, z: (b.minZ + b.maxZ) / 2 };
+    judge = Math.max(b.maxX - at.x, b.maxZ - at.z) - 0.5;
+    half = judge + 5;
+  }
   const nav = createNav(world);
   nav.focus(at.x, at.z);
-  const grid = nav.makeGrid({ x: at.x, z: at.z, half: FAIR_HALF, cell: FAIR_CELL, radius: FAIR_RADIUS });
+  const grid = nav.makeGrid({ x: at.x, z: at.z, half, cell: FAIR_CELL, radius: FAIR_RADIUS });
   const N = grid.n * grid.n;
   const { label, count } = components(grid);
-  const box = { minX: at.x - FAIR_JUDGE, minZ: at.z - FAIR_JUDGE, maxX: at.x + FAIR_JUDGE, maxZ: at.z + FAIR_JUDGE };
+  const box = { minX: at.x - judge, minZ: at.z - judge, maxX: at.x + judge, maxZ: at.z + judge };
   const inBox = (p) => p.x > box.minX && p.x < box.maxX && p.z > box.minZ && p.z < box.maxZ;
   const fireflies = world.fireflies(box).filter(inBox);
   const powerups = world.powerups(box).filter(inBox);
@@ -297,9 +379,16 @@ function fairOne(world, at) {
       if (m >= 0 && label[m] >= 0 && label[m] !== li) vaultOut[li].add(label[m]);
     }
   }
-  // Used by F2: a region with no exit of any kind. A region that touches the
-  // edge of the sampled box continues into the endless world and counts as
-  // open by construction.
+  // In a BOUNDED world the region the ghost starts in is the level, not a
+  // pocket. Its only boundary is the perimeter wall, which is unvaultable by
+  // design, so by the unbounded reading it has no exits and is "sealed" and
+  // 89.5% of arenas fail. That reading is wrong: F2 asks whether the ghost can
+  // be shut into somewhere SMALLER than the game, and the game is exactly this
+  // region. So it counts as open, and every other bounded component still has
+  // to prove a way out.
+  if (world.bounds && label[spawnCell] >= 0) open[label[spawnCell]] = 1;
+  // Used by F2: a region with no exit of any kind. A region touching the edge
+  // of the sampled raster continues into the world and counts as open too.
   const exits = (c) => (open[c] ? 9 : gateOut[c].size + vaultOut[c].size);
 
   const ghostSet = new Uint8Array(N);
@@ -328,22 +417,27 @@ function fairOne(world, at) {
   let leak = 0;
   for (let i = 0; i < N; i++) {
     if (!ghostSet[i] || skelSet[i]) continue;
-    if (Math.abs(grid.wx(i) - at.x) > FAIR_JUDGE || Math.abs(grid.wz(i) - at.z) > FAIR_JUDGE) continue;
+    if (Math.abs(grid.wx(i) - at.x) > judge || Math.abs(grid.wz(i) - at.z) > judge) continue;
     leak++;
   }
   // A few cells is rasterisation at a gate's lip; a pocket is tens of them.
   if (leak > 6) fail.push('F3safeSpot');
 
   // F4. NO GATE IS THE ONLY WAY OUT. Stated as the question a skeleton standing
-  // in a gate asks: plug it, and does anywhere the ghost could reach become
-  // unreachable? A pen with one gate passes only because the ghost can vault
-  // the fence, which is what makes the jump load bearing for FAIRNESS rather
-  // than only for play. It fails exactly when the pen's fence cannot be
-  // vaulted, which is what the self test builds.
-  const plugged = new Uint8Array(N);
+  // in a gate asks: plug it, and does the set of places the ghost can reach
+  // fall into more than one piece? A pen with one gate passes only because the
+  // ghost can vault the fence, which is what makes the jump load bearing for
+  // FAIRNESS rather than only for play. It fails exactly when the pen's fence
+  // cannot be vaulted, which is what the self test builds.
+  //
+  // It is phrased as "does the set SPLIT" rather than "can the ghost still
+  // reach everything from where it starts", and the difference is not
+  // cosmetic: the ghost's start can itself be inside the plug, and the
+  // reachability phrasing then reported the entire arena as lost in every
+  // world where the spawn happened to be standing in a gateway.
+  const seen = new Int32Array(N).fill(-1);
+  const bfs = new Int32Array(N);
   for (const g of gates) {
-    // Only gates in the judged middle; a gate at the raster's edge has half its
-    // neighbourhood missing.
     const plug = new Set();
     const rr = g.half + FAIR_RADIUS;
     const c0 = grid.index(g.x, g.z);
@@ -358,15 +452,37 @@ function fairOne(world, at) {
         if (Math.hypot(grid.wx(i) - g.x, grid.wz(i) - g.z) <= rr) plug.add(i);
       }
     }
-    flood(grid, [spawnCell], true, plugged, plug);
-    let lost = 0;
-    for (let i = 0; i < N; i++) {
-      if (!ghostSet[i] || plugged[i] || plug.has(i)) continue;
-      if (Math.abs(grid.wx(i) - at.x) > FAIR_JUDGE || Math.abs(grid.wz(i) - at.z) > FAIR_JUDGE) continue;
-      lost++;
+    seen.fill(-1);
+    const sizes = [];
+    for (let s0 = 0; s0 < N; s0++) {
+      if (!ghostSet[s0] || plug.has(s0) || seen[s0] !== -1) continue;
+      const id = sizes.length;
+      let head = 0;
+      let tail = 0;
+      let size = 0;
+      seen[s0] = id;
+      bfs[tail++] = s0;
+      while (head < tail) {
+        const n = bfs[head++];
+        if (Math.abs(grid.wx(n) - at.x) <= judge && Math.abs(grid.wz(n) - at.z) <= judge) size++;
+        const a = n % grid.n;
+        for (let d = 0; d < 8; d++) {
+          const [dx, dz] = grid.DIR8[d];
+          if (a + dx < 0 || a + dx >= grid.n) continue;
+          const m = n + dz * grid.n + dx;
+          if (m < 0 || m >= N || !ghostSet[m] || plug.has(m) || seen[m] !== -1 || grid.wall[n * 8 + d]) continue;
+          seen[m] = id;
+          bfs[tail++] = m;
+        }
+        for (let a2 = 0; a2 < 4; a2++) {
+          const m = grid.jump[n * 4 + a2];
+          if (m >= 0 && ghostSet[m] && !plug.has(m) && seen[m] === -1) { seen[m] = id; bfs[tail++] = m; }
+        }
+      }
+      sizes.push(size);
     }
     // A handful of cells at the plug's own lip is rasterisation, not a trap.
-    if (lost > 4) { fail.push('F4pin'); break; }
+    if (sizes.filter((z) => z > 4).length > 1) { fail.push('F4pin'); break; }
   }
 
   // Carried over.
@@ -401,7 +517,7 @@ function fairness(seeds) {
     // Look somewhere different in each world rather than always at the spawn,
     // so a thousand seeds is a thousand different neighbourhoods and not a
     // thousand looks at the same one.
-    const at = { x: ((seed * 37) % 400) - 200, z: ((seed * 91) % 400) - 200 };
+    const at = ARENA ? { x: 0, z: 0 } : { x: ((seed * 37) % 400) - 200, z: ((seed * 91) % 400) - 200 };
     const box = { minX: at.x - FAIR_JUDGE, minZ: at.z - FAIR_JUDGE, maxX: at.x + FAIR_JUDGE, maxZ: at.z + FAIR_JUDGE };
     barriers += world.barriers(box).length;
     gates += world.gates(box).length;
@@ -449,6 +565,23 @@ function jamCheck(track, s) {
   return track.t > 10 ? 'ghost-jammed' : null;
 }
 
+// A hunting skeleton that has not gone anywhere in twelve seconds is broken,
+// and it is invisible from every other angle: the run still ends, the numbers
+// still print, and the only symptom is a player who is harder to catch than
+// they should be. Three separate deadlocks in the steering produced exactly
+// this and none of the other checks saw any of them, so it gets its own.
+function stallCheck(track, s, dt) {
+  if (s.phase !== 'play') return null;
+  for (const k of s.skeletons) {
+    const t = track[k.id] || (track[k.id] = { t: 0, x: k.x, z: k.z });
+    if (k.state !== 'hunting' && k.state !== 'frightened') { t.t = 0; t.x = k.x; t.z = k.z; continue; }
+    if (Math.hypot(k.x - t.x, k.z - t.z) > 1.0) { t.t = 0; t.x = k.x; t.z = k.z; continue; }
+    t.t += dt;
+    if (t.t > 12) return 'skeleton-stalled';
+  }
+  return null;
+}
+
 function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons = 4, fence = FENCE }) {
   const world = makeWorld(seed, fence);
   const game = createGame({ world, seed, tuning, skeletons });
@@ -465,17 +598,48 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
   const maxSteps = Math.ceil(limit / dt);
   let bad = null;
   const jam = { t: 0, x: 0, z: 0, dt };
-  while (steps < maxSteps && s.phase !== 'over') {
+  const stall = {};
+  const cross = {};
+  // How much of the run is spent near the wall, and how many deaths happen
+  // there. The question a hard boundary raises is whether it is a TRAP, and the
+  // honest form of that question is a ratio: if the share of deaths near the
+  // wall is much higher than the share of time spent near it, it is. `corner`
+  // is the tighter case, within the same distance of two walls at once, which
+  // is the only place on the board where every door can be shut at once.
+  const b = world.bounds;
+  const NEAR = 4.0;
+  let nearWallTime = 0;
+  let cornerTime = 0;
+  let nearWallDeaths = 0;
+  let cornerDeaths = 0;
+  const wallness = () => {
+    if (!b) return 0;
+    const dx = Math.min(s.ghost.x - b.minX, b.maxX - s.ghost.x);
+    const dz = Math.min(s.ghost.z - b.minZ, b.maxZ - s.ghost.z);
+    return (dx < NEAR ? 1 : 0) + (dz < NEAR ? 1 : 0);
+  };
+  while (steps < maxSteps && s.phase !== 'over' && s.phase !== 'cleared') {
     const input = bot.step(s, dt);
     s = game.update(dt, input);
+    if (b && s.phase === 'play') {
+      const w = wallness();
+      if (w >= 1) nearWallTime += dt;
+      if (w >= 2) cornerTime += dt;
+    }
     for (const e of s.events) {
-      if (e.type === 'death') { deaths++; if (firstDeath < 0) firstDeath = s.time; }
+      if (e.type === 'death') {
+        deaths++;
+        if (firstDeath < 0) firstDeath = s.time;
+        const w = wallness();
+        if (w >= 1) nearWallDeaths++;
+        if (w >= 2) cornerDeaths++;
+      }
       if (e.type === 'eat') eats++;
       if (e.type === 'power') powers++;
       if (e.type === 'jump') { jumps++; if (e.overFence) vaults++; }
       if (e.type === 'jumpRefused') refused++;
     }
-    if (!bad) bad = check(game, s) || jamCheck(jam, s);
+    if (!bad) bad = check(game, s) || crossCheck(cross, game, s, dt) || jamCheck(jam, s) || stallCheck(stall, s, dt);
     steps++;
   }
   return {
@@ -485,6 +649,7 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
     threat: bot.stats.threatTime, panic: bot.stats.panicTime,
     plannedVaults: bot.stats.plannedVaults || 0,
     bot: bot.stats,
+    nearWallTime, cornerTime, nearWallDeaths, cornerDeaths,
     survived: steps >= maxSteps,
   };
 }
@@ -492,6 +657,34 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
 // Run on every frame of every run the soak plays, not only in the stability
 // section: a NaN that only appears once in a thousand runs is exactly the one
 // that will appear in the demo.
+// The tunnelling guard, and the real form of the assertion maxStep exists to
+// support. Checking that the ghost is not INSIDE a fence is not enough: a big
+// enough step carries it clean through, the resolver finds it already on the
+// far side and leaves it there, and every other check reports a clean frame.
+// What has to be asserted is that a GROUNDED ghost never crossed a fence
+// between one frame and the next.
+function crossCheck(track, game, s, dt) {
+  // Only at a sane timestep. The check compares one frame's start to its end,
+  // and over three seconds the ghost travels nine units, so the straight line
+  // between those two points is not the path it took: it will have gone round
+  // the end of a fence and the check would call that a crossing. The substep
+  // cap is what actually prevents tunnelling and it is asserted by the self
+  // test; this is the in-play guard and it needs frames small enough for a
+  // straight line between them to mean something.
+  if (dt > 1 / 20) return null;
+  const g = game.debug.ghost;
+  const px = track.x;
+  const pz = track.z;
+  const wasAir = track.air;
+  track.x = s.ghost.x;
+  track.z = s.ghost.z;
+  track.air = g.air;
+  if (px === undefined) return null;
+  if (wasAir || g.air) return null;
+  if (s.events.some((e) => e.type === 'jump' || e.type === 'land')) return null;
+  return game.nav.crossesBarrier(px, pz, s.ghost.x, s.ghost.z, 0) ? 'ghost-through-fence' : null;
+}
+
 function check(game, s) {
   const nav = game.nav;
   const g = game.debug.ghost;
@@ -520,11 +713,13 @@ function playMany(seeds, opts, title) {
   const rows = [];
   for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, opts));
   const over = rows.filter((r) => r.phase === 'over');
+  const cleared = rows.filter((r) => r.phase === 'cleared');
   const alive = rows.filter((r) => r.survived);
   const bad = rows.filter((r) => r.bad);
   const times = rows.map((r) => r.time);
   console.log(`\n--- ${title}, ${seeds} runs, limit ${opts.limit}s, ${((Date.now() - t0) / 1000).toFixed(1)}s ---`);
   console.log(`  lost all lives ${String(over.length).padStart(4)}  ${pct(over.length, seeds)}     still alive at the limit ${alive.length}  ${pct(alive.length, seeds)}`);
+  if (cleared.length) console.log(`  CLEARED the arena ${String(cleared.length).padStart(3)}  ${pct(cleared.length, seeds)}   in a mean ${mean(cleared.map((r) => r.time)).toFixed(0)}s, median ${median(cleared.map((r) => r.time)).toFixed(0)}s, with ${mean(cleared.map((r) => r.lives)).toFixed(2)} of 3 lives left`);
   console.log(`  run length     mean ${mean(times).toFixed(0)}s  median ${median(times).toFixed(0)}s  p10 ${quant(times, 0.1).toFixed(0)}s  p90 ${quant(times, 0.9).toFixed(0)}s`);
   console.log(`  score          mean ${mean(rows.map((r) => r.score)).toFixed(0)}  median ${median(rows.map((r) => r.score)).toFixed(0)}  best ${Math.max(...rows.map((r) => r.score))}`);
   console.log(`  fireflies      mean ${mean(rows.map((r) => r.collected)).toFixed(1)} a run, ${(mean(rows.map((r) => r.collected)) / (mean(times) / 60)).toFixed(1)} a minute, best streak ${mean(rows.map((r) => r.bestStreak)).toFixed(1)}`);
@@ -635,12 +830,34 @@ function players(seeds) {
   };
   console.log(`\n--- 5b. THE FOUR PLAYERS, ${seeds} runs each ---`);
   console.log('  player                 median life  reached limit  score    fireflies/min  vaults/min  deaths  threat%');
+  const keep = {};
   for (const [name, f] of Object.entries(V)) {
-    const limit = f === passiveBot ? 200 : 300;
+    const limit = f === passiveBot ? Math.min(200, LIMIT) : LIMIT;
     const rows = [];
     for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, { botFactory: f, limit }));
+    keep[name] = rows;
     const times = rows.map((r) => r.time);
     console.log(`  ${name.padEnd(21)}  ${median(times).toFixed(0).padStart(10)}s  ${pct(rows.filter((r) => r.survived).length, seeds).padStart(12)}  ${mean(rows.map((r) => r.score)).toFixed(0).padStart(7)}  ${(mean(rows.map((r) => r.collected)) / (mean(times) / 60)).toFixed(2).padStart(13)}  ${(mean(rows.map((r) => r.vaults)) / (mean(times) / 60)).toFixed(2).padStart(10)}  ${mean(rows.map((r) => r.deaths)).toFixed(2).padStart(6)}  ${pct(mean(rows.map((r) => r.threat)), mean(times)).padStart(7)}`);
+  }
+  // THE ONE NUMBER. A player who never learned the jump against one who prices
+  // it. Within a few points of each other and the mechanic is not in the game.
+  const a = mean(keep['careful (jumpCost 3)'].map((r) => r.score));
+  const g = mean(keep['ground (never jumps)'].map((r) => r.score));
+  console.log(`\n  THE JUMP IS WORTH ${(((a - g) / Math.max(1, g)) * 100).toFixed(1)}% of score: careful ${a.toFixed(0)} against a player who never jumps ${g.toFixed(0)}.`);
+
+  // And the arena's own question: is a hard wall a trap? The share of DEATHS
+  // near it, against the share of TIME spent near it. A ratio near 1 means the
+  // wall is just more ground; well above 1 means it is a place you get killed.
+  const rows = keep['careful (jumpCost 3)'];
+  const tT = mean(rows.map((r) => r.time));
+  const dT = rows.reduce((x, r) => x + r.deaths, 0);
+  if (rows[0].nearWallTime > 0 && dT > 0) {
+    const tW = mean(rows.map((r) => r.nearWallTime));
+    const tC = mean(rows.map((r) => r.cornerTime));
+    const dW = rows.reduce((x, r) => x + r.nearWallDeaths, 0);
+    const dC = rows.reduce((x, r) => x + r.cornerDeaths, 0);
+    console.log(`  THE WALL: ${pct(tW, tT)} of the run within 4.0 of a wall, ${pct(dW, dT)} of deaths there, risk ratio ${(dW / dT / Math.max(1e-6, tW / tT)).toFixed(2)}x`);
+    console.log(`  A CORNER: ${pct(tC, tT)} of the run within 4.0 of TWO walls, ${pct(dC, dT)} of deaths there, risk ratio ${(dC / dT / Math.max(1e-6, tC / tT)).toFixed(2)}x`);
   }
 }
 
@@ -887,28 +1104,24 @@ function selftest() {
   // --- the runtime checks ---------------------------------------------------
   const liveWorld = () => makeWorld(11);
   {
-    // Substepping off, one enormous frame. The thing that stops the ghost going
-    // through a fence is maxStep, so turning maxStep off must break it.
-    const world = liveWorld();
-    let escaped = 0;
-    let tested = 0;
+    // Substepping off, one enormous frame. What maxStep prevents is not the
+    // ghost ENDING inside a fence, which the resolver would tidy up anyway by
+    // putting it on whichever side is nearer; it is the ghost passing THROUGH
+    // one. So the broken case is a straight run at a long fence with maxStep
+    // disabled, and the assertion is which side it ends up on.
+    const world = fixedWorld({
+      spawn: { x: -4, z: 0 },
+      barriers: [{ id: 'b', x0: 0, z0: -20, x1: 0, z1: 20, half: 0.1, end0: 'free', end1: 'free' }],
+      graves: [{ id: 'v', x: -40, z: 40 }],
+    });
     const game = createGame({ world, seed: 1, tuning: { maxStep: 1e9 } });
-    for (let gz = -24; gz <= 24; gz += 3) {
-      for (let gx = -24; gx <= 24; gx += 3) {
-        game.nav.focus(gx, gz);
-        if (!game.nav.discClear(gx, gz, game.tuning.ghostRadius)) continue;
-        for (const dir of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
-          game.debug.ghost.x = gx; game.debug.ghost.z = gz;
-          game.debug.ghost.vx = 0; game.debug.ghost.vz = 0;
-          game.debug.ghost.air = false;
-          game.update(2.0, { x: dir[0], y: dir[1] });
-          tested++;
-          const g = game.debug.ghost;
-          if (!game.nav.discClear(g.x, g.z, game.tuning.ghostRadius, g.air)) escaped++;
-        }
-      }
-    }
-    add('ghost-in-fence (maxStep disabled, dt 2.0)', escaped > 0, `${escaped} of ${tested} starts ended inside something`);
+    const track = {};
+    let st = game.state;
+    for (let i = 0; i < 60 * 3; i++) { st = game.update(1 / 60, { x: 0, y: 0 }); crossCheck(track, game, st, 1 / 60); }
+    st = game.update(2.0, { x: 1, y: 0 });
+    const fired = crossCheck(track, game, st, 1 / 60);
+    add('ghost-through-fence (maxStep off, dt 2.0)', fired === 'ghost-through-fence' || game.debug.ghost.x > 0,
+      `ended at x ${game.debug.ghost.x.toFixed(2)} with the fence at 0`);
   }
   {
     const game = createGame({ world: liveWorld(), seed: 1 });
@@ -1083,6 +1296,25 @@ function selftest() {
     }
     add('ghost-jammed  (full stick into a fence)', fired === 'ghost-jammed',
       fired ? `caught, and the published speed was ${st.ghost.speed.toFixed(2)} throughout` : 'not caught');
+  }
+
+  {
+    // skeleton-stalled: a herd that cannot move at all. Setting the walk to
+    // zero is the cleanest way to produce the symptom the check exists for,
+    // which is a hunting skeleton that goes nowhere.
+    const game = createGame({
+      world: fixedWorld({ spawn: { x: 0, z: 0 }, graves: [{ id: 'v', x: 12, z: 0 }] }),
+      seed: 1,
+      tuning: { speeds: { walk: 0.0001 } },
+    });
+    const track = {};
+    let fired = null;
+    let st = game.state;
+    for (let i = 0; i < 60 * 40 && !fired; i++) {
+      st = game.update(1 / 60, { x: 0, y: 0 });
+      fired = stallCheck(track, st, 1 / 60);
+    }
+    add('skeleton-stalled (a herd that cannot walk)', fired === 'skeleton-stalled', fired || 'not caught');
   }
 
   let missed = 0;

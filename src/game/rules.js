@@ -194,6 +194,10 @@ export const TUNING = {
   streakStep: 5,
   streakCap: 8,
   powerScore: 500,
+  // Only paid in a bounded world, and multiplied by the streak. 1000 at a
+  // streak multiplier of 8 is 8000, which is about what nine fireflies pay, so
+  // clearing an arena cleanly is worth doing it twice.
+  clearBonus: 1000,
 
   lives: 3,
   deathPause: 1.6,
@@ -236,6 +240,20 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
   const takenFly = new Set();
   const takenPower = new Set();
 
+  // A BOUNDED world is a level, and a level can be cleared. The endless plane
+  // could not be, so there was no 'cleared' phase in it; an arena of 30 by 30
+  // holds about nine fireflies and a run that has taken all of them has nothing
+  // left to do, which is not a game. So the two worlds differ in exactly one
+  // rule and it is this one.
+  //
+  // OPEN QUESTION for the owner, flagged rather than decided: clearing an arena
+  // could mean the next arena, which is Pac-Man and is what scene.js's wave
+  // machinery already does, or the fireflies could come back and the run
+  // continue in the same yard. This implements the first, because it is the
+  // reading that invents least, and the second is one line if it is wanted.
+  const bounds = world.bounds || null;
+  const flyTotal = bounds ? world.fireflies(bounds).length : 0;
+
   const ghost = {
     x: world.spawn.x, z: world.spawn.z,
     vx: 0, vz: 0,
@@ -246,8 +264,8 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
 
   const state = {
     time: 0,
-    phase: 'ready',          // ready | play | dying | over. There is no
-                             // 'cleared': nothing clears in an endless world.
+    phase: 'ready',          // ready | play | dying | cleared | over.
+                             // 'cleared' happens only in a bounded world.
     score: 0,
     lives: T.lives,
     mode: 'scatter',
@@ -256,6 +274,9 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     powerUntil: 0,
     power: false,
     eatenChain: 0,
+    // Only meaningful in a bounded world; 0 and 0 in an endless one.
+    flyTotal: 0,
+    flyRemaining: 0,
     // The endless-run numbers. `lifeTime` drives Cruise Elroy; `streak` and
     // `multiplier` drive the score; `distance` is the other half of a
     // leaderboard row.
@@ -331,6 +352,8 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     state.multiplier = 1;
     state.phase = 'ready';
     state.readyLeft = T.readyPause;
+    state.flyTotal = flyTotal;
+    state.flyRemaining = Math.max(0, flyTotal - state.collected);
     refreshPickups(true);
   }
   resetRound();
@@ -468,6 +491,7 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
       takenFly.add(f.id);
       flyPool.splice(i, 1);
       state.collected++;
+      state.flyRemaining = Math.max(0, flyTotal - state.collected);
       state.streak++;
       if (state.streak > state.bestStreak) state.bestStreak = state.streak;
       state.multiplier = Math.min(T.streakCap, 1 + Math.floor(state.streak / T.streakStep));
@@ -543,6 +567,7 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
       mode: state.power ? 'chase' : state.mode,
       power: state.power,
       lifeTime: state.lifeTime,
+      time: state.time,
     };
   }
 
@@ -575,6 +600,16 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     refreshPickups(false);
     herd.step(h, ctx());
     pickups();
+    if (bounds && flyTotal > 0 && state.collected >= flyTotal) {
+      // The clear bonus rides the streak, so clearing an arena without dying is
+      // worth several times clearing it three lives down. That is the same
+      // argument the streak itself rests on: two runs of the same length have
+      // to score differently.
+      state.score += T.clearBonus * state.multiplier;
+      state.phase = 'cleared';
+      state.events.push({ type: 'clear', score: T.clearBonus * state.multiplier });
+      return;
+    }
     contacts();
   }
 
@@ -600,7 +635,7 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
         substep(h, { x: axis.x, y: axis.y, jump: jumpEdge });
         jumpEdge = false;
         remain -= h;
-        if (state.phase === 'over') break;
+        if (state.phase === 'over' || state.phase === 'cleared') break;
       }
       return publish();
     },

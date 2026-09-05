@@ -74,7 +74,25 @@ export const PERSONALITIES = ['chaser', 'ambusher', 'flanker', 'loner'];
 // The skeleton's body, for leg clearance. props/skeleton/metrics.js has it at
 // 0.95 across the shoulders.
 export const SKEL_RADIUS = 0.475;
-const LEG_CLEAR = SKEL_RADIUS + 0.08;
+// Two clearances, and the difference between them is not fussiness.
+//
+// PLAN_CLEAR is what a leg is CHOSEN against: a little more than the body, so a
+// skeleton does not commit to a line that only just fits. MOVE_CLEAR is what a
+// leg is WALKED against, and it is the body itself.
+//
+// They have to differ or a skeleton deadlocks in a gate. A gate is 2.0 wide, so
+// a body standing anywhere but the exact middle of it is within 0.655 of a
+// cheek; the planner then says every direction is blocked, the walker refuses
+// to move, and the thing stands in the doorway for the rest of the run. That is
+// what was happening: the passive player survived a quarter of arenas because
+// two skeletons were parked in a gate two units from a fence they had chosen to
+// walk through.
+const PLAN_CLEAR = SKEL_RADIUS + 0.08;
+const MOVE_CLEAR = SKEL_RADIUS;
+// How much of a leg's start is forgiven when it is tested. It has to exceed the
+// gap between the two clearances, or a skeleton resting exactly on MOVE_CLEAR
+// against a wall reads as blocked in every direction. See nav.js's trimStart.
+const PLAN_SKIP = 0.75;
 
 // Pac-Man's own corner assignment, as compass directions rather than corners:
 // Blinky top right, Pinky top left, Inky bottom right, Clyde bottom left.
@@ -103,6 +121,30 @@ export const DEFAULT_CHASE = {
   legMax: 4.0,
   maxTurn: 100 * Math.PI / 180,
   arrive: 0.30,
+  // How far a leg carries PAST a passage. A gate is a thing you go through, not
+  // a place you arrive at: a leg that ends exactly at the opening leaves the
+  // skeleton standing in it with nowhere it can see to go next.
+  through: 1.7,
+  // How far a skeleton will walk toward a chosen passage before looking again.
+  // A passage can be twenty units away in a thirty unit arena, and committing
+  // to the whole trip is far more than Pac-Man commits to: it decides at every
+  // junction, which is every two tiles. Capping the commitment means the
+  // skeleton usually re-picks the same passage and keeps walking, so the route
+  // still reads as purposeful, but it notices when the target comes into view
+  // or a better way past opens up. Uncapped, skeletons walked to the far end of
+  // a fence and back while the player stood in the middle of the board, and a
+  // player who never moved survived a third of arenas.
+  commitMax: 8.0,
+  // Inside this, a skeleton that can SEE its target may turn as far as it likes
+  // to get at it. The no-reversal rule is Pac-Man's and it is worth keeping,
+  // but Pac-Man's version forbids turning round in the corridor you are in,
+  // which in open ground becomes "may not turn more than a hundred degrees",
+  // and that forbids the one turn a monster must always be allowed: the one
+  // toward the thing it is chasing when the thing is right there. Without this
+  // four skeletons circle a stationary player for ever, each of them with the
+  // player just behind its shoulder, and the passive bot survives a quarter of
+  // arenas untouched.
+  pounce: 7.0,
   // How far out a skeleton looks for a way past a fence. Far enough to see the
   // gate at the other end of a pen wall, near enough that it does not consider
   // a gate it will never reach, and small enough that scatterOut + this stays
@@ -115,6 +157,15 @@ export const DEFAULT_CHASE = {
   // away, longer than any scatter phase, so no skeleton ever arrives and
   // scatter still reads as a patrol rather than as a queue.
   scatterOut: 26,
+  // Scatter is a PATROL and it has to look like one. Pac-Man sends each ghost
+  // at a corner outside the board, which it never reaches, so it circles the
+  // block of maze nearest that corner for ever. In an open arena there is no
+  // block to circle: a skeleton sent at a corner arrives, presses into the
+  // wall, and stops. So the scatter target ORBITS its quarter instead, on a
+  // circle of this radius with this period, which never arrives for the same
+  // reason and reads better, as a thing pacing its own patch of the yard.
+  scatterOrbit: 3.2,
+  scatterPeriod: 9.0,
   // The pen follows the player. A skeleton going back underground re-homes to
   // a grave in this band around the ghost, which is the endless-world version
   // of Pac-Man's pen being in the middle of a small board. 10 is far enough
@@ -180,6 +231,8 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       // goes underground.
       grave: { x: 0, z: 0 },
       hx: 0, hz: -1,             // heading, unit
+      stallGuard: 0,
+      wedged: 0,
       aimX: 0, aimZ: 0,          // the end of the current leg
       legLeft: 0,                // units of leg not yet walked
       committed: null,           // the passage id it is aiming at, or null
@@ -255,7 +308,7 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
 
   // --- the target functions, unchanged ---------------------------------------
   function targetOf(s, ctx) {
-    if (ctx.mode === 'scatter' && s.state !== 'frightened') return { x: s.scatterX, z: s.scatterZ };
+    if (ctx.mode === 'scatter' && s.state !== 'frightened') return scatterPoint(s, ctx.time);
     const g = ctx.ghost;
     switch (s.name) {
       case 'chaser':
@@ -271,7 +324,7 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       case 'loner':
       default:
         return Math.hypot(s.x - g.x, s.z - g.z) > 16.0
-          ? g : { x: s.scatterX, z: s.scatterZ };
+          ? g : scatterPoint(s, ctx.time);
     }
   }
 
@@ -280,20 +333,26 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
     const il = 1 / Math.SQRT2;
     let x = ghost.x + qx * il * C.scatterOut;
     let z = ghost.z + qz * il * C.scatterOut;
-    // In a bounded arena a scatter target outside the wall is the CORNER of the
-    // arena, which is Pac-Man's own arrangement exactly: Blinky's corner is a
-    // point off the board, no ghost ever reaches it, and that is why scatter
-    // reads as a patrol of a quarter rather than as a queue at a destination.
-    // Clamping it to just inside the wall would make it reachable and turn the
-    // patrol into four skeletons standing still, so it is clamped OUTSIDE.
-    const b = nav.bounds;
-    if (b) {
-      const m = 4;
-      x = Math.min(Math.max(x, b.minX - m), b.maxX + m);
-      z = Math.min(Math.max(z, b.minZ - m), b.maxZ + m);
+    const bb = nav.bounds;
+    if (bb) {
+      // Inside the wall by enough that a body fits, because a scatter anchor
+      // outside the arena is an anchor pressed against the wall.
+      const m = 3.0;
+      x = Math.min(Math.max(x, bb.minX + m), bb.maxX - m);
+      z = Math.min(Math.max(z, bb.minZ + m), bb.maxZ - m);
+      s.scatterX = x;
+      s.scatterZ = z;
+      return;
     }
     s.scatterX = x;
     s.scatterZ = z;
+  }
+
+  // The orbiting patrol point. Same phase for all four so they stay a quarter
+  // apart, which keeps the tie-break order meaningful.
+  function scatterPoint(s, t) {
+    const a = (t / C.scatterPeriod) * Math.PI * 2;
+    return { x: s.scatterX + Math.cos(a) * C.scatterOrbit, z: s.scatterZ + Math.sin(a) * C.scatterOrbit };
   }
 
   // The leash never fires inside an arena small enough that nothing can get
@@ -325,11 +384,11 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
 
     // 1. Can I see the target? Then there is nothing to decide and I walk at it.
     //    This is the open-ground case and it is most frames.
-    if (nav.visible(s.x, s.z, t.x, t.z, LEG_CLEAR)) {
+    if (nav.visible(s.x, s.z, t.x, t.z, PLAN_CLEAR, PLAN_SKIP)) {
       const dx = t.x - s.x;
       const dz = t.z - s.z;
       const d = Math.hypot(dx, dz);
-      if (d > 1e-6 && (free || turnOk(s, dx / d, dz / d))) {
+      if (d > 1e-6 && (free || d <= C.pounce || turnOk(s, dx / d, dz / d))) {
         return setLeg(s, dx / d, dz / d, Math.min(C.legMax, d));
       }
     }
@@ -350,7 +409,7 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       const ux = dx / d;
       const uz = dz / d;
       if (!free && !turnOk(s, ux, uz)) continue;
-      if (!nav.visible(s.x, s.z, p.x, p.z, LEG_CLEAR)) continue;
+      if (!nav.visible(s.x, s.z, p.x, p.z, PLAN_CLEAR, PLAN_SKIP)) continue;
       const rest = Math.hypot(t.x - p.x, t.z - p.z);
       // Fleeing is the same decision with the sign flipped, which keeps one
       // code path and makes the flight read as a deliberate retreat rather than
@@ -369,11 +428,12 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       const dz = best.z - s.z;
       const d = Math.hypot(dx, dz) || 1;
       s.committed = best.id;
-      // COMMITMENT. The leg runs all the way to the passage rather than
-      // stopping at LEG_MAX, so a skeleton that has decided to go round a fence
-      // goes round it instead of changing its mind halfway and pacing. This is
-      // where most of the "purposeful" reading comes from.
-      return setLeg(s, dx / d, dz / d, d);
+      // COMMITMENT. The leg runs all the way to the passage and `through` units
+      // out the other side, rather than stopping at legMax, so a skeleton that
+      // has decided to go round a fence goes round it instead of changing its
+      // mind halfway and pacing. This is where most of the "purposeful" reading
+      // comes from, and the overshoot is what carries it out of the doorway.
+      return setLeg(s, dx / d, dz / d, Math.min(d + C.through, C.commitMax));
     }
 
     // 3. Nothing visible to aim at: I am up against a fence with no way past in
@@ -414,7 +474,7 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
     const wantX = t.x - s.x;
     const wantZ = t.z - s.z;
     if (tx * wantX + tz * wantZ < 0) { tx = -tx; tz = -tz; }
-    if (!nav.visible(s.x, s.z, s.x + tx * 2, s.z + tz * 2, LEG_CLEAR)) { tx = -tx; tz = -tz; }
+    if (!nav.visible(s.x, s.z, s.x + tx * 3, s.z + tz * 3, PLAN_CLEAR, PLAN_SKIP)) { tx = -tx; tz = -tz; }
     return { x: tx, z: tz };
   }
 
@@ -477,50 +537,68 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       return;
     }
 
-    // On the ground and moving.
+    // MOVEMENT IS MOVE THEN RESOLVE, the same model the ghost uses, and the
+    // leg is only the STEERING decision. That is a deliberate separation and it
+    // was arrived at the hard way.
+    //
+    // The first version refused to take a step whose swept capsule touched
+    // anything, and re-decided instead. It deadlocks, in two ways that both
+    // happened: a skeleton standing anywhere but the exact middle of a 2.0 gate
+    // is inside the clearance of a cheek, and a skeleton that has walked into a
+    // corner is inside the clearance of two walls, and in both cases EVERY
+    // direction it considers is blocked and it stands there for the rest of the
+    // run. Three of them doing that is why a player who never moved survived a
+    // quarter of arenas.
+    //
+    // Move and resolve cannot deadlock: the resolver pushes out of whatever the
+    // step ended inside, the component of the move along a surface survives, and
+    // the skeleton slides. It still cannot cross a fence, because a step is 0.036
+    // units at the walk and a fence keeps a body 0.825 away, and the substep cap
+    // means no single step is ever longer than 0.2.
     let travel = s.speed * dt;
     let guard = 0;
     while (travel > 1e-9 && guard++ < 64) {
-      if (s.state === 'eaten') {
-        // Home is the nearest grave to where it died: a short trip back under,
-        // and the re-home to a grave near the player happens while buried.
-        const g = s.homeGrave || (s.homeGrave = nearestGrave(s.x, s.z));
-        const dx = g.x - s.x;
-        const dz = g.z - s.z;
-        const d = Math.hypot(dx, dz);
-        if (d <= travel || d < 1e-6) {
-          s.x = g.x; s.z = g.z;
-          s.homeGrave = null;
-          s.state = 'sinking';
-          s.timer = 0.45;
-          return;
-        }
-        // Bones go home over the fences, because a heap of bones is not walking
-        // and because a return trip that has to find gates takes long enough to
-        // remove the skeleton for the rest of the run.
-        s.x += (dx / d) * travel;
-        s.z += (dz / d) * travel;
-        s.hx = dx / d; s.hz = dz / d;
-        return;
-      }
-      if (s.legLeft <= 1e-9) { decide(s, ctx); if (s.legLeft <= 1e-9) return; }
+      if (s.legLeft <= 1e-9) { decide(s, ctx); if (s.legLeft <= 1e-9) break; }
       const stepLen = Math.min(travel, s.legLeft);
-      const nx = s.x + s.hx * stepLen;
-      const nz = s.z + s.hz * stepLen;
-      // The leg was chosen clear, but the window can be rebuilt underneath it
-      // and a grave can sit close to a fence. Re-decide rather than walk into
-      // anything.
-      if (nav.crossesBarrier(s.x, s.z, nx, nz, LEG_CLEAR) || nav.crossesProp(s.x, s.z, nx, nz, LEG_CLEAR)) {
-        s.legLeft = 0;
-        decide(s, ctx);
-        if (s.legLeft <= 1e-9) return;
-        continue;
-      }
-      s.x = nx;
-      s.z = nz;
+      const fromX = s.x;
+      const fromZ = s.z;
+      s.x += s.hx * stepLen;
+      s.z += s.hz * stepLen;
+      const fix = nav.resolveWalker(s.x, s.z, MOVE_CLEAR);
+      s.x = fix.x;
+      s.z = fix.z;
+      const got = Math.hypot(s.x - fromX, s.z - fromZ);
       s.legLeft -= stepLen;
       travel -= stepLen;
-      if (s.legLeft <= C.arrive * 0.1) s.legLeft = 0;
+      // Sliding along a surface is fine and expected. Getting NOWHERE for a
+      // while is not, and the answer is a fresh decision that may turn as far
+      // as it likes: the no-reversal rule is flavour and must never be the
+      // reason a monster stops working.
+      if (got < stepLen * 0.35) s.stallGuard += stepLen;
+      else { s.stallGuard = 0; s.wedged = Math.max(0, s.wedged - stepLen); }
+      if (s.stallGuard > 0.6) {
+        s.stallGuard = 0;
+        s.wedged += 0.6;
+        s.legLeft = 0;
+        s.wantReverse = true;
+        decide(s, ctx);
+      }
+      // THE LAST RESORT. Steering is a heuristic and a heuristic can wedge, and
+      // a monster wedged against a fence for the rest of the run is worse than
+      // any amount of clumsiness. Past five seconds of getting nowhere it sinks
+      // where it stands and climbs out again near the player: the same
+      // eaten-and-return loop with no reward, which reads in fiction as giving
+      // up and puts a hard ceiling on how long a failure of the steering can
+      // last. soak.mjs asserts separately that a skeleton never goes nowhere
+      // for twelve seconds, so if this starts firing often the steering is
+      // broken and this is hiding it.
+      if (s.wedged > 5) {
+        s.wedged = 0;
+        s.state = 'sinking';
+        s.timer = 0.45;
+        s.gaveUp = true;
+        return;
+      }
     }
   }
 

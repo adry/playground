@@ -164,7 +164,7 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     barriers = world.barriers(box);
     props = world.props(box).filter((p) => p.solid !== false);
     gates = world.gates(box);
-    hasWalls = barriers.some((b) => b.wall);
+    hasWalls = barriers.some(unjumpable);
     barrierIx = makeIndex(barriers, (b) => ({
       minX: Math.min(b.x0, b.x1) - b.half, maxX: Math.max(b.x0, b.x1) + b.half,
       minZ: Math.min(b.z0, b.z1) - b.half, maxZ: Math.max(b.z0, b.z1) + b.half,
@@ -184,9 +184,34 @@ export function createNav(world, { window: win = WINDOW } = {}) {
 
   // --- the two primitives ---------------------------------------------------
 
+  // Shorten a segment's START by `skip`, and why that option has to exist.
+  //
+  // A swept test asks "does a disc of radius r sliding from A to B touch
+  // anything". If the disc is ALREADY touching something at A, the answer is
+  // yes for every B, and a mover that plans with a clearance larger than its
+  // body is always already touching something whenever it is against a wall.
+  // Every direction then reads as blocked, and the mover stops for ever. That
+  // one mistake produced three different symptoms before it was understood: a
+  // skeleton frozen in a gate mouth, a skeleton frozen in a corner, and a
+  // wall-follow that chose the direction pointing INTO the wall because the
+  // test it used to pick a side failed both ways.
+  //
+  // Forgiving the first `skip` units of the segment is the fix, and it is
+  // sound: what the mover needs to know is whether the way AHEAD is clear, and
+  // where it is standing right now is not a question it can act on.
+  function trimStart(ax, az, bx, bz, skip) {
+    if (!skip) return [ax, az];
+    const dx = bx - ax;
+    const dz = bz - az;
+    const len = Math.hypot(dx, dz);
+    if (len <= skip * 1.5) return [ax, az];
+    return [ax + (dx / len) * skip, az + (dz / len) * skip];
+  }
+
   // Does the segment from (ax,az) to (bx,bz), swept by a disc of radius r,
   // touch a fence? The one question chase.js asks, thousands of times a second.
-  function crossesBarrier(ax, az, bx, bz, r = 0) {
+  function crossesBarrier(ax, az, bx, bz, r = 0, skip = 0) {
+    if (skip) [ax, az] = trimStart(ax, az, bx, bz, skip);
     const minX = Math.min(ax, bx) - r - 0.2;
     const maxX = Math.max(ax, bx) + r + 0.2;
     const minZ = Math.min(az, bz) - r - 0.2;
@@ -199,11 +224,17 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     return false;
   }
 
-  // A barrier flagged `wall` is the arena's perimeter. It is tall on purpose and
-  // it is the one thing in the world the ghost cannot vault, which is what makes
-  // the arena an arena: without it the answer to "can I get out" is always yes
-  // and the boundary is decoration. Everything else about it is a barrier, so it
-  // is the same list with one flag rather than a second kind of object.
+  // The arena's perimeter. It is tall on purpose and it is the one thing in the
+  // world the ghost cannot vault, which is what makes the arena an arena:
+  // without it the answer to "can I get out" is always yes and the boundary is
+  // decoration. Everything else about it is a barrier, so it is the same list
+  // with one flag rather than a second kind of object.
+  //
+  // The world publishes that flag as `jumpable: false`; the stand-in used
+  // `wall: true`. Both are read, so neither generator has to change for the
+  // other, and a barrier with neither field is a fence, which is the safe
+  // default: a rule that guessed the other way would let the ghost out.
+  const unjumpable = (b) => b.jumpable === false || b.wall === true;
   function crossesWall(ax, az, bx, bz, r = 0) {
     if (!hasWalls) return false;
     const minX = Math.min(ax, bx) - r - 0.6;
@@ -212,14 +243,15 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     const maxZ = Math.max(az, bz) + r + 0.6;
     barrierIx.query(minX, minZ, maxX, maxZ, scratch3);
     for (const b of scratch3) {
-      if (!b.wall) continue;
+      if (!unjumpable(b)) continue;
       const lim = b.half + r;
       if (segSegD2(ax, az, bx, bz, b.x0, b.z0, b.x1, b.z1) < lim * lim - 1e-9) return true;
     }
     return false;
   }
 
-  function crossesProp(ax, az, bx, bz, r = 0) {
+  function crossesProp(ax, az, bx, bz, r = 0, skip = 0) {
+    if (skip) [ax, az] = trimStart(ax, az, bx, bz, skip);
     const minX = Math.min(ax, bx) - r - 1.2;
     const maxX = Math.max(ax, bx) + r + 1.2;
     const minZ = Math.min(az, bz) - r - 1.2;
@@ -233,7 +265,8 @@ export function createNav(world, { window: win = WINDOW } = {}) {
   }
 
   // A skeleton's leg, and the bot's straight line: clear of both.
-  const visible = (ax, az, bx, bz, r = 0) => !crossesBarrier(ax, az, bx, bz, r) && !crossesProp(ax, az, bx, bz, r);
+  const visible = (ax, az, bx, bz, r = 0, skip = 0) => !crossesBarrier(ax, az, bx, bz, r, skip)
+    && !crossesProp(ax, az, bx, bz, r, skip);
 
   // --- the ghost's collision ------------------------------------------------
   //
@@ -287,6 +320,18 @@ export function createNav(world, { window: win = WINDOW } = {}) {
       if (!moved) break;
     }
     return { x, z };
+  }
+
+  // Push a walker out of anything it has ended up inside. The ghost has always
+  // had this; the skeletons did not, and the omission was a hard failure rather
+  // than an untidiness: a skeleton that walks to a scatter target outside the
+  // arena presses into the wall, ends up 0.80 from a surface it needs 0.825
+  // from, and from there EVERY leg it considers is blocked because the swept
+  // test measures from a start point that is already in violation. It stands
+  // still for the rest of the run. Three of them doing that is why a player who
+  // never moved survived a quarter of arenas.
+  function resolveWalker(x, z, r) {
+    return resolveDisc(x, z, r, false);
   }
 
   function discClear(x, z, r, air = false) {
@@ -542,6 +587,7 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     // and everything above works either way.
     get bounds() { return world.bounds; },
     resolveDisc,
+    resolveWalker,
     discClear,
     passages,
     passagesNear,
