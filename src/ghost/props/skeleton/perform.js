@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import M from './metrics.js';
 import { Spring, easeOutBack, easeInOutCubic, easeOutElastic } from './motion.js';
+import { sharedDirt } from '../ground/dirt.js';
 
 // The skeleton's performance: buried, crawls out of the ground, stands up, and
 // then walks the ghost down.
@@ -169,6 +170,62 @@ const SHED_PLAN = [
   { at: 4.80, bone: 'ribL3', velocity: [1.00, 1.25, -0.25], spin: [5, 1.5, 3] },
 ];
 
+// THE DIRT, in the same TABLE time as everything else above.
+//
+// props/ground/dirt.js owns the clods and the simulation; this is only the list
+// of moments the climb hands it, and that split is the point: the zombie has
+// its own emergence with its own timings and wants the same four beats fired
+// off its own choreography, not off a copy of this table.
+//
+// Each beat is a DIFFERENT event, because that is what digging out of the
+// ground is. Repeating one spray four times reads as an effect with a repeat
+// rate, which is exactly what the owner is not asking for.
+//
+//   real 0.00-0.31  the ground heaves. Driven continuously, not from this
+//                   table: see the stir() calls in stepBuried and stepEmerge.
+//   real 0.11       THE FIST. Table 0.30, one frame before armR reaches the
+//                   -152 key that puts the hand on the surface. A sharp spray,
+//                   fast and low, thrown out along the arm.
+//   real 0.43       the left hand follows, two thirds of the size. The climb
+//                   stages the two hands and so does the dirt.
+//   real 1.22       THE SKULL AND SHOULDERS. Table 2.40 is where CRAWL.pitch
+//                   passes 68 degrees, which is the angle at which the crown
+//                   breaks the surface -- the same number the gaze track is
+//                   timed against. Earth pushed aside, off the shoulders.
+//   real 1.77       the heave that carries the ribcage over the lip (the same
+//                   beat as the third shed bone), earth off the right side.
+//   real 2.27       the second heave, the other side of the cage.
+//   real 2.81       the legs fold under and the hips come over the lip, which
+//                   drags a last low push of earth back behind it.
+//
+// Directions are in the BODY's frame, +z forward, and rotated by the figure's
+// own yaw when they are fired -- the same convention SHED_PLAN's velocities
+// use, and for the same reason: a grave can face any way.
+//
+// `from` is the joint whose ground position the beat is thrown from, and
+// `height` is how far above the local ground it starts. A shoulder that is
+// half a metre up still pushes earth at the lip and not at its own altitude,
+// which is why the height is authored here rather than read off the joint.
+const DIRT_PLAN = [
+  { at: 0.30, kind: 'burst', from: 'wristR', dir: [0.20, 0.98], count: 14, strength: 1.0 },
+  { at: 1.15, kind: 'burst', from: 'wristL', dir: [-0.25, 0.96], count: 8, strength: 0.78 },
+  { at: 2.40, kind: 'push', from: 'spineUpper', dir: [0.35, 0.92], count: 6, strength: 1.0, height: 0.30 },
+  { at: 3.10, kind: 'push', from: 'spineUpper', dir: [0.95, 0.28], count: 7, strength: 1.05, height: 0.20 },
+  { at: 3.75, kind: 'push', from: 'spineUpper', dir: [-0.94, 0.34], count: 7, strength: 1.0, height: 0.20 },
+  { at: 4.45, kind: 'push', from: 'root', dir: [0.10, -0.92], count: 5, strength: 0.8, height: 0.12 },
+];
+
+// How far out the ground starts to stir. The climb gives the dirt 0.11 seconds
+// between the wake and the fist, which is not a beat anybody can see, so where
+// there IS warning it is taken: buried, the figure watches the ghost close from
+// this range down to wakeRange and the mound comes up under him as he does.
+// Where there is none -- the game wakes a skeleton on command, and the capture
+// scene starts the ghost already inside the wake range -- dirt.js's own rate
+// limit turns the same request into a shove, and the fist comes through a mound
+// that is still rising. Both are correct; only one of them is slow.
+const STIR_RANGE = 1.5;           // multiple of wakeRange
+const STIR_APPROACH = 0.62;       // how far up the mound gets before the wake
+
 // --- small helpers -----------------------------------------------------------
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
@@ -315,6 +372,11 @@ export function createSkeletonPerformance({
   // the spawn animation and the rules read `state`/`emergeProgress` to know
   // where it has got to, rather than driving it.
   driver = null,
+  // THE DIRT. Left null, the performance finds the scene's own field and shares
+  // it with every other figure climbing out of the same scene, which is what
+  // keeps all the dirt in one draw call however many skeletons are up. Pass a
+  // field to override that; pass `false` for a figure that comes out clean.
+  dirt = null,
 } = {}) {
   const J = rig.joints;
   const group = rig.group;
@@ -326,6 +388,21 @@ export function createSkeletonPerformance({
   // Not const: the game moves a skeleton's grave when it builds a level.
   let homeYaw = group.rotation.y;
   const rootRest = J.root.position.clone();
+
+  // One site: this grave's worth of dirt. The field behind it is shared, the
+  // site is not, and the clods it has already laid down outlive it.
+  const dirtField = dirt === false ? null : (dirt || (scene ? sharedDirt(scene) : null));
+  const soil = dirtField ? dirtField.site({ x: home.x, z: home.z, yaw: homeYaw }) : null;
+  // Which beats of DIRT_PLAN have fired, as a bitmask.
+  //
+  // Cleared in BOTH enter() branches that begin a climb, and that is not
+  // belt-and-braces. The zombie's head shake carries the scar: its equivalent
+  // flag was cleared only in reset(), so every emergence after the first played
+  // with the beat silently missing, and nothing about it showed up in a clip of
+  // a fresh scene. The game puts a figure back under and brings it up again
+  // many times a run, and it is allowed to go straight from hunting to
+  // emerging without passing through buried at all.
+  let dirtFired = 0;
 
   // --- clipping ---------------------------------------------------------------
   // The whole figure shares one material, so one plane makes it genuinely
@@ -533,6 +610,7 @@ export function createSkeletonPerformance({
   let cursorFix = 0;       // gait phase correction still to be bled off
   let nextStep = 'R';
   let riseSteps = 0;       // shuffle steps taken at the top of the rise
+  let shrugged = 0;        // dirt beats fired during the stand
   let legBlend = 0;        // 0 authored angles, 1 planted feet
   let travel = 0;
 
@@ -600,9 +678,26 @@ export function createSkeletonPerformance({
       cursor = 0;
       cursorFix = 0;
       handsDown = false;
+      dirtFired = 0;
+      // The mound and the scatter from the last climb STAY where they are: they
+      // are the evidence that something came out of the ground there, and this
+      // only lets go of them so the next climb builds its own.
+      soil?.done();
+    }
+    if (next === 'emerging') {
+      dirtFired = 0;
+      // The grave may have moved since the last climb, and it may have moved
+      // onto different ground: moveTo throws away the cached soil colour with
+      // the mound, so the next arm() looks the new ground up.
+      soil?.moveTo(pos.x, pos.z, yaw);
+      soil?.arm();
+    }
+    if (next === 'chasing' || next === 'settling') {
+      soil?.done();
     }
     if (next === 'rising') {
       riseSteps = 0;
+      shrugged = 0;
       // The push off the floor. A rise that is only an ease has no moment where
       // the effort happens; this is that moment, and the overshoot at the top
       // is the same impulse still arriving.
@@ -628,7 +723,24 @@ export function createSkeletonPerformance({
     poseCrawl(0);
     strain = 0;
     chatter = 0;
-    if (ghost && Math.hypot(ghost.x - pos.x, ghost.z - pos.z) < wakeRange) enter('emerging');
+    if (!ghost) return;
+    const dist = Math.hypot(ghost.x - pos.x, ghost.z - pos.z);
+    // BEAT ONE, where there is time for the slow version of it. The ground
+    // heaves under the ghost as he closes, before anything has broken the
+    // surface, and by the time he is inside the wake range the mound is most of
+    // the way up with a clod or two already tipped off it. This is the beat that
+    // makes the whole thing read as digging UP rather than as appearing.
+    //
+    // Only when this performance is autonomous. Under a driver the RULES decide
+    // when a figure comes up, and they are entitled to leave a dormant skeleton
+    // sitting under a spot the ghost walks past twenty times: a mound heaving
+    // there and then going quiet is a promise the game has no intention of
+    // keeping. Driven, the beat is the compressed one inside the climb.
+    if (soil && !driver) {
+      const far = wakeRange * STIR_RANGE;
+      soil.stir(STIR_APPROACH * clamp01((far - dist) / (far - wakeRange)));
+    }
+    if (dist < wakeRange) enter('emerging');
   }
 
   // The climb. Everything below reads the tracks above and hands them to the
@@ -700,7 +812,50 @@ export function createSkeletonPerformance({
     }
 
     maybeShed(t);
+    maybeDirt(t);
     if (t >= EMERGE_END) enter('rising');
+  }
+
+  // The dirt, fired off the climb's own beats.
+  //
+  // Two things it does not do. It does not run a clock of its own -- every
+  // threshold is TABLE time, so re-timing the climb re-times the dirt with it
+  // and the fist and its spray cannot come apart. And it does not decide how
+  // much earth to throw: it says where, which way and how hard, and dirt.js
+  // decides what that looks like, because the zombie will be asking the same
+  // four questions with different answers.
+  function maybeDirt(t) {
+    if (!soil) return;
+
+    // The mound keeps swelling all the way up to the heave that clears the
+    // ribcage: something is still pushing earth out of that hole. It opens at
+    // more than half, which the rate limit turns into a shove rather than a
+    // pop, so a cold start still breaks ground before the fist arrives.
+    soil.stir(0.56 + 0.44 * clamp01((t - 0.4) / 2.5));
+
+    for (let i = 0; i < DIRT_PLAN.length; i++) {
+      if (dirtFired & (1 << i)) continue;
+      const plan = DIRT_PLAN[i];
+      if (t < plan.at) continue;
+      dirtFired |= 1 << i;
+
+      // Where. The joint's own world position, so a beat lands under the hand
+      // that made it rather than at the middle of the grave, and one frame of
+      // lag on it is one frame of lag on a spray of dirt.
+      const joint = J[plan.from];
+      if (joint) joint.getWorldPosition(v3);
+      else v3.set(pos.x, 0, pos.z);
+
+      // Which way, in the body's frame turned into the world's.
+      const cy = Math.cos(yaw);
+      const sy = Math.sin(yaw);
+      const dx = plan.dir[0] * cy + plan.dir[1] * sy;
+      const dz = -plan.dir[0] * sy + plan.dir[1] * cy;
+
+      const where = { x: v3.x, z: v3.z, dir: [dx, dz], strength: plan.strength, count: plan.count };
+      if (plan.kind === 'burst') soil.burst(where);
+      else soil.push({ ...where, height: plan.height });
+    }
   }
 
   function poseCrawl(t) {
@@ -773,6 +928,21 @@ export function createSkeletonPerformance({
     advanceSwings(dt);
     if (t > 1.30 && riseSteps === 0) { riseSteps = 1; queueStep('R', 0.05, 0.30); }
     if (t > 1.75 && riseSteps === 1) { riseSteps = 2; queueStep('L', -0.05, 0.30); }
+    // BEAT FOUR, twice. The heave off the floor shakes everything the climb
+    // packed into the ribcage loose at once, and then the first shuffle step
+    // knocks a little more off. Both are thrown from the figure rather than
+    // from the hole, because by now the figure is standing over it.
+    if (soil) {
+      if (t > 0.05 && shrugged === 0) {
+        shrugged = 1;
+        soil.shrug({ x: pos.x, z: pos.z, strength: 1, count: 10, fines: 10, top: 1.25 });
+      }
+      if (t > 1.35 && shrugged === 1) {
+        shrugged = 2;
+        soil.shrug({ x: pos.x, z: pos.z, strength: 0.55, count: 4, fines: 4, top: 0.65 });
+      }
+    }
+
     // Clacks shut at the top of the heave, then chatters as it settles.
     jawBeat = track([[0, 0.28], [0.45, 0.46], [0.7, 0.0], [1.1, 0.05], [2.0, 0.04]], t);
     chatter = track([[0, 0.4], [0.75, 1.0], [1.8, 0.35]], t);
@@ -1656,6 +1826,12 @@ export function createSkeletonPerformance({
     applyContacts();
 
     if (debris) debris.update(dt);
+    // The shared field, stepped once a frame however many figures are sharing
+    // it: dirt.js hands the job to whichever site asked first and no-ops for
+    // the rest. Five performances all calling update is exactly the shape of
+    // the bug ghost/main.js warns about for the shed bones, so the field
+    // closes it rather than trusting five callers to agree.
+    soil?.update(dt);
   }
 
   function reset() {
@@ -1710,6 +1886,10 @@ export function createSkeletonPerformance({
       if (phase === 'buried') {
         pos.copy(home);
         yaw = homeYaw;
+        // The dirt follows the grave. Doing it here rather than at the start of
+        // the climb is what keeps the anticipation heave in stepBuried honest:
+        // it stirs the ground the figure is actually under.
+        soil?.moveTo(pos.x, pos.z, yaw);
       }
     },
     // Not part of the contract. A performance that is asserted numerically is
@@ -1723,6 +1903,8 @@ export function createSkeletonPerformance({
         // Whether the shed bones have actually come to rest. A bone that slides
         // for ever or vibrates never leaves `live`, so this is the assertion.
         debris: debris?.stats?.() || null,
+        dirt: soil?.stats?.() || null,
+        dirtFired,
         feet: {},
       };
       // The joints a pop shows up in, as LOCAL angles, plus the two numbers
@@ -1760,6 +1942,9 @@ export function createSkeletonPerformance({
     },
     dispose() {
       setClipping(false);
+      // The site lets go of its mound; the field and everything already lying
+      // on the ground belong to the scene and outlive this figure.
+      soil?.dispose();
     },
   };
 

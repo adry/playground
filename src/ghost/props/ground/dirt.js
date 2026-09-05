@@ -96,8 +96,12 @@ import { toyMaterial } from '../style.js';
 // scene. soilAt() below finds it -- nearest vertex on the cover surface to the
 // hole, in the mesh's own frame -- and mixes it toward a deep subsoil brown,
 // because what comes out of a hole is what was UNDER the surface and not the
-// surface itself. One lookup per emergence, cached on the site; a linear scan
-// of a 26k vertex cover is about a fifth of a millisecond and it happens once.
+// surface itself. One lookup per emergence, cached on the site, and behind a
+// cell index built once per cover. Measured on the 58,000 vertices of a 60 m
+// arena: 2.4 ms to build the index and 0.028 ms a lookup, against 0.40 ms a
+// lookup for the linear scan it replaced. The scan was fine once and not fine
+// five times, and the frame a wave starts is exactly the frame five skeletons
+// want an answer at once.
 //
 // It also picks up the cover's HEIGHT at that point, which is what the clods
 // rest on. Without it a hole in a lawn leaves its scatter 3 cm underground.
@@ -122,13 +126,19 @@ const SUBSOIL_MIX = 0.55;
 const TONE = { lo: 0.78, hi: 1.12 };
 
 // --- sizes ---------------------------------------------------------------------
-// In metres, against a figure 1.75 tall. A clod at the low end is 3 cm, which
-// is about four pixels at true game framing -- small, but it is a lit solid with
-// a shaded side, and forty of them is a shape. The mound is what carries the
-// beat at that distance; the spray carries it in close-up.
-const CLOD = { min: 0.030, max: 0.075 };
-const GRIT = { min: 0.016, max: 0.034 };   // shrug fines, "dust"
-const MOUND_CLOD = { min: 0.055, max: 0.105 };
+// In metres, against a figure 1.75 tall.
+//
+// SET BY THE WIDE SHOT, not by the close-up. The first pass ran 3 to 7.5 cm,
+// which is a clod off a spade and which is right in the rise framing; at the
+// shipped framing (orthographic half-height 6.2, so a 900 px window is 72
+// pixels to the metre) that is a three pixel speck, and the strip at that scale
+// showed a faint speckle round the hole where there should be spoil. These are
+// 4 to 11 cm, which is still a clod off a spade -- the big end of one -- and
+// which is six to eight pixels there. Nothing else changed to fix that: a
+// particle you cannot see is not fixed by having more of them.
+const CLOD = { min: 0.042, max: 0.105 };
+const GRIT = { min: 0.022, max: 0.046 };   // shrug fines, "dust"
+const MOUND_CLOD = { min: 0.075, max: 0.140 };
 
 // --- the mound -----------------------------------------------------------------
 // A ring, not a dome: the middle of it is the hole the figure comes out of, so
@@ -137,10 +147,14 @@ const MOUND_CLOD = { min: 0.055, max: 0.105 };
 // clod so every one of them starts completely under the floor.
 const MOUND = {
   count: 22,
-  inner: 0.26,
-  outer: 0.68,
-  peak: 0.40,        // radius the crest sits at
-  height: 0.085,     // crest height above the local ground
+  // A ring wide enough that the figure comes up THROUGH it rather than out of
+  // it: the skeleton is 0.95 across the shoulders and its hands plant about
+  // half a metre in front, so a clod inside 0.30 spends the climb inside the
+  // ribcage.
+  inner: 0.32,
+  outer: 0.80,
+  peak: 0.46,        // radius the crest sits at
+  height: 0.105,     // crest height above the local ground
   // How far below the floor a mound clod starts, over and above its own
   // half-height. Each clod is buried by exactly enough to hide it and no more,
   // rather than by one shared depth: a shared depth is set by the tallest clod
@@ -160,7 +174,7 @@ const MOUND = {
   // have warning (the skeleton's buried phase watches the ghost approach) the
   // same call produces the slow version, because the rate is a ceiling and not
   // a speed.
-  rate: 3.2,
+  rate: 2.6,
 };
 
 // --- physics -------------------------------------------------------------------
@@ -229,6 +243,61 @@ function clodGeometry(seed) {
   return geo;
 }
 
+// A cell index over the cover's vertices, built once per geometry and kept on a
+// WeakMap so it dies with the mesh the editor is about to rebuild.
+//
+// Without it the lookup is a linear scan, which is 0.40 ms over the 58,000
+// vertices of a 60 m arena. That is fine once and it is not fine five times on
+// the frame a wave starts, which is exactly when the game wakes several
+// skeletons at once. The bucket is a metre, and a metre is also the furthest a
+// vertex is allowed to be and still count as the ground under the hole (REACH),
+// so the nine cells around the query are provably all that has to be looked at.
+const INDEX_CELL = 1.0;
+const REACH = 1.0;                       // metres; past this there is no cover here
+const indexCache = new WeakMap();
+
+function coverIndex(geometry) {
+  const found = indexCache.get(geometry);
+  if (found) return found;
+  const pos = geometry.getAttribute('position');
+  const pa = pos.array;
+  let minX = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxZ = -Infinity;
+  for (let i = 0, o = 0; i < pos.count; i++, o += 3) {
+    if (pa[o] < minX) minX = pa[o];
+    if (pa[o] > maxX) maxX = pa[o];
+    if (pa[o + 2] < minZ) minZ = pa[o + 2];
+    if (pa[o + 2] > maxZ) maxZ = pa[o + 2];
+  }
+  const nx = Math.max(1, Math.ceil((maxX - minX) / INDEX_CELL) + 1);
+  const nz = Math.max(1, Math.ceil((maxZ - minZ) / INDEX_CELL) + 1);
+  // Counting sort into a flat CSR layout: one pass to count, one to place. No
+  // array of arrays, because a 60 m arena is 3,600 buckets and this is built
+  // while a wave is starting.
+  const start = new Int32Array(nx * nz + 1);
+  // The cell each vertex lands in, kept rather than recomputed. The arithmetic
+  // is the expensive half of this and it is otherwise done twice.
+  const cellOf = new Int32Array(pos.count);
+  for (let i = 0, o = 0; i < pos.count; i++, o += 3) {
+    let ci = ((pa[o] - minX) / INDEX_CELL) | 0;
+    let cj = ((pa[o + 2] - minZ) / INDEX_CELL) | 0;
+    if (ci < 0) ci = 0; else if (ci >= nx) ci = nx - 1;
+    if (cj < 0) cj = 0; else if (cj >= nz) cj = nz - 1;
+    const c = cj * nx + ci;
+    cellOf[i] = c;
+    start[c + 1] += 1;
+  }
+  for (let c = 0; c < nx * nz; c++) start[c + 1] += start[c];
+  const items = new Int32Array(pos.count);
+  const fill = start.slice(0, nx * nz);
+  for (let i = 0; i < pos.count; i++) items[fill[cellOf[i]]++] = i;
+  const index = { minX, minZ, nx, nz, start, items };
+  indexCache.set(geometry, index);
+  return index;
+}
+
 // THE GROUND UNDER A POINT, off the level's own painted cover.
 //
 // Returns { color, height } in world terms, or null where there is no cover.
@@ -257,15 +326,29 @@ export function soilAt(scene, x, z) {
   const col = surface.geometry.getAttribute('color');
   const pa = pos.array;
   const ca = col.array;
+  const grid = coverIndex(surface.geometry);
+  const ci = Math.floor((q.x - grid.minX) / INDEX_CELL);
+  const cj = Math.floor((q.z - grid.minZ) / INDEX_CELL);
   let best = -1;
   let bestD = Infinity;
-  for (let i = 0, o = 0; i < pos.count; i++, o += 3) {
-    const dx = pa[o] - q.x;
-    const dz = pa[o + 2] - q.z;
-    const d = dx * dx + dz * dz;
-    if (d < bestD) { bestD = d; best = i; }
+  for (let j = cj - 1; j <= cj + 1; j++) {
+    if (j < 0 || j >= grid.nz) continue;
+    for (let i = ci - 1; i <= ci + 1; i++) {
+      if (i < 0 || i >= grid.nx) continue;
+      const c = j * grid.nx + i;
+      for (let k = grid.start[c]; k < grid.start[c + 1]; k++) {
+        const v = grid.items[k];
+        const dx = pa[v * 3] - q.x;
+        const dz = pa[v * 3 + 2] - q.z;
+        const d = dx * dx + dz * dz;
+        if (d < bestD) { bestD = d; best = v; }
+      }
+    }
   }
-  if (best < 0) return null;
+  // Nothing near enough to be the ground this hole is in. The cover is a
+  // painted arena inside a much larger floor, and the nearest vertex to a point
+  // twenty metres outside it is a corner of the paint, which is not an answer.
+  if (best < 0 || bestD > REACH * REACH) return null;
   // Out at the rim the cover is fading into bare floor, and a fifth of a coat
   // of grass is not what the hole is dug in.
   if (ca[best * 4 + 3] < 0.35) return null;
@@ -602,8 +685,10 @@ export function createDirtField({
     return true;
   }
 
+  let ticks = 0;
   function step(dt) {
     if (!(dt > 0)) return;
+    ticks += 1;
     for (const site of sites) site.advance(dt);
     if (live.length) {
       const steps = Math.min(Math.ceil(dt / MAX_STEP), 32);
@@ -649,6 +734,8 @@ export function createDirtField({
       let tipped = 0;
       let armed = false;
       const id = nextSite++;
+      let seen = -1;        // the field tick this site last saw advance
+      let starved = 0;
       const mine = (i) => state[i] === HELD && owner[i] === id;
 
       function look() {
@@ -782,8 +869,13 @@ export function createDirtField({
         // the beat; calling it once with 1 is a legitimate way to say "as fast
         // as you are allowed".
         stir(u) {
-          if (!armed) api.arm();
           const v = clamp01(u);
+          // Zero does not arm. A performance is free to call this every frame
+          // from a distance that has not reached the beat yet, and arming on
+          // that would build a mound at every dormant grave in the level and
+          // hold twenty-two slots a piece for ground that never opens.
+          if (v <= 0) return;
+          if (!armed) api.arm();
           if (v > want) want = v;
         },
 
@@ -904,9 +996,28 @@ export function createDirtField({
         },
 
         // Steps the SHARED field, and only for whichever site got there first.
+        //
+        // The second half of this is the failure it would otherwise have: if
+        // the site that got there first stops being updated -- its performance
+        // disposed without saying so, its figure taken off the board -- every
+        // clod in the scene freezes in mid-air, and nothing about that looks
+        // like a missing update. So a site that is not driving watches the
+        // field's own tick count, and takes over when it stops moving.
         update(dt) {
           if (!primary) primary = api;
-          if (primary === api) step(dt);
+          if (primary === api) {
+            seen = ticks;
+            step(dt);
+            return;
+          }
+          if (ticks !== seen) { seen = ticks; starved = 0; return; }
+          starved += 1;
+          if (starved > 2) {
+            primary = api;
+            starved = 0;
+            seen = ticks;
+            step(dt);
+          }
         },
 
         dispose() {
