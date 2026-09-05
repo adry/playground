@@ -142,10 +142,10 @@ function segSegD2(ax, az, bx, bz, cx, cz, dx, dz) {
 // layout/footprints.js), and a run of them is meant to be a wall. As circles
 // their keep-out bulged 0.27 beyond the leaves on both faces of the run; as
 // boxes an abutting pair is one continuous wall exactly as wide as the hedge.
-const boxFoot = (p) => {
-  const f = p.foot;
-  return f && f.shape === 'box' && f.halfU > 0 && f.halfV > 0 ? f : null;
-};
+// THE BASELINE. Identical to the shipped resolver except that no prop ever
+// reports a box, so every footprint collides as its circumscribed circle. This
+// is how the collider change was measured against itself with one variable.
+const boxFoot = () => null;
 
 // The prop's own frame. Written into these rather than returned, because this
 // runs a few million times in the overnight check and an object per call is the

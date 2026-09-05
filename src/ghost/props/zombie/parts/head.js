@@ -630,8 +630,13 @@ export function buildHead({ materials }) {
     keepQuad: (u, vv) => {
       const p = surfacePoint(u, vv);
       if (p.z <= 0) return true;
-      for (const side of [1, -1]) if (socketR(p.x, p.y, side) <= 0.92) return false;
-      if (grinR(p.x, p.y) <= 0.86) return false;
+      // Cut GENEROUSLY, past the outline rather than short of it. Cut short,
+      // the shell's surviving quads and the rim ribbon lie on the same
+      // surface, and coplanar geometry z-fights: what that looks like is a fan
+      // of bright triangular spokes radiating out of each socket. The ribbon's
+      // outer flange reaches well past this and tucks under the skin.
+      for (const side of [1, -1]) if (socketR(p.x, p.y, side) <= 1.06) return false;
+      if (grinR(p.x, p.y) <= 1.00) return false;
       return true;
     },
   });
@@ -681,7 +686,8 @@ export function buildHead({ materials }) {
     const w = SOCK_HW * 0.34;
     const d = M.socket.depth;
     put(group, ribbon(frames, [
-      { t: w * 1.5, n: -d * 0.10 },     // tucked under the skin outside the cut
+      { t: w * 3.0, n: -d * 0.30 },     // well under the skin, outside the cut
+      { t: w * 1.6, n: -d * 0.02 },
       { t: w * 0.55, n: d * 0.30 },     // the crest of the lid
       { t: -w * 0.10, n: -d * 0.25 },
       { t: -w * 0.45, n: -d * 0.80 },
@@ -746,7 +752,8 @@ export function buildHead({ materials }) {
     const w = GRIN_HH * 0.42;
     const d = M.grin.depth;
     put(group, ribbon(frames, [
-      { t: w * 1.5, n: -d * 0.10 },
+      { t: w * 3.0, n: -d * 0.35 },
+      { t: w * 1.5, n: -d * 0.04 },
       { t: w * 0.50, n: d * 0.22 },        // the lip, such as it is
       { t: -w * 0.10, n: -d * 0.30 },
       { t: -w * 0.50, n: -d * 1.00 },
