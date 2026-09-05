@@ -30,13 +30,19 @@ import { registerStone, inkText } from '../tombstones.js';
 //   rise  (the height of each step)              0.125, 0.112, 0.100
 //                                       ratio          0.896, 0.893
 //
-// Tread falls at about 0.76 a step, rise at about 0.89. Four passes were run at
-// a shared ratio near 0.85 and every one of them read as a cake: the treads
-// were still wide at the top, so the top step looked like it was holding a
-// cake board rather than a monument. Splitting the two ratios is what makes the
-// stack read as architecture. The tread is the same number in x and in z, so
-// the shelf is a constant width all the way round and the camera's 45 degrees
-// in plan sees the same step on both visible faces.
+// Tread falls at about 0.76 a step, rise at about 0.89. The alternative was
+// built and rendered rather than argued about: one shared ratio of 0.85 on
+// both, which is the obvious first guess and is what makes a wedding cake. The
+// difference is all in the top step. At a shared ratio the top tread is still
+// 0.076 wide under a die whose half width is 0.275, so the die reads as
+// standing on a tray; at 0.060 the last tread is the thinnest thing in the
+// stack and the flight reads as running out under the monument, which is what
+// a flight of steps does. Both were looked at solo at 460 px and in the row at
+// 300, and the split ratio is the one that survives the small shot.
+//
+// The tread is the same number in x and in z, so the shelf is a constant width
+// all the way round and the camera's 45 degrees in plan sees the same step on
+// both visible faces.
 //
 // The ink goes on the pedestal and nowhere else. A silhouette this strong gets
 // no second thing competing with it (the registry's own postmortem is blunt
@@ -46,8 +52,10 @@ import { registerStone, inkText } from '../tombstones.js';
 // --- the stack --------------------------------------------------------------
 //
 // Half extents in x and z, and the rise, for each step from the ground up.
-// Depth trails width by the same 0.055 at every level, so the plan is a
-// consistent 1.12:1 oblong rather than three unrelated rectangles.
+// Depth trails width by the same 0.055 at every level, which is what keeps the
+// tread equal all round: the plan therefore runs 1.12:1 on the ground and
+// 1.20:1 at the top step, squaring up as it climbs toward a die that is
+// 1.25:1. Three rectangles converging on one, rather than three unrelated ones.
 const STEPS = [
   { hx: 0.520, hz: 0.465, rise: 0.125 },
   { hx: 0.415, hz: 0.360, rise: 0.112 },
@@ -55,11 +63,12 @@ const STEPS = [
 ];
 const STEPS_TOP = STEPS.reduce((y, s) => y + s.rise, 0); // 0.337
 
-// The rim on a step. Smaller than the slab's own 0.062 on purpose: this is the
-// one place in the piece where a horizontal plane meets a vertical one and the
-// meeting IS the read, so the arris is softened rather than rolled away. At
-// the slab radius a 0.100 rise loses two thirds of its face to rounding and
-// the three steps merge into one lump.
+// The rim on a step. Smaller than the slab's own 0.062 on purpose, and not as
+// a matter of taste: a rounded block rolls a rim over the top AND the bottom,
+// so it needs twice the radius in rise to have any riser left at all. The top
+// step is 0.100 high, and at 0.062 the two rims cross and the block turns
+// inside out. At 0.038 it keeps 0.024 of straight riser, which is the line
+// that says step.
 const STEP_EDGE = 0.038;
 const STEP_CORNER = 0.075; // the rounding on the four vertical arrises in plan
 
@@ -75,33 +84,43 @@ const STEP_CORNER = 0.075; // the rounding on the four vertical arrises in plan
 // directly: the bottom step is the plinth, and the registry's fixed +0.075 by
 // +0.065 overhang is not the tread this design wants.
 //
-// 0.55 by 0.50 gives an 1126 x 1024 face canvas, near enough square and well
-// inside the range the engraving treatment works in.
+// 0.55 by 0.46 gives a 1224 x 1024 face canvas, a shade wider than square and
+// well inside the range the engraving treatment works in.
 const W = 0.275;
 const H = 0.46;
 const D = 0.44;
-// The die tapers 2.6 degrees, which is obelisk's number and was chosen there
-// because 2 did not survive being 200 px tall on screen. Linear in y, and it
-// has to be: the slab has vertices only where its outline curves, so its long
-// straight sides are one quad end to end and anything with a knee in it gets
-// smeared over the whole block.
+// The die tapers 3.1 degrees. obelisk.js settled on 2.7 after finding that 2
+// did not survive being 200 px tall on screen, and this die is a third of the
+// obelisk's height, so it needs a little more slope to say the same thing over
+// a shorter run. Linear in y, and it has to be: the slab has vertices only
+// where its outline curves, so its long straight sides are one quad end to end
+// and anything with a knee in it gets smeared over the whole block.
 const TAPER = 0.09;
 const scaleAt = (y) => 1 - TAPER * (y / H);
 // The die is set INTO the top step rather than stood on it. 0.035 is well over
 // the key light's 0.006 normalBias, under which a tenon makes the block it
 // sits in shadow itself in a dotted band that looks exactly like z-fighting.
 const DIE_BURY = 0.035;
-const DIE_TOP = STEPS_TOP - DIE_BURY + H; // 0.802
+const DIE_TOP = STEPS_TOP - DIE_BURY + H; // 0.762
 
 // --- the cross --------------------------------------------------------------
 //
-// 1.82 overall, which puts it with the obelisk's 1.85 and the stele's 1.73 in
-// the tall group and a clear 0.20 over celtic's 1.62. It must still read as a
-// cross and not as a spire, and the number that decides that is the span: at
-// 0.670 across a 1.018 rise above the pedestal the head is 0.66 as wide as it
-// is tall, which is a Latin cross's own proportion. The camera is 45 degrees
-// round in plan, so an arm along x is seen at about 0.79 of its true length;
-// the span is set from what it measures ON SCREEN, not on paper.
+// 1.82 nominal, 1.77 to 1.83 measured across seeds once the per-seed headroom
+// below and the sink are both in, which puts it with the obelisk's 1.85 and the
+// stele's 1.73 in the tall group and a clear 0.15 over celtic's 1.62. It must
+// still read as a cross and not as a spire, and the number that decides that
+// is the span: 0.750 across a 1.058 rise above the die, so 0.71 as wide as it
+// is tall, which is a Latin cross's own proportion and nothing like a spire's.
+//
+// The first pass had the span at 0.670 on a 0.268 shaft and it failed for a
+// reason worth writing down: the arms projected 0.220 past a shaft they were
+// 0.219 thick, so each end was as long as it was deep and read as a cube stuck
+// on the side. Projection has to beat thickness by half again before an arm
+// looks like an arm. It now runs 0.276 past the upright on a 0.197 thickness,
+// and the upper limb is 0.282, matched to the projection so the four ends of
+// the cross are the same length. The camera is 45 degrees round in plan, so an
+// arm along x is seen at about 0.79 of its true span; that is the number the
+// span was set from, not the one on paper.
 const TOP = 1.820;
 const ARM_L = 0.375; // half span of the cross bar
 const YC = 1.440; // the crossing, i.e. the centre line of the bar
@@ -110,24 +129,27 @@ const YC = 1.440; // the crossing, i.e. the centre line of the bar
 // shaft and the head are the same stone and no joint shows at the crossing.
 const SHAFT_BURY = 0.070; // below the pedestal's top face, clear of its 0.062 shoulder
 const SHAFT_Y0 = DIE_TOP - SHAFT_BURY;
-const SHAFT_HX = 0.118; // half width where it leaves the pedestal, so 0.236 through
+const SHAFT_HX = 0.118; // 0.236 across at its foot, 0.232 where it clears the die
 const SHAFT_HZ = 0.105;
 const SHAFT_LEAN = 0.026; // radians off vertical: the upright's taper, 1.5 degrees
 
 // Each arm is its own solid running from inside the upright outward, which is
-// what lets one limb builder make all three members. 0.232 thick at the
-// crossing and never under 0.219 where it leaves the upright: the brief's floor
-// is 0.13 and the rim radius sets a hard 0.124, but an arm under about 0.16
-// simply loses itself against the floor behind it at scene size, so these are
-// half again that.
+// what lets one limb builder make all three members. 0.204 thick on the centre
+// line, 0.197 where it leaves the upright, 0.210 at the bell of its end, and
+// 0.174 through in depth at its thinnest. The rim radius sets a hard floor of
+// 0.124 (a limb thinner than twice it loses its front face), and an arm under
+// about 0.16 loses itself against the floor behind it at scene size; nothing
+// on this piece is under 0.174.
 const ARM_HX = 0.104; // half thickness at the crossing (vertical, once placed)
 const ARM_HZ = 0.092; // half depth
 const ARM_IN = 0.060; // how far past the centre line each arm starts, buried
 const ARM_LEAN = 0.035; // radians: the arms taper twice as hard as the upright
 
-// The rounding on the four long arrises of every member. Fat on purpose, 0.052
-// against a 0.134 half width: this is the chamfer, and in a style with no
-// knife edges in it a chamfer is a wide soft roll rather than a cut band.
+// The rounding on the four long arrises of every member. Fat on purpose, 0.048
+// against a 0.118 half width, so two fifths of the limb's half section: this is
+// the chamfer, and in a style with no knife edges in it a chamfer is a wide
+// soft roll rather than a cut band. It scales with the limb, because the plan
+// scales as a whole, so the arris stays in proportion all the way out.
 const SHAFT_CORNER = 0.048;
 const ARM_CORNER = 0.044;
 
@@ -139,16 +161,19 @@ const ARM_CORNER = 0.044;
 //
 //   1. the taper, straight;
 //   2. a hollow cove that turns the taper from leaning IN to leaning OUT;
-//   3. the flare, straight, 9 degrees the other way;
+//   3. the flare, straight, 11 degrees the other way;
 //   4. a quarter-round that rolls the end over, because nothing in this set
 //      comes to a corner.
 //
-// The flare is 0.013, about a ninth of the limb's half width, so the end
-// measures 0.245 where the limb behind it measures 0.219. That is small enough
-// to read as cut stone and large enough to survive: on the 300 x 400 scene
-// shot the whole end is about eleven pixels, and the difference between a
-// belled end and a parallel one at that size is one pixel of overhang plus the
-// shadow the overhang throws down the limb, which is what actually carries it.
+// The flare adds 0.012 to the half width, so an arm that the taper had brought
+// down to 0.186 across comes out 0.210 at its bell, against 0.197 where it
+// left the upright. Small enough to read as cut stone rather than as a club.
+// The first pass ran the cove at 0.090 and the flare over 0.075, and at that
+// size the ends necked in and swelled out far enough that the head read as a
+// clover rather than a cross; halving both is what turned it back into a
+// chisel stop. On the 300 x 400 scene shot the whole end is about eleven
+// pixels across, and what carries it there is not the overhang itself but the
+// shadow the overhang throws back down the limb.
 const COVE_R = 0.055;
 const FLARE = 0.20; // radians off vertical, the other way
 const FLARE_L = 0.055; // its length along the meridian
@@ -340,19 +365,32 @@ function limbGeometry({ hx0, hz0, corner, y0, y1, lean, uv }) {
   });
 }
 
-// Lowest point of a geometry once a matrix is applied, walked vertex by vertex.
-// Box3.setFromObject grows the local box by the rotation and trusts cached
-// bounding boxes, so on a leaning stack a metre wide it hands back a tumbling
-// cube's corner and the piece gets buried twice as deep as it needs.
-function lowestVertex(geometry, matrix) {
+// The highest point of a step's UNDERSIDE once a matrix is applied, walked
+// vertex by vertex.
+//
+// Not the lowest point of the whole solid, and the difference is the whole
+// seating problem on this piece. The registry's lean tips the body about its
+// own origin, which sits in the middle of the footprint, so one corner of the
+// underside always goes below the floor and the opposite one always comes off
+// it. Sinking by the LOWEST point therefore reports success while a corner is
+// still in the air. What has to go under the floor is the highest corner of the
+// underside, and then the whole footing is in contact.
+//
+// Box3.setFromObject is no use for either: it grows the local box by the
+// rotation and trusts cached bounding boxes, so on a leaning base a metre wide
+// it hands back a tumbling cube's corner.
+function highestUnderside(geometry, matrix) {
   const pos = geometry.attributes.position;
   const v = new THREE.Vector3();
-  let min = Infinity;
+  let max = -Infinity;
   for (let i = 0; i < pos.count; i++) {
+    // roundedBlock lays its first ring on y0 exactly, so on the bottom step the
+    // underside is the vertices at local y 0 and nothing else.
+    if (pos.getY(i) > 1e-6) continue;
     v.fromBufferAttribute(pos, i).applyMatrix4(matrix);
-    if (v.y < min) min = v.y;
+    if (v.y > max) max = v.y;
   }
-  return min;
+  return max;
 }
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -382,27 +420,26 @@ function parkUVs(geo, stripUV, y0, y1, span) {
 // wayside calvary's own word and no other stone in the set carries it; three
 // already carry a bare date, which is why this is not one.
 //
-// Sizing. The face is 1126 x 1024, so a font size of 0.27 of the face height
-// is 0.135 in world units and a cap height of about 0.096, which sits inside
-// the 0.09 to 0.12 the set uses and beside celtic's 0.115 and pyramid's 0.15.
-// Matching letter SIZE is what matters here rather than matching a coverage
-// number, because this face is narrower than the cross's and the same chisel
-// covers more of it.
+// Sizing. Measured on the real 1224 x 1024 face, on the same code path: a font
+// size of 0.31 of the face height is 0.143 in world units and the caps measure
+// 209 texels, which is 0.094 in world units. That sits inside the 0.09 to 0.12
+// the set uses, beside celtic's 0.115 and under pyramid's 0.15. Matching letter
+// SIZE is what matters more than matching a coverage number, because a narrower
+// face makes the same chisel cover more of it.
 //
-// The die tapers, so the texture is squeezed horizontally as it climbs and the
-// letters narrow with it. obelisk.js undoes that on its star; here it is left
-// alone deliberately. The taper is 0.09 over the full height and the word sits
-// at a fifth of it, so the squeeze at the baseline is 2 percent, which on a
-// 615 px word is 12 texels spread across three letters and lands under half a
-// pixel on screen. Correcting it would cost a transform in draw() and buy
-// nothing measurable.
+// Coverage falls out at 4.4% of the face, alpha weighted, against 3.8 for the
+// approved cross, 6.8 for fred and 9.2 for the bat, and against the 12 to 19
+// that got a whole set rejected for busy lettering. A piece whose silhouette is
+// doing this much work belongs at the light end of the band, and one word of
+// three letters is what that buys.
 const WORD = 'PAX';
 const WORD_SIZE = 0.31; // font size, in fractions of the face height
-const WORD_ROW = 0.53; // baseline, in fractions of the face height down from the top
+const WORD_ROW = 0.50; // baseline, in fractions of the face height down from the top
 
-// The visible band of the die is v 0.07 to 0.876: the bottom 0.035 is buried in
-// the top step and the top 0.062 rolls over into the shoulder the cross stands
-// on. The word is centred on THAT band rather than on the canvas.
+// The visible band of the die is v 0.076 to 0.865: the bottom 0.035 is buried
+// in the top step and the top 0.062 rolls over into the shoulder the cross
+// stands on. The word is centred on THAT band rather than on the canvas, which
+// is why the row is 0.50 and not 0.53.
 
 // ---------------------------------------------------------------------------
 
@@ -421,7 +458,18 @@ registerStone('calvary', {
 
   draw(ctx, w, h) {
     const size = h * WORD_SIZE;
+    // The die tapers, so the texture is squeezed horizontally as it climbs and
+    // the word would come out about 5 percent narrow at this row. obelisk.js hit
+    // the same thing on its star. Undone here about the centre line, which is
+    // the mirror line of the taper, so the letters keep the shape they were
+    // drawn in and stay centred on the face.
+    const stretch = 1 / scaleAt(H * (1 - WORD_ROW));
+    ctx.save();
+    ctx.translate(w / 2, 0);
+    ctx.scale(stretch, 1);
+    ctx.translate(-w / 2, 0);
     inkText(ctx, WORD, w / 2, h * WORD_ROW, size, size * 0.05);
+    ctx.restore();
   },
 
   extras({ body, slab, material, rng, disposables, stripUV, lean }) {
@@ -444,7 +492,7 @@ registerStone('calvary', {
     // The taper is applied to the slab's own vertices because
     // buildSlabGeometry sweeps a CONSTANT section and cannot be asked for one.
     // Scaling x and z by scaleAt(y) keeps the front face a plane (a plane
-    // leaning back 2.6 degrees, which is what the front of a die is) and keeps
+    // leaning back 3.1 degrees, which is what the front of a die is) and keeps
     // every rounded edge round, because the outline is a Minkowski sum and a
     // uniform scale of it is exact.
     //
@@ -534,7 +582,7 @@ registerStone('calvary', {
     // over a quarter turn. Two solids rather than one bar through the middle,
     // because a bar would need its own mirrored meridian to flare at both ends
     // and this way the same builder makes all three members. The joint is
-    // 0.060 inside the upright, which at the crossing is 0.232 wide, so both
+    // 0.060 inside the upright, which at the crossing is 0.197 wide, so both
     // caps are buried well past the 0.006 the shadow bias needs.
     for (const side of [1, -1]) {
       const geo = limbGeometry({
@@ -557,23 +605,31 @@ registerStone('calvary', {
     // --- seating -------------------------------------------------------------
     //
     // The registry decides the lean before extras runs and applies it after, so
-    // the sink can be measured here instead of guessed. It has to be: the
-    // bottom step's footprint half diagonal is 0.698, and the lean reaches
-    // 0.032 radians in x and 0.022 in z, which lifts a far corner up to 0.024
-    // clear of the floor. The registry's own 0.012 sink does not cover that,
-    // and a stone with one corner of its bottom step hanging in the air is the
-    // exact failure the chest tomb and the kerbed plot each had to solve.
+    // the sink can be measured here instead of guessed, and on this piece it
+    // has to be. The bottom step's underside is 0.964 by 0.854, half diagonal
+    // 0.643, and the lean reaches 0.032 radians in x and 0.0225 in z, which is
+    // 0.039 combined and lifts one corner up to 0.025 off the floor. The
+    // registry's own sink is 0.012, so the shipped default leaves a gap under a
+    // corner of a base a metre across. Measured rather than feared,
+    // before this line went in: +0.0113 on seed 3, +0.0063 on seed 5, +0.0035
+    // on seed 4, which is up to 11 mm of daylight under the bottom step. That
+    // is the failure the chest tomb and the kerbed plot each had to solve.
     //
-    // So the lean is built as a matrix, the bottom step's vertices are walked
-    // under it, and the sink is whatever puts the lowest one MIN_SINK under the
-    // floor. Never less than the registry's own, so this can only ever bury the
-    // piece deeper than the default, not float it.
-    const MIN_SINK = 0.014;
+    // So the lean is built as the matrix the registry is about to apply, the
+    // underside ring is walked under it, and the sink is whatever puts the
+    // HIGHEST corner of that ring MIN_BURY below the floor. Never less than the
+    // registry's own, so this can only bury the piece deeper than the default.
+    //
+    // What it costs is worth writing down: on the worst seed the low corner
+    // ends up about 0.050 down, so the bottom step shows 0.075 of its 0.125
+    // rise there and its full rise at the other end. That is what a settled
+    // monument looks like, and it is the reason the bottom step is the tallest
+    // of the three.
+    const MIN_BURY = 0.004;
     const m = new THREE.Matrix4().makeRotationFromEuler(
       new THREE.Euler(lean.enabled ? lean.x : 0, 0, lean.enabled ? lean.z : 0, 'XYZ'),
     );
-    const low = lowestVertex(bottomStep.geometry, m);
-    lean.sink = Math.min(lean.sink, -MIN_SINK - low);
+    lean.sink = Math.min(lean.sink, -MIN_BURY - highestUnderside(bottomStep.geometry, m));
 
     // No displaced earth and no contact patch. The set has been round both and
     // rejected them: a patch laid flat on the floor is the same on every side

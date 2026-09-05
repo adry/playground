@@ -113,7 +113,7 @@ async function buildLineup() {
   const [
     ghostMod, pumpkin, tombstones, panel, broken, debris, gate, skeleton, fountain, shed,
     street, pillar, post, crook, groundLantern,
-    kerbGround, sandPath, gravelPath, bush, holeMod, dirt, flies,
+    kerbGround, sandPath, gravelPath, bush, holeMod, dirt, flies, flowers, grass,
   ] = await Promise.all([
     import('../ghost/ghost.js'),
     import('../ghost/props/pumpkin.js'),
@@ -137,6 +137,8 @@ async function buildLineup() {
     import('../ghost/props/ground/hole.js'),
     import('../ghost/props/ground/dirtpile.js'),
     import('../ghost/props/fireflies.js'),
+    import('../ghost/props/ground/flowers.js'),
+    import('../ghost/props/ground/grass.js'),
   ]);
 
   // Slot 0, and the reason the grid is offset rather than the ghost. See
@@ -257,7 +259,41 @@ async function buildLineup() {
     h.registerWith(ground);
   }
 
+  // Three patches overlapped by about a quarter of their reach, which is how
+  // the layout generator should place them: at their own radius they sit as
+  // three separate discs, and grass is the one prop here whose job is to have
+  // no edge.
+  {
+    const holder = new THREE.Group();
+    const ups = [];
+    for (const [i, [x, z, r]] of [[-0.5, -0.35, 0.75], [0.45, -0.1, 0.62], [0.05, 0.55, 0.7]].entries()) {
+      const g = grass.createGrassPatch({ seed: 11 + i, radius: r });
+      g.group.position.set(x, 0, z);
+      holder.add(g.group);
+      ups.push(g.update);
+    }
+    holder.add(grass.createGrassTuft({ seed: 4 }).group.translateX(-0.95).translateZ(0.7));
+    place({ label: 'grass', group: holder, update: (t, dt) => { for (const u of ups) u(t, dt); } });
+  }
+
+  const updates = [];
   place({ label: 'dirt pile', group: dirt.createDirtPile({ seed: 2, spade: true }).group });
+
+  // All four flowers in one cell rather than one each. They are the smallest
+  // things in the set, 19 by 27 pixels at the shipped framing, and the only
+  // question worth asking of them is whether their colours work as a GROUP
+  // against the stone, which four separate cells cannot answer.
+  {
+    const holder = new THREE.Group();
+    const spots = [[-0.62, -0.5], [0.55, -0.62], [-0.5, 0.6], [0.66, 0.52]];
+    for (let i = 0; i < flowers.FLOWER_VARIANTS.length; i++) {
+      const c = flowers.createFlowerClump({ variant: flowers.FLOWER_VARIANTS[i], seed: 3 + i });
+      c.group.position.set(spots[i][0], 0, spots[i][1]);
+      holder.add(c.group);
+      updates.push(c.update);
+    }
+    place({ label: 'flowers', group: holder, update: (t, dt) => { for (const u of updates) u(t, dt); } });
+  }
 
   // The fireflies get a cell of their own rather than being sprinkled over the
   // whole lineup, because they are the one asset here that is judged on its

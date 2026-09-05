@@ -5,11 +5,14 @@ import {
 } from '../foliage/wind.js';
 
 // Graveyard grass: the unmown tufty stuff that grows between plots and creeps
-// up against a kerb. A patch is a scatter of clumps, not a lawn.
+// up against a kerb. A patch is one ragged mass of interlocking clumps with a
+// torn edge and bare ground worn through it. Not a lawn, and, after the pass
+// that this file's density note is about, not a scatter either.
 //
 //   const grass = createGrassPatch({
 //     seed: 4,        // every blade, every clump and every colour hangs off this
-//     radius: 1.0,    // world units. The scatter fills a disc of this radius
+//     radius: 1.0,    // world units. Clumps scatter inside a lobed boundary
+//                     // of about this radius; size.reach is what it covers
 //     density: 1,     // clumps per unit area, relative to the default
 //     scale: 1,       // applied to the whole group
 //   });
@@ -58,8 +61,8 @@ import {
 //
 // --- WHAT MAKES IT READ AT SIXTY PIXELS -----------------------------------
 //
-// Measured, in a 900x900 frame at view 6.2: a patch of radius 1 occupies 303 by
-// 163 pixels, and one blade in it is between one and a half and two and a half
+// Measured, in a 900x900 frame at view 6.2: a patch of radius 1 occupies 262 by
+// 146 pixels, and one blade in it is between one and a half and two and a half
 // pixels wide. Nothing about an individual blade survives that, so the work is
 // done by:
 //
@@ -70,11 +73,15 @@ import {
 //     through mergeLumps' lumpU, so every blade is dark at the foot and bright
 //     at the tip. That gradient is the whole read of the patch from across the
 //     yard: the mass goes dark at the ground and the tops catch the key.
-//   - THATCH. Every clump carries dead blades folded past 70 degrees, lying
-//     over its own foot, and more of them are strewn between the clumps. They
-//     are what stops the patch reading as green marks stuck into bare floor,
-//     and they are what dresses the ground without putting anything flat on it.
-//     See the note further down on the two flat layers that were tried first.
+//   - DENSITY, and it turned out to matter more than any of the modelling. A
+//     patch has to be dense enough that its clumps interpenetrate, or the eye
+//     counts them and reads weeds on concrete however good the blade is. The
+//     number, and the sweep that found it, are above CLUMPS_PER_AREA.
+//   - THATCH. Every clump carries dead blades folded past 55 degrees, lying
+//     over its own foot, and a couple of hundred more are strewn between the
+//     clumps. They are what stops the patch reading as green marks stuck into
+//     bare floor, and they dress the ground without putting anything flat on
+//     it. See the note further down on the two flat layers that were tried.
 //
 // --- THE FLOOR -------------------------------------------------------------
 //
@@ -92,9 +99,10 @@ import {
 // --- proportions -----------------------------------------------------------
 //
 // Ankle deep on the 1.72 ghost, which is what puts it under the 0.81 of the
-// shortest headstone by a factor of four and lets a stone stand IN grass rather
-// than behind it. Measured, not guessed: the finished patch reports its own
-// height range in size.height and the numbers are in the report.
+// shortest headstone by a factor of three and lets a stone stand IN grass
+// rather than behind it. Measured, not guessed: over 24 seeds the shortest
+// clump in a patch comes out at 0.095 and the tallest straggler at 0.265, and
+// the finished patch reports its own range in size.shortest and size.tallest.
 const HEIGHT = {
   min: 0.112,
   max: 0.190,
@@ -110,17 +118,45 @@ const HEIGHT = {
 const BLADE_W = [0.018, 0.012];   // [base, spread]
 const BLADE_THICK = [0.38, 0.22]; // as a fraction of the width
 
-// Clumps per unit area at density 1, and the loose blades between them.
+// Clumps per unit area at density 1, how close they are allowed to get, and
+// how many loose blades are strewn between them.
 //
-// FEW AND BIG, not many and small. At thirteen small clumps a square metre the
-// patch read as a scatter of separate little plants standing on bare floor
-// (out/grass/grass-scene-crop4x-scatter.png): every clump was a five-blade
-// spider and the eye counted them. Eight fat tussocks a metre with loose blades
-// strung between them reads as one piece of overgrown ground, which is what a
-// gap between two plots looks like, and it costs the same triangles because the
-// blades went into fewer clumps rather than into more of them.
-const CLUMPS_PER_AREA = 8;
-const STRAY_SHARE = 1.4;          // loose blades, as a fraction of the clumps
+// THIS IS THE NUMBER THE PROP TURNS ON, and it was found by sweeping it rather
+// than by argument. The question is at what point a patch stops reading as
+// countable objects standing on a floor and starts reading as ground cover.
+// Rendered at the scene's own framing, radius 0.8, everything else fixed
+// (out/grass/row/threshold.png, twelve to thirty two clumps per square metre,
+// left to right):
+//
+//   12/m2   a scatter of separate little plants. The eye counts them.
+//   16/m2   still countable, gaps everywhere, reads as weeds.
+//   20/m2   a mass with holes in it. The transition happens here.
+//   24/m2   one ragged mass. Nothing to count.
+//   32/m2   solid, and starting to look mown rather than neglected.
+//
+// So: 24. Three times what this prop shipped with, and the reason the first
+// pass looked like scattered weeds however the clumps themselves were shaped.
+//
+// SPACING matters as much as count and it is the cheaper half of the fix. The
+// rejection sampler used to hold clumps 0.74 of the Poisson spacing apart,
+// which is just far enough that neighbouring fans touch at their tips and the
+// eye still finds the gap between the two dense cores. At 0.42 they
+// INTERPENETRATE: the feet sit inside each other's fans, blades cross, and a
+// run of three or four clumps merges into one shapeless tussock. Crossing
+// blades are what real grass does and they are the cheapest thing in this prop
+// that reads as mass, because they cost nothing at all.
+//
+// Clumps also got SMALLER as they got denser, which is why this is not three
+// times the cost: 4 to 9 blades where it used to be 6 to 14. Once neighbours
+// interlock, a clump does not have to be full on its own.
+const CLUMPS_PER_AREA = 24;
+const CLUMP_SPACING = 0.42;       // as a fraction of the Poisson spacing
+const BLADES = [4, 5];            // [base, extra] per clump, on its vigour
+const DEAD = [2, 2];              // dead blades lying over the clump's own foot
+// Loose blades, as a multiple of the clump count. Many and short rather than
+// few and tall: they are what has to carry the floor between the tussocks, and
+// at the old 1.4 there were only about thirty five of them in a whole patch.
+const STRAY_SHARE = 2.6;
 
 // How far below the floor a blade starts and a thatch mound sinks.
 const BURY = 0.035;
@@ -378,7 +414,7 @@ function buildClump(rand, {
   // buried feet make the ground contact instead, and these lying-over blades
   // are what hides them.
   if (thatch) {
-    const n = dead === undefined ? 3 + Math.round(vigour * 3) : dead;
+    const n = dead === undefined ? DEAD[0] + Math.round(vigour * DEAD[1]) : dead;
     for (let b = 0; b < n; b++) {
       const az = spin + 1.2 + b * 2.399963 + (rand() - 0.5) * 1.2;
       const len = (height / ARC_LOSS) * (0.50 + rand() * 0.45);
@@ -462,17 +498,39 @@ function buildClump(rand, {
 
 // --- scatter ---------------------------------------------------------------
 //
-// Clumped rejection sampling in a disc. Half of the candidates are thrown near
-// a clump that is already down, which is what puts real gaps and real thickets
-// into the patch: uniform Poisson gives an even stipple, and an even stipple of
-// grass reads as a machine-planted lawn, which is the one thing a neglected
-// churchyard is not.
+// Clumped rejection sampling inside a lobed boundary. Half of the candidates
+// are thrown near a clump that is already down, which is what puts real gaps
+// and real thickets into the patch: uniform Poisson gives an even stipple, and
+// an even stipple of grass reads as a machine-planted lawn, which is the one
+// thing a neglected churchyard is not.
 function scatterClumps(rand, radius, density) {
   const area = Math.PI * radius * radius;
   const target = Math.max(1, Math.round(CLUMPS_PER_AREA * density * area));
-  const minD = 0.74 * Math.sqrt(area / target);
+  const minD = CLUMP_SPACING * Math.sqrt(area / target);
   const out = [];
-  const tries = target * 40;
+  const tries = target * 60;
+
+  // The boundary is a lobed curve, not a circle. Thinning a circular scatter
+  // towards its rim is not enough once the middle is dense: what the eye reads
+  // then is a filled ellipse with a soft edge, which is a disc of grass laid on
+  // the floor and is countable in a different way. Three sinusoids at 2, 3 and
+  // 5 cycles give the patch bays and peninsulas at the scale of the patch
+  // itself, which is the scale a torn edge has.
+  const p2 = rand() * 6.2832, p3 = rand() * 6.2832, p5 = rand() * 6.2832;
+  const bound = (ang) => 0.86
+    + 0.150 * Math.sin(2 * ang + p2)
+    + 0.095 * Math.sin(3 * ang + p3)
+    + 0.055 * Math.sin(5 * ang + p5);
+
+  // And one or two bald spots inside it. Ground that is continuously covered
+  // to its own edge is a lawn; a neglected plot is worn through in places, and
+  // the holes are what stop a dense patch reading as a moulded mat.
+  const bald = [];
+  for (let i = 0, n = rand() < 0.55 ? 2 : 1; i < n; i++) {
+    const a = rand() * 6.2832;
+    const d = radius * (0.15 + rand() * 0.5);
+    bald.push({ x: Math.cos(a) * d, z: Math.sin(a) * d, r: radius * (0.14 + rand() * 0.20) });
+  }
 
   for (let k = 0; k < tries && out.length < target; k++) {
     let x, z;
@@ -484,19 +542,24 @@ function scatterClumps(rand, radius, density) {
       z = p.z + Math.sin(a) * d;
     } else {
       const a = rand() * Math.PI * 2;
-      const d = radius * Math.sqrt(rand());
+      const d = radius * 1.06 * Math.sqrt(rand());
       x = Math.cos(a) * d;
       z = Math.sin(a) * d;
     }
     const rr = Math.hypot(x, z) / radius;
-    // Thinned towards the rim and allowed a little past it, so the patch fades
-    // out instead of ending on a drawn circle. A circular edge is the single
-    // thing that would give away a scattered patch as a placed prop.
-    if (rr > 1.03) continue;
-    const t = Math.max(0, Math.min(1, (rr - 0.58) / 0.5));
-    if (rand() < t * t * (3 - 2 * t) * 0.85) continue;
+    const lim = bound(Math.atan2(z, x));
+    if (rr > lim) continue;
+    // Softened over the outer third of whatever the boundary is at this angle,
+    // so the lobes have fraying edges rather than cut ones.
+    const t = Math.max(0, Math.min(1, (rr - lim * 0.66) / (lim * 0.34)));
+    if (rand() < t * t * (3 - 2 * t) * 0.8) continue;
 
     let ok = true;
+    for (const h of bald) {
+      const q = Math.hypot(x - h.x, z - h.z) / h.r;
+      if (q < 1 && rand() > q * q * 0.9) { ok = false; break; }
+    }
+    if (!ok) continue;
     for (let i = 0; i < out.length; i++) {
       if (Math.hypot(out[i].x - x, out[i].z - z) < minD) { ok = false; break; }
     }
@@ -548,7 +611,7 @@ function buildGrass({ seed, radius, scale, sites, strays = 0 }) {
       z: s.z,
       height: h,
       vigour,
-      blades: 6 + Math.round(vigour * 8),
+      blades: BLADES[0] + Math.round(vigour * BLADES[1]),
       phase: delay(s.x, s.z),
       spread: s.spread === undefined ? 1 : s.spread,
     });
@@ -556,9 +619,12 @@ function buildGrass({ seed, radius, scale, sites, strays = 0 }) {
     tops.push(c.top);
   }
 
-  // Loose blades in the gaps. Without them the patch is a set of separate
-  // little plants standing on a bare floor; with them the clumps are joined by
-  // something and the whole thing reads as one overgrown piece of ground.
+  // Loose blades in the gaps: about two and a half for every clump, which at
+  // the default radius is a couple of hundred of them. Without them the patch
+  // is a set of separate little plants on a bare floor; with them the clumps
+  // are joined by something and the whole reads as one overgrown piece of
+  // ground. They are the cheapest coverage in the prop, a blade or two each at
+  // twenty two triangles.
   for (let i = 0; i < strays; i++) {
     const base = sites[(rand() * sites.length) | 0];
     const a = rand() * Math.PI * 2;
@@ -573,10 +639,12 @@ function buildGrass({ seed, radius, scale, sites, strays = 0 }) {
     const fallen = rand() < 0.36;
     const c = buildClump(rand, {
       x, z,
-      height: fallen ? HEIGHT.min * (0.9 + rand() * 0.7) : HEIGHT.min * 0.85 + rand() * 0.075,
+      // Short. A stray is a blade or two that never made a tussock, not a
+      // small tussock, and at full height they read as more countable objects.
+      height: (fallen ? HEIGHT.min * (0.9 + rand() * 0.7) : HEIGHT.min * 0.85 + rand() * 0.075) * 0.85,
       vigour: 0.2,
-      blades: fallen ? 0 : 2 + ((rand() * 2) | 0),
-      dead: fallen ? 2 + ((rand() * 2) | 0) : 0,
+      blades: fallen ? 0 : 1 + ((rand() * 2) | 0),
+      dead: fallen ? 1 + ((rand() * 2) | 0) : 0,
       phase: delay(x, z),
       spread: 0.7,
       thatch: fallen,
@@ -711,7 +779,12 @@ function paintDryness(geo, parts) {
  *
  * One merged geometry, one material, one draw call. Scatter as many as the
  * level needs: two patches of different seeds share no blade, no clump layout
- * and no colour, and overlapping them is how a layout generator gets a thicket.
+ * and no colour, and OVERLAPPING THEM IS HOW A LAYOUT GENERATOR GETS AN AREA.
+ * A patch is dense enough to read as ground cover on its own, which means it
+ * covers less ground than its radius suggests and costs what that density
+ * costs: about 7,500 triangles for every square metre it is scattered over,
+ * roughly 24,000 at the default radius of 1. Budget grass by the area you want
+ * covered, not by the number of patches.
  *
  * @param {object}  opts
  * @param {number}  opts.seed     every blade, clump and colour hangs off this
@@ -750,10 +823,17 @@ export function createGrassPatch({ seed = 1, radius = 1.0, density = 1, scale = 
  * @returns {{ group: THREE.Group, size: object, update: Function, dispose: Function }}
  */
 export function createGrassTuft({ seed = 1, scale = 1 } = {}) {
+  // The one site is given its vigour explicitly rather than letting the patch
+  // roll for it. A tuft placed on purpose against a kerb should be a proper
+  // tussock, and it should not be the SAME proper tussock every time: left to
+  // the patch's own roll a lone site lands on the same height for most seeds,
+  // because with only one clump there is nothing else for the height settle to
+  // scale against, and ten identical tufts along a kerb is very visible.
+  const r = foliageRng(seed * 40503 + 17);
   return buildGrass({
     seed,
     radius: 0.10,
     scale,
-    sites: [{ x: 0, z: 0, spread: 1.15, vigour: 0.78 }],
+    sites: [{ x: 0, z: 0, spread: 1.02 + r() * 0.26, vigour: 0.62 + r() * 0.38 }],
   });
 }

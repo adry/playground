@@ -32,26 +32,28 @@ import { registerStone, inkText } from '../tombstones.js';
 //      about twelve thousand distance tests at build time and nothing per
 //      frame.
 //   3. FACETS, NOT NOISE. A rock reads as a rock through a few large planes
-//      meeting at soft edges. So a stone here is a SUPERELLIPSOID, a sphere
-//      pushed out toward a rounded block, bent by three waves that are each
-//      less than one cycle wide. There is no high frequency displacement
-//      anywhere on it: at this camera distance that is film grain, it aliases,
-//      and the house style bans it. The block's own axes are turned at random
-//      per stone, so the flats face different ways and no two stones catch the
-//      key identically.
+//      meeting at soft edges. So a stone here is the intersection of eight to
+//      eleven half spaces, blended rather than cut so every edge is a bead: see
+//      fieldStone. The first pass used a sphere pushed onto an axis aligned
+//      superellipsoid and rendered as a heap of pillows, because three planes
+//      at right angles is not a rock, it is a bar of soap. There is no high
+//      frequency displacement anywhere on any of them: at this camera distance
+//      that is the film grain the house style bans, and it aliases.
 //
 // STABILITY. A pile whose centre of mass wanders off its base reads as about to
 // fall, which is a different and worse feeling than old. Every tier is a ring
-// about the axis with a bounded jitter, so the mass stays over the footprint;
-// the built pile reports its own centre of mass offset and it measures under a
-// tenth of the base radius on every seed.
+// about the axis with a bounded jitter, so the mass cannot walk off the base,
+// and it is checked rather than asserted: the build measures its own centre of
+// mass, weighted by each stone's volume, and leaves the offset in userData. It
+// comes out under a tenth of the base radius on every seed tried, against a
+// base radius the piece could in principle lean out to.
 //
 // THE LEAN. The registry offers every stone a small random lean and this one
 // declines it, which is the first time in the set. A pile of loose stones
 // cannot tilt as a rigid body: tip the whole cairn two degrees and the base
 // stones tip with it, which no heap does, and on a base half a metre wide the
 // far side lifts further than the registry's sink can bury. All the randomness
-// this piece needs is already inside it, in twelve separately seated stones.
+// this piece needs is already inside it, in a dozen separately seated stones.
 // The one thing that does lean is the slate, which is a single dressed slab and
 // is the only member of the piece a lean is true of.
 
@@ -65,15 +67,22 @@ const TAU = Math.PI * 2;
 // extras rather than thrown away, so the piece keeps the whole treatment: the
 // two-map groove, the grime band, the mottle, for nothing.
 //
-// 0.50 by 0.56 is the smallest face two lines of the set's own letter size fit
-// on. Depth is 0.15 because the sweep's rim radius is 0.062 and a slab thinner
-// than twice that loses its front face.
-const SLATE = { halfWidth: 0.25, height: 0.56, depth: 0.15 };
-// Tipped back, which is the second job the slate does. The camera sits 29
-// degrees up, so an upright face gives up most of itself; leaning the slate
-// back turns it toward the eye and buys back about a fifth of its height. The
-// solver below picks the exact angle out of this range, per seed, by asking
-// which one actually lands the slate's top edge on the pile.
+// 0.62 by 0.52, and the two numbers were forced rather than chosen.
+//
+// The letter has to be the set's letter: fred's is 0.098 world units of cap
+// height and cross's is 0.127, and a mark smaller than that does not read as
+// the same chisel however good the coverage number looks. Four capitals at that
+// size need 0.40 of clear face. The catch is that a slab's front face is NOT as
+// wide as the slab: the sweep insets it by the 0.062 rim radius all the way
+// round, so a 0.50 wide slate has 0.376 of flat face and a word sized for the
+// set wraps round the bead and up the side. Hence 0.58, which leaves 0.456 of
+// flat, and hence the tablet being WIDER than it is tall, which is a plaque
+// rather than a little headstone and is the better thing for it to be: a small
+// upright slab in front of a cairn reads as a second grave marker.
+//
+// Depth is 0.15 because the rim radius is 0.062 and a slab thinner than twice
+// that loses its front face and the sweep crosses itself.
+const SLATE = { halfWidth: 0.31, height: 0.52, depth: 0.15 };
 const TIP = { lo: 0.20, hi: 0.46 };
 // How far the slate presses into the stone it leans on, and how far its foot is
 // buried. Both are well over the light's 0.006 normal bias, which is the floor
@@ -88,41 +97,73 @@ const SLATE_SINK = 0.006;
 // foot of it: few enough that the eye can count them, which is what stops it
 // reading as gravel.
 //
-// `outer` is the tier's outer reach as a fraction of the base tier's, and it is
-// the number that carries the taper. Working in outer reach rather than in ring
-// radius is what guarantees the overhangs: each tier's edge lands a few
-// centimetres inside the edge below it, near enough that an irregular stone
-// often stands proud of its neighbour and always shades it.
+// A tier's ring radius is not a number anybody chose. It is the smallest radius
+// at which n stones of that size do not overlap each other, hw / sin(pi / n),
+// with a couple of per cent of daylight added. That single line is what makes
+// the piece a cone: a ring of four cannot pull in without its stones welding
+// into each other, a ring of three can pull in further, a ring of two further
+// still, so the taper comes out of the COUNT rather than out of a profile curve
+// somebody tuned. It is also how a cairn is really built, which is why it looks
+// like one.
 //
-// `phase` turns the ring, in whole steps of its own spacing. Half a step per
-// tier is what puts a stone over the gap below it rather than on the crown of
-// the stone below it, which is both how a cairn is actually built and where the
-// overhangs come from. The base ring is turned so its gap faces local +Z, the
-// direction the layout points at the camera, and the tier above it puts a stone
-// straight over that gap: that stone is what the slate leans on.
+// `phase` turns the ring, in steps of its own spacing. Half a step per tier
+// puts a stone over the gap below it rather than on the crown below it, which
+// is where the overhangs come from. The base ring is turned so its GAP faces
+// local +Z, the direction the layout points at the camera, and the tier above
+// it puts a stone straight over that gap: that stone is what the slate leans
+// against.
+//
+// The capstone is the exception to biggest at the bottom, and it is deliberate.
+// A ring of two is still a ring: its stones touch at the middle and part above
+// and below the touch, so the top of the pile is a V with the sky behind it,
+// which is what the first build of this rendered. A capstone WIDER than the
+// pair it sits on bridges that, overhangs it all the way round, and gives the
+// pile the one broad horizontal plane the key light can land square on. Real
+// cairns are finished this way for the same reason: it is what stops the top
+// blowing apart.
+// The pair below the capstone is turned to 45 degrees rather than to the half
+// step the rest of the tiers use, and that is a sightline rather than a
+// building decision. A ring of two parts along one line, and at a half step
+// that line runs across the screen, so the notch between them is dead centre
+// and the sky comes through it. Turned to 45 the pair sits along the camera's
+// own axis, the near one covers the notch, and the pile is closed. The layout
+// points every stone's +Z at the camera, so this holds where it matters.
 const TIERS = [
-  { n: 4, hw: 0.190, outer: 1.000, phase: 0.5 },
-  { n: 3, hw: 0.166, outer: 0.855, phase: 0.0 },
-  { n: 2, hw: 0.146, outer: 0.700, phase: 0.5 },
-  { n: 1, hw: 0.130, outer: 0.330, phase: 0.0 },
+  { n: 4, hw: 0.190, phase: 0.50 },
+  { n: 3, hw: 0.175, phase: 0.00 },
+  { n: 2, hw: 0.160, phase: 0.25 },
+  { n: 1, hw: 0.185, phase: 0.00, flat: { lo: 0.38, hi: 0.50 }, tilt: 0.06, bite: 0.05, settle: 0.97, plateau: true },
 ];
-// Half height over half width. A field stone is wider than it is tall, but a
-// pile of flat ones is a stack of pancakes, so the spread is wide and drawn per
-// stone: some are slabs and some are boulders, which is what a heap of stones
-// picked off a hillside is.
-const FLAT = { lo: 0.62, hi: 0.86 };
-// The superellipsoid exponent. 2 is a sphere, 4 is nearly a rounded cube. This
-// range gives a few broad planes with soft edges between them, which is the
-// whole of point 3 above.
-const BLOCK = { lo: 2.6, hi: 4.0 };
-// Total height, before the slate. The piece is one of the low ones by brief,
-// under fred's 1.10 and over the book's 0.81, and the pile is scaled to land
-// here after it is built so the seeded stone sizes cannot drift the silhouette.
-const HEIGHT = { lo: 0.86, hi: 1.02 };
+const PACK = 1.02;
+// Half height over half width, drawn per stone. Field stones are flat: they are
+// what splits off a hillside and what a person can carry, and a flat stone is
+// also the better stone for this piece twice over. It meets the one below it
+// along a broad contact rather than at a point, which is what makes the joint a
+// LINE, and it turns more of itself at the sky, which is dirtpile's second
+// finding about why a heap reads as lit and a dome does not. The spread is held
+// narrow because the pile is four of these stacked and a wide spread compounds
+// into a stone half a head taller on one seed than the next.
+const FLAT = { lo: 0.70, hi: 0.92 };
+// The block. A stone is the intersection of this many half spaces, and `edge`
+// is how sharply they meet: see fieldStone below. Eight to ten faces on a
+// stone this size gives facets sixty or seventy degrees apart, which is a few
+// large planes rather than a chipped surface. The first pass used an
+// axis aligned superellipsoid instead and rendered as a heap of pillows: three
+// planes at right angles is not a rock, it is a bar of soap.
+const FACES = { lo: 8, hi: 11 };
+const EDGE = { lo: 6.5, hi: 11.0 };
+// Total height, before the slate. The piece is one of the low ones, under fred's
+// 1.10 and over the book's 0.81. The built pile is nudged toward this, but only
+// nudged: the scale is clamped hard, because a stack's height is the sum of a
+// dozen seeded numbers and correcting all of that drift with a scale would move
+// the FOOTPRINT by as much, and the layout generator has to be told one number
+// for the footprint that holds on every seed.
+const HEIGHT = { lo: 0.86, hi: 0.98 };
+const SCALE_CLAMP = 0.10;
 // How far a stone is pushed past first touch. Enough that the joint is a real
 // intersection rather than a mathematical tangent, which under a 0.006 normal
 // bias reads as a floating stone.
-const BITE = 0.010;
+const BITE = 0.020;
 
 // --- the paint -------------------------------------------------------------
 //
@@ -132,18 +173,18 @@ const BITE = 0.010;
 // modelling the one key light cannot: an up-facing crown a shade brighter than
 // the base grey, a flank below it, and a crevice well under both.
 const FACE_UP = 1.02;
-const FACE_SIDE = 0.86;
-const FACE_UNDER = 0.50;
+const FACE_SIDE = 0.80;
+const FACE_UNDER = 0.42;
 // Per stone. Half a stop between neighbours is another thing that says two
 // stones rather than one mass, and it is the same trick dirtpile uses on clods.
 // Narrower here than there, because these are all the same grey stone rather
 // than wet earth and dry earth.
-const TONE = { lo: 0.92, hi: 1.06 };
+const TONE = { lo: 0.87, hi: 1.06 };
 // Occlusion. REACH is in occluder radii; DEPTH is how black a full crevice
 // goes. Both are dirtpile's numbers, which were tuned against this same floor
 // and this same key.
 const OCC_REACH = 2.1;
-const OCC_DEPTH = 0.55;
+const OCC_DEPTH = 0.70;
 // The floor occludes too, and it is the one occluder that is not a stone: the
 // underside of a base stone within this of the ground loses light no directional
 // key can put back.
@@ -154,46 +195,94 @@ const smoothstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t
 const lerp = (a, b, t) => a + (b - a) * t;
 
 // ---------------------------------------------------------------------------
-// One field stone.
+// One field stone: a broken block with a handful of broad faces and soft edges
+// between them.
 //
-// A sphere welded shut, pushed out onto a superellipsoid whose axes are turned
-// at random, then bent by three waves of less than a cycle each. Welded first
-// because SphereGeometry carries a seam of duplicated vertices where its uv
-// wraps and a fan of them at each pole, and computeVertexNormals on those gives
-// each copy its own normal: a visible crease straight down the side of every
-// rock. The uv is deleted before the weld for the same reason, since two
-// vertices at one position with different uv do not merge. This piece writes
-// its own uv afterwards anyway.
-function fieldStone(rng, seg, block) {
+// The shape is the intersection of eight to eleven half spaces, softened. It is
+// written as a p-norm rather than as a minimum, because a minimum gives a knife
+// edge where two faces meet and this house has none: the radius along a
+// direction is
+//
+//   r = (sum over faces of (dir . n / d) ^ q) ^ (-1/q)
+//
+// which is flat where one term dominates, a rounded blend where two or three
+// do, and exactly a superellipsoid if the faces happen to be the six axis ones.
+// q is the edge, and it is the one knob that decides whether this is a river
+// cobble or a quarry block: 4.6 rounds the edges to about a fifth of the
+// stone's width, 7.5 to a twentieth. Anything sharper than that starts to
+// alias, because the sphere it is sampled on has no vertices lined up with an
+// edge that arrived after it.
+//
+// Face normals come off a Fibonacci sphere rather than out of a random number
+// generator, jittered afterwards. Drawn at random, eight directions clump: two
+// land a few degrees apart and merge into one face, and the stone comes out
+// with a bald side.
+//
+// The sphere is welded shut before any of this. SphereGeometry carries a seam
+// of duplicated vertices where its uv wraps and a fan of them at each pole, and
+// computeVertexNormals gives each copy a normal of its own: a visible crease
+// straight down the side of every rock. uv is deleted before the weld for the
+// same reason, since two vertices at one position with different uv will not
+// merge, and this piece writes its own uv later anyway.
+function fieldStone(rng, seg, faces, q) {
   let geo = new THREE.SphereGeometry(0.5, seg[0], seg[1]);
   geo.deleteAttribute('uv');
   geo.deleteAttribute('normal');
   geo = mergeVertices(geo);
 
-  const p = geo.attributes.position;
   const spin = new THREE.Quaternion().setFromEuler(new THREE.Euler(rng() * TAU, rng() * TAU, rng() * TAU));
-  const back = spin.clone().invert();
-  const ph = [rng() * TAU, rng() * TAU, rng() * TAU];
+  const plane = [];
+  for (let i = 0; i < faces; i++) {
+    const y = 1 - (2 * i + 1) / faces;
+    const rad = Math.sqrt(Math.max(0, 1 - y * y));
+    const th = i * 2.399963;
+    const n = new THREE.Vector3(Math.cos(th) * rad, y, Math.sin(th) * rad).applyQuaternion(spin);
+    n.x += (rng() - 0.5) * 0.30;
+    n.y += (rng() - 0.5) * 0.30;
+    n.z += (rng() - 0.5) * 0.30;
+    n.normalize();
+    // How far out each face sits. This spread is most of what makes one stone
+    // a different stone from the next: a near face and a far face on opposite
+    // sides is a wedge, two near ones is a slab.
+    plane.push({ n, d: 0.5 * (0.78 + rng() * 0.40) });
+  }
+
+  const p = geo.attributes.position;
+  const ph = [rng() * TAU, rng() * TAU];
   const v = new THREE.Vector3();
   const d = new THREE.Vector3();
-  const a = new THREE.Vector3();
   for (let i = 0; i < p.count; i++) {
     v.fromBufferAttribute(p, i);
     d.copy(v).multiplyScalar(2); // the unit direction this vertex sits on
-    a.copy(d).applyQuaternion(back); // and the same direction in the block's frame
-    const s = Math.pow(Math.abs(a.x), block) + Math.pow(Math.abs(a.y), block) + Math.pow(Math.abs(a.z), block);
-    // The superellipsoid's radius along d. It is 1 on the block's own axes and
-    // grows toward its corners, so the axis half extents are still 0.5 and the
-    // scale applied later means exactly what it says.
-    let k = Math.pow(s, -1 / block);
-    // Three slow bends. The arguments run over plus or minus two radians across
-    // the whole stone, so this is one lopsided lump and not a raspberry.
-    k *= 1
-      + 0.085 * Math.sin(2.1 * d.x + ph[0])
-      + 0.075 * Math.sin(1.9 * d.y + ph[1])
-      + 0.065 * Math.sin(2.3 * d.z + ph[2]);
+    let acc = 0;
+    for (const f of plane) {
+      const t = (d.x * f.n.x + d.y * f.n.y + d.z * f.n.z) / f.d;
+      if (t > 0) acc += Math.pow(t, q);
+    }
+    let k = acc > 1e-6 ? Math.pow(acc, -1 / q) : 1;
+    // Two slow bends, so a face is never dead flat. Less than one cycle across
+    // the whole stone: anything faster than this is the film grain the set
+    // bans, and on a facet it would come back through the normals as hammered
+    // metal.
+    k *= 1 + 0.035 * Math.sin(2.1 * d.x + ph[0]) + 0.030 * Math.sin(1.9 * d.z + ph[1]);
     p.setXYZ(i, v.x * k, v.y * k, v.z * k);
   }
+
+  // Normalised back onto a unit block, so the scale applied outside means
+  // exactly what it says and the stack's height is predictable. A faceted
+  // stone's own extents depend on where its corners happened to land, and
+  // without this a seed that drew all its faces close in builds a pile a head
+  // shorter than the next.
+  let mx = 0;
+  let my = 0;
+  let mz = 0;
+  const q3 = p.array;
+  for (let i = 0; i < q3.length; i += 3) {
+    mx = Math.max(mx, Math.abs(q3[i]));
+    my = Math.max(my, Math.abs(q3[i + 1]));
+    mz = Math.max(mz, Math.abs(q3[i + 2]));
+  }
+  geo.scale(0.5 / mx, 0.5 / my, 0.5 / mz);
   geo.computeVertexNormals();
   return geo;
 }
@@ -257,17 +346,76 @@ function splat(field, geo, iu, iv, iw, keepBigger) {
 // How far `moving` has to travel along the field's own axis before it stops
 // overlapping `fixed`. Positive means it is currently through the pile and has
 // to back off; negative means it is clear by that much.
-function clearance(fixed, moving) {
-  let worst = -Infinity;
+function clearance(fixed, moving, quantile = 1) {
+  if (quantile >= 1) {
+    let worst = -Infinity;
+    for (let i = 0; i < fixed.data.length; i++) {
+      const m = moving.data[i];
+      if (m === moving.unset) continue;
+      const f = fixed.data[i];
+      if (f === fixed.unset) continue;
+      const d = f - m;
+      if (d > worst) worst = d;
+    }
+    return worst;
+  }
+  // Under one, the stone is allowed to bury the sharpest few per cent of what
+  // it lands on. That is the capstone's setting and it exists because of one
+  // seed: the cap came down on a single knuckle of the stone below, stopped
+  // dead on it, and left daylight under the rest of itself, which reads as a
+  // rock hovering however true the contact is. Letting the knuckle through by
+  // a centimetre sets the cap down on the broad support underneath instead.
+  const all = [];
   for (let i = 0; i < fixed.data.length; i++) {
     const m = moving.data[i];
     if (m === moving.unset) continue;
     const f = fixed.data[i];
     if (f === fixed.unset) continue;
-    const d = f - m;
-    if (d > worst) worst = d;
+    all.push(f - m);
   }
-  return worst;
+  if (!all.length) return -Infinity;
+  all.sort((a, b) => a - b);
+  return all[Math.floor(quantile * (all.length - 1))];
+}
+
+// Where the top of the pile is FLAT, as a weighted centre of every column
+// within `band` of the highest one inside `radius`.
+//
+// This is where the capstone goes, and it is not the axis. Dropped on the axis
+// it lands on whatever knuckle happens to be highest there and hangs over the
+// void beside it, which on one seed in four read as a rock balanced on a point:
+// the wrong kind of old. Put on the plateau instead, it lands on the broadest
+// support the pile actually offers and its overhang is even all the way round,
+// which is the difference between precarious and settled.
+function plateauCentre(field, radius, band) {
+  const { u0, v0, cell, nu, nv, data } = field;
+  let peak = -Infinity;
+  for (let j = 0; j < nv; j++) {
+    const v = v0 + (j + 0.5) * cell;
+    for (let i = 0; i < nu; i++) {
+      const u = u0 + (i + 0.5) * cell;
+      if (u * u + v * v > radius * radius) continue;
+      const h = data[j * nu + i];
+      if (h > peak) peak = h;
+    }
+  }
+  let w = 0;
+  let su = 0;
+  let sv = 0;
+  for (let j = 0; j < nv; j++) {
+    const v = v0 + (j + 0.5) * cell;
+    for (let i = 0; i < nu; i++) {
+      const u = u0 + (i + 0.5) * cell;
+      if (u * u + v * v > radius * radius) continue;
+      const h = data[j * nu + i];
+      if (h < peak - band) continue;
+      const k = h - (peak - band);
+      w += k;
+      su += k * u;
+      sv += k * v;
+    }
+  }
+  return w > 0 ? { x: su / w, z: sv / w } : { x: 0, z: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -310,9 +458,9 @@ function paintStone(geo, stone, all, index) {
       if (facing <= 0) continue;
       occ += facing * (1 - d / reach);
     }
-    // The floor is the twelfth occluder. An underside close to it is in a
-    // crevice like any other, and this is what draws the dark line where a base
-    // stone meets the ground on the side the key light does reach.
+    // The floor is the one occluder that is not a stone. An underside close to
+    // it is in a crevice like any other, and this is what draws the dark line
+    // where a base stone meets the ground on the side the key light does reach.
     if (nv.y < 0 && v.y < GROUND_REACH) occ += -nv.y * (1 - v.y / GROUND_REACH) * 0.8;
     occ = clamp01(occ * 0.85);
 
@@ -339,23 +487,23 @@ registerStone('cairn', {
   topRadius: 0.13,
   bottomRadius: 0.085,
 
-  // Two words, on the one flat surface the piece has. The face is 0.50 by 0.56,
-  // which is the narrowest in the set, and a narrow face makes the same chisel
-  // cover more of itself, so the letter SIZE is what is held rather than a
-  // coverage number: 0.17 of the height is 0.095 world units, inside the set's
-  // own 0.09 to 0.12 band and within a hair of fred's 0.14.
+  // One word, on the one flat surface the piece has, and one is all that fits.
+  // The face is 0.496 of clear flat, the set's own letter is 0.09 to 0.13 of
+  // cap height, and four capitals at that size fill 86% of it. A second line
+  // would have to come down to 0.07, which is smaller than anything in the set
+  // and is exactly the busy lettering the last round was rejected for: measured
+  // two up, this face goes to 8.5% ink.
   //
-  // Measured on the 914 by 1024 face: 4.4% ink, against cross 3.8, fred 6.8 and
-  // bat 9.2, and against the 12 to 19 that got the last set rejected. A piece
-  // whose identity is its silhouette belongs at the light end and this one's
+  // Measured on its own 1221 by 1024 face: 5.0% ink at a cap height of 0.089
+  // world units, against cross 3.8% at 0.127 and fred 6.8% at 0.098. A piece
+  // whose identity is its silhouette belongs at the light end, and this one's
   // identity is a heap of rocks.
   draw(ctx, w, h) {
-    const size = h * 0.17;
-    inkText(ctx, 'SAFE', w / 2, h * 0.395, size, size * 0.05);
-    inkText(ctx, 'HOME', w / 2, h * 0.605, size, size * 0.05);
+    const size = h * 0.254;
+    inkText(ctx, 'HOME', w / 2, h * 0.505, size, size * 0.05);
   },
 
-  extras({ body, slab, material, rng, disposables, stripUV, lean }) {
+  extras({ body, slab, material, rng, disposables, stripUV, lean, frontFrac, stripFrac }) {
     // See the note at the top: this stone stands level on purpose. What the
     // registry would have tilted is a dozen loose rocks, which do not tilt
     // together.
@@ -373,21 +521,41 @@ registerStone('cairn', {
     const baseN = rng() < 0.55 ? 4 : 3;
     const stones = [];
     let outer0 = 0;
+    // The heart of the pile, and the only stone here not meant to be seen. A
+    // ring of four leaves a hole 0.17 across in the middle of the base and the
+    // camera looks down at 29 degrees: without this the eye goes through the
+    // top of the cairn to the floor, and a marker you can see the ground
+    // through is a circle of rocks, not a pile. It is low and it is seated
+    // before anything else, so it fills the hole and nothing rests on it.
+    const core = {};
+    stones.push(core);
     for (let t = 0; t < TIERS.length; t++) {
       const tier = TIERS[t];
       const n = t === 0 ? baseN : tier.n;
-      // Base tier: stones just clear of each other round the ring, with the
-      // gap between two of them dead ahead.
       const hw = tier.hw * (0.94 + rng() * 0.12);
-      if (t === 0) outer0 = (hw / Math.sin(Math.PI / n)) * 1.03 + hw;
-      const outer = outer0 * tier.outer;
-      const ring = Math.max(0, outer - hw);
+      // The smallest ring n of these fit round without touching each other.
+      const ring = n === 1 ? 0.02 : (hw / Math.sin(Math.PI / n)) * PACK;
+      if (t === 0) {
+        outer0 = ring + hw;
+        core.x = (rng() - 0.5) * 0.05;
+        core.z = (rng() - 0.5) * 0.05;
+        core.hx = hw * 0.78;
+        core.hy = hw * 0.46;
+        core.hz = hw * 0.78;
+        core.faces = Math.round(lerp(FACES.lo, FACES.hi, rng()));
+        core.edge = lerp(EDGE.lo, EDGE.hi, rng());
+        core.euler = new THREE.Euler(0, rng() * TAU, 0);
+        core.seg = [16, 11];
+        core.tone = lerp(TONE.lo, TONE.hi, rng());
+      }
       const a0 = (tier.phase * TAU) / n + (rng() - 0.5) * 0.18;
       for (let i = 0; i < n; i++) {
-        const th = a0 + (i * TAU) / n + (rng() - 0.5) * 0.30;
-        const r = ring * (0.90 + rng() * 0.20);
-        const w = hw * (0.88 + rng() * 0.26);
-        const flat = lerp(FLAT.lo, FLAT.hi, rng());
+        const th = a0 + (i * TAU) / n + (rng() - 0.5) * 0.24;
+        const r = ring * (0.97 + rng() * 0.10);
+        const w = hw * (0.90 + rng() * 0.20);
+        const spread = tier.flat || FLAT;
+        const flat = lerp(spread.lo, spread.hi, rng());
+        const tilt = tier.tilt ?? 0.17;
         stones.push({
           x: Math.sin(th) * r,
           z: Math.cos(th) * r,
@@ -395,10 +563,16 @@ registerStone('cairn', {
           // set it down on, hence the second, independent width.
           hx: w,
           hy: w * flat,
-          hz: w * (0.80 + rng() * 0.34),
-          block: lerp(BLOCK.lo, BLOCK.hi, rng()),
-          euler: new THREE.Euler((rng() - 0.5) * 0.34, rng() * TAU, (rng() - 0.5) * 0.34),
-          seg: t === 0 ? [24, 16] : [20, 13],
+          hz: w * (0.82 + rng() * 0.30),
+          faces: Math.round(lerp(FACES.lo, FACES.hi, rng())),
+          edge: lerp(EDGE.lo, EDGE.hi, rng()),
+          euler: new THREE.Euler((rng() - 0.5) * tilt, rng() * TAU, (rng() - 0.5) * tilt),
+          // The capstone settles into the notch between the two under it rather
+          // than perching on whichever of them came out taller.
+          bite: tier.bite ?? BITE,
+          settle: tier.settle ?? 1,
+          plateau: !!tier.plateau,
+          seg: t === 0 ? [30, 20] : [26, 17],
           tone: lerp(TONE.lo, TONE.hi, rng()),
         });
       }
@@ -412,14 +586,15 @@ registerStone('cairn', {
       const th = 0.55 + rng() * (TAU - 1.1);
       const w = 0.070 + rng() * 0.048;
       stones.push({
-        x: Math.sin(th) * outer0 * (0.92 + rng() * 0.30),
-        z: Math.cos(th) * outer0 * (0.92 + rng() * 0.30),
+        x: Math.sin(th) * outer0 * (0.76 + rng() * 0.18),
+        z: Math.cos(th) * outer0 * (0.76 + rng() * 0.18),
         hx: w,
         hy: w * (0.52 + rng() * 0.18),
         hz: w * (0.80 + rng() * 0.30),
-        block: lerp(BLOCK.lo, BLOCK.hi, rng()),
+        faces: Math.round(lerp(FACES.lo, FACES.hi, rng())),
+        edge: lerp(EDGE.lo, EDGE.hi, rng()),
         euler: new THREE.Euler((rng() - 0.5) * 0.5, rng() * TAU, (rng() - 0.5) * 0.5),
-        seg: [16, 11],
+        seg: [20, 13],
         tone: lerp(TONE.lo, TONE.hi, rng()),
       });
     }
@@ -436,7 +611,12 @@ registerStone('cairn', {
     const top = makeField({ ...dims, init: 0, unset: -Infinity });
 
     for (const s of stones) {
-      const geo = fieldStone(rng, s.seg, s.block);
+      if (s.plateau) {
+        const at = plateauCentre(top, outer0 * 0.52, 0.05);
+        s.x = at.x + s.x * 0.3;
+        s.z = at.z + s.z * 0.3;
+      }
+      const geo = fieldStone(rng, s.seg, s.faces, s.edge);
       geo.applyMatrix4(new THREE.Matrix4().compose(
         new THREE.Vector3(s.x, 0, s.z),
         new THREE.Quaternion().setFromEuler(s.euler),
@@ -444,7 +624,7 @@ registerStone('cairn', {
       ));
       const under = makeField({ ...dims, init: Infinity });
       splat(under, geo, 0, 2, 1, false);
-      const lift = clearance(top, under) - BITE;
+      const lift = clearance(top, under, s.settle ?? 1) - (s.bite ?? BITE);
       geo.translate(0, lift, 0);
       splat(top, geo, 0, 2, 1, true);
       s.geo = geo;
@@ -465,7 +645,7 @@ registerStone('cairn', {
       for (let i = 1; i < p.length; i += 3) if (p[i] > crest) crest = p[i];
     }
     const wanted = lerp(HEIGHT.lo, HEIGHT.hi, rng());
-    const S = wanted / crest;
+    const S = Math.min(1 + SCALE_CLAMP, Math.max(1 - SCALE_CLAMP, wanted / crest));
     for (const s of stones) {
       s.geo.scale(S, S, S);
       s.x *= S; s.y *= S; s.z *= S;
@@ -486,18 +666,37 @@ registerStone('cairn', {
 
     // --- paint, map and merge -------------------------------------------------
     //
-    // uv is planar across the pile and up it, which is exactly how the plinth
-    // samples the plain strip: neighbouring stones then share one continuous
-    // grain, like rock off one hillside, and every stone picks up the grime
-    // band at the bottom of the texture in proportion to how low it sits.
+    // uv is planar: up the pile for v, across it for u, which is how the
+    // registry's own plinth samples the plain strip and gives neighbouring
+    // stones one continuous grain, like rock off one hillside. Every stone also
+    // picks up the grime band at the bottom of the texture in proportion to how
+    // low it sits, for free.
+    //
+    // The catch is the strip's shape. It is 160 texture pixels wide against
+    // 1024 tall, so mapping the pile's whole half metre across it stretches the
+    // mottle by a factor of eleven and the stone comes out combed. So u is
+    // ping-ponged instead: it runs across the strip, folds back, and runs
+    // across again, once every GRAIN of world. Fold rather than repeat because
+    // the texture is clamped at its edges and a repeat would show a hard seam
+    // at every wrap, while a fold is continuous and, since the u derivative only
+    // changes sign there, samples the same mip level either side of it.
+    //
+    // GRAIN is the width that makes the strip's own pixels square, derived from
+    // the two fractions the registry hands over rather than from its texture
+    // size, which is not in the contract.
     const reach = outer0 * S + 0.1;
+    const GRAIN = wanted * 0.7 * (stripFrac / frontFrac) * ((2 * SLATE.halfWidth) / SLATE.height);
+    const fold = (x) => {
+      const t = (x / GRAIN) % 2;
+      return (Math.abs((t < 0 ? t + 2 : t) - 1) - 0.5) * 2 * reach;
+    };
     for (let i = 0; i < stones.length; i++) {
       const geo = stones[i].geo;
       paintStone(geo, stones[i], stones, i);
       const p = geo.attributes.position;
       const uv = new Float32Array(p.count * 2);
       for (let k = 0; k < p.count; k++) {
-        const [u, vv] = stripUV(p.getX(k), p.getY(k), reach, wanted);
+        const [u, vv] = stripUV(fold(p.getX(k)), p.getY(k), reach, wanted);
         uv[k * 2] = u;
         uv[k * 2 + 1] = vv;
       }
@@ -552,10 +751,14 @@ registerStone('cairn', {
     // out into the open, and a slate whose top does not touch is a slate
     // standing near a cairn rather than leaning on one. Nine candidates, each
     // one rasterise of a slab, is a couple of milliseconds at build time.
+    // Where the search starts moves per seed, so two cairns standing together
+    // do not lean their slates at the same angle. It only ever starts more
+    // upright than it ends.
+    const tip0 = TIP.lo + rng() * 0.10;
     const CLOSE = 0.015;
     let best = null;
     for (let k = 0; k <= 8; k++) {
-      const tip = lerp(TIP.lo, TIP.hi, k / 8);
+      const tip = lerp(tip0, TIP.hi, k / 8);
       const probe = slab.geometry.clone();
       probe.applyMatrix4(poseAt(tip));
       const back = makeField({ ...fdims, init: Infinity });
@@ -583,7 +786,7 @@ registerStone('cairn', {
     }
     // A pile is never so tidy that no candidate reaches it, but if one ever
     // were the slate still stands, upright and clear, rather than vanishing.
-    const tip = best ? best.tip : TIP.lo;
+    const tip = best ? best.tip : tip0;
     const push = (best ? best.push : 0.42) - SLATE_BITE;
 
     // Seated on its own vertices under its own matrix. Box3.setFromObject is
@@ -604,8 +807,51 @@ registerStone('cairn', {
     // transform, so the scale that comes back is 1.
     poseAt(tip, push, -low - SLATE_SINK).decompose(slab.position, slab.quaternion, slab.scale);
 
-    // What the layout generator needs, measured rather than guessed, and left
-    // on the group so footprints-probe.mjs and a lab can both read it.
-    body.userData.cairn = { tip, push, height: wanted, stones: stones.length, crest, S, gap: best ? best.gap : null, outer: outer0 * S };
+    // --- centre the footprint -------------------------------------------------
+    //
+    // The pile is built about the origin and the slate stands well in front of
+    // it, so the piece as a whole is a third of a metre longer forward than
+    // back. The layout generator tests a box of HALF extents about the origin,
+    // which for an off-centre prop has to be the larger side doubled, so it
+    // would reserve a third of a metre of empty ground behind every cairn.
+    // Slid back onto its own centre instead, and measured off the vertices
+    // rather than off a bounding box, since the slate is rotated.
+    const span = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+    const at = new THREE.Vector3();
+    for (const mesh of body.children) {
+      if (!mesh.isMesh) continue;
+      mesh.updateMatrix();
+      const q = mesh.geometry.attributes.position;
+      for (let i = 0; i < q.count; i++) {
+        at.fromBufferAttribute(q, i).applyMatrix4(mesh.matrix);
+        if (at.x < span.x0) span.x0 = at.x;
+        if (at.x > span.x1) span.x1 = at.x;
+        if (at.z < span.z0) span.z0 = at.z;
+        if (at.z > span.z1) span.z1 = at.z;
+      }
+    }
+    body.position.x = -(span.x0 + span.x1) / 2;
+    body.position.z = -(span.z0 + span.z1) / 2;
+
+    // Stability, measured. Volume weighted, ignoring the two loose stones on
+    // the floor, which hold nothing up and would flatter the number.
+    let mass = 0;
+    let mx = 0;
+    let mz = 0;
+    for (const st of stones.slice(0, stones.length - loose)) {
+      const m = st.hx * st.hy * st.hz;
+      mass += m;
+      mx += m * st.x;
+      mz += m * st.z;
+    }
+    const drift = Math.hypot(mx / mass, mz / mass) / (outer0 * S);
+
+    // Left where a lab and footprints-probe.mjs can both read it.
+    body.userData.cairn = {
+      tip, push, stones: stones.length, crest, S, drift,
+      gap: best ? best.gap : null,
+      halfU: (span.x1 - span.x0) / 2,
+      halfV: (span.z1 - span.z0) / 2,
+    };
   },
 });

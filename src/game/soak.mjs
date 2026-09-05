@@ -15,13 +15,35 @@
 // paper and has a firefly the ghost's disc cannot get within a pick radius of
 // is a level nobody can clear, and only this side can see that.
 //
-// Every section prints what failed, not only what passed.
+// Every section prints what failed, not only what passed, and section 0 breaks
+// the game nine ways to show each check catching the thing it exists to catch,
+// because a check that has never failed is a check nobody has a reason to
+// believe.
+//
+// WHAT IT SAID LAST TIME IT WAS RUN IN FULL
+// `node src/game/soak.mjs --selftest --fair 3000 --play 500 --passive 500
+//  --stability 30`, about two minutes, 7 by 5 cells:
+//
+//   self test    all nine checks fired on their own broken case
+//   fairness     3000 levels, 170.3 nodes and 23.9 junctions each, 0 failures
+//                on any of connected, reach, bridge, deadend, spawn, grave or
+//                a firefly off the corridor
+//   greedy bot   500 levels, 94.0% cleared, 6.0% lost all three lives, none
+//                timed out. Mean clear 221 s (median 218, min 166, max 329),
+//                2.33 lives left of 3, 0.81 deaths a level, first death at a
+//                median of 110 s, 5.76 skeletons eaten. 25.9% of the run within
+//                8.0 units of a skeleton and 3.5% within 4.0.
+//   passive      500 levels, 100% lost all three lives, first at a median of
+//                18 s, all three inside 200 s in every single level
+//   stability    3.18 million frames across ten timesteps from 1/240 to 3.0 s,
+//                no NaN, nothing through a wall, nothing off the corridor, and
+//                2720 one-frame slams at full stick into walls, none escaping
 
 import fs from 'node:fs';
 import { createLayout } from './layout/layout.js';
 import { createGame, TUNING } from './rules.js';
 import { createNav } from './nav.js';
-import { createBot, passiveBot } from './bot.js';
+import { createBot, passiveBot, recklessBot } from './bot.js';
 
 const args = process.argv.slice(2);
 const has = (n) => args.includes(n);
@@ -157,6 +179,7 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 900, tuning, skeletons
   let firstDeath = -1;
   let deaths = 0;
   let eats = 0;
+  let powers = 0;
   const maxSteps = Math.ceil(limit / dt);
   let bad = null;
   while (steps < maxSteps && s.phase !== 'cleared' && s.phase !== 'over') {
@@ -165,6 +188,7 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 900, tuning, skeletons
     for (const e of s.events) {
       if (e.type === 'death') { deaths++; if (firstDeath < 0) firstDeath = s.time; }
       if (e.type === 'eat') eats++;
+      if (e.type === 'power') powers++;
     }
     if (track && steps % track.every === 0) {
       track.ghost.push([s.ghost.u, s.ghost.v]);
@@ -176,7 +200,7 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 900, tuning, skeletons
   return {
     seed, phase: s.phase, time: s.time, score: s.score, lives: s.lives,
     left: s.fireflies.remaining, total: s.fireflies.total,
-    deaths, eats, firstDeath, bad,
+    deaths, eats, powers, firstDeath, bad,
     threat: bot.stats.threatTime, panic: bot.stats.panicTime,
     timedOut: steps >= maxSteps,
   };
@@ -276,10 +300,14 @@ function stability(seeds) {
 // ---------------------------------------------------------------------------
 
 function sweep(seeds) {
-  const RATIOS = [0.28, 0.40, 0.50, 0.55, 0.60, 0.64, 0.70, 0.75, 0.85];
+  const RATIOS = [0.28, 0.40, 0.50, 0.55, 0.60, 0.64, 0.70, 0.75, 0.85, 0.95];
   const GHOST = Number(num('--ghost', 3.2));
   console.log(`\n--- 5. SPEED RATIO SWEEP, ghost ${GHOST}, ${seeds} levels each ---`);
-  console.log('  ratio  skel  cadence  clear%  clear s  deaths  passive survives  threat%');
+  console.log('  careful = the risk-routing greedy bot. reckless = the same bot with the danger term off.');
+  console.log('  passive = never moves; the number is seconds to its FIRST death, which is the honest');
+  console.log('  lethality measure, because "it eventually dies" is true at every ratio in the table.');
+  console.log('');
+  console.log('  ratio  skel  cadence  careful%  deaths  reckless%  deaths  passive 1st  threat%');
   for (const ratio of RATIOS) {
     const walk = GHOST * ratio;
     const tuning = {
@@ -287,17 +315,77 @@ function sweep(seeds) {
       speeds: { ...TUNING.speeds, walk, fright: Math.min(1.25, walk * 0.58), eaten: Math.max(4.5, walk * 2.4) },
     };
     const play = [];
+    const wild = [];
     const pass = [];
     for (let seed = 1; seed <= seeds; seed++) {
       play.push(playOne(seed, { botFactory: createBot, tuning, limit: 600 }));
-      pass.push(playOne(seed, { botFactory: () => passiveBot(), tuning, limit: 200 }));
+      wild.push(playOne(seed, { botFactory: recklessBot, tuning, limit: 600 }));
+      pass.push(playOne(seed, { botFactory: passiveBot, tuning, limit: 200 }));
     }
-    const cleared = play.filter((r) => r.phase === 'cleared');
-    const survived = pass.filter((r) => r.phase !== 'over').length;
+    const cl = play.filter((r) => r.phase === 'cleared').length;
+    const wl = wild.filter((r) => r.phase === 'cleared').length;
+    const firsts = pass.filter((r) => r.firstDeath > 0).map((r) => r.firstDeath);
     const cadence = (walk / 0.629).toFixed(2);
-    console.log(`  ${ratio.toFixed(2)}   ${walk.toFixed(2)}  ${cadence.padStart(5)}/s  ${pct(cleared.length, seeds).padStart(6)}  ${mean(cleared.map((r) => r.time)).toFixed(0).padStart(7)}  ${mean(play.map((r) => r.deaths)).toFixed(2).padStart(6)}  ${pct(survived, seeds).padStart(16)}  ${pct(mean(play.map((r) => r.threat)), mean(play.map((r) => r.time))).padStart(7)}`);
+    console.log(`  ${ratio.toFixed(2)}   ${walk.toFixed(2)}  ${cadence.padStart(5)}/s  ${pct(cl, seeds).padStart(8)}  ${mean(play.map((r) => r.deaths)).toFixed(2).padStart(6)}  ${pct(wl, seeds).padStart(9)}  ${mean(wild.map((r) => r.deaths)).toFixed(2).padStart(6)}  ${(firsts.length ? median(firsts).toFixed(0) + 's' : 'NEVER').padStart(11)}  ${pct(mean(play.map((r) => r.threat)), mean(play.map((r) => r.time))).padStart(7)}`);
   }
-  console.log('  passive survives = still alive after 200 s of standing still, which must be 0%');
+}
+
+// The other half of the same decision. The sweep above varies the ratio by
+// moving the SKELETON, which moves its cadence with it, so it cannot separate
+// "the ratio got better" from "the walk cycle got faster". This one holds the
+// skeleton at a fixed, animatable pace and buys the ratio by slowing the GHOST
+// down instead, which costs feel rather than animation. Reading the two tables
+// together is what actually picks the numbers.
+function ghostSweep(seeds) {
+  const walk = Number(num('--skel', 2.05));
+  const GHOSTS = [4.5, 4.0, 3.6, 3.2, 2.9, 2.7, 2.5, 2.2];
+  console.log(`\n--- 5b. GHOST SPEED SWEEP, skeleton held at ${walk} (cadence ${(walk / 0.629).toFixed(2)}/s), ${seeds} levels each ---`);
+  console.log('  ghost  ratio  careful%  deaths  reckless%  deaths  passive 1st  passive all 3  threat%');
+  for (const g of GHOSTS) {
+    const tuning = {
+      ghostSpeed: g,
+      speeds: { ...TUNING.speeds, walk, fright: Math.min(1.25, walk * 0.58), eaten: Math.max(4.5, walk * 2.4) },
+    };
+    const play = [];
+    const wild = [];
+    const pass = [];
+    for (let seed = 1; seed <= seeds; seed++) {
+      play.push(playOne(seed, { botFactory: createBot, tuning, limit: 600 }));
+      wild.push(playOne(seed, { botFactory: recklessBot, tuning, limit: 600 }));
+      pass.push(playOne(seed, { botFactory: passiveBot, tuning, limit: 300 }));
+    }
+    const cl = play.filter((r) => r.phase === 'cleared').length;
+    const wl = wild.filter((r) => r.phase === 'cleared').length;
+    const firsts = pass.filter((r) => r.firstDeath > 0).map((r) => r.firstDeath);
+    const alls = pass.filter((r) => r.phase === 'over').map((r) => r.time);
+    console.log(`  ${g.toFixed(2)}   ${(walk / g).toFixed(2)}  ${pct(cl, seeds).padStart(8)}  ${mean(play.map((r) => r.deaths)).toFixed(2).padStart(6)}  ${pct(wl, seeds).padStart(9)}  ${mean(wild.map((r) => r.deaths)).toFixed(2).padStart(6)}  ${(median(firsts).toFixed(0) + 's').padStart(11)}  ${(alls.length === seeds ? median(alls).toFixed(0) + 's' : `${seeds - alls.length} SURVIVED`).padStart(13)}  ${pct(mean(play.map((r) => r.threat)), mean(play.map((r) => r.time))).padStart(7)}`);
+  }
+}
+
+// Is the mode schedule doing anything? Pac-Man's is most of why that game is
+// playable, and a claim like that has to be measurable or it is decoration.
+// Three controls: no schedule at all (chase for ever), no chase at all
+// (scatter for ever, which should be trivial), and the shipped one.
+function schedules(seeds) {
+  const V = {
+    'chase for ever':   [{ mode: 'chase', t: Infinity }],
+    'scatter for ever': [{ mode: 'scatter', t: Infinity }],
+    'flat 8 / 24':      Array.from({ length: 40 }, (_, i) => (i % 2 ? { mode: 'chase', t: 24 } : { mode: 'scatter', t: 8 })),
+    'shipped':          TUNING.waves,
+  };
+  console.log(`\n--- 5c. THE MODE SCHEDULE, ${seeds} levels each ---`);
+  console.log('  schedule            careful%  deaths  clear s  reckless%  threat%  danger%');
+  for (const [name, waves] of Object.entries(V)) {
+    const play = [];
+    const wild = [];
+    for (let seed = 1; seed <= seeds; seed++) {
+      play.push(playOne(seed, { botFactory: createBot, tuning: { waves }, limit: 600 }));
+      wild.push(playOne(seed, { botFactory: recklessBot, tuning: { waves }, limit: 600 }));
+    }
+    const cl = play.filter((r) => r.phase === 'cleared');
+    const wl = wild.filter((r) => r.phase === 'cleared').length;
+    console.log(`  ${name.padEnd(18)}  ${pct(cl.length, seeds).padStart(8)}  ${mean(play.map((r) => r.deaths)).toFixed(2).padStart(6)}  ${mean(cl.map((r) => r.time)).toFixed(0).padStart(7)}  ${pct(wl, seeds).padStart(9)}  ${pct(mean(play.map((r) => r.threat)), mean(play.map((r) => r.time))).padStart(7)}  ${pct(mean(play.map((r) => r.panic)), mean(play.map((r) => r.time))).padStart(7)}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -306,24 +394,176 @@ function sweep(seeds) {
 
 function power(seeds) {
   console.log(`\n--- 6. POWER PELLET DURATION, ${seeds} levels each ---`);
-  console.log('  seconds  eaten a pellet  eaten a level  clear%  clear s');
-  for (const t of [4, 6, 8, 10, 12]) {
+  console.log('  The per-pellet figure is the one that matters: how many skeletons the ghost runs down');
+  console.log('  per lantern it lights. Under one and the pellet is not a reward, over three and the');
+  console.log('  chase stops rather than reverses.');
+  console.log('');
+  console.log('  seconds  lanterns lit  skeletons eaten  per lantern  careful%  clear s  deaths');
+  for (const t of [4, 6, 8, 10, 12, 16]) {
     const rows = [];
     for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, { botFactory: createBot, tuning: { powerTime: t }, limit: 600 }));
     const cleared = rows.filter((r) => r.phase === 'cleared');
-    // Four lanterns, but a level that ends early does not eat them all, so the
-    // per-pellet figure is measured against how many were actually lit.
-    const lit = rows.map((r) => Math.min(4, r.eats > 0 ? 4 : 4));
-    console.log(`  ${String(t).padStart(7)}  ${(mean(rows.map((r) => r.eats)) / 4).toFixed(2).padStart(14)}  ${mean(rows.map((r) => r.eats)).toFixed(2).padStart(13)}  ${pct(cleared.length, seeds).padStart(6)}  ${mean(cleared.map((r) => r.time)).toFixed(0).padStart(7)}`);
+    const lit = mean(rows.map((r) => r.powers));
+    console.log(`  ${String(t).padStart(7)}  ${lit.toFixed(2).padStart(12)}  ${mean(rows.map((r) => r.eats)).toFixed(2).padStart(15)}  ${(mean(rows.map((r) => r.eats)) / Math.max(0.01, lit)).toFixed(2).padStart(11)}  ${pct(cleared.length, seeds).padStart(8)}  ${mean(cleared.map((r) => r.time)).toFixed(0).padStart(7)}  ${mean(rows.map((r) => r.deaths)).toFixed(2).padStart(6)}`);
   }
 }
 
 // ---------------------------------------------------------------------------
+// 0. The self test: break the game eight ways and confirm each check fires.
+// ---------------------------------------------------------------------------
+//
+// Everything above passed on its first full run, and a check that has never
+// failed is a check nobody has any reason to believe. So each one is shown
+// catching the thing it exists to catch. If a row below says MISSED, the
+// corresponding all-clear in the sections above means nothing.
 
-const only = args.some((a) => ['--fair', '--play', '--passive', '--stability', '--sweep', '--power'].includes(a));
+function selftest() {
+  console.log('\n--- 0. SELF TEST, each check shown failing on purpose ---');
+  const rows = [];
+  const add = (what, fired, detail = '') => rows.push([what, fired, detail]);
+
+  const layout = createLayout({ seed: 5, cells: CELLS });
+
+  // 1. Substepping off, one enormous frame. This is the assertion that the
+  //    ghost cannot pass through a wall, and the thing that makes it true is
+  //    maxStep, so turning maxStep off must break it.
+  {
+    let escaped = 0;
+    let tested = 0;
+    const game = createGame({ layout, seed: 1, tuning: { maxStep: 1e9 } });
+    for (const n of game.nav.nodes) {
+      for (const dir of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
+        game.debug.ghost.u = n.u; game.debug.ghost.v = n.v;
+        game.debug.ghost.vu = 0; game.debug.ghost.vv = 0;
+        game.update(2.0, { x: dir[0], y: dir[1] });
+        tested++;
+        if (!game.nav.discClear(game.debug.ghost.u, game.debug.ghost.v, game.tuning.ghostRadius)) escaped++;
+      }
+    }
+    add('ghost-in-wall  (maxStep disabled, dt 2.0)', escaped > 0, `${escaped} of ${tested} starts ended inside a wall`);
+  }
+
+  // 2. A NaN put straight into the ghost.
+  {
+    const game = createGame({ layout, seed: 1 });
+    game.debug.ghost.u = NaN;
+    const st = game.update(1 / 60, { x: 0, y: 0 });
+    add('nan-ghost', check(game, st) === 'nan-ghost', check(game, st) || 'not caught');
+  }
+
+  // 3. A skeleton picked up and put on plot ground.
+  {
+    const game = createGame({ layout, seed: 1 });
+    let st = game.state;
+    for (let i = 0; i < 60 * 8; i++) st = game.update(1 / 60, { x: 0, y: 0 });
+    const s0 = game.herd.list.find((k) => k.state === 'hunting');
+    if (!s0) add('skeleton-off-corridor', false, 'no skeleton was hunting yet');
+    else {
+      s0.u += 3.0;
+      s0.v += 3.0;
+      st = game.update(0, { x: 0, y: 0 });
+      // update(0) publishes without stepping, so the moved skeleton is what the
+      // checker sees.
+      st.skeletons.find((k) => k.id === s0.id).u = s0.u;
+      st.skeletons.find((k) => k.id === s0.id).v = s0.v;
+      add('skeleton-off-corridor', check(game, st) === 'skeleton-off-corridor', check(game, st) || 'not caught');
+    }
+  }
+
+  // 4 to 8. The fairness checks, against a nav built on a broken graph. The
+  //    fairness section reads nav.nodes, so surgery on that is surgery on
+  //    exactly what it tests.
+  const navOf = () => createNav(createLayout({ seed: 5, cells: CELLS }));
+
+  {
+    // A dead end: strip a node down to one edge.
+    const nav = navOf();
+    const victim = nav.nodes.find((n) => n.edges.length === 2);
+    const gone = victim.edges.pop();
+    nav.nodes[gone].edges = nav.nodes[gone].edges.filter((e) => e !== victim.id);
+    add('deadend', nav.nodes.some((n) => n.edges.length < 2), `node ${victim.id} left with ${victim.edges.length} way out`);
+  }
+  {
+    // A bridge: cut every edge out of a junction but two, on opposite sides of
+    // a loop, so the graph stays connected and stops being 2-edge-connected.
+    // Easiest reliable construction is to hang a two-node tail off the graph.
+    const nav = navOf();
+    const anchor = nav.nodes[0];
+    const tail = { id: nav.nodes.length, u: 999, v: 999, a: 999, b: 999, edges: [anchor.id], dirOf: [0] };
+    anchor.edges.push(tail.id);
+    anchor.dirOf.push(0);
+    nav.nodes.push(tail);
+    const b = bridges(nav.nodes);
+    add('bridge', b.length > 0, `${b.length} bridges found after hanging a tail off node 0`);
+  }
+  {
+    // Disconnected: cut a node loose entirely.
+    const nav = navOf();
+    const victim = nav.nodes[Math.floor(nav.nodes.length / 2)];
+    for (const e of victim.edges) nav.nodes[e].edges = nav.nodes[e].edges.filter((x) => x !== victim.id);
+    victim.edges = [];
+    const start = nav.nodeNear(nav.ghostSpawn.u, nav.ghostSpawn.v);
+    const d = nav.distFrom(start);
+    let seen = 0;
+    for (let i = 0; i < nav.nodes.length; i++) if (d[i] >= 0) seen++;
+    add('connected', seen !== nav.nodes.length, `${nav.nodes.length - seen} of ${nav.nodes.length} nodes unreachable`);
+  }
+  {
+    // A firefly out on plot ground, which is the failure the layout package
+    // cannot see and this side can: it is what an unclearable level looks like.
+    // A first attempt just added 3.0 to both coordinates, which on a 2.0
+    // lattice with a 6.0 corridor pitch lands back on a corridor about as often
+    // as not, and the check did not fire. Find a genuinely closed tile.
+    const nav = navOf();
+    const f = nav.fireflies[10];
+    let put = null;
+    for (let b = 0; b < nav.th && !put; b++) {
+      for (let a = 0; a < nav.tw && !put; a++) if (!nav.isOpen(a, b)) put = [nav.U(a), nav.V(b)];
+    }
+    f.u = put[0];
+    f.v = put[1];
+    add('flyOff', !nav.onCorridor(f.u, f.v), `firefly moved to plot tile at ${put[0]}, ${put[1]}`);
+  }
+  {
+    // A firefly on the corridor but further from its node than the ghost's
+    // pick radius, which is reachable on paper and not in the hand.
+    // 1.4 along one axis was the first attempt and it rounds to the NEXT node,
+    // 0.6 away, so the check saw a perfectly reachable firefly. The worst a
+    // point on a 2.0 lattice can be from the nearest tile centre is a corner,
+    // sqrt(2), so that is where it has to go.
+    const nav = navOf();
+    const f = nav.fireflies[10];
+    const n = nav.nodes[nav.nodeNear(f.u, f.v)];
+    f.u = n.u + 0.99;
+    f.v = n.v + 0.99;
+    const near = nav.nodeNear(f.u, f.v);
+    const gap = Math.hypot(f.u - nav.nodes[near].u, f.v - nav.nodes[near].v);
+    add('reach', gap > TUNING.pickRadius, `firefly ${gap.toFixed(2)} from its node, pick radius ${TUNING.pickRadius}`);
+  }
+  {
+    // The ghost spawned somewhere its own disc does not fit.
+    const nav = navOf();
+    const bad = nav.discClear(nav.bounds.minU - 5, nav.bounds.minV - 5, TUNING.ghostRadius);
+    add('spawn', !bad, 'a spawn outside the level is rejected');
+  }
+
+  let missed = 0;
+  for (const [what, fired, detail] of rows) {
+    if (!fired) missed++;
+    console.log(`  ${(fired ? 'FIRED ' : 'MISSED')}  ${what.padEnd(42)}  ${detail}`);
+  }
+  console.log(missed ? `  ${missed} CHECKS DID NOT FIRE, so their all-clears above mean nothing` : '  every check fired on its own broken case');
+}
+
+// ---------------------------------------------------------------------------
+
+const only = args.some((a) => ['--selftest', '--fair', '--play', '--passive', '--stability', '--sweep', '--ghostsweep', '--schedule', '--power'].includes(a));
+if (!only || has('--selftest')) selftest();
 if (!only || has('--fair')) fairness(num('--fair', 500));
 if (!only || has('--play')) playMany(num('--play', 200), { botFactory: createBot, limit: 900 }, '2. COMPLETABILITY, the greedy bot');
-if (!only || has('--passive')) playMany(num('--passive', 200), { botFactory: () => passiveBot(), limit: 200 }, '3. LETHALITY, the player who never moves');
+if (!only || has('--passive')) playMany(num('--passive', 200), { botFactory: passiveBot, limit: 200 }, '3. LETHALITY, the player who never moves');
 if (!only || has('--stability')) stability(num('--stability', 20));
 if (has('--sweep')) sweep(num('--sweep', 40));
+if (has('--ghostsweep')) ghostSweep(num('--ghostsweep', 40));
+if (has('--schedule')) schedules(num('--schedule', 40));
 if (has('--power')) power(num('--power', 40));

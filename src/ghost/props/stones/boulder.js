@@ -11,18 +11,28 @@ import { registerStone, inkText, inkCross } from '../tombstones.js';
 //
 // 1. FACETS, NOT NOISE. A rock reads as a rock through a few large planes
 //    meeting at soft arrises, not through fine displacement. So the mass is a
-//    literal intersection of half spaces, softened: eleven planes, and the
-//    surface is the p-norm
+//    literal intersection of half spaces, softened: thirteen planes, and the
+//    surface is a radial function of direction alone,
 //
-//        R(u) = ( sum_i max(0, u.n_i / d_i)^P ) ^ (-1/P)
+//        r_i(u) = d_i / (u . n_i)          the ray's hit on plane i
+//        R(u)   = -k ln( sum_i exp(-r_i/k) )
 //
-//    which is the exact polyhedron as P goes to infinity and a rounded version
-//    of it at any finite P. The arris radius is about d/P, so P = 7 on a stone
-//    half a metre through gives a 60 mm roll, which is the same fat quarter
-//    round the registry's own sweep puts on every other stone in the set. It is
-//    a radial function of direction alone, so it can never self intersect, its
-//    tessellation is a plain quad grid, and its normals come off the
-//    parametrisation rather than out of computeVertexNormals.
+//    the exponential smooth minimum of them, which is the exact polyhedron as
+//    k goes to zero and a version with a fillet of roughly k at every arris
+//    otherwise. Being radial it cannot self intersect, it tessellates as a
+//    plain quad grid, and its normals come off the parametrisation rather than
+//    out of computeVertexNormals.
+//
+//    The smooth min is LOCAL and that is the whole reason it is this and not
+//    the p-norm, which was written first. A p-norm blends every plane
+//    everywhere -- two planes whose ray distances differ by a tenth still pull
+//    each other in by a twentieth -- so a dozen planes on a sphere sum to a
+//    sphere, and the first render was a smooth egg with an inscription on it
+//    and not one flat face anywhere. The smooth min above weighs planes by
+//    exp(-(r_i - r_min)/k): at k = 0.017 a plane 50 mm further out contributes
+//    e^-3, and a plane a whole radius further out contributes nothing at all.
+//    So a facet stays flat right up to its own arris, which is what a broken
+//    fieldstone actually looks like.
 //
 //    A displaced sphere was tried first and it is the failure the brief warned
 //    about: at four low frequency waves it is dirtpile's clod, which is a lump
@@ -33,21 +43,21 @@ import { registerStone, inkText, inkCross } from '../tombstones.js';
 //    sharp.
 //
 // 2. THE DRESSED PANEL IS A POCKET, NOT A DECAL. It is milled into the rock
-//    along the panel normal: a flat floor 26 mm below the surrounding rock, a
-//    10 mm roll off the floor, a short vertical wall, and a 14 mm roll where
-//    the wall meets the rough stone. The mesh runs continuously through all
-//    four, so the boundary is real geometry that turns in the light rather than
-//    a line in a texture, and it is the only crisp edge on the piece.
+//    along the panel normal: a flat floor 32 mm below the dressed face, a 10 mm
+//    roll off that floor, a short vertical wall, and a 16 mm roll where the
+//    wall meets the rough stone. The mesh runs continuously through all four,
+//    so the boundary is real geometry that turns in the light rather than a
+//    line in a texture, and it is the sharpest edge on the piece.
 //
-//    A convex body cannot have a recess, which is the trap here: the p-norm
+//    A convex body cannot have a recess, which is the trap here: the smooth min
 //    surface is convex by construction, so the pocket cannot be a plane pushed
 //    in. It is built instead as a run of rings that leave the panel plane,
 //    climb the wall and rejoin the convex surface at a curve found by
 //    intersection rather than by assumption -- wallTop() below bisects for it,
-//    and fitOutline() shrinks the pocket until every column of it clears. Two
-//    seeds in the first batch had the rock's own surface fall inside the panel
-//    plane at a corner, which without that check is a panel poking out through
-//    the back of the rock it is cut into.
+//    and fitOutline() shrinks the pocket until every column of it clears. That
+//    check is not theoretical: at the first fillet width the facet was only
+//    flat in the middle third of itself and the pocket shrank to two thirds of
+//    its size, which ran the letters off the edge of the panel.
 //
 // LEAN. The camera is orthographic, 45 degrees round and 29 degrees up, so a
 // plumb face pointed at it presents 0.875 of itself and a face tipped back 29
@@ -87,7 +97,7 @@ const PANEL_EL = 20 * DEG;
 // corners hang out in space. At 0.235 against side planes near 0.46 the facet
 // runs to about 60 degrees off the panel normal and the pocket to 55.
 const DP = 0.235;
-const RECESS = 0.026;  // how far the panel floor sits below the rough surface
+const RECESS = 0.032;  // how far the panel floor sits below the dressed face
 const FILLET = 0.010;  // roll off the floor onto the wall
 const ARRIS = 0.016;   // roll where the wall meets the rough rock
 
@@ -96,41 +106,65 @@ const ARRIS = 0.016;   // roll where the wall meets the rough rock
 // than a lozenge or a tile. The corners matter: at the bbox corner the panel
 // plane is 57 degrees off axis and the rock has started to turn away, so a
 // square patch is exactly the shape that cannot clear.
-const OUT_AX = 0.865;
-const OUT_AY = 0.865;
+const OUT_AX = 0.840;
+const OUT_AY = 0.840;
 const OUT_K = 3.2;
 
 // --- the mass --------------------------------------------------------------
 //
-// Eleven planes, as (azimuth, elevation, distance). Azimuth is measured from
+// Thirteen planes, as (azimuth, elevation, distance). Azimuth is measured from
 // the family's front (+z) toward +x, elevation from the horizon. Distances are
-// from the rock's centre, so the sums of opposite pairs are roughly the extents:
-// about 0.95 across, 0.72 through and 1.06 tall before the arris rolls eat into
-// them.
+// from the rock's centre, so the sums of opposite pairs are roughly the
+// extents: 0.86 across, 0.64 through and 1.05 tall as measured off the mesh.
+// The dressed face is the fourteenth and lives in radius(), not here.
 //
-// The list is not random. A boulder that has been stood on end has a broad flat
-// bottom (it would not stand otherwise), two big flanks, a back, and a top made
-// of two planes meeting in a ridge rather than one cap -- a single top plane
-// gives a stone that reads as sawn off, which is stump.js's silhouette and not
-// this one. The rest are the chamfers between.
+// The list is not random, and it is not a regular solid either. Two passes went
+// that way and both came back as a moulded doorstop: thirteen planes spread
+// evenly over the sphere at nearly the same distance is a sphere with dents,
+// and rounded off it is a smooth wedge. What a broken fieldstone actually has
+// is a few DOMINANT faces -- a flat bottom it stands on, the dressed front, two
+// flanks, a slanted top -- and then a scatter of small ones that only cut a
+// corner off. So the distances here run from 0.34 to 0.58, and the near ones
+// are the corner cuts: a plane at 0.34 between the front and a flank leaves a
+// wide chamfer where the two would otherwise meet in one long arris, and that
+// chamfer is most of what says "this broke" rather than "this was moulded".
 const PLANES = [
-  { az: 186, el: 4, d: 0.395 },    // back
-  { az: -80, el: 8, d: 0.470 },    // left flank
-  { az: 86, el: -4, d: 0.480 },    // right flank
-  { az: 18, el: 64, d: 0.520 },    // top, front slope
-  { az: 208, el: 56, d: 0.475 },   // top, back slope: the two make a ridge
-  { az: 0, el: -88, d: 0.470 },    // the bottom it stands on
-  { az: 6, el: -50, d: 0.455 },    // front chamfer down into the ground
-  { az: -126, el: 22, d: 0.430 },  // back left
-  { az: 130, el: 16, d: 0.445 },   // back right
-  { az: -62, el: -32, d: 0.450 },  // left, below the flank
-  { az: 58, el: 38, d: 0.470 },    // right shoulder
+  // the dominant faces
+  { az: 196, el: -2, d: 0.395 },   // back
+  { az: -85, el: 2, d: 0.420 },    // left flank, the closer of the two
+  { az: 92, el: 4, d: 0.440 },     // right flank
+  { az: 0, el: -88, d: 0.500 },    // the bottom it stands on
+  { az: 110, el: 55, d: 0.545 },   // the top, falling away to the back right
+  { az: -55, el: 60, d: 0.575 },   // and to the front left: the two make a ridge
+  // the corner cuts. These are the NEAR planes, 0.355 to 0.47, so each leaves a
+  // wide chamfer rather than shaving an edge.
+  { az: 48, el: 16, d: 0.358 },    // chamfer between the front and the right flank
+  { az: -40, el: 10, d: 0.340 },   // and between the front and the left
+  { az: 145, el: 8, d: 0.400 },    // back right
+  { az: -138, el: 12, d: 0.395 },  // back left
+  { az: 20, el: 40, d: 0.470 },    // a nick off the top of the dressed face
+  { az: 15, el: -50, d: 0.450 },   // front chamfer down into the ground
+  { az: 190, el: -46, d: 0.445 },  // back chamfer, the same
 ];
-// Softening. The arris radius is roughly d/P, so 7 on these distances is a
-// 60 to 70 mm roll: the same order as the registry's own 62 mm rim, which is
-// what keeps this in the family. At 12 the piece came back as cut gemstone and
-// at 4 as a pebble with no planes in it at all.
-const P_NORM = 7;
+// The fillet the smooth min puts on an arris, in world units, and it is two
+// numbers rather than one.
+//
+// SMIN_K is what the rough facets meet each other on. The registry rolls every
+// edge in the set on a 62 mm quarter round, and 60 was tried first for exactly
+// that reason: it is too much. A fillet that size is wider than the corner
+// chamfers below are long, so it eats them, and what comes back is one smooth
+// wedge. 36 mm is about two and a half pixels at scene scale, still nothing the
+// eye can call an edge, and it leaves the small facets standing.
+//
+// SMIN_PANEL is what the DRESSED face meets the rough rock on, and it is half
+// of that on purpose. A worked face has a harder boundary than a broken one --
+// that difference is the whole "someone did this" of the design -- and it is
+// also what makes the panel possible at all: the pocket cut into the facet has
+// to clear the rock all the way round, and at 60 mm the facet is only flat in
+// the middle third of itself, which shrank the pocket to two thirds of its size
+// and ran the letters off the edge of it.
+const SMIN_K = 0.017;
+const SMIN_PANEL = 0.012;
 
 // A very slow swell over the rough surface, three waves in DIRECTION rather
 // than in position, so the whole thing stays a single valued radial function.
@@ -140,12 +174,12 @@ const P_NORM = 7;
 // necessary (the pocket's clearance is measured against this surface).
 const SWELL = 0.009;
 
-const SEG_A = 80;   // columns round the piece
-const SEG_R = 32;   // rings from the pocket rim round to the back
+const SEG_A = 96;   // columns round the piece
+const SEG_R = 46;   // rings from the pocket rim round to the back
 
 // How deep the whole piece is buried. A found stone is bedded, not stood on the
 // grass; the registry adds another 12 mm of its own sink on top of this.
-const SINK = 0.055;
+const SINK = 0.080;
 
 // --- the foot --------------------------------------------------------------
 //
@@ -164,7 +198,7 @@ const FOOT_MAX = 6;
 const INITIALS = ['J.S.', 'A.H.', 'T.B.', 'R.C.', 'E.P.'];
 
 // ---------------------------------------------------------------------------
-// the p-norm rock
+// the rough mass
 
 function dir(azDeg, elDeg) {
   const az = azDeg * DEG;
@@ -195,25 +229,57 @@ function makeRock(rng) {
   }));
   const ph = [rng() * 6.283, rng() * 6.283, rng() * 6.283];
   const frame = panelFrame((rng() - 0.5) * 0.20, (rng() - 0.5) * 0.10);
-  return { planes, ph, frame };
+  // The dressed face is one of the rock's own bounding planes and it has to be
+  // there: left out, the front of the mass is bounded by whatever is next to
+  // it, the panel plane ends up a couple of hundred millimetres inside the
+  // stone, and the pocket becomes a well drilled into solid rock. That was the
+  // first render and it looked exactly like a potato with a slot in it. It is
+  // applied in radius() rather than pushed onto this list because it gets its
+  // own, tighter fillet.
+  return { planes, ph, frame, hits: new Float64Array(planes.length) };
 }
 
 // Radius of the rough surface in a direction. The dressed face is exempt from
 // the swell, which is why this takes the frame.
 function radius(u, rock) {
-  let s = 0;
+  // Ray distance to every rough plane the ray can actually reach, then the
+  // smooth min of them, offset by the smallest so the exponentials cannot
+  // overflow. The dressed face is held out of that sum and folded in after, on
+  // its own tighter fillet.
+  let best = Infinity;
+  const hits = rock.hits;
+  let n = 0;
   for (const p of rock.planes) {
-    const t = u.dot(p.n) / p.d;
-    if (t > 0) s += Math.pow(t, P_NORM);
+    const c = u.dot(p.n);
+    if (c <= 0.02) continue;   // edge on or behind: this plane bounds nothing here
+    const t = p.d / c;
+    hits[n++] = t;
+    if (t < best) best = t;
   }
-  const r = Math.pow(s, -1 / P_NORM);
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += Math.exp(-(hits[i] - best) / SMIN_K);
+  let r = best - SMIN_K * Math.log(sum);
+
+  const cp = u.dot(rock.frame.e3);
+  if (cp > 0.02) {
+    const rp = DP / cp;
+    const m = Math.min(r, rp);
+    r = m - SMIN_PANEL * Math.log(Math.exp(-(r - m) / SMIN_PANEL) + Math.exp(-(rp - m) / SMIN_PANEL));
+  }
+
+  // The slow swell over the rough surface, three waves in DIRECTION so the
+  // whole thing stays a single valued radial function. About 10 mm on a stone
+  // a metre tall: enough that a facet is not a machined plane, far too broad to
+  // be the fine displacement the brief bans. Faded out over the dressed face,
+  // which is both correct -- that face was worked -- and necessary, since the
+  // pocket's clearance is measured against this surface.
   const worked = smoothstep(0.85, 1.30, Math.acos(clamp01(u.dot(rock.frame.e3))));
   const ph = rock.ph;
   const swell =
-    0.55 * Math.sin(2.7 * u.x + ph[0]) +
-    0.30 * Math.sin(2.3 * u.y + ph[1]) +
-    0.28 * Math.sin(3.1 * u.z + ph[2]);
-  return r * (1 + SWELL * swell * worked / 0.45);
+    0.48 * Math.sin(2.7 * u.x + ph[0]) +
+    0.27 * Math.sin(2.3 * u.y + ph[1]) +
+    0.25 * Math.sin(3.1 * u.z + ph[2]);
+  return r + SWELL * swell * worked;
 }
 
 const _p0 = new THREE.Vector3();
@@ -231,7 +297,7 @@ function surfacePoint(u, rock, out) {
 }
 
 // Normal from the parametrisation rather than from the plane sum, so the swell
-// and the p-norm are differentiated together and there is nothing to keep in
+// and the smooth min are differentiated together and there is nothing to keep in
 // step. Two tangent steps and a cross product; this runs a few thousand times
 // at build time and never again.
 function surfaceNormal(u, rock, out) {
@@ -256,14 +322,14 @@ function outlinePoint(phi, wob, scale) {
   const r = Math.pow(Math.pow(Math.abs(c) / ax, OUT_K) + Math.pow(Math.abs(s) / ay, OUT_K), -1 / OUT_K);
   // The chisel never ran straight. Three harmonics, small enough that the
   // outline is still recognisably the rectangle the texture is mapped onto.
-  const k = 1 + 0.055 * Math.sin(2 * phi + wob[0]) + 0.038 * Math.sin(3 * phi + wob[1]) + 0.022 * Math.sin(5 * phi + wob[2]);
+  const k = 1 + 0.078 * Math.sin(2 * phi + wob[0]) + 0.052 * Math.sin(3 * phi + wob[1]) + 0.030 * Math.sin(5 * phi + wob[2]);
   return [r * c * k * scale, r * s * k * scale];
 }
 
 // Where the wall, run out from the panel floor at a given panel coordinate,
 // leaves the rough surface. Bisected rather than assumed: the surface there is
-// the p-norm's own blend of the panel plane with whatever is next to it, which
-// is always a little inside the plane and by a different amount at every
+// the smooth min's own blend of the panel plane with whatever is next to it,
+// which is always a little inside the plane and by a different amount at every
 // column.
 function wallTop(px, py, rock, floorPlane) {
   const { e1, e2, e3 } = rock.frame;
@@ -277,7 +343,7 @@ function wallTop(px, py, rock, floorPlane) {
   let lo = 0;
   let hi = RECESS * 4;
   if (f(lo) > 0) return -1;    // the floor is already outside the rock
-  if (f(hi) < 0) return hi;    // should not happen; caller treats it as a miss
+  if (f(hi) < 0) return -1;    // no crossing: the wall never reaches daylight
   for (let i = 0; i < 34; i++) {
     const mid = (lo + hi) / 2;
     if (f(mid) < 0) lo = mid; else hi = mid;
@@ -288,7 +354,7 @@ function wallTop(px, py, rock, floorPlane) {
 // Shrink the pocket until every one of its columns has a wall with room for
 // both rolls in it. Nothing here is a number somebody chose: the failure it
 // catches is the pocket's corner landing outside the rock, and on a shape that
-// is regenerated from eleven jittered planes per seed that has to be measured
+// is regenerated from thirteen jittered planes per seed that has to be measured
 // rather than trusted.
 function fitOutline(rock, wob) {
   const need = FILLET + ARRIS * 0.5 + 0.004;
@@ -363,7 +429,7 @@ function buildBoulder(rock, wob, slabUV) {
   const cols = fit.cols.map(({ phi, px, py, s }) => {
     // Outward normal of the outline in the panel plane, from the analytic
     // tangent of the superellipse: a finite difference of the outline itself,
-    // which is exact enough at 80 columns and needs no special cases at the
+    // which is exact enough at 96 columns and needs no special cases at the
     // superellipse's flat runs.
     const d = 0.004;
     const a = outlinePoint(phi - d, wob, fit.scale);
@@ -379,8 +445,6 @@ function buildBoulder(rock, wob, slabUV) {
   });
 
   const sink = new Sink();
-  const P = new THREE.Vector3();
-  const N = new THREE.Vector3();
 
   const panelPoint = (px, py, s, out) =>
     out.set(0, 0, 0).addScaledVector(e3, floorPlane + s).addScaledVector(e1, px).addScaledVector(e2, py);
@@ -440,8 +504,8 @@ function buildBoulder(rock, wob, slabUV) {
   // half the roll, B is a point out on the rough surface the same distance
   // past the corner, and the corner itself is the control point, so the band
   // is a real fillet of about ARRIS rather than a normal-only cheat. This is
-  // the crisp edge of the piece: 16 mm, which is half a pixel at scene scale
-  // and about five at the size a reviewer looks at it.
+  // the crisp edge of the piece: 16 mm, which is about a pixel at scene scale
+  // and eight at the 700 px size the panel is judged at.
   const arrisCols = cols.map((c) => {
     const A = panelPoint(c.px, c.py, c.s - ARRIS * 0.5, new THREE.Vector3());
     const K = panelPoint(c.px, c.py, c.s, new THREE.Vector3());
@@ -510,7 +574,7 @@ function footStone(rng, seg, ringN) {
       d: 0.42 + rng() * 0.22,
     });
   }
-  const rock = { planes, ph: [rng() * 6.283, rng() * 6.283, rng() * 6.283], frame: { e3: new THREE.Vector3(0, 1, 0) } };
+  const rock = { planes, ph: [rng() * 6.283, rng() * 6.283, rng() * 6.283], frame: { e3: new THREE.Vector3(0, 1, 0) }, hits: new Float64Array(planes.length) };
   const sink = new Sink();
   for (let i = 0; i <= ringN; i++) {
     const ang = (i / ringN) * Math.PI;
@@ -549,21 +613,24 @@ function appendSink(dst, src, matrix) {
 // ---------------------------------------------------------------------------
 
 function buildStone({ body, material, rng, disposables, stripUV, slabUV, lean }) {
+  const rock = makeRock(rng);
+  const wob = [rng() * 6.283, rng() * 6.283, rng() * 6.283];
+  const sink = buildBoulder(rock, wob, slabUV);
+  // The rock is built BEFORE the registry's slab is thrown away, so that if
+  // fitOutline ever gives up -- it has fourteen goes and has not yet, but a
+  // future change to the plane table could make it -- what is left standing is
+  // the family's own slab rather than nothing at all.
+  if (!sink) return;
+
   // The registry's slab and its plinth both go. A boulder is one mass; the
   // slab's only remaining job is the texture atlas, whose carved region takes
   // its aspect from 2 * halfWidth / height, which is why those two numbers are
   // the panel's. Its geometry is still owned by the registry's dispose().
   for (const m of body.children.filter((o) => o.isMesh)) body.remove(m);
 
-  const rock = makeRock(rng);
-  const wob = [rng() * 6.283, rng() * 6.283, rng() * 6.283];
-  const sink = buildBoulder(rock, wob, slabUV);
-  if (!sink) return;
-
-  // A found stone is not plumb. Its own tilt, on top of the registry's, and
-  // applied to the geometry rather than to a group so the seating below can
-  // measure the real lowest point instead of a rotated bounding box -- which
-  // is book.js's finding and the reason this walks vertices at all.
+  // A found stone is not plumb. Its own tilt, on top of the registry's, baked
+  // into the geometry rather than hung on a group, so the seating below can
+  // measure the real lowest point of the real thing.
   //
   // Yaw is NOT among them: it would swing the dressed face away from the front,
   // and the front is where the camera is. Only the two tilts vary, and the face
@@ -572,35 +639,66 @@ function buildStone({ body, material, rng, disposables, stripUV, slabUV, lean })
     new THREE.Euler((rng() - 0.5) * 0.10, 0, (rng() - 0.5) * 0.11, 'ZXY'),
   );
 
-  const all = { pos: [], nor: [], uv: [], face: [], idx: [] };
-  appendSink(all, sink, tilt);
-
-  // The foot stones, placed round the base and half buried. Kept off the
-  // front centre: a lump in front of the panel is the one place a small stone
-  // can do harm.
-  const feet = FOOT_MIN + Math.floor(rng() * (FOOT_MAX - FOOT_MIN + 1));
-  for (let i = 0; i < feet; i++) {
-    const s = 0.055 + rng() * 0.075;
-    const th = (i / feet) * Math.PI * 2 + rng() * 0.8;
-    const rad = 0.40 + rng() * 0.22;
-    const m = new THREE.Matrix4().compose(
-      new THREE.Vector3(Math.sin(th) * rad, s * (0.30 + rng() * 0.30), Math.cos(th) * rad * 0.85),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(rng() * 6.283, rng() * 6.283, rng() * 6.283)),
-      new THREE.Vector3(s * 2.0, s * 1.35, s * 1.85),
-    );
-    appendSink(all, footStone(rng, 16, 9), m);
-  }
-
-  // --- seating -------------------------------------------------------------
+  // Seated before anything else is placed. The boulder's own lowest point under
+  // its tilt, walked vertex by vertex: Box3.setFromObject grows the local box
+  // by the rotation and would hand back a tumbling cube's corner, which is
+  // book.js's finding and the reason this counts vertices at all.
   let low = Infinity;
   let high = -Infinity;
-  for (let i = 1; i < all.pos.length; i += 3) {
-    if (all.pos[i] < low) low = all.pos[i];
-    if (all.pos[i] > high) high = all.pos[i];
+  {
+    const v = new THREE.Vector3();
+    for (let i = 0; i < sink.pos.length; i += 3) {
+      v.set(sink.pos[i], sink.pos[i + 1], sink.pos[i + 2]).applyMatrix4(tilt);
+      if (v.y < low) low = v.y;
+      if (v.y > high) high = v.y;
+    }
   }
   const dy = -SINK - low;
-  for (let i = 1; i < all.pos.length; i += 3) all.pos[i] += dy;
   const top = high + dy;
+  const place = new THREE.Matrix4().makeTranslation(0, dy, 0).multiply(tilt);
+
+  const all = { pos: [], nor: [], uv: [], face: [], idx: [] };
+  appendSink(all, sink, place);
+  const bodyEnd = all.pos.length;   // where the boulder ends and its foot stones begin
+
+  // How far the boulder's own base reaches, per azimuth, measured off the mesh
+  // that was just built. The first pass placed the foot stones on a guessed
+  // radius and half of them landed INSIDE the boulder, which came back as a
+  // crumpled fringe of little bumps all round the bottom edge -- at four seeds
+  // side by side it was the most obviously wrong thing in the frame. Nothing
+  // here is a radius somebody chose: each stone is set against the base where
+  // the base actually is.
+  const BINS = 36;
+  const reach = new Float64Array(BINS);
+  for (let i = 0; i < bodyEnd; i += 3) {
+    if (all.pos[i + 1] > 0.16) continue;
+    const b = (Math.floor(((Math.atan2(all.pos[i], all.pos[i + 2]) / (Math.PI * 2)) + 1) * BINS) % BINS + BINS) % BINS;
+    const r = Math.hypot(all.pos[i], all.pos[i + 2]);
+    if (r > reach[b]) reach[b] = r;
+  }
+  const reachAt = (th) => {
+    const b = (Math.floor(((th / (Math.PI * 2)) + 1) * BINS) % BINS + BINS) % BINS;
+    return Math.max(reach[b], reach[(b + 1) % BINS], reach[(b + BINS - 1) % BINS], 0.30);
+  };
+
+  // The foot stones, in the SAME frame the seated boulder now lives in. Placed
+  // before the seating they were carried up with it, which the second render
+  // showed as a ring of chips hovering half way up the sides.
+  const feet = FOOT_MIN + Math.floor(rng() * (FOOT_MAX - FOOT_MIN + 1));
+  for (let i = 0; i < feet; i++) {
+    const s = 0.038 + rng() * 0.050;
+    const th = (i / feet) * Math.PI * 2 + rng() * 0.8;
+    const rad = reachAt(th) + s * (0.35 + 1.5 * rng());
+    const m = new THREE.Matrix4().compose(
+      // Sunk between a third and two thirds of the way in. A pebble sitting ON
+      // the floor is a pebble somebody put there; one the ground has come up
+      // round it is what a stone that has stood a century has at its foot.
+      new THREE.Vector3(Math.sin(th) * rad, s * (0.16 - 0.34 * rng()), Math.cos(th) * rad),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(rng() * 6.283, rng() * 6.283, rng() * 6.283)),
+      new THREE.Vector3(s * 2.0, s * 1.30, s * 1.80),
+    );
+    appendSink(all, footStone(rng, 14, 8), m);
+  }
 
   // --- the plain UVs -------------------------------------------------------
   //
@@ -650,9 +748,9 @@ registerStone('boulder', {
   // this face is a third of that one's area and the brief for a found stone is
   // quiet.
   draw(ctx, w, h, rng) {
-    inkCross(ctx, w / 2, h * 0.30, h * 0.255);
-    const size = h * 0.295;
-    inkText(ctx, INITIALS[Math.floor(rng() * INITIALS.length) % INITIALS.length], w / 2, h * 0.665, size, size * 0.05);
+    inkCross(ctx, w / 2, h * 0.275, h * 0.165);
+    const size = h * 0.285;
+    inkText(ctx, INITIALS[Math.floor(rng() * INITIALS.length) % INITIALS.length], w / 2, h * 0.655, size, size * 0.05);
   },
 
   extras: buildStone,

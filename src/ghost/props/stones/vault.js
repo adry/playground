@@ -61,23 +61,32 @@ import { registerStone, buildSlabGeometry, buildArcSweepGeometry, inkText } from
 
 // --- the numbers -----------------------------------------------------------
 //
-// 1.26 wide by 1.24 deep by 1.78 tall overall. Against the set: the obelisk is
-// 1.85 tall on a 0.76 by 0.64 footprint and the chest tomb is 1.67 by 0.79. So
-// this is a shade under the tallest stone and roughly three times the plan area
-// of the widest one, which is the point: it is the only thing here a person
-// could walk into.
+// Walls 1.26 wide by 1.24 deep, base course 1.41 by 1.37, roof 1.46 by 1.44,
+// ridge at 1.786. MEASURED over twelve seeds with the lean applied, which is
+// what footprints.js wants: half extents 0.748 by 0.744 and a bounding radius of
+// 1.055. That is the largest footprint of any headstone in the set by a clear
+// margin. The chest tomb, the widest until now, is 0.834 by 0.393 for a radius
+// of 0.92. It is 15% more than a 2.0 cell can hold, so the layout
+// generator has to give it a 2.5 or better. The lean is worth 25mm of that
+// radius on its own, because it tips a ridge 1.79 up.
 //
-// It is still less than half the shed, which is the graveyard's other building
-// at 2.14 tall on a 1.78 by 1.42 plan, and it is stone rather than timber all
-// the way through: no boards, no gaps, no ragged ends, one continuous rounded
-// surface in the set's own grey.
+// Against the set: the obelisk is 1.848 tall on a 0.76 by 0.64 plan, so this is
+// the SECOND tallest thing in the graveyard and about three and a half times the
+// plan area of anything else. That is the whole identity. It is still well under
+// the shed, the graveyard's other building, which is 2.14 tall on a 1.78 by 1.42
+// plan and reads as timber. This one is stone all the way through: no boards,
+// no gaps, no ragged ends, one continuous rounded surface in the set's own grey.
 //
-// Height splits 0.17 base, 1.18 wall, 0.47 roof. The wall is a hair taller than
-// the building is wide, which is what stops the box reading as a cube.
+// Height splits 0.20 base, 1.19 wall, 0.40 roof above the eaves line. The wall is
+// very nearly as wide as it is tall, which is what a small mausoleum is: taller
+// than that and it becomes a tower, shorter and the roof takes over. The roof
+// looks bigger than 0.40 in the frame and that is the camera rather than the
+// numbers, because a 1.44-deep roof plan seen at 29 degrees adds 0.70 of
+// apparent height on its own, and every deep building in this scene pays it.
 const W = 0.63;       // half width of the walls
-const H = 1.18;       // wall height above the base course, and the face's v span
+const H = 1.19;       // wall height above the base course, and the face's v span
 const D = 1.24;       // depth of the walls
-const PLINTH = 0.17;  // the base course, built by the registry
+const PLINTH = 0.20;  // the base course, built by the registry
 
 // Everything this file adds is dropped 20mm into the base course. Two flat
 // faces meeting exactly at the plinth's top is a coplanar pair on four separate
@@ -86,17 +95,18 @@ const BED = 0.02;
 
 // --- the doorway -----------------------------------------------------------
 //
-// Semicircular headed, 0.46 by 0.775, which is 37% of the wall's width and 66%
+// Semicircular headed, 0.46 by 0.775, which is 37% of the wall's width and 65%
 // of its height. The arch is what makes a recess read as a DOOR rather than as
 // a window or a sunk panel, and it costs nothing: the head is one concave arc
 // tangent to both jambs, which is the one shape an arc chain is best at.
 //
 // `recess` is the number the whole piece turns on. The brief's floor is 0.06;
 // this is 0.13, of which the first 0.062 is the rim rolling into the opening
-// and the remaining 0.068 is flat jamb. At the scene's key elevation of 54
-// degrees the head alone throws 0.094 of shadow down the leaf, so the top of
-// the door is dark, the bottom is lit, and the two are divided by a hard line
-// that no amount of hemisphere fill can flatten.
+// and the remaining 0.068 is flat jamb. At the scene's key elevation of 56
+// degrees the head alone throws 0.087 of shadow down the leaf, so the top of
+// the door is dark, the bottom is lit, and the two are divided by a hard line.
+// That line is real geometry; what puts VALUE in the rest of the opening is
+// RECESS below, and the note there is the one to read before changing either.
 //
 // `bury` is how far the leaf runs on into the jambs all round. It has to clear
 // the rim radius, or the leaf's own rounded edge comes back out through the
@@ -114,14 +124,20 @@ const DOOR_TOP = DOOR.spring + DOOR.half; // 0.775
 
 // --- the roof --------------------------------------------------------------
 //
-// 28 degrees, which is a Roman temple's pitch rather than a chapel's, and the
+// 24 degrees, which is a Roman temple's pitch rather than a chapel's, and the
 // shallower of the two reads better here: at 100 pixels a steep gable turns
-// into a spike and takes the eye off the door.
+// into a spike and takes the eye off the door. The first pass ran at 28 and the
+// difference at scene size was that the ridge, not the doorway, was the first
+// thing the eye found.
 //
 // `over` is the oversail, equal in X and Z. 0.10 puts the eaves 0.10 clear of
 // the wall, 0.07 clear of the antae and 0.025 clear of the base course, so the
 // building steps out, in, and out again from the ground up, which is the
-// silhouette a classical elevation has.
+// silhouette a classical elevation has. It is also the piece's one long shadow
+// line and, like stele.js's cornice, the scene's shadow map quantises its lower
+// edge into a fine scallop. Measured: about 1.5 pixels in a 1.2-view lab shot
+// and half a pixel at the shipped 6.2, where the shadow camera is fitted to the
+// whole visible floor. It is a shadow-map limit and not the geometry.
 //
 // `bury` is how far the block runs down INSIDE the wall. Without it the roof's
 // soffit and the wall's top face are coplanar over the whole plan, which is a
@@ -136,10 +152,10 @@ const ROOF = {
   over: 0.10,
   bury: 0.07,
   fascia: 0.10,
-  pitch: (28 * Math.PI) / 180,
-  footR: 0.075,  // the eaves' bottom arris
-  eaveR: 0.075,  // fascia into the rake
-  apexR: 0.12,   // the ridge
+  pitch: (24 * Math.PI) / 180,
+  footR: 0.065,  // the eaves' bottom arris
+  eaveR: 0.065,  // fascia into the rake
+  apexR: 0.10,   // the ridge
 };
 const ROOF_HALF = W + ROOF.over;
 
@@ -158,9 +174,14 @@ const ROOF_HALF = W + ROOF.over;
 const ANTA = {
   half: 0.13,
   outer: 0.66,   // 0.03 proud of the wall, still inside the base course's 0.705
-  depth: 0.16,
+  depth: 0.18,
   proud: 0.06,
-  edge: 0.055,   // its own rim: the registry's 0.062 does not fit a 0.16 depth
+  // Its own rim, and smaller than the registry's 0.062 for a reason that took a
+  // render to see: at 0.055 on a member 0.26 across, the roll ate the whole
+  // front face and the antae came out as two fat tubes stuck to the wall. At
+  // 0.045 there is 0.17 of flat face left between the rolls and they read as
+  // pilasters, which is what a flat lit face and two shadowed returns are.
+  edge: 0.045,
 };
 
 // --- the name --------------------------------------------------------------
@@ -171,13 +192,77 @@ const ANTA = {
 // seed, because two vaults in one graveyard belonging to the same family is the
 // kind of detail that is only ever noticed when it is wrong.
 //
-// Letters come out 0.11 world tall against the cross's 0.144, stele's 0.105 and
-// heart's 0.088, so they sit in the middle of the set's range. Coverage is
-// discussed at `draw`.
-const NAMES = ['THORNE', 'HOLLIS', 'VANCE', 'MARLOWE', 'ASHDOWN', 'CORVIN'];
-const NAME_H = 0.11;                  // cap height, world
+// Coverage and letter height are measured at `draw`.
+//
+// Six names, none longer than six letters, and that is a constraint rather than
+// a taste: the band between the antae is 0.80 wide, and at the letter size the
+// set uses a seventh letter runs a name past it. The alternative was to shrink
+// the long ones to fit, which would have made the letter HEIGHT vary from seed
+// to seed, and matching the set's letter height is the one thing the brief says
+// matters more than any coverage figure.
+const NAMES = ['THORNE', 'HOLLIS', 'VANCE', 'CORVIN', 'RANDLE', 'ASHTON'];
+// The FONT SIZE, not the cap height. A bold serif caps out at about 0.66 of its
+// point size, so this comes out as letters 0.100 world tall, measured off the
+// artwork rather than assumed: measured the same way the cross comes out 0.119
+// and FRED 0.093, so this sits between the two approved stones.
+const NAME_H = 0.152;
 const NAME_Y = (DOOR_TOP + H - ROOF.bury) / 2; // centred in the band between arch and eaves
 const NAME_MAX = 0.70;                // and never wider than the gap between the antae
+
+// --- the darkness in the doorway -------------------------------------------
+//
+// THE ONE THING GEOMETRY CANNOT DO HERE, AND WHY THIS IS NOT A CHEAT.
+//
+// three's HemisphereLight is occluded by nothing. It cannot be: there is no
+// shadow pass for it and there could not cheaply be one. So a recess 0.13 deep
+// gets the full 1.15 of sky fill on its floor, and the first render of this
+// stone came back with the door leaf reading at very nearly the same value as
+// the wall around it: an arch DRAWN on a flat face, which is the exact failure
+// the brief names. The key's own shadow off the arch head covers the top eighth
+// of the leaf and no more.
+//
+// The registry already owns the answer and states it in its own words: the
+// colour map "carries what the normal map cannot hold", starting with "a wide,
+// weak smudge ... the ambient light that never reaches into a cut". A doorway
+// is a cut. So the doorway is painted into the same canvas the inscription is
+// painted into, by the same mechanism, and the door leaf's FRONT FACE is mapped
+// with slabUV so that it samples exactly that patch. Nothing else on the piece
+// changes; there is no second material and no second map.
+//
+// It is a gradient rather than a flat tone, and that is shed/shell.js's finding
+// rather than a flourish: one even value across an opening reads as a panel
+// painted on the front of a solid block, because a painted panel has no reason
+// to be lighter near the threshold. Dark under the head, half that at the foot.
+//
+// `grow` is how far the patch spreads past the opening. It has to be positive,
+// or the soft edge of the patch lands on the visible leaf; it has to stay small,
+// because the registry blurs the artwork by 17 texels and anything much wider
+// pushes that blur out of the opening and onto the wall around it. 0.02 puts
+// the patch's edge 0.02 inside the jamb and its blur just inside the mouth of
+// the reveal, where a faint darkening is what an occluded corner does anyway.
+const RECESS = { grow: 0.02, head: 0.92, foot: 0.50 };
+
+function inkRecess(ctx, w, h) {
+  const px = (x) => ((x + W) / (2 * W)) * w;
+  const py = (y) => (1 - y / H) * h;
+  const half = DOOR.half + RECESS.grow;
+  const r = (half / (2 * W)) * w;
+  const g = ctx.createLinearGradient(0, py(DOOR_TOP), 0, py(0));
+  g.addColorStop(0, `rgba(0,0,0,${RECESS.head})`);
+  g.addColorStop(1, `rgba(0,0,0,${RECESS.foot})`);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  // Down past the bottom of the canvas: the leaf runs on into the base course
+  // and v is clamped, so the patch has to reach the last row rather than stop
+  // at the threshold and leave a bright band under the door.
+  ctx.moveTo(px(-half), py(-0.30));
+  ctx.lineTo(px(-half), py(DOOR.spring));
+  ctx.arc(px(0), py(DOOR.spring), r, Math.PI, 0);
+  ctx.lineTo(px(half), py(-0.30));
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#000000'; // drawInscription's contract: black is the cut
+}
 
 // ---------------------------------------------------------------------------
 // outline helpers
@@ -227,7 +312,7 @@ function fillet(a, b, r) {
 //
 // A convex arc loses the rim radius on the flat front face and a concave one
 // gains it, so nothing may be thinner than twice the rim's 0.062. The thinnest
-// limb here is the band over the arch at 0.335, and the jambs are 0.40, so
+// limb here is the band over the arch at 0.415, and the jambs are 0.40, so
 // there is a factor of three in hand. What the offset DOES do is open the
 // doorway out on the face itself: the opening measures 0.46 at the silhouette
 // and 0.584 where it meets the front face, and that flare is the rim rolling
@@ -289,14 +374,13 @@ function roofOutline() {
 
 // Height of the ridge above the eaves line. The fillet at the apex sits
 // r/sin(half the ridge angle) below where the two rakes would have crossed, so
-// the block tops out a shade under the sharp apex; at these numbers that is
-// 16mm and it is why the total below is 1.782 rather than 1.798.
+// the block tops out a shade under the sharp apex. At these numbers that is
+// 8mm, and it is the difference between an authored 1.786 and the 1.794 the
+// sharp apex would have given.
 function ridgeTop() {
   const a = roofOutline()[2];
   return a.cy + a.r;
 }
-
-export const VAULT_HEIGHT = PLINTH + H + ridgeTop() - BED;
 
 // ---------------------------------------------------------------------------
 
@@ -310,22 +394,30 @@ registerStone('vault', {
 
   // The family name, cut into the band between the arch and the eaves.
   //
-  // MEASURED, on the real face canvas: the ink covers 1.3% of it in a box 46%
-  // of the width by 9% of the height. That is well under the cross's 3.8%, and
-  // the reason is arithmetic rather than timidity. This is by far the biggest
-  // face in the set at 1.26 by 1.18, and a third of it is not stone at all: the
-  // doorway takes 0.33 square units out of 1.49 and the two antae hide another
-  // 0.47 in front of it. Against the stone a viewer can actually see, one word
-  // this size covers 3.3%, which is where the postmortem puts a piece whose
-  // silhouette is doing the talking. The letter HEIGHT, which the brief says
-  // matters more than any coverage figure, is 0.11 world: mid-range for the set
-  // and a 95-texel stroke on this canvas, five times the 17 at which a cut
-  // collapses.
+  // MEASURED, on the real face canvas at 1084 by 1024, over all six names: the
+  // ink covers 1.27% to 1.79% of the canvas in a box 43% to 54% of its width by
+  // 8.6% of its height, and the caps come out 0.100 to 0.103 world tall on an
+  // 86 to 89 texel stroke, five times the 17 at which a cut collapses.
   //
-  // The width is capped rather than trusted. MARLOWE and ASHDOWN are two
-  // letters longer than VANCE, and a name allowed to run its natural width
-  // would reach the antae and get its outer letters rolled round the rim.
+  // Both numbers matter and they say different things. Against the whole face
+  // rectangle 1.3% to 1.8% looks timid beside the cross's 3.8%, and that is
+  // arithmetic rather than timidity: this is much the biggest face in the set at
+  // 1.26 by 1.19, and half of it is not visible stone at all. The doorway
+  // takes 0.33 square units out of 1.50 and the two antae stand in front of
+  // another 0.58. Against the stone a viewer can actually see, the same word
+  // covers 3.3% to 4.6%, which is exactly the light end the postmortem puts a
+  // piece with a strong silhouette at. And the letter HEIGHT, which the brief
+  // says matters more than any coverage figure, lands between the two approved
+  // stones: 0.100 here against the cross's 0.119 and FRED's 0.093, all three
+  // measured the same way, off the ink's own bounding box.
+  //
+  // The width is capped rather than trusted, and the cap bites on one name in
+  // six: THORNE comes back 3% smaller than VANCE. Everything longer than six
+  // letters was dropped from the list rather than shrunk to fit, because a name
+  // squeezed to clear the antae changes the letter height from seed to seed and
+  // that is the one thing that may not vary.
   draw(ctx, w, h, rng) {
+    inkRecess(ctx, w, h);
     const name = NAMES[Math.floor(rng() * NAMES.length)];
     const size = h * (NAME_H / H);
     const spacing = size * 0.06;
@@ -372,10 +464,6 @@ registerStone('vault', {
     // on into the jambs and the arch and its own rounded edges never show.
     // Solid rather than a leaf on a cavity: see the note on the ajar door at
     // the foot of this file.
-    //
-    // Mapped up the wall's own v so the grime that washes up the foot of the
-    // facade washes up the door by exactly as much, which is what stops the
-    // recess reading as a lighter material set into a darker one.
     const leafHalf = DOOR.half + DOOR.bury;
     const leafBot = -0.04;
     const leafTop = DOOR_TOP + DOOR.bury;
@@ -389,7 +477,13 @@ registerStone('vault', {
         edge: rim,
         bottomRadius: 0.08,
         topRadius: 0.09,
-        uv: (x, y) => stripUV(x, y + leafBot, leafHalf, H),
+        // The front face samples the inscription canvas, where inkRecess has
+        // painted the doorway's darkness; everything else on the leaf is
+        // parked in the plain strip at the wall's own v, so the grime that
+        // washes up the foot of the facade washes up the door by as much.
+        uv: (x, y, front) => (front
+          ? slabUV(x, y + leafBot, true)
+          : stripUV(x, y + leafBot, leafHalf, H)),
       }),
       0,
       leafBot,
@@ -405,8 +499,8 @@ registerStone('vault', {
       height: H,
       depth: ANTA.depth,
       edge: ANTA.edge,
-      bottomRadius: 0.058,
-      topRadius: 0.058,
+      bottomRadius: 0.05,
+      topRadius: 0.05,
       uv: (x, y) => stripUV(x, y, ANTA.half, H),
     });
     const ax = ANTA.outer - ANTA.half;
@@ -464,21 +558,26 @@ registerStone('vault', {
 
     // --- the door that is not ajar -----------------------------------------
     //
-    // An open door with darkness behind it is the most atmospheric thing this
-    // piece could have had, and it was built: a chamber behind the opening, an
-    // unlit BackSide shell in it on shed/shell.js's pattern, and the leaf swung
-    // in on one jamb. Two things killed it at scene size. Swung OUT, the leaf
-    // reaches 0.15 past the facade and 0.08 past the antae, so a 12mm plate is
-    // the outermost thing on the building and at 100 pixels it is a bright
-    // flake stuck to the front of it. Swung IN, everything that made it worth
-    // doing is inside the chamber and invisible, and what is left on screen is
-    // a black arch, which is what a shut door in a 0.13 reveal already gives
-    // once the key throws the head's shadow down it.
+    // An open door with black behind it is the most atmospheric thing this piece
+    // could have had, so it was BUILT and RENDERED rather than argued about: a
+    // 0.46-deep chamber behind the opening, an unlit vertex-coloured cavity in
+    // it on shed/shell.js's pattern, and a 0.075 leaf hinged on the left jamb
+    // and swung 36 degrees inward. The comparison is out/vault/ajars/cmp.png,
+    // shut and ajar side by side at 300 by 400.
     //
-    // The one thing the open version had that this does not is a value darker
-    // than stone in the opening, because three's HemisphereLight is occluded by
-    // nothing and lands on the leaf at full strength. If this piece ever needs
-    // more depth in the doorway, that is the lever: a darker value in the
-    // recess, not a wider one.
+    // It is worse, and for a reason that only shows at scene size. The chamber
+    // really is black, because an unlit material cannot be lifted by the
+    // hemisphere, which is the whole point of it. But the LEAF is stone, and
+    // the key hits it square. So the opening stops being one dark shape and
+    // becomes a bright panel with a black slot beside it, and at ninety pixels
+    // the bright panel wins: the arch reads lighter than the shut version, not
+    // darker. Swinging it the other way only moves the problem outdoors, where a
+    // 75mm plate standing 0.15 past the facade is the outermost thing on the
+    // building and reads as a flake stuck to the front of it.
+    //
+    // The finding worth keeping is that the darkness was never the hard part.
+    // The doorway is dark here because RECESS paints it dark and the geometry is
+    // genuinely 0.13 back; adding a real cavity behind a real leaf bought a
+    // blacker slot at the cost of the shape that carries the read.
   },
 });

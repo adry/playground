@@ -33,14 +33,14 @@ import { registerStone, inkText } from '../tombstones.js';
 // The plinth is the registry's own slab with its arch squared off, so the block
 // gets the family rim, the family mottle and the family engraving treatment,
 // and the inscription needs no special handling at all. It is a low, wide,
-// nearly cubic die: 0.72 by 0.34 by 0.34 on a 0.12 pad. Standing 0.87 to the
+// nearly cubic die: 0.72 by 0.32 by 0.34 on a 0.12 pad. Standing 0.87 to the
 // top of the head, this belongs with bench at 0.81 and book at 0.81, at the
 // bottom of the set, which is the point. It is a child's grave.
 
 // --- the plinth -------------------------------------------------------------
 
 const W = 0.36;      // half width of the die, so 0.72 along the lamb
-const H = 0.34;      // its height
+const H = 0.32;      // its height
 const D = 0.34;      // and its depth, just enough for the ears to sit over
 const PLINTH = 0.12; // the pad under it
 const TOP = PLINTH + H; // 0.46, the top face the lamb is carved out of
@@ -64,19 +64,19 @@ const PARTS = [
   // The foot: a low wide swell right at the block's top face. Never seen as a
   // shape of its own, but it is what puts a fillet all the way round where the
   // animal meets the stone.
-  { c: [-0.040, 0.010, 0], r: [0.225, 0.070, 0.130], k: 0.075 },
+  { c: [-0.040, 0.010, 0], r: [0.225, 0.070, 0.120], k: 0.075 },
 
   // The barrel. One ellipsoid, and every other part on the body is a swelling
   // hung off it.
-  { c: [-0.055, 0.128, 0], r: [0.190, 0.122, 0.116], k: 0.070 },
+  { c: [-0.055, 0.128, 0], r: [0.185, 0.120, 0.108], k: 0.070 },
 
   // The hind legs, folded against the flanks. They are not legs, they are the
   // two biggest lumps on the piece: on a couchant animal the hind quarter is a
   // single mass with a knee somewhere in it, and carving it as anything more is
   // how a lamb turns into a deer. Blended tighter than the fleece so the flank
   // keeps an edge to catch the key light.
-  { c: [-0.145, 0.105, 0.088], r: [0.135, 0.100, 0.064], k: 0.045 },
-  { c: [-0.145, 0.105, -0.088], r: [0.135, 0.100, 0.064], k: 0.045 },
+  { c: [-0.145, 0.105, 0.082], r: [0.135, 0.100, 0.060], k: 0.045 },
+  { c: [-0.145, 0.105, -0.082], r: [0.135, 0.100, 0.060], k: 0.045 },
 
   // The fleece: three swells along the back, biggest over the rump, smallest
   // over the shoulder, so the topline falls from tail to neck the way a real
@@ -84,9 +84,13 @@ const PARTS = [
   // curls disappear at the seventy pixels this prop occupies and take the read
   // with them, so what has to survive is a big soft lump and the valley beside
   // it.
-  { c: [-0.165, 0.196, 0], r: [0.115, 0.104, 0.114], k: 0.048 },
-  { c: [-0.035, 0.176, 0], r: [0.100, 0.080, 0.108], k: 0.048 },
-  { c: [0.062, 0.168, 0], r: [0.090, 0.078, 0.100], k: 0.048 },
+  { c: [-0.175, 0.196, 0], r: [0.098, 0.098, 0.098], k: 0.034 },
+  { c: [-0.040, 0.186, 0], r: [0.090, 0.086, 0.092], k: 0.034 },
+  { c: [0.070, 0.166, 0], r: [0.082, 0.076, 0.086], k: 0.034 },
+  { c: [-0.115, 0.140, 0.078], r: [0.078, 0.078, 0.064], k: 0.034 },
+  { c: [-0.115, 0.140, -0.078], r: [0.078, 0.078, 0.064], k: 0.034 },
+  { c: [0.010, 0.130, 0.080], r: [0.074, 0.074, 0.062], k: 0.034 },
+  { c: [0.010, 0.130, -0.080], r: [0.074, 0.074, 0.062], k: 0.034 },
 
   // The chest, and the forelegs tucked under it. The foreleg is one long low
   // roll along the base with a knee at the front of it: from above, which is
@@ -94,28 +98,28 @@ const PARTS = [
   // gets the tightest blend on the animal after the muzzle, because it is the
   // one place the light has to find a shadow under something.
   { c: [0.100, 0.130, 0], r: [0.102, 0.100, 0.100], k: 0.055 },
-  { c: [0.070, 0.052, 0.078], r: [0.150, 0.050, 0.056], k: 0.040 },
-  { c: [0.070, 0.052, -0.078], r: [0.150, 0.050, 0.056], k: 0.040 },
-  { c: [0.180, 0.064, 0.072], r: [0.062, 0.062, 0.055], k: 0.035 },
-  { c: [0.180, 0.064, -0.072], r: [0.062, 0.062, 0.055], k: 0.035 },
+  { c: [0.070, 0.050, 0.086], r: [0.150, 0.048, 0.052], k: 0.034 },
+  { c: [0.070, 0.050, -0.086], r: [0.150, 0.048, 0.052], k: 0.034 },
+  { c: [0.182, 0.062, 0.082], r: [0.060, 0.060, 0.052], k: 0.030 },
+  { c: [0.182, 0.062, -0.082], r: [0.060, 0.060, 0.052], k: 0.030 },
 
   // Neck and head. The one gap on the whole animal is the notch between the
   // back of the head and the shoulder fleece, and it is the feature that says
   // "head up" rather than "asleep": the neck is kept narrow, the shoulder lump
   // is kept behind it, and the head is carried high enough that the notch
   // survives the blend.
-  { c: [0.158, 0.252, 0.012], r: [0.074, 0.112, 0.080], k: 0.050 },
-  { c: [0.192, 0.352, 0.038], r: [0.088, 0.080, 0.078], yaw: 0.36, k: 0.048 },
+  { c: [0.150, 0.258, 0.012], r: [0.068, 0.118, 0.072], k: 0.046 },
+  { c: [0.188, 0.368, 0.026], r: [0.084, 0.078, 0.076], yaw: 0.18, k: 0.042 },
   // The muzzle. Short and blunt: a lamb's is, and anything longer immediately
   // reads as a horse. Blended tighter than anything else so the head keeps a
   // brow above it.
-  { c: [0.242, 0.318, 0.064], r: [0.060, 0.050, 0.052], yaw: 0.40, pitch: -0.10, k: 0.036 },
+  { c: [0.248, 0.320, 0.040], r: [0.062, 0.052, 0.054], yaw: 0.18, pitch: -0.22, k: 0.028 },
   // The ears, dropped along the cheeks rather than held out. Held out they
   // caught the key light along their whole length and read as horns from the
   // set's own camera. Flat lugs, not leaves: 0.14 long, 0.096 across and 0.064
   // thick, which is as thin as this style goes.
-  { c: [0.148, 0.330, 0.098], r: [0.070, 0.032, 0.048], yaw: 2.35, pitch: -0.50, k: 0.036 },
-  { c: [0.148, 0.330, -0.098], r: [0.070, 0.032, 0.048], yaw: -2.35, pitch: -0.50, k: 0.036 },
+  { c: [0.196, 0.331, 0.099], r: [0.058, 0.032, 0.046], yaw: 1.46, pitch: -0.466, k: 0.026 },
+  { c: [0.196, 0.331, -0.099], r: [0.058, 0.032, 0.046], yaw: -1.46, pitch: -0.466, k: 0.026 },
 ];
 
 // Where the implicit surface is cut off flat. 25mm below the block's top face,
@@ -127,7 +131,7 @@ const CUT = -0.025;
 // Contour cell. The ear is 0.064 through, so this puts seven cells across the
 // thinnest thing on the piece; halving it doubles the triangle count and moved
 // no silhouette by a pixel at prop size.
-const CELL = 0.0105;
+const CELL = 0.0120;
 
 // --- the implicit surface ---------------------------------------------------
 
@@ -278,18 +282,25 @@ function contour(parts) {
 
   // The field, one row of x at a time, sampled only where it matters.
   //
-  // The field is very nearly a distance, so a sample of 0.09 promises there is
-  // no surface within 0.09 of it, and the next eight samples along the row can
-  // be filled in from that promise rather than computed. Only the band within
-  // NEAR of the surface is evaluated exactly, which is the only band any cell
-  // corner is ever interpolated from: a filled sample is at least NEAR out, and
-  // its neighbours are within one cell diagonal of it, so no cell that touches
-  // one can straddle the surface. The step is discounted to 0.85 of a cell,
-  // which covers the places where the blend's own gradient runs a little over
-  // one. Measured: it takes the field pass from 240ms to under 30, and moves no
-  // vertex at all.
-  const NEAR = 4 * CELL;
-  const STEP = 0.85 * CELL;
+  // OUTSIDE the animal the field is very nearly a distance: measured over the
+  // whole grid, its gradient never exceeds 1.11. So a sample of 0.09 promises
+  // there is no surface within about 0.08 of it, and the next seven samples
+  // along the row can be filled in from that promise rather than computed. Only
+  // the band within NEAR of the surface is evaluated exactly, and that is the
+  // only band a cell corner is ever interpolated from: a filled sample is at
+  // least NEAR out, its neighbours are within one cell diagonal of it, and
+  // NEAR is more than that diagonal, so no cell that touches a filled sample
+  // can straddle the surface.
+  //
+  // INSIDE, none of that holds and every sample is computed. The ellipsoid
+  // bound is only near-metric outside its own shape; deep in the middle of a
+  // flattened part its gradient reaches 35, because "how far to the surface"
+  // there swings between the part's smallest and largest radius over almost no
+  // distance at all. Skipping on the strength of an interior sample is what put
+  // a one-quad hole in the crook behind an ear, which is the sort of thing that
+  // renders as a black speck at prop size and is invisible at turntable size.
+  const NEAR = 3 * CELL;
+  const STEP = 0.82 * CELL;
   const field = new Float32Array(NX * NY * NZ);
   for (let k = 0; k < NZ; k++) {
     const z = z0 + k * CELL;
@@ -300,12 +311,10 @@ function contour(parts) {
       while (i < NX) {
         const v = fieldAt(t, x0 + i * CELL, y, z);
         field[o + i] = v;
-        const av = v < 0 ? -v : v;
-        const skip = Math.floor((av - NEAR) / STEP);
+        const skip = v > NEAR ? Math.floor((v - NEAR) / STEP) : 0;
         if (skip > 0) {
-          const sgn = v < 0 ? -1 : 1;
           const last = Math.min(skip, NX - 1 - i);
-          for (let n = 1; n <= last; n++) field[o + i + n] = sgn * (av - n * STEP);
+          for (let n = 1; n <= last; n++) field[o + i + n] = v - n * STEP;
           i += skip + 1;
         } else {
           i++;
@@ -321,18 +330,13 @@ function contour(parts) {
   const cellVert = new Int32Array(CX * CY * CZ).fill(-1);
   const pos = [];
   const c = new Float32Array(8);
-  // A cell can only be crossed if its first corner is within a cell diagonal
-  // of the surface. One read throws away nineteen cells in twenty.
-  const REACH = 1.75 * CELL;
 
   for (let k = 0; k < CZ; k++) {
     for (let j = 0; j < CY; j++) {
       const row = k * SZ + j * SY;
       for (let i = 0; i < CX; i++) {
         const b = row + i;
-        const v0 = field[b];
-        if (v0 > REACH || v0 < -REACH) continue;
-        c[0] = v0;
+        c[0] = field[b];
         c[1] = field[b + 1];
         c[2] = field[b + SY];
         c[3] = field[b + SY + 1];
@@ -375,9 +379,7 @@ function contour(parts) {
     for (let j = 1; j < NY - 1; j++) {
       const row = k * SZ + j * SY;
       for (let i = 1; i < NX - 1; i++) {
-        const v = field[row + i];
-        if (v > REACH || v < -REACH) continue;
-        const inside = v < 0;
+        const inside = field[row + i] < 0;
         if (inside !== (field[row + i + 1] < 0)) {
           quad(cv(i, j - 1, k - 1), cv(i, j, k - 1), cv(i, j, k), cv(i, j - 1, k), inside);
         }
@@ -429,10 +431,8 @@ registerStone('lamb', {
   bottomRadius: 0.07,
 
   // One line, centred a little above the middle of the face, and nothing else.
-  // The 0.135 of face height is 0.046 world of font, which is the set's own
-  // 0.095 world of cap height once the serif's metrics are accounted for.
   draw(ctx, w, h, rng) {
-    const size = h * 0.40;
+    const size = h * 0.42;
     inkText(ctx, NAMES[Math.floor(rng() * NAMES.length) % NAMES.length], w / 2, h * 0.47, size, size * 0.05);
   },
 
@@ -446,11 +446,11 @@ registerStone('lamb', {
     const parts = PARTS.map((p, i) => {
       let yaw = p.yaw || 0;
       let pitch = p.pitch || 0;
-      if (i >= 13) yaw += turn; // head, muzzle and both ears turn together
-      if (i >= 15) pitch = jitter(pitch, 0.30);
+      if (i >= 17) yaw += turn; // head, muzzle and both ears turn together
+      if (i >= 19) pitch = jitter(pitch, 0.30);
       return {
         c: p.c,
-        r: p.r.map((v) => (i >= 4 && i <= 6 ? jitter(v, 0.08) : v)),
+        r: p.r.map((v) => (i >= 4 && i <= 10 ? jitter(v, 0.08) : v)),
         yaw,
         pitch,
         k: p.k,

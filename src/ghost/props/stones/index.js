@@ -29,6 +29,8 @@ import './draped.js';     // 1.56, a pall laid over the stone
 import './celtic.js';     // 1.62, ringed and pierced
 import './gothic.js';     // 1.70, tallest and narrowest
 import './stele.js';      // 1.73, cornice and palmette
+import './vault.js';      // 1.77, the only building, and the widest footprint
+import './calvary.js';    // 1.82, a cross standing on three steps
 import './obelisk.js';    // 1.85, the tallest thing in the graveyard
 
 export { VARIANTS, createTombstone } from '../tombstones.js';

@@ -19,10 +19,10 @@ import {
 // FOUR KINDS, AND WHY THOSE FOUR.
 //
 // They are chosen for silhouette, not for botany. Measured at the shipped
-// framing, 900 pixels at view 6.2, a clump occupies between 25 x 16 and 46 x 29
-// pixels, so a head is four pixels and the species is unreadable: the OUTLINE
-// is the whole read. The set is therefore picked so that four clumps in a row
-// are four different shapes.
+// framing, 900 pixels at view 6.2, a clump occupies between 22 x 27 and 46 x 29
+// pixels, so a head is four or five pixels and the species is unreadable: the
+// OUTLINE is the whole read. The set is therefore picked so that four clumps in
+// a row are four different shapes.
 //
 //   'daisies'  a low spreading mound speckled with flat pale heads. WIDE and
 //              FLAT, 0.22 tall by 0.70 across, the widest thing here.
@@ -30,7 +30,7 @@ import {
 //              and VERTICAL, the only one with an up-down grain, and the
 //              tallest at 0.36.
 //   'posy'     a cut bunch tied at the waist and laid down against a stone.
-//              DIAGONAL, lying at about 25 degrees with the heads bunched at
+//              DIAGONAL, lying at 24 to 30 degrees with the heads bunched at
 //              the raised end. The only one that reads as put there by a person
 //              rather than grown.
 //   'jar'      a zinc pot of chrysanthemums. A hard straight-sided cylinder
@@ -112,11 +112,22 @@ export const FLOWER = {
 export const FLOWER_VARIANTS = ['daisies', 'spires', 'posy', 'jar'];
 
 // Authored against the ghost at 1.72 and the shortest headstone at 0.81.
-// Flowers are ankle furniture: nothing here is allowed to reach a third of the
-// smallest stone or it stops reading as ground dressing and starts competing.
-// Measured finished heights are in the report; these are what they are fitted
-// to, and the fit is exact because every variant is built, measured and then
-// scaled, the same way the bush is.
+// Flowers are ankle furniture: the two that stand up top out at 0.36, which is
+// under half the shortest stone and about a fifth of the ghost, and the two
+// that do not stand up are half that again. Any taller and a clump stops
+// reading as ground dressing and starts competing with the markers.
+//
+// These are the heights the finished prop is FITTED to, not the heights of the
+// parts it is built from, and the difference matters: the heads stand proud of
+// whatever the leaves happened to reach by an amount that drifts a fifth seed
+// to seed. So every variant is built, measured and then scaled, the same way
+// the bush is. Rendered and measured over seeds 1, 4 and 9 the finished props
+// come out at:
+//
+//   daisies  0.198 to 0.223 tall, 0.67 to 0.75 across
+//   spires   0.338 to 0.363 tall, 0.40 to 0.55 across
+//   posy     0.176 to 0.193 tall, 0.31 to 0.46 long
+//   jar      0.307 to 0.328 tall, 0.24 to 0.31 across
 const SPEC = {
   daisies: { tall: [0.19, 0.26], spread: 0.78, petal: 'cream', accent: 'rose', accentOdds: 0.24 },
   spires:  { tall: [0.33, 0.40], spread: 0.46, petal: 'violet', accent: 'plum', accentOdds: 0.34 },
@@ -133,7 +144,7 @@ const SPEC = {
 // accent colours ride on the vertex colour rather than on a second material.
 //
 // Measured over seeds 1, 4, 9 and 17: daisies 10.1k to 12.2k triangles, spires
-// 8.0k to 11.0k, posy 4.7k to 6.2k, jar 11.3k to 12.8k. For scale the bush next
+// 8.0k to 11.0k, posy 4.7k to 6.2k, jar 11.4k to 13.0k. For scale the bush next
 // door is 21.6k to 22.8k and stands three times as tall, so a clump costs about
 // half a bush. The first pass ran at 16k to 18k and was trimmed by taking heads
 // and petals off rather than by dropping the icosphere detail: the petals are
@@ -209,10 +220,10 @@ function fitLump(pos, width, height) {
 // of a pixel in the shipped frame: it does not render as a thin line, it
 // renders as a dashed row of half-lit pixels that crawls when the wind moves
 // it, and that crawl is the single most common way a plant prop fails at
-// distance. So nothing here is thinner than STEM_MIN, which measured out at a
-// pixel and a half of solid at view 6.2 in a 900px frame, and a stem is a solid
-// rounded rod rather than a cylinder with a cap on it.
-const STEM_MIN = 0.009;    // radius, so 18mm across, a pixel and a half at view 6.2
+// distance. So nothing here is thinner than STEM_MIN, which is 18mm across and
+// measures one and a third pixels of solid at view 6.2 in a 900px frame, and a
+// stem is a solid rounded rod rather than a cylinder with a cap on it.
+const STEM_MIN = 0.009;    // radius, so 18mm across
 function rod(rand, { detail = 1, r = 0.02, len = 0.1, lobes = 2, amp = 0.08, flat = 1 } = {}) {
   const ls = lobes > 0 ? makeLobes(rand, { count: lobes, amp: [amp * 0.5, amp], tight: [2.0, 4.0], yBias: 0 }) : [];
   const stretch = Math.max(0, len / Math.max(1e-4, r) - 2);
@@ -290,6 +301,9 @@ function tintParts(geo, parts) {
   col.needsUpdate = true;
 }
 
+// What the finished prop actually measures, over every geometry in it. Same
+// function as the one in bush.js, and deliberately a copy rather than a shared
+// import: wind.js does not export one and this file is not allowed to add it.
 function measureExtent(...geos) {
   let top = 0, minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (const g of geos) {
@@ -317,8 +331,10 @@ function placeAt(p, dir, spin = 0) {
 
 // --- leaves -----------------------------------------------------------------
 //
-// Every variant that grows out of the ground gets the same base rosette: a ring
-// of fat blades laid at a low angle and rooted a little BELOW y = 0.
+// The two variants that are GROWING, daisies and spires, share a base rosette:
+// a ring of fat blades laid at a low angle and rooted a little BELOW y = 0. The
+// posy is cut, so it has no leaves at its foot at all, and the jar's stems come
+// out of the pot rather than out of the ground.
 //
 // Rooting them under the floor is the answer to the ground rule, and it is the
 // bush's answer rather than the path's. A path is a ribbon coplanar with the
@@ -737,8 +753,11 @@ function buildJar(rand, { R, tall, base, accent, accentOdds }) {
   const foliage = [];
   const petals = [];
   const potR = R * 0.62;
-  const potH = tall * 0.44;
-  const rim = potH * 0.94;
+  // Half the prop's height is pot. A shorter pot leaves a long bare stem
+  // between the rim and the heads and the whole thing reads as weeds in a
+  // bucket, which is what the first close-up showed.
+  const potH = tall * 0.50;
+  const rim = potH * 0.92;
 
   const n = 14 + ((rand() * 4) | 0);
   const foot = new THREE.Vector3();
@@ -749,11 +768,11 @@ function buildJar(rand, { R, tall, base, accent, accentOdds }) {
     const rr = Math.pow(rand(), 0.55);
     const x = Math.cos(a) * rr * potR * 1.35;
     const z = Math.sin(a) * rr * potR * 1.35;
-    const h = rim + (tall - rim) * (0.62 + 0.32 * (1 - rr * rr) + rand() * 0.08);
+    const h = rim + (tall - rim) * (0.55 + 0.36 * (1 - rr * rr) + rand() * 0.08);
     const phase = rand();
     // Stems start INSIDE the pot, below the rim, so nothing is seen to begin in
     // mid air at the lip.
-    foot.set(x * 0.20, rim * 0.62, z * 0.20);
+    foot.set(x * 0.18, rim * 0.80, z * 0.18);
     dir.set(x - foot.x, h - foot.y, z - foot.z);
     const len = dir.length();
     dir.normalize();
@@ -766,7 +785,7 @@ function buildJar(rand, { R, tall, base, accent, accentOdds }) {
     headParts(rand, petals, {
       p: new THREE.Vector3(x, h, z),
       axis: new THREE.Vector3(dir.x * 0.6 + (rand() - 0.5) * 0.3, 1, dir.z * 0.6 + (rand() - 0.5) * 0.3).normalize(),
-      width: R * (0.27 + rand() * 0.08),
+      width: R * (0.33 + rand() * 0.09),
       // Short petals steeply tilted, and a big eye. A chrysanthemum is a BALL of
       // petals where a daisy is a disc with a rim, and that difference plus the
       // pot under it is most of what tells the two variants apart at twenty
@@ -779,6 +798,19 @@ function buildJar(rand, { R, tall, base, accent, accentOdds }) {
       rgb: rand() < accentOdds ? accentRatio(base, accent) : null,
     });
   }
+
+  // What is packing the pot. Without it the rim rolls over onto an empty bowl
+  // and the camera, which is looking down at 38 degrees, looks straight into
+  // it: a pot of flowers with a visible empty floor reads as a bucket someone
+  // has stuck some stalks in. One dark squashed lump under the rim is enough,
+  // and it sits below the wind's hinge height so it never moves.
+  foliage.push({
+    positions: fitLump(lumpPositions({ detail: 2, lobes: makeLobes(rand, { count: 5, amp: [0.06, 0.14], tight: [2.0, 4.0] }) }),
+      potR * 1.72, potR * 0.9),
+    index: icosphere(2).index,
+    matrix: placeAt(new THREE.Vector3(0, rim * 0.86, 0), new THREE.Vector3(0, 1, 0), rand() * Math.PI * 2),
+    phase: 0, tint: 0.25, flutter: 0,
+  });
 
   // The pot itself. Buried a little at the foot for the same reason everything
   // else is.

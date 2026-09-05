@@ -57,11 +57,18 @@ const CORNER = {
 export const DEFAULT_SPEEDS = {
   // See rules.js for how these three were chosen. They are here so the soak can
   // sweep them without touching the rules.
-  walk: 2.05,
-  fright: 1.15,
+  walk: 2.15,
+  // Just under perform.js's authored 1.25, so a fleeing skeleton can play the
+  // ORIGINAL walk cycle a touch under pace and read as a thing that has lost
+  // its nerve. Nothing new has to be animated for frightened.
+  fright: 1.20,
   eaten: 5.20,
-  // Cruise Elroy: the chaser speeds up when the level is nearly clear.
-  elroy: [{ left: 0.25, mul: 1.10 }, { left: 0.10, mul: 1.22 }],
+  // Cruise Elroy: the chaser speeds up when the level is nearly clear, which is
+  // the mechanism that stops a nearly-swept level dragging. 1.08 and 1.16 are
+  // deliberately gentler than Pac-Man's, because here the multiplier lands on a
+  // cadence rather than on a tile speed: 1.16 already puts the walk at 3.96
+  // steps a second and that is the fastest anything in this game ever plays.
+  elroy: [{ left: 0.25, mul: 1.08 }, { left: 0.10, mul: 1.16 }],
 };
 
 function mulberry32(seed) {
@@ -305,11 +312,11 @@ export function createHerd({ nav, graves, count, seed = 1, speeds = DEFAULT_SPEE
     reverseAll() {
       for (const s of list) if (s.state === 'hunting' || s.state === 'frightened') s.wantReverse = true;
     },
+    // A skeleton still climbing out is not made vulnerable by a lantern lit
+    // while it is underground, which is Pac-Man's rule for a ghost in the pen
+    // and is the only thing stopping a player from camping the graves.
     frighten() {
-      for (const s of list) {
-        if (s.state === 'hunting') { s.state = 'frightened'; s.wantReverse = true; }
-        else if (s.state === 'leaving') s.state = 'leaving';
-      }
+      for (const s of list) if (s.state === 'hunting') { s.state = 'frightened'; s.wantReverse = true; }
     },
     unfrighten() {
       for (const s of list) if (s.state === 'frightened') s.state = 'hunting';

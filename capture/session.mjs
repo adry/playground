@@ -27,6 +27,11 @@ export async function openLab({
   entry = '/',
   query = 'capture=1',
   readyFlag = '__labReady',
+  // How long the page gets to build itself. This was 60 s inline and the lab
+  // outgrew it: the lineup now builds around fifty props, and grass alone is
+  // 24k triangles a patch built on the CPU, on a software rasteriser. A page
+  // that is merely slow should not look like a page that is broken.
+  readyTimeout = 240000,
 } = {}) {
   const server = await createServer({
     configFile: path.resolve('vite.config.js'),
@@ -84,7 +89,7 @@ export async function openLab({
   // (several capture runs in parallel, all of them software-rasterising) that
   // alone has taken over a minute. A slow cold start is not a hung page.
   await page.goto(`${base}${entry}?${query}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  await page.waitForFunction((flag) => window[flag] === true, readyFlag, { timeout: 60000 });
+  await page.waitForFunction((flag) => window[flag] === true, readyFlag, { timeout: readyTimeout });
 
   const renderer = await page.evaluate(() => {
     const gl = document.getElementById('view').getContext('webgl2');

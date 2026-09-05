@@ -19,87 +19,135 @@
 // THE SPEED RATIO, which is the one decision everything else hangs off
 // ---------------------------------------------------------------------------
 //
-// Measured, before anything was changed: the ghost's own maxSpeed in
-// src/ghost/ghost.js is 4.5, and the skeleton's TOP_SPEED in
-// props/skeleton/perform.js is 1.25. That is a ratio of 0.28. Pac-Man's ghosts
-// run at 0.75 of Pac-Man in the first level and 0.95 by the last, and the
-// reason its chase works at all is that the gap is small enough that a mistake
-// is fatal and large enough that a good line is rewarded. At 0.28 nothing is
-// ever fatal: the soak's passive player, standing still, survived 200 s of
-// every level it was given, because a skeleton that has to walk round a plot
-// while the player walks round it three times never arrives.
+// Measured, before anything was changed: src/ghost/ghost.js has maxSpeed 4.5
+// (the brief said 4.0, and 4.5 is what the file says, which is a discrepancy
+// worth someone's attention), and props/skeleton/perform.js has TOP_SPEED 1.25.
+// That is a ratio of 0.28. Pac-Man's ghosts run at 0.75 of Pac-Man in the first
+// level and 0.95 by the last.
 //
-// So one number had to move, and both of them did, because moving either one
-// alone costs more than the game can pay.
+// So one number had to move. Both did, and the split between them is the whole
+// argument, because the two directions cost completely different things.
 //
-//   Raising the skeleton alone. The walk cycle is driven by DISTANCE, not
-//   time: perform.js's STEP_LENGTH is 0.629, so the cadence is speed / 0.629
-//   steps a second. At its authored 1.25 that is 1.99, a walk. To reach 0.75 of
-//   a 4.5 ghost it would need 3.375, which is 5.4 steps a second, or 322 steps
-//   a minute. A sprinter is about 260. It is not a fast walk, it is a cartoon
-//   scramble, and the figure's legs cannot lengthen the stride to absorb it:
-//   perform.js says so in its own comment, that its 1.15 legs under a 1.225 hip
-//   run out of reach at 0.35 either side and only the heel-off buys the stride
-//   it has.
+//   The skeleton's ceiling is CADENCE. perform.js drives the walk from distance
+//   travelled, not from time, so the step rate is speed / STEP_LENGTH and
+//   STEP_LENGTH is 0.629. Its authored 1.25 is 1.99 steps a second, a walk. To
+//   put a 4.5 ghost at 0.75 the skeleton would need 3.375, which is 5.37 steps
+//   a second, 322 a minute, faster than a sprinter, and the figure cannot
+//   absorb it by lengthening its stride: perform.js says in its own comment
+//   that 1.15 legs under a 1.225 hip run out of reach at 0.35 either side and
+//   only the heel-off buys the stride it has.
 //
-//   Slowing the ghost alone. To put a 1.25 skeleton at 0.75 the ghost would
-//   have to come down to 1.67, which is 37% of what it does now. The cloth is
-//   the problem: the skirt's flare, its lift and the trail behind it are all
-//   driven by velocity through cloth.js, so a ghost at a third speed is not a
-//   slower ghost, it is a limp one, and the character stops selling itself the
-//   moment it moves.
+//   The ghost's ceiling is FEEL. Everything the cloth does that sells the
+//   character, the flare, the lift along the normal, the trail, is driven by
+//   velocity through cloth.js, so a ghost at a third speed is not a slower
+//   ghost, it is a limp one.
 //
-// THE CHOICE: ghost 3.20, skeleton 2.05, a ratio of 0.64, with the chaser
-// reaching 2.50 (0.78) under Cruise Elroy when the level is nearly clear.
+// THE MEASUREMENT. soak.mjs has two sweeps and it needs both, because varying
+// the ratio by moving the skeleton also moves its cadence and the two cannot
+// then be told apart. `--sweep` moves the skeleton at a fixed ghost;
+// `--ghostsweep` holds the skeleton at one animatable pace and buys the ratio
+// by slowing the ghost down. The second is the one that decided it. Holding the
+// skeleton at 2.05 (cadence 3.26/s) and walking the ghost down, 40 levels each,
+// three players: the careful bot, the reckless bot, which is the same greedy
+// walk with the danger term switched off, and a passive one that never moves.
 //
-//   The skeleton goes up 64%, from 1.25 to 2.05. That is 3.26 steps a second,
-//   195 a minute, which is a jog and not a scramble: a person moves that way
-//   when they are late, which is the right read for a thing chasing you.
-//   Elroy's 2.50 is 3.97 steps a second and IS at the edge, which is fine
-//   because it is one skeleton, briefly, at the end of a level, and reading as
-//   slightly unhinged is the point of Elroy.
+//     ghost  ratio  careful%  deaths  reckless%   threat%
+//      4.50   0.46    100.0%    0.17      55.0%     14.8%
+//      4.00   0.51     97.5%    0.38      47.5%     16.1%
+//      3.60   0.57    100.0%    0.50      25.0%     20.2%
+//      3.20   0.64     97.5%    0.57       7.5%     23.4%
+//      2.90   0.71     95.0%    0.95       2.5%     24.7%
+//      2.70   0.76     92.5%    1.00      12.5%     29.1%
+//      2.50   0.82     77.5%    1.23       5.0%     33.0%
+//      2.20   0.93     42.5%    2.20       0.0%     37.9%
 //
-//   The ghost comes down 29%, from 4.5 to 3.2. accelTime is untouched at 0.12,
-//   which matters more than the top speed does: the stick still bites in an
-//   eighth of a second, so the ghost feels no less connected, only less
+// There is a cliff, and where it sits is the most interesting thing the soak
+// found. THIS TABLE IS THE SECOND ONE. The first was measured with a bot that
+// steered from graph node to graph node, and it put the cliff between 0.71 and
+// 0.76: at 0.76 the careful bot cleared 66.7% of levels rather than 92.5%. The
+// bot was the problem, not the ratio. A ghost that aims at the next node takes
+// every corner on the corridor's centreline, which is exactly what a skeleton
+// does, so a bot built that way silently throws away the one advantage the
+// design gives the player and then reports the game as too hard.
+//
+// Replacing it with a pure-pursuit follower that aims at a point along the
+// path, so the disc cuts the inside of a turn, moved the cliff by one and a
+// half rows, to somewhere between 0.76 and 0.82. That shift is the cornering
+// advantage, measured twice by two completely different methods and agreeing:
+// see the table in bot.js, where a ghost on rails runs at 78% of its top speed
+// over a random route and a ghost cutting corners at 93 to 97%.
+//
+// So the design's asymmetry is worth about a fifth of the player's speed, it is
+// entirely a matter of how well they drive, and it is what lets this maze carry
+// a ratio at all. The maze needs it: 170 nodes and 24 junctions means about
+// seven nodes, fourteen units, between one decision and the next, where
+// Pac-Man's board offers a junction every two or three tiles. In a long
+// corridor there is no juke available. You either outrun the thing behind you
+// to the next junction or you do not, and cutting the corner when you get there
+// is the whole margin.
+//
+// THE CHOICE: ghost 3.05, skeleton 2.15, a NOMINAL ratio of 0.705.
+//
+//   The nominal ratio is not the one the player feels. Measured in play over a
+//   full level, the ghost averages 2.86 units a second of its 3.05, because it
+//   corners well and almost never has to stop; the skeletons average their full
+//   2.15, because a point on an edge always travels at exactly its own speed.
+//   So the EFFECTIVE ratio is 2.15 / 2.86 = 0.75 against a player who drives
+//   well, and 2.15 / 2.39 = 0.90 against one who takes every corner square.
+//   That band, 0.75 to 0.90, is Pac-Man's own 0.75 to 0.95, arrived at from a
+//   nominal number that looks nothing like it.
+//
+//   0.705 rather than 0.76, which the table also allows, because 0.76 costs
+//   another 0.18 off the ghost for a difference of two and a half points of
+//   clear rate and five of threat, and the ghost's speed is not free.
+//
+//   Measured at the shipped pair over 500 levels: the careful bot clears 94.0%
+//   and loses 0.81 lives a level; a level runs 221 s; the player spends 25.9%
+//   of it within 8.0 units of a skeleton and 3.5% within 4.0. The reckless bot,
+//   at the same speeds, clears 7.5%. A game where driving well is worth twelve
+//   times the clear rate of not bothering is a game with something in it.
+//
+//   The skeleton goes up 72%, from 1.25 to 2.15, which is 3.42 steps a second,
+//   205 a minute. That is a run, not a scramble.
+//   The ghost comes down 32%, from 4.5 to 3.05, and accelTime is untouched at
+//   0.12, which matters more than the top speed does: the stick still bites in
+//   an eighth of a second, so the ghost feels no less connected, only less
 //   floaty. It still crosses the 44-unit playfield in 14 s.
 //
-//   0.64 rather than Pac-Man's 0.75 because the ghost has an advantage
-//   Pac-Man does not: it is a DISC in a 2.0 corridor rather than a thing on
-//   rails, so it cuts the inside of every corner and, more importantly, it can
-//   reverse instantly while a skeleton may not reverse at all. In simulation
-//   those two together are worth about 15% of effective speed to a competent
-//   player, which is exactly the gap between 0.64 and 0.75. The soak agrees:
-//   see soak.mjs for the sweep that picked it.
+//   Neither number alone would have done it. Skeleton-only would have needed
+//   5.4 steps a second; ghost-only would have needed 1.67 and killed the cloth.
 //
 // WHAT TO TELL THE ANIMATOR
 //
-//   1. perform.js's TOP_SPEED goes 1.25 -> 2.05 and the cadence goes with it,
-//      because the cycle is distance-driven and will do this correctly on its
-//      own. Look at it and expect a jog.
-//   2. If 3.26 steps a second reads as a scramble anyway, the fix is stride,
-//      not speed: STEP_LENGTH from 0.629 to about 0.78 brings the cadence back
-//      to 2.6 a second, and the way to buy that reach is a deeper HIP_STALK and
-//      more MAX_HEEL, which is what a person does when they lengthen their own
-//      stride. Do not fix it by slowing the skeleton down; the ratio is load
-//      bearing and 0.55 is where the passive player starts surviving.
-//   3. Elroy needs a visible tell, because a speed change nobody can see is a
-//      difficulty change nobody can learn. A faster jaw chatter and a harder
-//      forward lean would do it.
-//   4. Frightened is 1.15, which is BELOW the authored 1.25, so the flee can
-//      simply play the original walk cycle, slightly under pace, and read as
-//      the thing losing its nerve.
-//   5. Eaten is 5.2 and is not a walk at all. It wants its own clip: a heap of
+//   1. TOP_SPEED goes 1.25 -> 2.15. The cycle is distance-driven so the cadence
+//      follows on its own; expect a run. If it reads as a scramble anyway the
+//      fix is STRIDE, not speed: STEP_LENGTH from 0.629 to about 0.78 brings it
+//      back to 2.76 steps a second, and the reach comes from a deeper HIP_STALK
+//      and more MAX_HEEL, which is what a person does to lengthen their own
+//      stride. Do not fix it by slowing the skeleton down. The ratio is load
+//      bearing: at 0.57 a player who ignores the skeletons entirely still
+//      clears a quarter of levels, and at 0.46 more than half of them.
+//   2. The figure is 2.5 units tall and strides 0.629. A person of that height
+//      strides about 1.5. It was already mincing at 1.25 and the new speed only
+//      makes that visible, so the stride work is worth doing on its own merits.
+//   3. Cruise Elroy tops out at 2.49, which is 3.96 steps a second, and that IS
+//      the edge. It is one skeleton, at the end of a level, and reading as
+//      slightly unhinged is the point of it, but it needs a tell the player can
+//      see: a faster jaw chatter and a harder forward lean would do it, because
+//      a difficulty change nobody can see is a difficulty change nobody learns.
+//   4. Frightened is 1.20, BELOW the authored 1.25, so the flee can play the
+//      original walk cycle a touch under pace. Nothing new to animate.
+//   5. Eaten is 5.20 and is not a walk at all. It wants its own clip: a heap of
 //      bones going home faster than it ever chased anybody.
 
-import { createNav, TILE } from './nav.js';
+import { createNav } from './nav.js';
 import { createHerd, DEFAULT_SPEEDS, EMERGE_TIME, PERSONALITIES } from './chase.js';
 
 export const TUNING = {
   // --- the two speeds, and see the essay above ------------------------------
-  ghostSpeed: 3.20,
+  ghostSpeed: 3.05,
   ghostAccel: 0.12,          // ghost.js's own accelTime, untouched
-  speeds: DEFAULT_SPEEDS,    // walk 2.05, fright 1.15, eaten 5.20, plus Elroy
+  speeds: DEFAULT_SPEEDS,    // walk 2.15, fright 1.20, eaten 5.20, plus Elroy
 
   // --- collision ------------------------------------------------------------
   // The ghost is 1.31 across its skirt but the skirt is cloth. 0.55 lets it
@@ -138,39 +186,67 @@ export const TUNING = {
   // pattern is kept: long enough to break a pin, short enough that the level
   // has a rhythm rather than two halves.
   //
-  //   scatter 9, chase 24, scatter 9, chase 28, scatter 7, chase 32, scatter 7,
-  //   then chase for ever.
+  //   scatter 9, chase 24, scatter 9, chase 28, scatter 7, chase 34,
+  //   scatter 5, chase 40, scatter 3, chase 46, scatter 3, then chase for ever.
   //
-  // 9 s of scatter is 18 units of travel, which is a plot and a half: enough
-  // for a skeleton to visibly leave and for the player to take the corridor it
-  // vacated. The chases lengthen, 24 then 28 then 32, so the level tightens on
-  // its own even before Elroy does, and the whole cycle runs 116 s against a
-  // greedy clear of about 150 s, which means a player sees the schedule once
-  // and a bit and then lives in the final chase. That last part is deliberate:
-  // Pac-Man does the same thing and it is why the end of a board is frightening.
+  // The scatter SHRINKS, 9 to 3, and the chase GROWS, 24 to 46. Pac-Man only
+  // does the first of those, because its board is over in a minute; a level
+  // here runs 221 s and needs the second as well or the back half has no shape.
+  // The last scatter ends at 208 s, so a typical level lives entirely inside
+  // the schedule and the permanent chase is what a slow player falls into.
+  //
+  // 9 s of scatter is 19 units of travel, a plot and a half: enough for a
+  // skeleton to visibly leave and for the player to take the corridor it just
+  // vacated. 3 s is 6 units, which is a glance away rather than a reprieve, and
+  // that is the point of the shrink.
+  //
+  // Measured against two controls, 40 levels each. Chase for ever: 85.0% clear,
+  // 1.20 deaths, 30.9% of the run under threat. Scatter for ever: 97.5% clear,
+  // 0.10 deaths, 17.8% threat, and it is not the walkover it sounds, because a
+  // patrolling skeleton in a corridor is still a skeleton in a corridor. The
+  // shipped schedule sits at 92.5%, 0.85 deaths and 27.3% threat, nearer the
+  // relentless end than the restful one, which is where a Pac-Man wants to be.
   waves: [
     { mode: 'scatter', t: 9 }, { mode: 'chase', t: 24 },
     { mode: 'scatter', t: 9 }, { mode: 'chase', t: 28 },
-    { mode: 'scatter', t: 7 }, { mode: 'chase', t: 32 },
-    { mode: 'scatter', t: 7 }, { mode: 'chase', t: Infinity },
+    { mode: 'scatter', t: 7 }, { mode: 'chase', t: 34 },
+    { mode: 'scatter', t: 5 }, { mode: 'chase', t: 40 },
+    { mode: 'scatter', t: 3 }, { mode: 'chase', t: 46 },
+    { mode: 'scatter', t: 3 }, { mode: 'chase', t: Infinity },
   ],
 
   // --- the power pellet -----------------------------------------------------
   //
-  // 8.0 s. Pac-Man's first level gives 6, at a speed where 6 s buys about two
-  // board widths of travel. Here 8 s at 3.2 buys 25.6 units, which is 58% of
-  // the playfield's width, and against a skeleton fleeing at 1.15 the closing
-  // speed is 2.05, so the ghost can run down anything within 16 units and get
-  // most of the way back. In simulation a bot that goes hunting when the
-  // lantern goes out catches 1.9 skeletons a pellet at 8 s, 1.2 at 6 s and 2.7
-  // at 11 s. Two is the number that feels like a reward without feeling like a
-  // pause, so 8 it is.
+  // 10.0 s, and the measurement that picked it is SKELETONS EATEN PER LANTERN,
+  // because that is what a power pellet is for. Under one and it is not a
+  // reward, over about two and the chase stops rather than reverses. 40 levels
+  // at each duration, careful bot:
   //
-  // The engine caps this too: four holes in the floor at once, so at most four
-  // skeletons can be climbing out simultaneously and a mass eat cannot exceed
-  // what the ground will carry. With three pen graves and four skeletons, the
-  // hole budget is never the binding constraint.
-  powerTime: 8.0,
+  //     seconds   per lantern
+  //         4        0.21
+  //         6        0.58
+  //         8        1.04
+  //        10        1.39
+  //        12        1.76
+  //        16        2.25
+  //
+  // Pac-Man's first level gives 6 s, but its ghosts flee at half speed on a
+  // board a third of the width; 6 s here buys 0.53, which is a pellet that
+  // mostly does nothing. 10 s is 30.5 units of ghost travel and, against a
+  // skeleton fleeing at 1.20, a closing speed of 1.85, so anything within about
+  // 18 units is catchable and one and a bit actually gets caught. The bot is
+  // not even trying hard: it only diverts to hunt inside a fixed range, so 1.39
+  // is a floor on what a player who commits will get.
+  //
+  // Note what a caught skeleton costs beyond the window: it runs home at 5.20
+  // and then climbs out over 3.4 s, so eating one removes it for eight to ten
+  // seconds AFTER the lantern goes out. That is the real reward and it is why
+  // the window does not need to be longer.
+  //
+  // The mode schedule is PAUSED while a lantern burns, which is Pac-Man's own
+  // behaviour and matters here: a 10 s window that ate into a 3 s late scatter
+  // would delete the reprieve rather than add to it.
+  powerTime: 10.0,
   // Pac-Man's doubling, which is what makes chaining them worth the risk.
   eatScore: [200, 400, 800, 1600],
   fireflyScore: 10,
@@ -222,6 +298,11 @@ export function createGame({ layout, seed = 1, tuning = {}, skeletons = 4 } = {}
     flyBuckets.get(k).push(i);
   });
 
+  const graveWorld = herd.list.map((s) => {
+    const g = layout.spawns.graves[s.id % layout.spawns.graves.length];
+    return { x: g.x, z: g.z };
+  });
+
   const ghost = { u: 0, v: 0, vu: 0, vv: 0 };
   const heading = { du: 0, dv: -1 };
   const state = {
@@ -238,9 +319,20 @@ export function createGame({ layout, seed = 1, tuning = {}, skeletons = 4 } = {}
     ghost: { x: 0, z: 0, u: 0, v: 0, vx: 0, vz: 0, speed: 0 },
     fireflies: { total: flyCount, remaining: flyCount, collected },
     powerups: nav.powerups.map((p, i) => ({ index: i, x: 0, z: 0, taken: false })),
+    // One object per skeleton, filled in place every frame rather than rebuilt:
+    // the soak runs tens of millions of frames and a fresh array of objects
+    // each one is most of its garbage.
     skeletons: [],
     events: [],
+    // Declared here so the shape of `state` never changes, which matters to
+    // anything reading it in a hot loop.
+    readyLeft: 0,
+    dyingLeft: 0,
   };
+  // `input.jump` is deliberately ignored. ghost.js's hop is vertical only: it
+  // does not move the ghost in x or z and it does not lift it over anything, so
+  // to the rules it is a piece of character animation and nothing else. If a
+  // hop is ever meant to dodge a skeleton, that is a rule and it belongs here.
   layout.powerups.forEach((p, i) => { state.powerups[i].x = p.x; state.powerups[i].z = p.z; });
 
   function placeGhost() {
@@ -285,20 +377,26 @@ export function createGame({ layout, seed = 1, tuning = {}, skeletons = 4 } = {}
     state.ghost.vx = wv.x - w.x;
     state.ghost.vz = wv.z - w.z;
     state.ghost.speed = Math.hypot(ghost.vu, ghost.vv);
-    state.skeletons = herd.list.map((s) => {
+    for (let i = 0; i < herd.list.length; i++) {
+      const s = herd.list[i];
       const p = nav.toWorld(s.u, s.v);
-      return {
-        id: s.id, name: s.name, state: s.state,
-        x: p.x, z: p.z, u: s.u, v: s.v,
-        speed: s.speed,
-        frightened: s.state === 'frightened',
-        // Enough for the scene to point the rig without recomputing anything:
-        // the direction it is travelling, in world axes.
-        yaw: headingYaw(s),
-        grave: { x: layout.spawns.graves[s.id % layout.spawns.graves.length].x, z: layout.spawns.graves[s.id % layout.spawns.graves.length].z },
-        emergeProgress: s.state === 'emerging' ? 1 - s.timer / EMERGE_TIME : (s.state === 'buried' ? 0 : 1),
-      };
-    });
+      const out = state.skeletons[i] || (state.skeletons[i] = {
+        id: s.id, name: s.name, grave: graveWorld[i],
+      });
+      out.state = s.state;
+      out.x = p.x;
+      out.z = p.z;
+      out.u = s.u;
+      out.v = s.v;
+      out.speed = s.speed;
+      out.frightened = s.state === 'frightened';
+      // Enough for the scene to point the rig without recomputing anything.
+      out.yaw = headingYaw(s);
+      // 0 to 1 through the 3.4 s climb, so the scene can scrub perform.js's
+      // emerge rather than run its own timer and drift out of step with this.
+      out.emergeProgress = s.state === 'emerging' ? 1 - s.timer / EMERGE_TIME
+        : s.state === 'buried' ? 0 : 1;
+    }
     return state;
   }
 
