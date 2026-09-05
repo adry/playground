@@ -611,21 +611,54 @@ function jamCheck(track, s) {
   return track.t > 10 ? 'ghost-jammed' : null;
 }
 
-// A hunting skeleton that has not gone anywhere in twelve seconds is broken,
-// and it is invisible from every other angle: the run still ends, the numbers
-// still print, and the only symptom is a player who is harder to catch than
-// they should be. Three separate deadlocks in the steering produced exactly
-// this and none of the other checks saw any of them, so it gets its own.
+// A hunting skeleton that is not going anywhere is broken, and it is invisible
+// from every other angle: the run still ends, the numbers still print, and the
+// only symptom is a player who is harder to catch than they should be. Three
+// separate deadlocks in the steering produced exactly this and none of the
+// other checks saw any of them, so it gets its own.
+//
+// IT IS A RATE NOW AND IT USED TO BE A STOPWATCH, and the reason is worth
+// keeping because the same mistake is available to any check written like this.
+//
+// The old version fired the moment any skeleton spent twelve seconds inside a
+// one unit circle, and its own header recorded the result as "about one arena
+// in twenty". It later read 38 in 60 and looked like a regression in the
+// steering. It was not. A run used to END after about forty seconds, because an
+// arena could be cleared; a run is now endless and the soak plays it for three
+// hundred. A "did it ever happen" flag is a function of exposure, so six times
+// the run length is six times the rate, and measured at the old forty-five
+// seconds the same build still reads 2 in 20. The check had not rotted and the
+// herd had not got worse: the thing being measured had changed shape.
+//
+// So what is asserted is the SHARE of time above ground that is spent going
+// nowhere, which does not care how long the run is. chase.js retires a skeleton
+// that has not moved two units in nine seconds, so a healthy run cannot spend
+// much time here at all: measured over twenty arenas at 240 s it is 1.1%, and
+// three per cent is broken.
+export const STALL_GRACE = 4.0;    // seconds inside a 1.0 circle before it counts
+export const STALL_SHARE = 0.03;   // of all time above ground
+export const STALL_FLOOR = 15;     // seconds of it before the share means anything
+
 function stallCheck(track, s, dt) {
   if (s.phase !== 'play') return null;
+  const sum = track.total || (track.total = { hunt: 0, nowhere: 0 });
   for (const k of s.skeletons) {
     const t = track[k.id] || (track[k.id] = { t: 0, x: k.x, z: k.z });
     if (k.state !== 'hunting') { t.t = 0; t.x = k.x; t.z = k.z; continue; }
+    sum.hunt += dt;
     if (Math.hypot(k.x - t.x, k.z - t.z) > 1.0) { t.t = 0; t.x = k.x; t.z = k.z; continue; }
     t.t += dt;
-    if (t.t > 12) return 'skeleton-stalled';
+    if (t.t > STALL_GRACE) sum.nowhere += dt;
   }
   return null;
+}
+
+// The verdict, taken once at the end of a run rather than on a frame, because a
+// rate is not a thing a single frame can be wrong about.
+function stallVerdict(track) {
+  const sum = track.total;
+  if (!sum || sum.hunt < STALL_FLOOR) return null;
+  return sum.nowhere / sum.hunt > STALL_SHARE ? 'skeleton-stalled' : null;
 }
 
 function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons = 4, fence = FENCE }) {
@@ -694,6 +727,7 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
     if (!bad) bad = check(game, s) || crossCheck(cross, game, s, dt) || jamCheck(jam, s) || stallCheck(stall, s, dt);
     steps++;
   }
+  if (!bad) bad = stallVerdict(stall);
   return {
     seed, phase: s.phase, time: s.time, score: s.score, lives: s.lives,
     collected: s.collected, bestStreak: s.bestStreak, distance: s.distance,
@@ -1367,13 +1401,21 @@ function selftest() {
       tuning: { speeds: { walk: 0.0001 } },
     });
     const track = {};
-    let fired = null;
     let st = game.state;
-    for (let i = 0; i < 60 * 40 && !fired; i++) {
+    for (let i = 0; i < 60 * 90; i++) {
       st = game.update(1 / 60, { x: 0, y: 0 });
-      fired = stallCheck(track, st, 1 / 60);
+      stallCheck(track, st, 1 / 60);
     }
-    add('skeleton-stalled (a herd that cannot walk)', fired === 'skeleton-stalled', fired || 'not caught');
+    // The verdict is a rate and is taken at the end, so the case has to be
+    // PLAYED OUT rather than stopped at the first frame that trips. chase.js
+    // retires a skeleton that goes nowhere, so this herd cycles: climb out,
+    // fail to move, give up, climb out again. Every one of those seconds above
+    // ground is a second spent going nowhere, which is the shape a broken
+    // steering makes and is what the share is for.
+    const fired = stallVerdict(track);
+    const sum = track.total || { hunt: 0, nowhere: 0 };
+    add('skeleton-stalled (a herd that cannot walk)', fired === 'skeleton-stalled',
+      fired ? `${(100 * sum.nowhere / Math.max(1e-9, sum.hunt)).toFixed(0)}% of ${sum.hunt.toFixed(0)}s above ground went nowhere` : 'not caught');
   }
 
   let missed = 0;

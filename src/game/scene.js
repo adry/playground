@@ -433,6 +433,13 @@ export async function startGame({ canvas, params }) {
       // depend on which of its placements happened to be built first and a
       // chunk rebuilt in a different order would come back looking different.
       const seed = (hashKey(key) & 0x7fffffff) || 1;
+      // ONE PROP SWITCH, not two. This used to name stone and pumpkin itself
+      // and return null for everything else, so the day a third kind was
+      // instanced it would silently vanish rather than build, and the instanced
+      // path skipped buildLevelProp's wind guard and its kind aliases with it.
+      // Every level a player can load is authored, so the authored builder is
+      // the shipped path; ?seed= keeps its own cheap import below.
+      if (authored) return authored.buildLevelProp({ kind, variant }, { seed, allowCut: false });
       if (kind === 'stone') return createTombstone({ variant, seed });
       if (kind === 'pumpkin') return createPumpkin({ variant, seed });
       return null;

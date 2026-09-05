@@ -150,13 +150,20 @@ const PLAN_SKIP = 0.75;
 // that asks whether the mover is being blocked rather than whether it is going
 // anywhere.
 //
-// So this measures the honest thing: net displacement over time. Seven seconds
-// at the walk is seventeen units of travel, so failing to get two units from
-// where you were is not a near miss, it is pacing. The first strike is the same
-// free re-decision `stallGuard` asks for; the second gives up, which is what
-// the wedge escape does and reads the same way in fiction.
+// So this measures the honest thing: net displacement over time. Four and a
+// half seconds at the walk is eleven units of travel, so failing to get two
+// units from where you were is not a near miss, it is pacing. The first strike
+// is the same free re-decision `stallGuard` asks for; the second gives up at
+// nine seconds, which is what the wedge escape does and reads the same way in
+// fiction: a monster that has lost you goes back underground.
+//
+// NINE SECONDS IS ALSO A CONTRACT WITH soak.mjs, which asserts separately that
+// the steering does not leave a skeleton going nowhere. Its check is a RATE
+// over the run rather than a stopwatch, for the reason written there, and this
+// is what puts a ceiling on that rate. If this number goes up, that one moves
+// with it.
 const NOWHERE_R = 2.0;
-const NOWHERE_T = 7.0;
+const NOWHERE_T = 4.5;
 
 // Pac-Man's own corner assignment, as compass directions rather than corners:
 // Blinky top right, Pinky top left, Inky bottom right, Clyde bottom left.

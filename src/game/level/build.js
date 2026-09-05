@@ -83,8 +83,13 @@ export function buildLevelProp(p, opts = {}) {
   }
 }
 
-function buildStillProp(p, { allowCut = true } = {}) {
-  const s = propSeed(p);
+function buildStillProp(p, { allowCut = true, seed = propSeed(p) } = {}) {
+  // The seed is an OPTION so the instanced path can key it on the cache key
+  // rather than on the placement: a cached template must not depend on which of
+  // its placements happened to be built first, or a chunk rebuilt in a
+  // different order comes back looking different. Everything else derives it
+  // from the position, which is what an authored one-off wants.
+  const s = seed;
   switch (p.kind) {
     case 'stone': return createTombstone({ variant: p.variant, seed: s });
     case 'bench': return createTombstone({ variant: 'bench', seed: s });
