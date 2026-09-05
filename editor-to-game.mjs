@@ -179,7 +179,7 @@ const state = await game.page.evaluate(() => {
   };
 });
 console.log('   ', JSON.stringify(state));
-claim(state.phase === 'playing' && state.t > 1.9, `the rules ran for ${state.t}s and the level is ${state.phase}`);
+claim(state.phase === 'play' && state.t > 1.9, `the rules ran for ${state.t}s and the level is in phase ${state.phase}`);
 
 await writeFile(path.join(outDir, 'in-game.png'), await game.page.screenshot({ timeout: 180000 }));
 await game.close();

@@ -27,6 +27,14 @@
 //   fireflies      The owner asked for them to be automated. They are drawn so
 //                  the author can see where the rule will put them, and there
 //                  is no tool that moves one.
+//   the generator  There is no button that fills the arena. It was here, as a
+//                  blank page to edit rather than as a competitor, and the
+//                  owner has taken it out: a level is a thing a person makes,
+//                  and authoring starts from an empty rectangle every time.
+//                  src/game/world/ stays on disk and is load bearing -- its
+//                  audit and its wedge finder are the fairness guarantee this
+//                  tool runs on every change -- but nothing here builds a
+//                  level with it.
 //   a play mode    This is not the game. /lab/?game=1&level=... is, and it is
 //                  one link away from a saved file. /lab/?world=1&level=... is
 //                  the same level with the game taken out of it, which is the
@@ -729,27 +737,6 @@ function saveFile({ anyway = false } = {}) {
   say(`saved ${a.download}. play it with /lab/?game=1&level=<url>, walk it with /lab/?world=1&level=<url>`);
 }
 
-// THE GENERATOR AS A BLANK PAGE. It no longer competes with the editor: it
-// produces one complete, fairness-checked arena which the owner then edits by
-// hand. Imported lazily so a page that never presses the button never pays for
-// the generator's module graph.
-async function generateInto(seed) {
-  say('generating...');
-  const [{ createWorld }, { levelFromWorld }] = await Promise.all([
-    import('../game/world/index.js'),
-    import('../game/level/import.js'),
-  ]);
-  const gen = createWorld({ seed, size: doc.size });
-  commit(() => {
-    doc = levelFromWorld(gen, { name: `${doc.name || 'level'}` });
-    doc.seed = seed;
-    doc.fireflies.seed = seed;
-    selection.clear();
-    pending = null;
-  });
-  say(`generated seed ${seed}: ${doc.props.length} props, ${doc.fences.length} fences, ${doc.graves.length} spawns. Now move things.`);
-}
-
 async function openFile(file) {
   try {
     doc = normalizeLevel(JSON.parse(await file.text()));
@@ -937,18 +924,21 @@ function drawRight() {
     el('div', { class: 'row' }, [
       el('button', { class: 'grow', text: 'undo', onclick: undo }),
       el('button', { class: 'grow', text: 'redo', onclick: redo }),
+      // THE FRONT DOOR. Every level starts here now, so what it gives has to
+      // be the whole of a blank page and nothing else: the wall, the ground,
+      // and the spot the ghost starts on. emptyLevel is already exactly that
+      // -- no props, no fences, no paths, no graves, no paint -- and the size
+      // and the seed are carried over because they are the settings the author
+      // just chose rather than anything on the floor.
       el('button', { class: 'grow danger', text: 'new', onclick: () => {
         if (!confirm('start a new empty level? the current one is only in this tab.')) return;
-        commit(() => { doc = emptyLevel({ size: doc.size, seed: doc.seed, name: 'graveyard' }); selection.clear(); });
+        commit(() => {
+          doc = emptyLevel({ size: doc.size, seed: doc.seed, name: 'graveyard' });
+          selection.clear();
+          pending = null;
+        });
+        say('an empty arena. Place a spawn with S, then build outward from it.');
       } }),
-    ]),
-    el('div', { class: 'row' }, [
-      el('button', {
-        class: 'grow',
-        text: 'generate a starting level',
-        title: 'Fill the arena from the procedural generator at this seed, then edit it by hand. Undo puts it back.',
-        onclick: () => generateInto(doc.seed),
-      }),
     ]),
 
     el('h2', { text: 'wall' }),
