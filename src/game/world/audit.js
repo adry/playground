@@ -260,6 +260,15 @@ export function walkField(grid, fromIndex) {
   return dist;
 }
 
+// A NOTE FOR WHOEVER PROFILES THIS NEXT, because it has caught three people.
+//
+// Timed once, cold, this pass costs several times what it costs warm: measured
+// in the editor at 434 to 583 ms for the first deep review after a page load
+// and 35 to 88 ms once V8 has settled. A first pass over prop counts even
+// showed it getting cheaper as a level filled up, which is false -- warmed and
+// run out of order it scales the way you would expect, 49 ms on an empty arena,
+// 76 at forty props, 135 at a hundred. Warm it and shuffle the order before you
+// believe any number that comes out of here.
 export function auditLevel(world, fail) {
   const props = world.props();
   const barriers = world.barriers();
@@ -455,30 +464,41 @@ export function auditLevel(world, fail) {
   // continuous geometry. It is the rule that took generated arenas from
   // eighteen per cent unfair to none, and it is the one a hand-made level most
   // needs, because fencing a corner takes an author about four seconds.
-  wedgeRule(world, fail);
+  const wedges = wedgeRule(world, fail);
 
+  // `grid` is what world-check.mjs wants; `wedges` is what the editor wants.
+  grid.wedges = wedges;
   return grid;
 }
 
 // Rule 11 lives in repair.js so that the generator, which uses it to REMOVE the
 // prop making a wedge, and this, which only reports one, cannot disagree about
 // what a wedge is. See findWedges for why single cells are not reported.
+//
+// The wedges are handed back as well as reported, because the editor wants the
+// LIST -- it flies the camera to one when you click it -- and used to get it by
+// calling findWedges a second time, immediately after the audit had just run
+// it. Two floods of the whole arena where one would do.
 function wedgeRule(world, fail) {
-  for (const w of findWedges({
+  const wedges = findWedges({
     box: world.bounds,
     barriers: world.barriers(),
     gates: world.gates(),
     props: world.props(),
     spawn: world.spawn,
-  })) {
+  });
+  for (const w of wedges) {
     fail('wedge', `${w.cells} cells at ${w.x.toFixed(1)}, ${w.z.toFixed(1)}: a body fits there and nothing can walk to it`);
   }
+  return wedges;
 }
 
-// The same audit, collected rather than called back.
+// The same audit, collected rather than called back, and carrying the wedge
+// list so nobody has to flood the arena again to get it.
 export function auditFindings(world) {
   const out = [];
-  auditLevel(world, (rule, message) => out.push({ rule, message }));
+  const wedges = auditLevel(world, (rule, message) => out.push({ rule, message }))?.wedges || [];
+  out.wedges = wedges;
   return out;
 }
 

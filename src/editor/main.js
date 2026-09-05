@@ -207,6 +207,8 @@ let pathStyle = { material: 'sand', width: 1.3 };
 // builds meet. Not the same thing as doc.wall.variant, which is what the run
 // STARTS in.
 let wallPick = { variant: WALL_VARIANTS[1], joint: 'pier' };
+// Which two grounds the next kerb goes between.
+const kerbPick = { a: GROUND_MATERIALS[0], b: GROUND_MATERIALS[3] || GROUND_MATERIALS[1] };
 let snapOn = false;
 let hover = null;
 let pending = null;   // the fence or path being drawn
@@ -1120,7 +1122,6 @@ function placeGroups() {
     {
       id: 'boundary',
       label: 'walls, fences and gates',
-      open: true,
       items: [
         {
           tool: 'fence', label: 'fence run', key: 'F',
@@ -1166,13 +1167,32 @@ function placeGroups() {
           el('label', { text: 'brush' }),
           number(brush.radius, 0.5, 6, 0.25, (v) => { brush.radius = v; refresh(); }),
         ]),
-        el('p', { class: 'note', text: 'drag to paint, right-drag or alt-drag to erase. Where two materials meet they interleave rather than butting up.' }),
+        el('p', { class: 'note', text: 'drag to paint, right-drag or alt-drag to erase. Two grounds cross over in about a hand\'s width, with their loose stuff scattered a good deal further into each other.' }),
+        // A KERB IS A PAIR OF MATERIALS, NOT A LINE YOU DRAW. groundcover.js
+        // finds the join between two painted grounds out of the same field it
+        // shades them from, so the stones land on the edge that is already
+        // there and repainting the grass moves them. There is nothing here for
+        // an author to keep in step with the paint, which is exactly why this
+        // is two selects and not a drawing tool.
+        el('p', { class: 'note', text: 'a row of stones where two grounds meet:' }),
+        ...kerbPairs().map((pair, i) => el('div', { class: 'row' }, [
+          el('span', { class: 'grow', text: `${pair[0]} meets ${pair[1]}` }),
+          el('button', {
+            text: '×',
+            title: 'take the stones out',
+            onclick: () => commit(() => { kerbPairs().splice(i, 1); }),
+          }),
+        ])),
+        el('div', { class: 'row' }, [
+          select(GROUND_MATERIALS, kerbPick.a, (v) => { kerbPick.a = v; }),
+          select(GROUND_MATERIALS, kerbPick.b, (v) => { kerbPick.b = v; }),
+          el('button', { text: '+', title: 'lay a row of stones wherever these two grounds meet', onclick: () => commitIf(addKerb) }),
+        ]),
       ]),
     },
     ...PALETTE.map((group) => ({
       id: group.id,
       label: group.label,
-      open: group.id === 'stones',
       items: (group.items || group.variants.map((v) => ({ kind: group.kind, variant: v, label: v })))
         .map((it) => ({
           tool: 'place', kind: it.kind, variant: it.variant, label: it.label,
@@ -1180,6 +1200,25 @@ function placeGroups() {
         })),
     })),
   ];
+}
+
+// The document's kerb pairs, made sure of. An old file may not have the field.
+function kerbPairs() {
+  if (!Array.isArray(doc.ground.kerbs)) doc.ground.kerbs = [];
+  return doc.ground.kerbs;
+}
+
+function addKerb() {
+  const { a, b } = kerbPick;
+  if (a === b) { say('a kerb goes between two DIFFERENT grounds'); return false; }
+  const have = kerbPairs();
+  if (have.some(([p, q]) => (p === a && q === b) || (p === b && q === a))) {
+    say(`there is already a row of stones where ${a} meets ${b}`);
+    return false;
+  }
+  have.push([a, b]);
+  say(`stones wherever ${a} meets ${b}. Paint either one and they follow the join.`);
+  return true;
 }
 
 // Is this the entry the next click will place?
@@ -1224,8 +1263,22 @@ function drawLeft() {
   );
 }
 
+// WHICH GROUPS ARE OPEN, remembered across redraws. The panel is rebuilt on
+// every commit, so without this a group closes itself the moment you use
+// anything inside it: open the ground cover, add a kerb, and the group you were
+// working in folds up under your hand. A group also opens itself when the entry
+// picked is one of its own, which is what makes a keyboard shortcut show you
+// where it went.
+const openGroups = new Set(['boundary', 'stones']);
+
 function placeGroup(group) {
-  return el('details', { open: group.open || group.items.some(isPicked) ? '' : null }, [
+  return el('details', {
+    ontoggle: (e) => {
+      if (e.target.open) openGroups.add(group.id);
+      else openGroups.delete(group.id);
+    },
+    open: openGroups.has(group.id) || group.items.some(isPicked) ? '' : null,
+  }, [
     el('summary', { text: `${group.label} (${group.items.length})` }),
     el('div', { class: 'swatches' }, group.items.map((e) => el('button', {
       text: e.label,

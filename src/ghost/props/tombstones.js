@@ -666,7 +666,7 @@ export const FACE_ROWS = 512;
 // the seed alone: the editor derives a prop's seed from its POSITION, so every
 // placement has a unique one and a seed-keyed pool would share nothing at all,
 // which is the case this exists to fix.
-const TEXTURE_SLOTS = 4;
+const TEXTURE_SLOTS = 2;
 // About 3 MB an entry. Sixteen is 48 MB and holds four bakes each of the four
 // commonest variants in a level, or one each of sixteen variants.
 const TEXTURE_POOL_LIMIT = 16;

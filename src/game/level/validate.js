@@ -453,8 +453,15 @@ function auditSeverity() {
 export function reviewLevel(world) {
   const issues = [];
   let wedges = [];
+  let audited = false;
   try {
-    for (const f of auditFindings(world)) {
+    const found = auditFindings(world);
+    // The audit's rule 11 IS the wedge pass, so its answer is already here.
+    // This used to run findWedges a second time straight afterwards, which is
+    // two floods of the whole arena for one question.
+    wedges = found.wedges || [];
+    audited = true;
+    for (const f of found) {
       const severity = auditSeverity(f.rule, f.message);
       issues.push({ severity, code: f.rule, message: f.message, at: null, refs: [], from: 'audit' });
     }
@@ -465,16 +472,21 @@ export function reviewLevel(world) {
     // as saving a level with a finding in it.
     issues.push({ severity: 'error', code: 'audit', message: `the audit could not run, so this level is unchecked: ${err.message}`, at: null, refs: [], from: 'audit' });
   }
-  try {
-    wedges = findWedges({
-      box: world.bounds,
-      barriers: world.barriers(),
-      gates: world.gates(),
-      props: world.props(),
-      spawn: world.spawn,
-    });
-  } catch (err) {
-    issues.push({ severity: 'error', code: 'wedge', message: `the wedge pass could not run, so this level is unchecked: ${err.message}`, at: null, refs: [], from: 'audit' });
+  // Only if the audit threw before it got to rule 11, because a check that did
+  // not run is not a check that passed and the wedge list is what the editor
+  // draws.
+  if (!audited) {
+    try {
+      wedges = findWedges({
+        box: world.bounds,
+        barriers: world.barriers(),
+        gates: world.gates(),
+        props: world.props(),
+        spawn: world.spawn,
+      });
+    } catch (err) {
+      issues.push({ severity: 'error', code: 'wedge', message: `the wedge pass could not run, so this level is unchecked: ${err.message}`, at: null, refs: [], from: 'audit' });
+    }
   }
   return {
     issues,
