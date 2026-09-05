@@ -13,22 +13,25 @@ import { sheet2, tatterAt, ovoid, put, v3, mix, smoothstep } from './forms.js';
 // POSTMORTEM 2.6's "two sheets and a rim on every cut edge": a single sheet is
 // invisible edge-on and its torn hem has no thickness, so it reads as a decal.
 //
-// THE HEM IS SCALLOPED, AND THAT IS A SILHOUETTE DECISION, NOT A STYLE ONE.
+// WHAT THE HEM HAS TO CLEAR, and it is not what it looks like.
 //
-// The arms only just clear the trunk -- see the note on `M.torso` -- and a
-// garment hanging at a constant radius puts the cloth straight back into the
-// gap the narrow waist just opened. Measured at the three-quarter camera, a
-// jacket that hangs level takes the daylight beside the forearm from 2.9 px to
-// 1.0 px, which is most of the way back to the bollard.
+// The arms only just clear the trunk, so the first instinct is to keep cloth
+// out of the gap beside the forearm. Measured at the game camera, no hem can:
+// the near arm competes with cloth at azimuth 42 to 109 degrees and the far
+// arm at 161 to 289, and the union is everything except the front opening.
+// Cropping the jacket to satisfy that turned the character into a green figure
+// in a scrap, and the coat is most of what the reference IS.
 //
-// So the jacket hangs LONG at the front lapels and down the back, and its
-// SIDE panels stop just below the torn sleeve. That is where the forearm
-// passes, and it is also what a jacket that has been through what this one has
-// been through actually looks like.
+// The constraint was the wrong one. AN ARM READS WHEN ITS OUTER EDGE STANDS
+// AGAINST THE BACKGROUND. What is behind the inner edge does not matter, which
+// is why the reference's arms overlap its own jacket and stay legible. The
+// jacket therefore hangs to the hip and the test is the outer contour: at the
+// front camera and at both three-quarter cameras, every arm's outer edge must
+// stand clear of the jacket's outline everywhere below the deltoid.
 //
-// The other rule the postmortem leaves: garments hang from the RIGHT JOINT.
-// Shorts cuffs on `hipL`/`hipR`, so the cloth swings with the thigh instead of
-// the thigh swinging through it; the jacket on `spineUpper`.
+// The hem still varies, but now for character rather than for clearance: two
+// longer tails at the front edges and a longer tail down the back, which is
+// what a coat that has been through this does.
 
 const J = M.jacket;
 const S = M.shorts;
@@ -39,38 +42,15 @@ const S = M.shorts;
 // lapel edge and u = 1 the right one, going round the back.
 const azOf = (u) => mix(J.openHalfAngle, 2 * Math.PI - J.openHalfAngle, u);
 
-// The scalloped hem, in world height, as a function of u.
-//
-// Three heights, and each is set by what the silhouette can afford there:
-//
-//   front panel  low enough to overlap the shorts' waistband, so the two read
-//                as a jacket worn over shorts rather than as three stacked
-//                bands of cloth round the hips;
-//   under the arm  HIGH -- this is the one band where cloth costs daylight,
-//                because the forearm passes here and the trunk has already
-//                been narrowed as far as the ribcage window allows;
-//   the back     lowest of all, a torn tail. It is free: at the game's
-//                three-quarter camera the back of the figure projects inward,
-//                so a tail there can be as long as it likes.
+// The hem, in world height, as a function of u. Long, with three tails.
 function hemAt(u) {
   const a = azOf(u);
   const side = Math.min(a, 2 * Math.PI - a) / Math.PI;   // 0.235 at a lapel, 1 at the back
-  // Level and CROPPED, with two short tails at the front edges.
-  //
-  // This was arrived at by measurement, and the measurement is worth writing
-  // down because the intuition is wrong. At the game's three-quarter camera
-  // the near arm competes with the cloth at azimuth 42 to 109 degrees and the
-  // far arm with the cloth at 161 to 289; at the front camera it is 64 to 116
-  // and 244 to 296. The union is everything except the front opening. There is
-  // NO azimuth where a long hem is free -- not even the back, which was the
-  // obvious place to hide one.
-  //
-  // So the jacket is cropped just below the ribcage window, and the two front
-  // tails are the only cloth that hangs, because they sit at the edge of the
-  // opening where the trunk is at its shallowest.
-  const tail = Math.exp(-Math.pow((side - 0.255) / 0.065, 2));
-  const backTail = Math.exp(-Math.pow((side - 1.0) / 0.14, 2));
-  return mix(J.hem, J.hem - 0.098, Math.max(tail, backTail * 0.72));
+  const front = Math.exp(-Math.pow((side - 0.255) / 0.075, 2));
+  const back = Math.exp(-Math.pow((side - 1.0) / 0.16, 2));
+  // a shallow lift under the arm, so the cloth does not bunch on the forearm
+  const armpit = Math.exp(-Math.pow((side - 0.55) / 0.16, 2));
+  return mix(J.hem, J.hem, 0) + mix(0, 0.052, armpit) - mix(0, 0.048, Math.max(front, back * 0.8));
 }
 
 function jacketSection(y) {
@@ -78,8 +58,8 @@ function jacketSection(y) {
   // it reads as cloth rather than paint. The standoff is DELIBERATELY mean:
   // measured at the three-quarter camera, every millimetre the jacket stands
   // off the trunk comes straight out of the daylight beside the forearm.
-  const flare = 1 + 0.07 * smoothstep(J.top, J.hem, y);
-  return (a) => (trunkRadius(y, a) || M.torso.waistWidth / 2) * flare + J.thickness * 1.1;
+  const flare = 1 + 0.17 * smoothstep(J.top, J.hem, y);
+  return (a) => (trunkRadius(y, a) || M.torso.waistWidth / 2) * flare + J.thickness * 1.9;
 }
 
 // The jacket's TOP edge, as a world height per azimuth. Level, it gives the
@@ -115,7 +95,7 @@ export function buildJacket({ materials }) {
   // Two holes worn through the back and one shoulder, each with a rim for
   // free because the sheet is closed.
   const keep = (u, v) => {
-    const holes = [[0.50, 0.62, 0.075, 0.18], [0.185, 0.34, 0.040, 0.12]];
+    const holes = [[0.50, 0.58, 0.070, 0.13], [0.185, 0.46, 0.030, 0.09], [0.79, 0.74, 0.048, 0.10]];
     for (const [cu, cv, ru, rv] of holes) {
       if (Math.hypot((u - cu) / ru, (v - cv) / rv) < 1) return false;
     }
@@ -135,14 +115,18 @@ export function buildJacket({ materials }) {
     const lp = track(sheet2({
       uSteps: 7, vSteps: 10,
       point: (u, v) => {
-        const y = mix(topAt(side > 0 ? 0 : 1), M.y.cavityBottom - J.tatter, v);
+        // The lapel stops at the bottom of the ribcage window. Carried to the
+        // hem it becomes a waistcoat front and closes over the one feature the
+        // opening exists to show; a lapel is a collar feature and a coat's
+        // front edge below the chest is just an edge.
+        const y = mix(topAt(side > 0 ? 0 : 1), M.y.cavityBottom - 0.012, v);
         // Rolls OUTWARD, away from the opening, widest at the chest. Rolled
         // inward -- which is what it did first -- the two lapels close across
         // the ribcage window and cover the one feature the opening exists to
         // show. A lapel folds back onto the chest, not over it.
-        const roll = u * mix(0.22, 0.50, Math.sin(Math.PI * Math.min(1, v * 1.5)));
+        const roll = u * mix(0.20, 0.40, Math.sin(Math.PI * Math.min(1, v * 1.6)));
         const a = a0 + side * roll * 0.55;
-        const r = jacketSection(y)(a) * (1 + 0.10 * u);
+        const r = jacketSection(y)(a) * (1 + 0.09 * u);
         return v3(Math.sin(a) * r, y, Math.cos(a) * r + u * J.thickness * 1.4);
       },
       normalAt: (u) => {
@@ -280,16 +264,23 @@ export function buildShortsCuff({ materials, side }) {
   const hem = S.hem - M.y.hip;
 
   const cuff = track(sheet2({
-    uSteps: 20, vSteps: 8, closedU: true,
+    uSteps: 24, vSteps: 10, closedU: true,
     point: (u, v) => {
       const a = 2 * Math.PI * u;
-      const y = mix(top, hem + tatterAt(u, 6, S.tatter * 1.5, s * 2.3), v);
+      const y = mix(top, hem + tatterAt(u, 5, S.tatter, s * 2.3), v);
       const t = (top - y) / Math.max(1e-6, top - hem);
       // Rounded at both ends. A straight-sided tube with flat ends puts two
       // sharp corners on the hip in silhouette, and two rectangles at the hips
       // is what the first clothed pass came back as.
       const round = Math.min(1, Math.sin(Math.min(1, t * 5.0) * Math.PI / 2), Math.sin(Math.min(1, (1 - t) * 4.0) * Math.PI / 2) * 0.16 + 0.84);
-      const r = mix(M.leg.thighRadius * 1.10, M.leg.thighRadius * 1.04, t) * round;
+      // A slow wrinkle round the cuff and a roll at the hem. Between the
+      // jacket's hem and the bare knee the shorts get an 11 px band to say
+      // "cloth" in, and a smooth tube in that space reads as a painted stripe
+      // on the leg however dark it is. Two low-frequency undulations and a
+      // thickened lip are what turn it into rag.
+      const wrinkle = 1 + 0.055 * Math.sin(a * 3 + s * 1.7) * Math.sin(Math.PI * t);
+      const roll = 1 + 0.10 * Math.exp(-Math.pow((t - 0.90) / 0.10, 2));
+      const r = mix(M.leg.thighRadius * 1.14, M.leg.thighRadius * 1.06, t) * round * wrinkle * roll;
       // follows the thigh's own outward bow
       const cx = s * M.leg.thighRadius * M.leg.bow * 3.2 * Math.sin(Math.PI * t * 0.5);
       return v3(cx + Math.cos(a) * r, y, Math.sin(a) * r);
@@ -297,7 +288,11 @@ export function buildShortsCuff({ materials, side }) {
     normalAt: (u) => { const a = 2 * Math.PI * u; return v3(Math.cos(a), 0, Math.sin(a)); },
     thickness: S.thickness,
     // A hole on the LEFT thigh only, with a shard of bone put behind it below.
-    keep: (u, v) => (side !== 'L') || Math.hypot((u - 0.10) / 0.07, (v - 0.62) / 0.20) > 1,
+    // Two holes on the left cuff, one on the right. Every one has something
+    // behind it -- a hole in a rag with more rag behind it is not a wound.
+    keep: (u, v) => (side === 'L'
+      ? Math.hypot((u - 0.10) / 0.075, (v - 0.60) / 0.20) > 1 && Math.hypot((u - 0.62) / 0.045, (v - 0.34) / 0.13) > 1
+      : Math.hypot((u - 0.46) / 0.055, (v - 0.52) / 0.15) > 1),
   }));
   put(group, cuff, materials.shorts, { name: 'shorts-cuff' });
 

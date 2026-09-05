@@ -185,6 +185,28 @@ trap of 2.3), and the `REST`/`LEFT_X` loop in `model.js` that was already there.
 each joint to one per material and never merges across a joint. 104 meshes to
 60, losslessly, and the triangle count is asserted unchanged.
 
+## The arm rule, because it is the one that is easy to get wrong
+
+**An arm reads when its OUTER edge stands against the background.** What is
+behind the inner edge, cloth or body, does not matter.
+
+The fourth pass first required DAYLIGHT on both sides of each arm, measured
+that no jacket hem anywhere can satisfy it, and took the jacket off the figure
+to get it. Both halves of that were true and the conclusion was wrong: the
+reference's arms overlap its own jacket freely and are perfectly legible, and a
+zombie in a torn coat with slightly crowded armpits is far closer to the
+reference than a green figure in a scrap.
+
+So the test is the outer contour, at the front camera and at both three-quarter
+ones. Below the deltoid every arm currently stands 4 to 9 px clear of the
+jacket's outline; the only negative readings are at the shoulder cap, where the
+sleeve and the jacket body are the same garment and an arm is supposed to
+merge.
+
+`REST` still fixes the shoulder, the elbow and the wrist, so the trunk is what
+moved to make room, and `M.arm.outboard` and `M.arm.handSplay` are the two
+small levers that live in geometry rather than in a joint.
+
 ## Three things about this body that a walk cycle has to know
 
 1. **There is no neck.** The chin is 4.4 px above the top of the shoulder mass.

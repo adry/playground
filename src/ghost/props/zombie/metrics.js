@@ -266,8 +266,8 @@ export const M = {
     // ended 1 mm above the mouth's and its RIM hung down over the dark, which
     // reads as a flap of skin in the mouth. Shrunk to 0.046 there is a clear
     // strip of green between the two, which is what a skull has.
-    width: f(0.052),
-    height: f(0.046),
+    width: f(0.058),
+    height: f(0.042),
     depth: f(0.026),
     // Where the widest part of the pear sits, as a fraction of the aperture's
     // height measured from the bottom. Below the middle: that is what makes it
@@ -279,17 +279,42 @@ export const M = {
   // the teeth sit in a dark trough and read as bright blocks on black. That
   // contrast is the whole reason the grin survives to 34 px.
   grin: {
-    width: f(0.180),          // 0.57 of head width
-    height: f(0.052),
+    // WIDE, and this is the feature carrying the most character in the
+    // reference. 0.196 is 62 per cent of head width, up from 0.180: at 0.57
+    // with small teeth in a shallow slot the face read as an orc rather than
+    // as a corpse, and the difference is almost entirely the grin.
+    //
+    // It cannot go much wider. The mouth is a grommet and its rim reaches
+    // `rhoOut` times the outline; at 0.205 the rim's corners arrive at the
+    // side of the head and start wrapping round it.
+    width: f(0.196),          // 0.62 of head width
+    // Taller too, because big teeth need somewhere to stand. 5.4 px of slot
+    // at game scale was not enough to seat a tooth AND leave dark around it,
+    // and a tooth with no dark around it is a grey smear.
+    height: f(0.058),
     depth: f(0.038),
     // How far the whole SLOT rises at the corners, as a fraction of the
     // mouth's own half-height. It raises the slot; it does not make it taller,
     // which is what the first version did and which produced a lens with a
     // pinched middle rather than a smile. See the outline solve in head.js.
-    curve: 0.55,
-    // Fewer teeth, bigger teeth. Ten uneven teeth at this size is a grey
-    // dither; five is five white blocks and a gap you can actually see.
-    teeth: { upper: 5, lower: 4, gapUpper: 3, gapLower: 1 },
+    //
+    // 0.32, not 0.55. At 0.55 the corners rise so far that the top edge in the
+    // MIDDLE drops 1.7 px below the corners, and with the nasal aperture
+    // sitting 0.056 above it that strip of skin reads as an upper lip on a
+    // face that is supposed to be lipless. The corners still turn up; they
+    // just no longer take the middle of the mouth down with them.
+    curve: 0.32,
+    // Fewer teeth, BIGGER teeth, and real gaps. Ten at this size is a grey
+    // dither. Five upper positions with one missing and four lower with one
+    // missing gives seven teeth in a 0.353 grin, which is a tooth every 5.8 px
+    // at game scale: wide enough to be a block rather than a line, with dark
+    // between every pair.
+    //
+    // The unevenness is the other half. Every tooth takes its own width,
+    // length and lean from a hash of its index, over a range wide enough to
+    // read (0.74 to 1.30 of nominal), and one upper tooth is a long fang. A
+    // row of identical blocks reads as dentures.
+    teeth: { upper: 5, lower: 4, gapUpper: 3, gapLower: 1, fang: 1 },
   },
 
   // Small round ears, and they matter far more than their size suggests: they
@@ -450,7 +475,7 @@ export const M = {
     // separate pale lines with dark between them, which is what a ribcage is
     // at this size. The count is set by the pixel pitch, not by anatomy.
     ribPairs: 3,
-    ribRadius: f(0.0092),
+    ribRadius: f(0.0086),
     ribSpacing: f(0.040),
     ribTop: f(0.572),
     // The spine runs down the middle of the cavity BEHIND the ribs, so its
@@ -470,29 +495,25 @@ export const M = {
   // and the holes are real openings, for the same no-alpha reason as above.
   jacket: {
     top: f(0.616),            // sits on the deltoid
-    // CROPPED, just below the bottom lip of the ribcage window. The third
-    // pass hung it to 0.352, below the shorts' waistband, on the argument that
-    // an overlap reads as a jacket worn over shorts while a level hem stacks
-    // three bands of cloth round the hips. That argument is right and it is
-    // beaten by a bigger one: cloth at hip height is cloth in the daylight
-    // beside the forearm, and there is no azimuth where a long hem is free.
+    // The hem hangs BELOW the shorts' waistband (0.400), not level with it,
+    // so the two read as a jacket worn over shorts rather than as three
+    // stacked bands of cloth round the hips.
     //
-    // A cropped torn jacket over an exposed midriff is also simply a better
-    // read for this character than a long one: it leaves the ribcage window
-    // and the belly showing, which is what the reference is about.
-    hem: f(0.452),
-    // The front gap is WIDER than the cavity (0.62), not narrower, so the two
-    // lapels frame the ribcage instead of covering its edges. The reference
-    // has them overlapping and built that way it ate a fifth of a feature
-    // that is only fifteen pixels across to begin with.
+    // It was cropped to 0.452 for one round, on a measurement that turned out
+    // to be answering the wrong question. The measurement was right: there is
+    // no azimuth where a long hem leaves DAYLIGHT between the arm and the
+    // trunk, because the near arm competes with the cloth at 42 to 109 degrees
+    // and the far arm with 161 to 289, and the union is everything but the
+    // front opening.
     //
-    // It is only a little wider, though, and that is the other half of the
-    // lesson. Opened to 0.98 the garment stopped reading as a jacket at all:
-    // from the game's three-quarter camera the front 112 degrees were bare
-    // chest, the remaining cloth hid behind the arms, and what was left looked
-    // like a collar and a separate belt. A jacket has to close enough of the
-    // torso to be a jacket.
-    openHalfAngle: 0.74,
+    // But daylight is not what makes an arm read. AN ARM READS WHEN ITS OUTER
+    // EDGE STANDS AGAINST THE BACKGROUND; what is behind the inner edge, cloth
+    // or body, does not matter. The reference's arms overlap its jacket freely
+    // and are perfectly legible. The test in `outer` (see the note in
+    // parts/clothes.js) measures the outer contour instead, and a full-length
+    // hem passes it with room to spare, so the coat comes back.
+    hem: f(0.352),
+    openHalfAngle: 0.80,
     thickness: f(0.010),
     tatter: f(0.022),         // depth of the sawtooth at the hem and cuffs
     sleeveTo: f(0.500),       // the sleeves are torn off just above the elbow
@@ -501,8 +522,13 @@ export const M = {
   shorts: {
     top: f(0.400),
     hem: f(0.245),
-    thickness: f(0.013),
-    tatter: f(0.026),
+    // Thicker and more ragged than the third pass. The jacket now covers the
+    // waistband, so all the shorts have to say "cloth" with is the 11 px band
+    // of cuff between the jacket's hem and the bare knee. A thin sheet with a
+    // shallow sawtooth in that space reads as a painted band the same colour
+    // as the leg; a thick one with a deep torn hem reads as rag.
+    thickness: f(0.019),
+    tatter: f(0.042),
     // Two, not the reference's three. One worn through the seat, on the
     // waistband piece, and one on the LEFT thigh cuff with a shard of bone
     // behind it. A hole in a rag with more rag behind it is not a wound, so

@@ -374,6 +374,24 @@ export function grommet({
   // is what the chest cavity's lip is, because what belongs behind that
   // opening is the flesh column, not a plate of skin.
   dishFrom = 0,
+  // A SUNKEN COLLAR instead of a raised rim.
+  //
+  // The rim band's job is to hide the host's ragged cut, and it can do that
+  // from either side. Standing PROUD it covers the cut from outside, which is
+  // what an orbital rim wants to be anyway. But a feature that must not have a
+  // raised lip round it -- a nasal aperture, a lipless mouth -- gets a rim it
+  // does not want, and on a small feature that rim has to be wide, which puts
+  // skin where the next feature needs to be. The nasal aperture's rim reached
+  // 9 mm over the top of the grin and read as an upper lip on a face that is
+  // supposed to be lipless.
+  //
+  // Sunk instead, the band lies just UNDER the host all the way out, the host
+  // covers it, and the ragged cut becomes invisible for a better reason than
+  // being hidden: both sides of it are the same colour and 2 mm apart. The
+  // visible edge of the dark is then the material change at rho = rhoIn, which
+  // is analytic, and the band may run as wide as it likes because none of it
+  // shows. `outerLift` is read as a sink in this mode.
+  sunken = false,
   phiSteps = 56, dishSteps = 9, rimSteps = 7,
   floorFlat = 0.66,      // fraction of the dish that is at FULL depth
   outerLift = 0.0016,    // the rim's outer edge, clear of the host's chords
@@ -432,6 +450,7 @@ export function grommet({
 
   // The rim band. jut(0) == -seat, so its inner ring IS the dish's outer ring.
   const jut = (s, phi) => {
+    if (sunken) return mix(-seat, -outerLift, smoothstep(0, 1, s));
     const peak = jutMax(phi);
     if (s < zeroAt) return mix(-seat, 0, smoothstep(0, zeroAt, s));
     if (s < peakAt) return mix(0, peak, smoothstep(zeroAt, peakAt, s));
@@ -472,10 +491,17 @@ export function grommet({
     // across, cut out of a grid with four-and-a-half degree cells, the rim
     // missed the ragged edge entirely and the background showed through the
     // face in square notches.
+    // The narrowest the outline ever gets, which is what sets how ragged the
+    // cut is in units of the feature's own size.
+    minOutline: (() => {
+      let smallest = Infinity;
+      for (let i = 0; i < 128; i++) smallest = Math.min(smallest, outline(2 * Math.PI * i / 128));
+      return smallest;
+    })(),
     cut: (rhoCut, cellAngle = 0) => {
       if (cellAngle > 0) {
         let smallest = Infinity;
-        for (let i = 0; i < 64; i++) smallest = Math.min(smallest, outline(2 * Math.PI * i / 64));
+        for (let i = 0; i < 128; i++) smallest = Math.min(smallest, outline(2 * Math.PI * i / 128));
         const half = 0.5 * cellAngle / smallest;      // half a cell, in rho units
         if (rhoCut - half < rhoIn + 0.02 || rhoCut + half > rhoOut - 0.02) {
           throw new Error(

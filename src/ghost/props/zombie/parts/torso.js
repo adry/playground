@@ -51,7 +51,7 @@ const BLOCKS = {
   // The belly's TOP is not free: it has to sit below `M.y.cavityBottom` or it
   // pokes up inside the chest cavity and you see green where the flesh should
   // be. That constraint sets cavityBottom, not the other way round.
-  belly: { cy: 0.775, hh: 0.068, hw: T.waistWidth / 2, hd: T.waistDepth / 2, n: T.section * 0.95 },
+  belly: { cy: 0.766, hh: 0.062, hw: T.waistWidth / 2, hd: T.waistDepth / 2, n: T.section * 0.95 },
   chest: { cy: 0.960, hh: 0.172, hw: T.chestWidth / 2, hd: T.chestDepth / 2, n: T.section },
 };
 
@@ -174,7 +174,11 @@ export function buildTorso({ materials }) {
   // therefore divided through by it. Sized to the outline instead, the window
   // came out a quarter small in both directions and the character's defining
   // feature was a thumbnail.
-  const RHO_IN = 0.94, DISH_FROM = 0.80;
+  // DISH_FROM is how much of the outline the funnel wall occupies. At 0.80 the
+  // wall is a quarter of the opening's radius and reads as a thick pale collar
+  // round a small hole; the window is the character's defining feature and the
+  // lip should frame it, not crowd it.
+  const RHO_IN = 0.94, DISH_FROM = 0.88;
   const RHO_OPEN = RHO_IN * DISH_FROM;
 
   const solveAy = () => {
@@ -303,7 +307,7 @@ export function buildTorso({ materials }) {
         const dive = mix(1.0, 0.94, smoothstep(0.80, 1.0, f));
         pts.push(v3(Math.sin(a) * Math.min(want, room) * dive, hh - M.y.chest, Math.cos(a) * Math.min(want, room) * dive));
       }
-      const rib = track(arcTube(pts, C.ribRadius, C.ribRadius * 0.74, { radial: 8 }));
+      const rib = track(arcTube(pts, C.ribRadius, C.ribRadius * 0.72, { radial: 9 }));
       // Checked, not trusted: a rib that has crept outside the skin is exactly
       // the sort of thing that reads as a modelling mistake and is invisible
       // from the one angle you happen to be looking from.
@@ -328,7 +332,7 @@ export function buildTorso({ materials }) {
       const rr = Math.min(mix(rColumn(h, 0), rShell(h, 0), C.ribFront), rShell(h, 0) - C.ribRadius);
       pts.push(v3(0, h - M.y.chest, rr));
     }
-    const st = track(arcTube(pts, C.ribRadius * 0.80, C.ribRadius * 0.62, { radial: 6 }));
+    const st = track(arcTube(pts, C.ribRadius * 0.54, C.ribRadius * 0.44, { radial: 6 }));
     put(spineUpper, st, materials.bone, { name: 'sternum' });
   }
 
