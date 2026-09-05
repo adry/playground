@@ -429,7 +429,7 @@ export function openSites({ field, placer, box, spawn }) {
       const z = box.minZ + (j + 0.5) * pitch + rng.float(-2.0, 2.0);
       if (Math.hypot(x - spawn.x, z - spawn.z) < SPAWN_CLEAR) continue;
       const g = field.frame.toGrid(x, z);
-      if (!rng.chance(0.6 + 0.4 * field.density(g.u, g.v))) continue;
+      if (!rng.chance(0.72 + 0.28 * field.density(g.u, g.v))) continue;
       const make = rng.weighted(SITE_KINDS);
       placed += make({ rng, placer, field, u: g.u, v: g.v }) || 0;
     }

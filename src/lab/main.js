@@ -12,12 +12,18 @@ import { createGround } from '../ghost/ground.js';
 //
 // The two share a floor and a light rig and nothing else.
 //
-// Two flags that used to be here are gone. ?play=1 loaded the hand-placed
-// graveyard from src/ghost/main.js, which IS the /ghostly/ page and is still
-// reachable there; a second door to the same room only made this page's hint
-// line longer. ?game=1 loaded the wave-based Pac-Man, which the owner replaced
-// with a single contained level, so the page behind it is being rebuilt and a
-// link to a half-built thing is worse than no link.
+//   /lab/?game=1    the game. Unlinked while it is rebuilt for the arena.
+//
+// ?play=1 used to be here and is gone: it loaded the hand-placed graveyard from
+// src/ghost/main.js, which IS the /ghostly/ page and is still reachable there,
+// so it was a second door to the same room.
+//
+// A caution learned by breaking it. Removing ?game=1's BRANCH as well as its
+// link did not make the page 404, it made it silently render the asset lineup,
+// because an unrecognised flag falls through to the else. The page then sets
+// __previewReady instead of __gameReady and every harness pointed at the game
+// waits four minutes and reports a timeout on a page that is working. If a
+// door is closed here, close it loudly.
 //
 // preview.html remains the single-prop turntable used by the capture scripts.
 // This page is the whole set at once, which is a different question: a prop can
@@ -32,6 +38,12 @@ if (params.get('world') === '1') {
   // never pays for the game's module graph. See src/game/viewer.js.
   const { startViewer } = await import('../game/viewer.js');
   await startViewer({ canvas: document.getElementById('view'), params });
+} else if (params.get('game') === '1') {
+  // The game itself. Unlinked from the hint line on purpose while it is being
+  // rebuilt for the contained arena: a link to a half-built page is worse than
+  // no link, and the flag is enough for anyone working on it.
+  const { startGame } = await import('../game/scene.js');
+  await startGame({ canvas: document.getElementById('view'), params });
 } else {
   await buildLineup();
 }

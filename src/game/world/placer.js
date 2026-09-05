@@ -53,12 +53,34 @@ export const WALL_MARGIN = WALL_GAP - WALL_HALF;
 // over; everything else in the arena is something you go round.
 const SOFT_KINDS = new Set(['hole', 'dirt']);
 
+// THE FORBIDDEN BAND, and this is a navigation number rather than a
+// look-and-feel one.
+//
+// Rule 1's 0.15 is about whether two things touch, and it says nothing about
+// the CHANNEL they leave between them. Navigation treats a solid prop as a
+// circle of its bounding radius and needs 0.555 of clearance, and a flood fill
+// only sees a channel once it is about a cell wider than that. So a channel
+// between 1.11 and 1.61 wide is one a body can squeeze into and that half the
+// rasters measuring the level cannot see it get out of: a headstone standing
+// two units off a pen's rail makes exactly one, the ghost vaults in, and
+// whether a skeleton can follow becomes a question about the measuring
+// instrument. That was the last of the fairness failures.
+//
+// The fix is not to push props AWAY from fences, which was tried and cost a
+// third of the graveyard. It is to forbid the BAND: a prop may stand right
+// against a fence, where the channel is too narrow for anything to get into and
+// no wedge exists, or well clear of it, where the channel is a corridor. It may
+// not stand at the one distance that makes a trap. The same band applies
+// between two solid props for the same reason.
+export const BAND_LO = 1.11;
+export const BAND_HI = 1.66;
+
 const BUCKET = 4;
 
 export function createPlacer({ field, box, barriers = [], gates = [] }) {
   const frame = field.frame;
   const props = [];
-  const rejects = { bounds: 0, path: 0, fence: 0, gate: 0, overlap: 0, occlusion: 0, placed: 0 };
+  const rejects = { bounds: 0, path: 0, fence: 0, gate: 0, overlap: 0, band: 0, occlusion: 0, placed: 0 };
 
   const buckets = new Map();
   const key = (a, b) => a + ':' + b;
@@ -89,7 +111,7 @@ export function createPlacer({ field, box, barriers = [], gates = [] }) {
   // stone either. They are pure keep-outs, each with the margin it wants.
   const keepOuts = [];
   for (const s of barriers) {
-    if (s.grid) keepOuts.push({ shape: s.grid.shape, margin: FENCE_MARGIN, why: 'fence' });
+    if (s.grid) keepOuts.push({ shape: s.grid.shape, margin: FENCE_MARGIN, why: 'fence', standoff: true });
   }
   for (const g of gates) {
     keepOuts.push({ shape: g.grid.sweep, margin: 0, why: 'gate' });
@@ -182,6 +204,16 @@ export function createPlacer({ field, box, barriers = [], gates = [] }) {
     return pathGap(prop.shape, prop.u, prop.v, prop.radius) >= PATH_NEED;
   }
 
+  // The channel between a prop's own circle and a barrier's, which is what
+  // navigation sees, measured centre to centreline.
+  function barrierChannel(prop, seg) {
+    const ex = seg.x1 - seg.x0;
+    const ez = seg.z1 - seg.z0;
+    const l2 = ex * ex + ez * ez || 1;
+    const t = Math.max(0, Math.min(1, ((prop.x - seg.x0) * ex + (prop.z - seg.z0) * ez) / l2));
+    return Math.hypot(prop.x - (seg.x0 + ex * t), prop.z - (seg.z0 + ez * t)) - prop.radius - seg.half;
+  }
+
   function reject(prop) {
     if (prop.x - prop.radius < wallBox.minX || prop.x + prop.radius > wallBox.maxX
       || prop.z - prop.radius < wallBox.minZ || prop.z + prop.radius > wallBox.maxZ) return 'bounds';
@@ -192,10 +224,21 @@ export function createPlacer({ field, box, barriers = [], gates = [] }) {
       if (Math.hypot(prop.u - s.x, prop.v - s.z) > reach) continue;
       if (gap(prop.shape, s) < k.margin) return k.why;
     }
+    // The forbidden band, against every fence and every solid neighbour.
+    if (prop.solid) {
+      for (const seg of barriers) {
+        const c = barrierChannel(prop, seg);
+        if (c > BAND_LO && c < BAND_HI) return 'band';
+      }
+    }
     const reach = Math.max(OVERLAP_REACH, OCCLUSION_REACH);
     for (const other of near(prop.u, prop.v, reach + prop.radius)) {
       if (Math.hypot(prop.u - other.u, prop.v - other.v) <= prop.radius + other.radius + PROP_MARGIN
         && gap(prop.shape, other.shape) < PROP_MARGIN) return 'overlap';
+      if (prop.solid && other.solid) {
+        const c = Math.hypot(prop.x - other.x, prop.z - other.z) - prop.radius - other.radius;
+        if (c > BAND_LO && c < BAND_HI) return 'band';
+      }
       if (hides(prop, other) || hides(other, prop)) return 'occlusion';
     }
     return null;

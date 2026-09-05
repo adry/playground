@@ -143,9 +143,25 @@ export const WALL = {
   collide: 0.53,
   cornerCollide: 0.69,
 
+  // The lowest the top of the wall ever gets ANYWHERE. Measured, not
+  // estimated: the minimum over all four variants, three joint kinds and
+  // sixteen seeds of the highest point above every square decimetre of the
+  // footprint. It is the body's flat top showing through a gap where a coping
+  // stone has gone, in a bay that has also settled.
+  //
+  // `height` is the nominal crown and is the number to DESIGN against; this is
+  // the number to ASSERT against. The margin it leaves over the ghost's
+  // measured crown of 1.761 is 34 millimetres, which is thin and is stated
+  // rather than rounded away: the ghost is hidden everywhere on every variant,
+  // but only just, at the one worst square decimetre of a level. If the ghost
+  // ever grows, the thing to shrink is the variants' copeH -- the body's flat
+  // top is what a missing coping stone exposes and it sits copeH below the
+  // crown -- and not this constant.
+  minCrown: 1.79,
+
   // Stated rather than implied. The ghost hops the 0.86 fence; it does not get
-  // over this, in any variant, at any height, ever. A rule that lets it is a
-  // bug in the rule.
+  // over this, in any variant, at any height, at any joint, ever. A rule that
+  // lets it is a bug in the rule.
   vaultable: false,
 
   // The named set, in the order an editor should list them.
@@ -252,8 +268,8 @@ const VARIANTS = {
     label: 'Field rubble',
     kind: 'masonry',
     mode: 2,
-    stone: '#a7a094',
-    mortar: '#7c766c',
+    stone: '#9b9284',
+    mortar: '#75705f',
     moss: '#78894f',
     thickness: 0.52,
     plinthH: 0.20,
@@ -274,7 +290,7 @@ const VARIANTS = {
     rowJitter: 0.16,
     grime: 0.38,
     mossAmount: 0.85,
-    sag: 0.085,
+    sag: 0.062,
     lean: 0.055,
     copeBreaks: 11,      // the derelict one, so it loses the most cope
   },
@@ -466,7 +482,7 @@ function miter(a, b) {
 // One pier at every original corner, one at each gate jamb, and the rest spread
 // evenly along each corner-to-corner span so no bay is a different length from
 // its neighbours. `spacing` is a target, not a law.
-function pierPlan(points, closed, spacing, openings) {
+function pierPlan(points, closed, spacing, openings, forced = []) {
   const src = points.map((p) => ({ x: p.x, z: p.z }));
   if (closed && src.length > 1) {
     const a = src[0];
@@ -494,6 +510,11 @@ function pierPlan(points, closed, spacing, openings) {
     for (let j = 0; j <= k; j++) want.add(+(a + ((b - a) * j) / k).toFixed(4));
   }
   for (const o of openings) { want.add(+o.a.toFixed(4)); want.add(+o.b.toFixed(4)); }
+  // A 'pier' joint asks for a pier exactly where two builds meet, wherever that
+  // falls. It is added rather than snapped to the lattice: the whole point of
+  // the joint is that the pier stands ON it, and a pier half a metre away from
+  // the change is a pier with a seam beside it.
+  for (const d of forced) want.add(+Math.max(0, Math.min(total, d)).toFixed(4));
 
   const out = [];
   const seen = new Set();
@@ -1042,7 +1063,7 @@ function pier(p, size, H, rise, rand, bay, styleIdx) {
 // 0.40 gives three hundred bars and three thousand triangles on a 30 by 30,
 // which lands the ironwork at roughly 1.7 times a masonry wall. Tighter looks
 // better and costs linearly; this is where it was left.
-function railingBars(path, v, H, piers, rand, styleIdx) {
+function railingBars(path, v, H, piers, rand, styleIdx, isOpen = () => true) {
   const r = v.barSize / 2;
   const ring = [[r, r], [-r, r], [-r, -r], [r, -r]];
   const y0 = v.plinthTop - 0.02;
@@ -1065,6 +1086,10 @@ function railingBars(path, v, H, piers, rand, styleIdx) {
     const b = piers[i + 1].s - WALL.pier.width * 0.62;
     const span = b - a;
     if (span <= v.barPitch) continue;
+    // Two consecutive piers are not always a bay: the two jambs of a gate are
+    // consecutive too, and the first render of a railed wall with a gate in it
+    // had the gateway neatly filled in with bars.
+    if (!isOpen((a + b) / 2)) continue;
     const n = Math.max(1, Math.round(span / v.barPitch));
     for (let k = 1; k < n; k++) {
       const s = a + (span * k) / n;
@@ -1622,7 +1647,7 @@ export function createWall({
       style: tooth
         ? [idxOf(startName), idxOf(tooth.variant), tooth.at, 0.42 * wallVariant(startName).length]
         : plainStyle(idxOf(startName)),
-      stepShift: changes.some((c) => c.joint === 'step' && Math.abs(c.cut - a0) < 1e-6) ? 0.05 : 0,
+      stepShift: changes.some((c) => c.joint === 'step' && Math.abs(c.cut - a0) < 1e-6) ? 0.075 : 0,
     });
   }
   // A step joint sets the new build off the line of the old, and it stays off
@@ -1720,6 +1745,16 @@ export function createWall({
       if (pierS.some((p) => Math.abs(p.s - centre) < WALL.pier.width * 0.9 + width / 2)) continue;
       if ([...cutSet].some((d) => d > a0 - 0.4 && d < b0 + 0.4)) continue;
       if (inOpening(a0) || inOpening(b0)) continue;
+      // Not in a bay that has already sagged, and this one IS a gameplay rule
+      // rather than an aesthetic one. A missing coping stone drops the top of
+      // the wall to the body's flat top; a sagged bay drops it further; the two
+      // together took the lowest point of a rubble enclosure to 1.764, which is
+      // three millimetres over the ghost's crown. WALL.height is published and
+      // the rules read it, so the wall is not allowed to have a place where it
+      // is quietly no taller than the thing it exists to stop. Breaks are
+      // therefore kept out of the bays that are already low, which costs one
+      // break in five and buys back a hundred millimetres of clearance.
+      if ((bays[bayAt(centre)] || bays[0]).sag < -0.35 * (sp.section.sag || 0)) continue;
       copeGaps.push({ a: a0, b: b0 });
       if (rand() < 0.45) displaced.push({ a: a0, b: b0, drop: 0.02 + rand() * 0.05, tilt: (rand() * 2 - 1) * 0.16 });
     }
@@ -1773,7 +1808,7 @@ export function createWall({
       }
     }
     const inSpan = pierS.filter((p) => p.s >= sp.a - 1e-6 && p.s <= sp.b + 1e-6);
-    parts.push(railingBars(path, sp.section, height, inSpan, rand, sp.style[0]));
+    parts.push(railingBars(path, sp.section, height, inSpan, rand, sp.style[0], (d) => !inOpening(d)));
   }
 
   // --- the piers ------------------------------------------------------------

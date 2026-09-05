@@ -96,22 +96,31 @@ import { unpackPaint } from './format.js';
 // gravel is still recognisably gravel in the middle.
 const FEATHER = 3;
 
-// The relief. Two centimetres of swell over a two metre wavelength. Enough for
-// the key light to find, far too little to trip over, and small enough that a
-// headstone standing on it is not visibly tilted.
-const RELIEF = 0.022;
+// The relief. Three centimetres of swell over a two metre wavelength. Enough
+// for the key light to find, far too little to trip over, and small enough
+// that a headstone standing on it is not visibly tilted. It was 0.022 and read
+// as nothing at the game's framing, which is the stain failure creeping back
+// in through the geometry rather than the colour.
+const RELIEF = 0.030;
 const RELIEF_SCALE = 2.0;
 
-// Colours, taken from the props that already own these grounds rather than
-// invented, so a painted gravel yard and a gravel path are the same gravel.
-// sand from sandpath.js SAND, gravel from gravelpath.js GRAVEL.base, earth from
-// dirtpile.js's side tone, grass a step lighter than foliage mid because a
-// lawn takes the sky and a bush does not.
+// Colours. The hues come from the props that already own these grounds, so a
+// painted gravel yard and a gravel path are the same gravel: sand from
+// sandpath.js's SAND, gravel from gravelpath.js's GRAVEL.base, earth from
+// dirtpile.js's side tone.
+//
+// The LUMINANCES are pitched at the floor's own, and that is the part that was
+// got wrong first time. The floor is #8f949e and reads about 148. The first
+// grass was foliage green, #66744f at about 110, and painting the yard with it
+// turned the arena into a dark hole with pale props standing in it: the props'
+// contact shadows vanished and the whole frame went muddy. Each of these is
+// within a few points of 148 and says what it is by HUE and by the detail
+// standing in it, not by being darker than the ground it covers.
 export const MATERIALS = {
-  grass: { color: '#66744f', detail: 'blades', density: 5.0 },
-  sand: { color: '#b0a794', detail: 'pebbles', density: 1.6 },
-  gravel: { color: '#8b8a88', detail: 'chips', density: 5.5 },
-  earth: { color: '#917c60', detail: 'clods', density: 2.4 },
+  grass: { color: '#8d9873', detail: 'blades', density: 6.5 },
+  sand: { color: '#b0a794', detail: 'pebbles', density: 1.8 },
+  gravel: { color: '#93928e', detail: 'chips', density: 6.0 },
+  earth: { color: '#9c8768', detail: 'clods', density: 2.6 },
 };
 
 // --- noise -------------------------------------------------------------------
@@ -219,7 +228,7 @@ function bladeTuft() {
   const geos = [];
   for (let b = 0; b < 3; b++) {
     const a = (b / 3) * Math.PI * 2 + 0.6;
-    const len = 0.10 + 0.05 * hash2(b, 7, 3);
+    const len = 0.14 + 0.07 * hash2(b, 7, 3);
     const g = new THREE.BufferGeometry();
     const wdt = 0.012;
     const lean = 0.045;

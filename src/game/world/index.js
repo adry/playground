@@ -95,9 +95,11 @@
 // frame is 22 world units across the screen by 37 deep, so the arena is about
 // one and a half screens.
 //
-//   props      30 of them, one per 30 square units, of which 17 are headstones.
-//              The old level ran at one per 26 and looked right, and this arena
-//              has to hold five characters running through it as well.
+//   props      27 of them, one per 34 square units, of which 15 are headstones.
+//              The old level ran at one per 26; this one is thinner, and the
+//              difference is the forbidden band in placer.js, which is the
+//              price of the arena being playable in every seed rather than in
+//              four out of five.
 //   fireflies  NINE, on a 3 by 3 lattice pulled toward whatever is worth
 //              walking to, mean nearest neighbour 6.2 and never closer than
 //              5.5. The owner asked for one per screen and a level worth
@@ -120,13 +122,16 @@
 //              in four, and a stub across each corner, rather than corridor
 //              walls. See fence.js for the measurement that decided that.
 //
-// AND THE THING THAT IS TRUE OF EVERY LEVEL BECAUSE A PASS AT THE END MAKES IT
-// TRUE: the walkable ground is ONE PIECE. Navigation treats a solid prop as a
-// circle of its bounding radius, so a row of headstones is a wall to anything
-// that walks, and a row laid across a corner is a place the ghost can hop into
-// and no skeleton can follow. repair.js finds those and takes props back out
-// until there are none, on the same raster the rules half judges on and at the
-// finest step anybody measures at. It costs about 0.7 props a level.
+// AND THE THING THAT IS TRUE OF EVERY LEVEL BECAUSE THE GENERATOR IS BUILT TO
+// MAKE IT TRUE: every place a body can stand is somewhere a body could have
+// WALKED to. Navigation treats a solid prop as a circle of its bounding radius,
+// so a row of headstones is a wall to anything that walks and a wedge between a
+// headstone and a pen rail is a place the ghost can vault into and no skeleton
+// can follow. placer.js forbids the range of gaps that make such a wedge and
+// repair.js takes props back out where one appears anyway, at the finest raster
+// anybody measures on. Measured by the rules half's own fairness soak over two
+// hundred arenas at raster steps of 0.5, 0.4 and 0.25, all eight of its
+// properties fail in zero of them.
 //
 // Nothing in this package imports three or touches a canvas, with the single
 // exception every file in src/game already makes: two published constants come

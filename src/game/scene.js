@@ -25,10 +25,11 @@ import * as THREE from 'three';
 import { createGround, addGroundHole } from '../ghost/ground.js';
 import { Ghost } from '../ghost/ghost.js';
 import { Input } from '../ghost/input.js';
-import { createLayout } from './layout/index.js';
+import { createWorld } from './world/index.js';
+import { createWalledLevel } from '../ghost/props/fence/wall.js';
 import { createGame, TUNING } from './rules.js';
 import {
-  waveTuning, waveCells, waveSeed, clearBonus,
+  waveTuning, waveSeed, clearBonus,
   loadBoard, submitScore, shareUrl, shareText,
 } from './run.js';
 import { createTombstone } from '../ghost/props/stones/index.js';
@@ -57,11 +58,6 @@ function hashKey(str) {
 export async function startGame({ canvas, params }) {
   const seed = Number(params.get('seed')) || 1;
   const testMode = params.get('test') === '1';
-  // Fewer props than a full level while this page is young: a 7 by 5 level
-  // carries 110 props plus 350 fireflies plus four skeletons, and the point of
-  // the first playable build is to find out whether it PLAYS, which a smaller
-  // level answers just as well and a great deal faster.
-  const cells = (params.get('cells') || '5,4').split(',').map(Number);
 
   // A RUN is a sequence of waves. Everything about the level lives in `world`
   // below and is thrown away between waves; everything about the run outlives
@@ -80,9 +76,10 @@ export async function startGame({ canvas, params }) {
     caughtBy: null,
     over: false,
   };
-  // The override is for the harness and for anyone who wants a particular size;
-  // otherwise the curve decides, and it grows.
-  const fixedCells = params.get('cells') ? [cells[0] || 5, cells[1] || 4] : null;
+  // The arena is square and bounded. 30 is the owner's maximum, six of the
+  // floor's major grid squares a side, and the only reason to pass anything
+  // else is a harness wanting a small level to render quickly.
+  const arenaSize = Number(params.get('size')) > 0 ? Number(params.get('size')) : 30;
 
   let layout = null;
   let game = null;
@@ -332,15 +329,25 @@ export async function startGame({ canvas, params }) {
     // 1116 draw calls in the camera pass alone for a fence that is one object
     // repeated. See createFenceRun: same panels, same places, six geometries
     // and a dozen instanced draws.
+    //
+    // The world publishes barriers as straight segments and marks the four
+    // perimeter ones `jumpable: false`. Those are the WALL and they are built
+    // by createWalledLevel, not out of fence panels: a hop clears 0.86 and the
+    // wall is there precisely so it cannot be cleared. Everything else is
+    // fence.
     const panels = [];
-    for (const wall of lay.walls) {
-      for (let i = 0; i < wall.panels; i++) {
-        const t = (i + 0.5) / wall.panels;
+    for (const b of lay.barriers(lay.bounds)) {
+      if (b.jumpable === false) continue;
+      const len = Math.hypot(b.x1 - b.x0, b.z1 - b.z0);
+      const count = Math.max(1, Math.round(len / 2.0));
+      const yaw = Math.atan2(b.x1 - b.x0, b.z1 - b.z0) + Math.PI / 2;
+      for (let i = 0; i < count; i++) {
+        const t = (i + 0.5) / count;
         panels.push({
-          x: wall.a.x + (wall.b.x - wall.a.x) * t,
-          z: wall.a.z + (wall.b.z - wall.a.z) * t,
-          yaw: wall.yaw,
-          seed: (wall.panels * 31 + i * 7) | 0,
+          x: b.x0 + (b.x1 - b.x0) * t,
+          z: b.z0 + (b.z1 - b.z0) * t,
+          yaw,
+          seed: (count * 31 + i * 7) | 0,
         });
       }
     }
@@ -348,13 +355,30 @@ export async function startGame({ canvas, params }) {
     fenceBucket.add(fence.group);
     built.parts.push(fence);
 
+    // The perimeter, and the darkness beyond it. One closed loop rather than
+    // four runs, because four runs cannot make a corner: see wall.js. It is
+    // 3,648 triangles and one draw call for the whole enclosure, which is
+    // cheaper than any four props in the level.
+    const enclosure = createWalledLevel({
+      seed: 1,
+      size: lay.bounds.maxX - lay.bounds.minX,
+      sizeZ: lay.bounds.maxZ - lay.bounds.minZ,
+      centre: {
+        x: (lay.bounds.minX + lay.bounds.maxX) / 2,
+        z: (lay.bounds.minZ + lay.bounds.maxZ) / 2,
+      },
+      dark: true,
+    });
+    fenceBucket.add(enclosure.group);
+    built.parts.push(enclosure);
+
     charge('fence');
 
     // Paths, which are what make a corridor legible as a corridor rather than
     // as the gap between two fences.
-    for (const [i, ribbon] of (lay.paths || []).entries()) {
-      if (!ribbon || ribbon.length < 2) continue;
-      const path = createSandPath({ seed: 7 + i, width: 1.35, points: ribbon });
+    for (const [i, ribbon] of lay.paths(lay.bounds).entries()) {
+      if (!ribbon?.points || ribbon.points.length < 2) continue;
+      const path = createSandPath({ seed: 7 + i, width: ribbon.width || 1.35, points: ribbon.points });
       pathBucket.add(path.group);
       built.parts.push(path);
     }
@@ -371,7 +395,7 @@ export async function startGame({ canvas, params }) {
     // the slot, so two castings of a variant cannot share a bake until the
     // chunk has run out of slots to give them.
     const seen = new Map();
-    for (const p of lay.props) {
+    for (const p of lay.props(lay.bounds)) {
       if (p.kind === 'stone' || p.kind === 'pumpkin') {
         const variant = `${p.kind}|${p.variant}`;
         const n = seen.get(variant) || 0;
@@ -398,9 +422,15 @@ export async function startGame({ canvas, params }) {
 
     charge('prop');
 
-    // One field for the whole level: one draw call however many there are, and
-    // collect(i) indexes it by the same i the rules use.
-    built.flies = createFireflies({ seed: 5, points: lay.fireflies });
+    // One field for the whole level: one draw call however many there are.
+    //
+    // The rules now identify a firefly by a STABLE ID rather than by its index,
+    // because in the world's own terms a firefly belongs to a level and not to
+    // an array. The prop indexes by array position, so the map between them is
+    // built once here rather than searched every time one is eaten.
+    const flyList = lay.fireflies(lay.bounds);
+    built.flyIndex = new Map(flyList.map((f, i) => [f.id, i]));
+    built.flies = createFireflies({ seed: 5, points: flyList });
     flyBucket.add(built.flies.group);
 
     charge('flies');
@@ -410,13 +440,15 @@ export async function startGame({ canvas, params }) {
     // read from across a level -- and it is three seconds of building, every
     // one of which the player would watch again at every wave for four objects
     // that are the same four objects. Same argument as the skeleton rigs above.
-    ensureLanterns(lay.powerups.length);
+    const powerList = lay.powerups(lay.bounds);
+    built.powerIndex = new Map(powerList.map((p, i) => [p.id, i]));
+    ensureLanterns(powerList.length);
     for (let i = 0; i < lanterns.length; i++) {
-      const p = lay.powerups[i];
+      const p = powerList[i];
       lanterns[i].group.visible = !!p;
       if (p) lanterns[i].group.position.set(p.x, 0, p.z);
     }
-    built.lanterns = lanterns.slice(0, lay.powerups.length);
+    built.lanterns = lanterns.slice(0, powerList.length);
 
     charge('lantern');
     built.buildMs = performance.now() - t0;
@@ -497,12 +529,13 @@ export async function startGame({ canvas, params }) {
   function startWave(wave) {
     disposeWorld(world);
     const tuning = waveTuning(wave);
-    layout = createLayout({
-      seed: waveSeed(runSeed, wave),
-      cells: fixedCells || waveCells(wave),
-    });
+    // A wave is now a whole contained ARENA rather than a slice of an endless
+    // plane: the owner cut the endless world because it took too long to load,
+    // and a 30 by 30 level built once is the answer to that. The progression is
+    // unchanged, because "endless" was always about the run and not the ground.
+    layout = createWorld({ seed: waveSeed(runSeed, wave), size: arenaSize });
     world = buildWorld(layout);
-    game = createGame({ layout, seed: waveSeed(runSeed, wave), tuning });
+    game = createGame({ world: layout, seed: waveSeed(runSeed, wave), tuning });
     // The run's lives, not a fresh three. This is the whole of what makes a run
     // a run rather than a sequence of games.
     game.state.lives = run.lives;
@@ -514,12 +547,12 @@ export async function startGame({ canvas, params }) {
       rigs[i].perf.moveHome(s.grave.x, s.grave.z, 0);
     }
 
-    ghost.pos.set(layout.spawns.ghost.x, ghost.pos.y, layout.spawns.ghost.z);
+    ghost.pos.set(layout.spawn.x, ghost.pos.y, layout.spawn.z);
     ghost.vel.set(0, 0, 0);
     // The sheet has to be told, or it stretches across the whole graveyard from
     // wherever the last maze left it.
     ghost.cloth.reset(ghost.matrix);
-    camTarget.set(layout.spawns.ghost.x, 0.75, layout.spawns.ghost.z);
+    camTarget.set(layout.spawn.x, 0.75, layout.spawn.z);
     placeCamera();
   }
 
@@ -537,7 +570,7 @@ export async function startGame({ canvas, params }) {
     // The run's score, not the wave's: a player deep in a run should never see
     // a number go backwards because a new maze started.
     const score = run.score + st.score;
-    const line = `WAVE ${run.wave}   ${score.toLocaleString('en-US')}   ${'\u25cf'.repeat(Math.max(0, st.lives))}   ${st.fireflies.remaining} left`;
+    const line = `WAVE ${run.wave}   ${score.toLocaleString('en-US')}   ${'\u25cf'.repeat(Math.max(0, st.lives))}   ${st.flyRemaining} left`;
     const text = st.power ? `${line}   POWER` : line;
     if (text !== lastHud) { hud.textContent = text; lastHud = text; }
   }
@@ -555,7 +588,7 @@ export async function startGame({ canvas, params }) {
     });
     const board = loadBoard();
     const url = shareUrl(
-      { ...run, remaining: game.state.fireflies.remaining },
+      { ...run, remaining: game.state.flyRemaining },
       `${location.origin}${location.pathname}?game=1`,
     );
 
@@ -566,7 +599,7 @@ export async function startGame({ canvas, params }) {
 
     const story = document.createElement('p');
     story.className = 'story';
-    story.textContent = shareText({ ...run, remaining: game.state.fireflies.remaining });
+    story.textContent = shareText({ ...run, remaining: game.state.flyRemaining });
     card.appendChild(story);
 
     if (board.length) {
@@ -673,8 +706,14 @@ export async function startGame({ canvas, params }) {
     // are added up. Reading them off `state` at the end would lose everything
     // that happened in a maze that was cleared and thrown away.
     for (const e of st.events) {
-      if (e.type === 'firefly') { world.flies.collect(e.index); run.fireflies += 1; }
-      else if (e.type === 'power' && world.lanterns[e.index]) world.lanterns[e.index].group.visible = false;
+      if (e.type === 'firefly') {
+        const i = world.flyIndex.get(e.id);
+        if (i !== undefined) world.flies.collect(i);
+        run.fireflies += 1;
+      } else if (e.type === 'power') {
+        const i = world.powerIndex.get(e.id);
+        if (i !== undefined && world.lanterns[i]) world.lanterns[i].group.visible = false;
+      }
       else if (e.type === 'eat') run.eaten += 1;
       else if (e.type === 'death') run.caughtBy = e.by;
     }
@@ -726,7 +765,7 @@ export async function startGame({ canvas, params }) {
     state: () => game.state,
     run: () => ({ ...run }),
     board: () => loadBoard(),
-    share: () => shareUrl({ ...run, remaining: game.state.fireflies.remaining }, ''),
+    share: () => shareUrl({ ...run, remaining: game.state.flyRemaining }, ''),
     get layout() { return layout; },
   };
   // For the performance probe. renderer.info is the only honest source for

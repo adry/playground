@@ -36,12 +36,22 @@ import { flattenByMaterial } from './merge.js';
 // and seventy-four templates and half a gigabyte of texture. A cache with no
 // ceiling is not a cache, it is a leak with good manners.
 //
-// 48 is about 136 MB of stone and holds two or three levels' worth of
-// templates, so the waves that matter -- the one being played and the one
-// before it -- never miss. Eviction is least recently used and only ever takes
-// a template no live field is drawing; a field retains what it uses and
-// releases it when the chunk is torn down. Nothing in the scene can be evicted
-// out from under it.
+// Eviction is least recently used and only ever takes a template no live field
+// is drawing; a field retains what it uses and releases it when its chunk is
+// torn down, so nothing in the scene can be evicted out from under it.
+//
+// 48 is a DIAL, not a right answer, and the exchange rate is measured. A stone
+// template is about 3 MB of texture and about 0.63 s to bake (on the capture
+// container's software rasteriser, so read the ratio and not the absolute).
+// One level of the game page wants 28 templates -- 16 stone variants, never
+// more than three of any one -- so 48 holds one level and half of the next.
+// That is deliberately tight: at 48 the page sits inside 114 MB of texture, and
+// the cost is visible in game-perf's build rows, where returning to a wave two
+// waves later re-bakes what was evicted and pays about 7.5 s for it.
+//
+// Raise it and that goes away at 3 MB a template: 72 would hold two full levels
+// for about 220 MB. Which way to go is a memory decision and belongs to
+// whoever owns the streaming budget, which is why it is an argument.
 export function createPropCache({ build, limit = 48 }) {
   // key -> { parts: [{ geometry, material, castShadow, receiveShadow, renderOrder }],
   //          extra: Object3D  (anything the flatten could not swallow, or null),

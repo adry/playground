@@ -477,10 +477,16 @@ export function createEditorScene({ canvas }) {
   let time = 0;
   let last = performance.now();
   let onFrame = null;
+  // The only thing in the scene that animates is the firefly field, so the
+  // loop can simply be stopped. A capture script does that: a page that is
+  // redrawing sixty times a second on a software rasteriser never presents a
+  // stable frame, and a screenshot of it waits for ever.
+  let running = true;
   function frame(now) {
     requestAnimationFrame(frame);
     const dt = Math.min((now - last) / 1000, 1 / 20);
     last = now;
+    if (!running) return;
     time += dt;
     onFrame?.(dt);
     flies?.update(time, dt);
@@ -503,6 +509,10 @@ export function createEditorScene({ canvas }) {
     pickAt,
     toScreen,
     set onFrame(fn) { onFrame = fn; },
+    pause(on = true) {
+      running = !on;
+      if (on) { placeCamera(); renderer.render(scene, camera); }
+    },
     get view() { return view; },
     setView(v) { view = Math.max(4, Math.min(60, v)); resize(); },
     get mode() { return mode; },

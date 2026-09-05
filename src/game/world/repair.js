@@ -18,13 +18,23 @@
 // So placement rule 1 is about how a graveyard LOOKS and it is not sufficient.
 // This file adds the rule about how it WORKS:
 //
-//   THE WALKABLE GROUND OF A LEVEL IS ONE PIECE. Every point a 0.60 body can
-//   stand on is connected to every other by walking, with no jump anywhere.
+//   EVERY PLACE A BODY CAN STAND IS NEAR A CORRIDOR IT COULD HAVE WALKED DOWN.
 //
 // That is strictly stronger than F3 and it is much easier to enforce and to
-// state. If the walkable set is connected then the skeletons' reachable set is
-// all of it, the ghost's is a subset of it, and the difference F3 measures is
-// empty by construction.
+// state. If it holds then the skeletons' reachable set is everywhere the ghost
+// can be, and the difference F3 measures is empty by construction.
+//
+// It took three goes to state it right, and the two wrong versions are worth
+// keeping because they are the same mistake twice. "The walkable set is
+// CONNECTED" is not enough, because a wedge between a headstone and a pen rail
+// IS connected, through a channel so narrow that half the rasters measuring the
+// level cannot see it. "Repair to a wider body" is not enough either, because a
+// body wide enough to force every channel above the visible band cannot get
+// through a GATE, which is only 1.845 across, so the pass reads good gates as
+// sealed and gives up. The version that works uses two clearances at once: a
+// corridor is ground clear at the wide radius, a place to stand is ground clear
+// at the real one, and everything in the second has to be within three cells of
+// something in the first.
 //
 // It is enforced by TAKING PROPS BACK OUT. The alternative, refusing them at
 // placement time, cannot work: whether a prop closes a passage depends on every
@@ -79,7 +89,7 @@ export const NAV_CELL = 0.25;
 // the whole level. That regression cost more than the margin bought. 0.08 keeps
 // 0.575 of steering room, wider than any raster in use, and still leaves every
 // passage 0.16 wider than the body that has to fit.
-// ONE CLEARANCE FOR EVERYTHING, AND THE GATES RE-OPENED BY HAND.
+// TWO CLEARANCES, AND THE RULE THAT USES BOTH.
 //
 // This is the number that took three tries to get right, so the reasoning is
 // worth writing down.
@@ -94,16 +104,41 @@ export const NAV_CELL = 0.25;
 // metre off it, which the ghost vaults into and a skeleton reaches through a
 // gap that half the rasters cannot see.
 //
-// Widening the body does not fix it on its own, because the gap between two
-// fence posts at a GATE is only 1.845 and a body wide enough to force every
-// other channel above 1.61 cannot get through one. So the repair does both
-// halves of the obvious thing: it blocks everything at a radius that puts every
-// channel it keeps above the band, and then RE-OPENS the gates, which are known
-// passable by construction and are checked separately anyway.
+// Widening the body does not fix it on its own, and neither does narrowing it,
+// because the two errors have opposite signs: a wide body cannot get through a
+// GATE, which is only 1.845 between the posts, and a narrow one walks down the
+// very channels whose visibility is in question. So the repair uses BOTH, and
+// the rule it enforces is stated in terms of both:
+//
+//   EVERY PLACE A BODY CAN STAND IS WITHIN THREE QUARTERS OF A UNIT OF A
+//   CORRIDOR A BODY CAN WALK DOWN.
+//
+// A corridor is ground clear at the wide radius, so it is at least 1.61 across
+// and every raster in use can see it; a place to stand is ground clear at the
+// real radius. A wedge between a fence and a headstone is a place to stand with
+// no corridor near it, and it is exactly what was left. Gates are re-opened on
+// the wide mask by hand, because they are known passable by construction and
+// are the one thing narrower than the wide radius that has to conduct.
+//
+// AND THEN THE SAME MISTAKE ONE LEVEL DOWN. With that rule in place the soak
+// answered 0.0% at 0.5, 0.4 and 0.25 and 1.0% at 0.2, and the temptation was to
+// call the residue rasterisation and stop. It was not. Two arenas in two
+// hundred held a real wedge 1.26 across at its widest, a body fits in 1.11, and
+// this pass walked past both of them because it asked whether a body fits at
+// the cell's CENTRE and no cell centre on a quarter unit lattice happened to
+// land in either. The pass was measuring its own raster exactly as the soak had
+// been. So the question a cell is asked is now "does a body fit ANYWHERE in
+// you", answered generously by shrinking the radius by the cell's half
+// diagonal and then confirmed exactly, in continuous geometry, on the few cells
+// that says yes to. It costs half a prop per level and it is the difference
+// between converging and looking converged.
 export const UNIFORM_R = 0.805;
-// What makeGrid is asked for, which only has to be right for the edge mask it
-// builds; the rings below do the rest.
-export const NAV_R = 0.635;
+// The body that actually has to fit, which is soak.mjs's FAIR_RADIUS:
+// max(TUNING.ghostRadius 0.55, SKEL_RADIUS 0.475 + 0.08).
+export const NAV_R = 0.555;
+// How far a body may shuffle off a corridor and still be somewhere it walked
+// to rather than somewhere it was dropped. Three cells.
+export const FRINGE = 3;
 // The body the gates are re-opened for, which is the one that has to fit.
 export const GATE_BODY_R = 0.58;
 export const SKEL_R = 0.475;
@@ -115,9 +150,13 @@ export const GATE_REACH = 2.0;
 // anybody can hide; the tolerance exists only for the one or two cells that
 // rasterisation leaves at the lip of a gate.
 const MIN_POCKET = 2;
-const MAX_LEAK = 3;
-
-import { createNav } from '../nav.js';
+// ZERO. The tolerance existed for cells at the lip of a gate, and the fringe
+// rule does not produce those: a cell it flags is one a body FITS IN and cannot
+// WALK IN, which is a wedge whatever its size. The last four failures were
+// slivers of half a square unit between two headstones and a pen rail, too
+// small for the ghost to sit in comfortably and big enough for the check to
+// count, and there is no size at which one of those is acceptable.
+const MAX_LEAK = 0;
 
 const pointSegD2 = (px, pz, ax, az, bx, bz) => {
   const dx = bx - ax;
@@ -141,6 +180,23 @@ export function discClear(barriers, props, x, z, r) {
   return true;
 }
 
+// Is there a point inside this cell where a body of NAV_R stands clear of
+// everything? The cell centre is not the question: a wedge 1.26 across at its
+// widest holds a body and can still miss every cell centre on a quarter unit
+// raster, and that is exactly what the last two failures in two hundred were.
+// Sampled on a five by five, so the answer is right to a twentieth of a unit.
+const FITS_STEPS = 4;
+function bodyFits(barriers, props, cx, cz, cell) {
+  for (let a = 0; a <= FITS_STEPS; a++) {
+    for (let b = 0; b <= FITS_STEPS; b++) {
+      const x = cx + (a / FITS_STEPS - 0.5) * cell;
+      const z = cz + (b / FITS_STEPS - 0.5) * cell;
+      if (discClear(barriers, props, x, z, NAV_R)) return true;
+    }
+  }
+  return false;
+}
+
 // Which solid props are the reason a point is blocked.
 function blockers(props, x, z, r) {
   const out = [];
@@ -153,74 +209,93 @@ function blockers(props, x, z, r) {
 }
 
 
-// nav.js's grid over the whole arena and a little beyond it, so the wall is
-// represented rather than falling off the edge of the raster.
+// The raster, built directly rather than through nav.makeGrid.
+//
+// It started as a call to nav.js, on the principle that the repair should ask
+// the same question the soak asks and cannot then drift from it. Two things
+// changed that. The first is cost: makeGrid also builds an eight way EDGE mask
+// and a vault table, which is most of its work and none of what this needs, and
+// at a quarter unit that was 160 milliseconds a level. The second is that the
+// edge mask stopped mattering: blocking to the wide radius puts six cells of
+// blocked ground either side of every fence, so no pair of open cells is ever
+// adjacent across one and there is nothing for an edge mask to catch.
+//
+// What is reproduced is discClear, which is four lines: a circle against a
+// capsule for a barrier, a circle against a circle for a solid prop. That is
+// nav.js's model exactly, and world-check.mjs asserts the radii agree.
 function navGrid(box, barriers, gates, props, spawn, cell = NAV_CELL) {
-  const at = { x: (box.minX + box.maxX) / 2, z: (box.minZ + box.maxZ) / 2 };
-  // Only far enough past the wall for the wall itself to be in the raster. It
-  // blocks 0.555 + 0.25 of ground, so 1.5 is all of it, and the raster is
-  // quadratic in this number.
-  const half = Math.max(box.maxX - at.x, box.maxZ - at.z) + 1.5;
-  const nav = createNav({
-    spawn,
-    barriers: () => barriers,
-    gates: () => gates,
-    props: () => props,
-    fireflies: () => [],
-    powerups: () => [],
-    graves: () => [],
-  });
-  nav.focus(at.x, at.z);
-  const grid = nav.makeGrid({ x: at.x, z: at.z, half, cell, radius: NAV_R });
-  const x0 = at.x - half;
-  const z0 = at.z - half;
-  const box2 = (cx, cz, r) => ({
-    a0: Math.max(0, Math.floor((cx - r - x0) / cell)),
-    a1: Math.min(grid.n - 1, Math.ceil((cx + r - x0) / cell)),
-    b0: Math.max(0, Math.floor((cz - r - z0) / cell)),
-    b1: Math.min(grid.n - 1, Math.ceil((cz + r - z0) / cell)),
-  });
-  // Everything up to the uniform clearance, props and barriers alike.
-  for (const p of props) {
-    if (!p.solid) continue;
-    const r = p.radius + UNIFORM_R;
-    const w = box2(p.x, p.z, r);
-    for (let b = w.b0; b <= w.b1; b++) {
-      for (let a = w.a0; a <= w.a1; a++) {
-        const i = b * grid.n + a;
-        if (!grid.blocked[i] && Math.hypot(grid.wx(i) - p.x, grid.wz(i) - p.z) < r) grid.blocked[i] = 1;
+  const pad = 1.5;
+  const x0 = box.minX - pad;
+  const z0 = box.minZ - pad;
+  const n = Math.ceil((box.maxX - box.minX + 2 * pad) / cell);
+  const wx = (i) => x0 + (i % n) * cell + cell / 2;
+  const wz = (i) => z0 + (((i / n) | 0) * cell) + cell / 2;
+  const blocked = new Uint8Array(n * n);
+  const wide = new Uint8Array(n * n);
+  // THE THIRD MASK, and the reason it exists.
+  //
+  // `blocked` asks whether a body fits at the cell's CENTRE. That aliases: a
+  // wedge can be 1.26 across at its widest and still have no cell centre
+  // inside it at a quarter unit, so the pass walked straight past two arenas in
+  // two hundred and the soak found them at a finer raster than this one. This
+  // mask asks the honest question instead, whether a body fits ANYWHERE in the
+  // cell, by shrinking the radius by the cell's half diagonal. It over-answers
+  // by design, so every cell it flags is then confirmed exactly. See the orphan
+  // loop. It is stored the other way up, as "no body fits anywhere in here",
+  // because that is what dilate() and the orphan loop both want to test.
+  const unfit = new Uint8Array(n * n);
+  const fitR = Math.max(0.05, NAV_R - cell * Math.SQRT1_2);
+  const solid = props.filter((p) => p.solid);
+  for (let i = 0; i < n * n; i++) {
+    const x = wx(i);
+    const z = wz(i);
+    let narrow = 0;
+    let nofit = 0;
+    let big = 0;
+    for (const b of barriers) {
+      const d2 = pointSegD2(x, z, b.x0, b.z0, b.x1, b.z1);
+      if (!narrow && d2 < (b.half + NAV_R) ** 2) narrow = 1;
+      if (!nofit && d2 < (b.half + fitR) ** 2) nofit = 1;
+      if (!big && d2 < (b.half + UNIFORM_R) ** 2) big = 1;
+      if (nofit && big) break;
+    }
+    if (!(nofit && big)) {
+      for (const p of solid) {
+        const d2 = (x - p.x) ** 2 + (z - p.z) ** 2;
+        if (!narrow && d2 < (p.radius + NAV_R) ** 2) narrow = 1;
+        if (!nofit && d2 < (p.radius + fitR) ** 2) nofit = 1;
+        if (!big && d2 < (p.radius + UNIFORM_R) ** 2) big = 1;
+        if (nofit && big) break;
       }
     }
+    blocked[i] = narrow;
+    unfit[i] = nofit;
+    wide[i] = big;
   }
-  for (const s of barriers) {
-    const r = s.half + UNIFORM_R;
-    const w = box2((s.x0 + s.x1) / 2, (s.z0 + s.z1) / 2, Math.hypot(s.x1 - s.x0, s.z1 - s.z0) / 2 + r);
-    for (let b = w.b0; b <= w.b1; b++) {
-      for (let a = w.a0; a <= w.a1; a++) {
-        const i = b * grid.n + a;
-        if (!grid.blocked[i] && Math.sqrt(pointSegD2(grid.wx(i), grid.wz(i), s.x0, s.z0, s.x1, s.z1)) < r) grid.blocked[i] = 1;
-      }
-    }
-  }
-  // And the gates back open. A gate is 1.845 between the posts, which is above
-  // the band and passable at every raster, but it is below the uniform
-  // clearance, so blocking it and then re-opening it is the only way to have
-  // both. Nothing else in the level gets this treatment.
+  // And the gates back open on the wide mask. A gate is 1.845 between the
+  // posts, which is above the band and passable at every raster, but it is
+  // below the wide radius, so blocking it and then re-opening it is the only
+  // way to have both. Nothing else in the level gets this treatment.
   for (const g of gates) {
-    const w = box2(g.x, g.z, 3.0);
-    for (let b = w.b0; b <= w.b1; b++) {
-      for (let a = w.a0; a <= w.a1; a++) {
-        const i = b * grid.n + a;
-        if (!grid.blocked[i]) continue;
-        const cx = grid.wx(i);
-        const cz = grid.wz(i);
-        if (Math.hypot(cx - g.x, cz - g.z) > 3.0) continue;
-        if (discClear(barriers, props, cx, cz, GATE_BODY_R)) grid.blocked[i] = 0;
+    const a0 = Math.max(0, Math.floor((g.x - 3 - x0) / cell));
+    const a1 = Math.min(n - 1, Math.ceil((g.x + 3 - x0) / cell));
+    const b0 = Math.max(0, Math.floor((g.z - 3 - z0) / cell));
+    const b1 = Math.min(n - 1, Math.ceil((g.z + 3 - z0) / cell));
+    for (let b = b0; b <= b1; b++) {
+      for (let a = a0; a <= a1; a++) {
+        const i = b * n + a;
+        if (!wide[i] || blocked[i]) continue;
+        if (Math.hypot(wx(i) - g.x, wz(i) - g.z) > 3) continue;
+        wide[i] = 0;
       }
     }
   }
-  grid.nav = nav;
-  return grid;
+  void spawn;
+  return {
+    n, cell, x0, z0, blocked, unfit, wide, wx, wz,
+    DIR8,
+    wall: null,
+  };
 }
 
 // The no-jump pieces of the walkable ground, over nav's own edge mask: a step
@@ -231,6 +306,43 @@ function navGrid(box, barriers, gates, props, spawn, cell = NAV_CELL) {
 // and the ground out there in the darkness is a component like any other: the
 // first version of this pass spent every round trying to remove a headstone
 // that would connect the arena to the outside of it.
+// The nearest cell of the CORRIDOR network, which is what a body can walk on.
+function nearestWide(grid, x, z) {
+  let best = -1;
+  let bestD = Infinity;
+  for (let i = 0; i < grid.n * grid.n; i++) {
+    if (grid.wide[i]) continue;
+    const d = (grid.wx(i) - x) ** 2 + (grid.wz(i) - z) ** 2;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+
+// The main corridor network, grown by `steps` cells into everywhere a body can
+// stand. What it does NOT reach is a wedge.
+function dilate(grid, label, main, steps, through = grid.blocked) {
+  const N = grid.n * grid.n;
+  const out = new Uint8Array(N);
+  let front = [];
+  for (let i = 0; i < N; i++) if (label[i] === main) { out[i] = 1; front.push(i); }
+  for (let s = 0; s < steps; s++) {
+    const next = [];
+    for (const i of front) {
+      const a = i % grid.n;
+      for (let d = 0; d < 8; d++) {
+        const [dx, dz] = grid.DIR8[d];
+        if (a + dx < 0 || a + dx >= grid.n) continue;
+        const j = i + dz * grid.n + dx;
+        if (j < 0 || j >= N || out[j] || through[j]) continue;
+        out[j] = 1;
+        next.push(j);
+      }
+    }
+    front = next;
+  }
+  return out;
+}
+
 // A component's identity across rounds, since the labels are renumbered every
 // time: the world position of its lowest cell, rounded to the nearest unit.
 function signature(grid, label, id) {
@@ -256,8 +368,9 @@ function components(grid) {
   const label = new Int32Array(N).fill(-1);
   const sizes = [];
   const stack = [];
+  const blocked = grid.wide;
   for (let s = 0; s < N; s++) {
-    if (grid.blocked[s] || label[s] !== -1) continue;
+    if (blocked[s] || label[s] !== -1) continue;
     const id = sizes.length;
     let size = 0;
     label[s] = id;
@@ -270,7 +383,7 @@ function components(grid) {
         const [dx, dz] = grid.DIR8[d];
         if (a + dx < 0 || a + dx >= grid.n) continue;
         const j = i + dz * grid.n + dx;
-        if (j < 0 || j >= N || grid.blocked[j] || label[j] !== -1 || grid.wall[i * 8 + d]) continue;
+        if (j < 0 || j >= N || blocked[j] || label[j] !== -1) continue;
         label[j] = id;
         stack.push(j);
       }
@@ -308,8 +421,8 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
 
     // The main piece is the one the ghost starts in. If the ghost cannot stand
     // where it starts, that is the first thing to fix.
-    const spawnCell = grid.nearestOpen(spawn.x, spawn.z);
-    if (spawnCell < 0 || Math.hypot(grid.wx(spawnCell) - spawn.x, grid.wz(spawnCell) - spawn.z) > 0.8) {
+    const spawnCell = nearestWide(grid, spawn.x, spawn.z);
+    if (spawnCell < 0 || Math.hypot(grid.wx(spawnCell) - spawn.x, grid.wz(spawnCell) - spawn.z) > 1.2) {
       const bad = blockers(props, spawn.x, spawn.z, NAV_R + 0.4);
       if (!bad.length) { report.stuck = 'spawn'; break; }
       placer.drop(bad);
@@ -319,38 +432,43 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
     }
     const main = label[spawnCell];
 
-    // 1. Every point a body can stand on is in the main piece.
-    let worst = -1;
-    let worstSize = 0;
-    let leak = 0;
-    for (let id = 0; id < sizes.length; id++) {
-      if (id === main) continue;
-      const inside = insideCount(grid, label, id, box);
-      const scale = (NAV_CELL / cell) ** 2;
-      if (inside * scale <= MIN_POCKET) { leak += inside * scale; continue; }
-      leak += inside * scale;
-      if (unfixable.has(signature(grid, label, id))) continue;
-      if (inside * scale > worstSize) { worst = id; worstSize = inside * scale; }
+    // 1. EVERY PLACE A BODY CAN STAND IS NEAR A CORRIDOR IT WALKED DOWN.
+    //
+    // The corridor network is the wide component the ghost starts in. Every
+    // cell a body FITS in has to be within FRINGE cells of it, or it is a wedge
+    // between a fence and a headstone: somewhere the ghost can vault into and
+    // nothing that walks can get to. Stating it this way rather than as "the
+    // walkable set is connected" is what finally caught the residue, because
+    // the wedges ARE connected to the rest, through a channel too narrow for
+    // half the rasters that measure it to see.
+    //
+    // Candidates come off the permissive mask and are then CONFIRMED exactly,
+    // because the raster alone answers this badly in both directions: a cell
+    // centre can sit in a wedge that no body fits in, and a wedge a body does
+    // fit in can hold no cell centre at all. The confirmation is the continuous
+    // question asked of the cell, is there a point in here where a body of
+    // NAV_R stands clear of everything, and it is affordable because it only
+    // ever runs on the handful of cells the mask has already flagged.
+    const reachable = dilate(grid, label, main, FRINGE, grid.unfit);
+    const orphans = [];
+    for (let i = 0; i < grid.n * grid.n; i++) {
+      if (grid.unfit[i] || reachable[i]) continue;
+      const ox = grid.wx(i);
+      const oz = grid.wz(i);
+      if (ox <= box.minX || ox >= box.maxX || oz <= box.minZ || oz >= box.maxZ) continue;
+      if (unfixable.has(`${Math.round(ox)},${Math.round(oz)}`)) continue;
+      if (!bodyFits(barriers, props, ox, oz, cell)) continue;
+      orphans.push(i);
     }
-    // A clean coarse round proves nothing: the fine raster has the last word,
-    // always, because the failures that are left are the ones a half unit grid
-    // steps over.
-    if (worst < 0 && cell > NAV_CELL) continue;
-    if (worst < 0 && leak > MAX_LEAK) {
-      // Several pockets, none of them big on its own, but enough of them
-      // together to fail. Take the largest whatever its size.
-      for (let id = 0; id < sizes.length; id++) {
-        if (id === main || unfixable.has(signature(grid, label, id))) continue;
-        const inside = insideCount(grid, label, id, box);
-        if (inside > worstSize) { worst = id; worstSize = inside; }
-      }
-    }
-    if (worst >= 0) {
-      // Whatever is walling the pocket in, counted over its whole boundary, so
-      // the prop that is most of the wall goes rather than an arbitrary one.
+    // A clean coarse round proves nothing: the fine raster has the last word.
+    if (cell > NAV_CELL) continue;
+    const scale = (NAV_CELL / cell) ** 2;
+    if (orphans.length * scale > MAX_LEAK) {
+      report.pockets++;
+      // Whatever is walling the wedges in, counted over all of them, so the
+      // prop that is most of the wall goes rather than an arbitrary one.
       const votes = new Map();
-      for (let i = 0; i < grid.n * grid.n; i++) {
-        if (label[i] !== worst) continue;
+      for (const i of orphans) {
         // Everything within a body's reach of the pocket that is solid and not
         // a grave. Voting over the pocket's whole boundary means the prop that
         // is most of the wall goes rather than an arbitrary one.
@@ -359,7 +477,7 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
         }
       }
       if (!votes.size) {
-        unfixable.add(signature(grid, label, worst));
+        for (const i of orphans) unfixable.add(`${Math.round(grid.wx(i))},${Math.round(grid.wz(i))}`);
         report.stuck = 'pocket';
         continue;
       }
@@ -368,16 +486,15 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
       for (const [p, v] of votes) if (v > best) { best = v; pick = p; }
       placer.drop([pick]);
       report.removed++;
-      report.pockets++;
       continue;
     }
 
-    // 2. Every grave admits a skeleton, and is in the main piece.
+    // 2. Every grave admits a skeleton, and stands on the corridor network.
     let fixed = false;
     for (const g of graves) {
       if (discClear(barriers, props, g.x, g.z, SKEL_R)) {
-        const c = grid.nearestOpen(g.x, g.z);
-        if (c >= 0 && label[c] === main && Math.hypot(grid.wx(c) - g.x, grid.wz(c) - g.z) < 1.2) continue;
+        const c = nearestWide(grid, g.x, g.z);
+        if (c >= 0 && label[c] === main && Math.hypot(grid.wx(c) - g.x, grid.wz(c) - g.z) < 1.6) continue;
       }
       const bad = blockers(props, g.x, g.z, SKEL_R + 0.5);
       if (!bad.length) continue;
@@ -408,28 +525,50 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
     if (fixed) continue;
 
     // Nothing left to fix. Hand back the grid the collectibles will be placed
-    // against, with the walkable set already worked out.
-    const reach = new Uint8Array(grid.n * grid.n);
-    for (let i = 0; i < reach.length; i++) reach[i] = label[i] === main ? 1 : 0;
+    // against, with the walkable set already worked out. That one is the STRICT
+    // dilation: `reachable` above is deliberately generous so that no wedge
+    // escapes the test, and a firefly dropped on a generous cell is a firefly
+    // in a wedge.
+    const reach = dilate(grid, label, main, FRINGE);
     return { report, grid, reach, ...walkApi(grid, reach) };
   }
 
   // Ran out of rounds. Hand back what there is; world-check.mjs will say so.
-  const grid = navGrid(box, barriers, gates, placer.props, spawn, NAV_CELL);
+  return finish(box, barriers, gates, placer.props, spawn, report);
+}
+
+function finish(box, barriers, gates, props, spawn, report) {
+  const grid = navGrid(box, barriers, gates, props, spawn, NAV_CELL);
   const { label } = components(grid);
-  const spawnCell = grid.nearestOpen(spawn.x, spawn.z, 1.5);
+  const spawnCell = nearestWide(grid, spawn.x, spawn.z);
   const main = spawnCell >= 0 ? label[spawnCell] : -1;
-  const reach = new Uint8Array(grid.n * grid.n);
-  for (let i = 0; i < reach.length; i++) reach[i] = label[i] === main ? 1 : 0;
+  const reach = dilate(grid, label, main, FRINGE);
   return { report, grid, reach, ...walkApi(grid, reach) };
 }
 
 // What the collectibles are placed against: is this somewhere a body can walk
 // to, and if not, where is the nearest place that is.
 function walkApi(grid, reach) {
+  const nearest = (x, z) => {
+    const a = Math.max(0, Math.min(grid.n - 1, Math.floor((x - grid.x0) / grid.cell)));
+    const b = Math.max(0, Math.min(grid.n - 1, Math.floor((z - grid.z0) / grid.cell)));
+    if (reach[b * grid.n + a]) return b * grid.n + a;
+    for (let ring = 1; ring < 8; ring++) {
+      for (let dz = -ring; dz <= ring; dz++) {
+        for (let dx = -ring; dx <= ring; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== ring) continue;
+          const na = a + dx;
+          const nb = b + dz;
+          if (na < 0 || nb < 0 || na >= grid.n || nb >= grid.n) continue;
+          if (reach[nb * grid.n + na]) return nb * grid.n + na;
+        }
+      }
+    }
+    return -1;
+  };
   const walkable = (x, z, within = 1.0) => {
-    const c = grid.nearestOpen(x, z);
-    return c >= 0 && reach[c] === 1 && Math.hypot(grid.wx(c) - x, grid.wz(c) - z) <= within;
+    const c = nearest(x, z);
+    return c >= 0 && Math.hypot(grid.wx(c) - x, grid.wz(c) - z) <= within;
   };
   const nearestReachable = (x, z, radius = 6, apart = [], gap = 0) => {
     let best = null;
