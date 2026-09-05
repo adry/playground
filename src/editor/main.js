@@ -1882,40 +1882,45 @@ function styleRow(st, i) {
 
 // audit.js's full rule set plus the wedge pass. A wedge is clickable: it flies
 // the camera to the pocket, which is the only way to see one at all.
+// NO RULE IDENTIFIERS ANYWHERE THE OWNER CAN SEE THEM. `overlap`, `gateless`
+// and `F3safeSpot` are what the code calls its rules, and printing one in front
+// of a sentence that already says what is wrong adds nothing to a reader who
+// has not read the source and reads as a fault code to one who has not. The
+// sentence stays; the label goes.
 function auditList() {
   if (review.stale) {
-    return el('ul', { class: 'issues' }, [el('li', { class: 'none', text: 'running the audit and the wedge pass...' })]);
+    return el('ul', { class: 'issues' }, [el('li', { class: 'none', text: 'checking...' })]);
   }
   if (review.error) {
-    return el('ul', { class: 'issues' }, [el('li', { 'data-severity': 'error', text: `the audit could not run: ${review.error}` })]);
+    return el('ul', { class: 'issues' }, [el('li', { 'data-severity': 'error', text: `the check could not run: ${review.error}` })]);
   }
   const rows = review.issues.map((i) => el('li', {
     'data-severity': i.severity === 'error' ? 'error' : 'warn',
-    text: `${i.code}: ${i.message}`,
+    text: i.message,
     onclick: () => {
       const m = /at (-?[\d.]+), (-?[\d.]+)/.exec(i.message);
       if (m) scene.lookAt(Number(m[1]), Number(m[2]));
     },
   }));
-  if (!rows.length) rows.push(el('li', { class: 'none', text: 'audit.js finds nothing wrong, and no wedges' }));
+  if (!rows.length) rows.push(el('li', { class: 'none', text: 'nothing wrong, and nowhere the player can hide' }));
   return el('ul', { class: 'issues' }, rows);
 }
 
-// The eight the soak checks, as they stand on THIS level. See level/fairness.js
-// for what each one means and why F3 is the one to read first.
+// The eight the soak checks, as they stand on THIS level, in the words that say
+// what is wrong rather than the names the code files them under.
 function fairnessList() {
   if (fair.error) {
-    return el('ul', { class: 'issues' }, [el('li', { 'data-severity': 'error', text: `the fairness check could not run: ${fair.error}` })]);
+    return el('ul', { class: 'issues' }, [el('li', { 'data-severity': 'error', text: `the check could not run: ${fair.error}` })]);
   }
   if (fair.stale) {
-    return el('ul', { class: 'issues' }, [el('li', { class: 'none', text: 'checking the eight fairness properties...' })]);
+    return el('ul', { class: 'issues' }, [el('li', { class: 'none', text: 'checking...' })]);
   }
   if (!fair.fail.length) {
-    return el('ul', { class: 'issues' }, [el('li', { class: 'none', text: 'passes all eight: spawn, F1 chase, F2 sealed, F3 safe spot, F4 pin, firefly reach, grave clearance, gate width' })]);
+    return el('ul', { class: 'issues' }, [el('li', { class: 'none', text: 'the player can reach everything, the skeletons can reach the player, and there is nowhere to hide' })]);
   }
   return el('ul', { class: 'issues' }, fair.fail.map((code) => el('li', {
     'data-severity': 'error',
-    text: `${code} - ${FAIR_MESSAGES[code] || ''}`,
+    text: FAIR_MESSAGES[code] || code,
     onclick: () => { const w = fair.where[code]; if (w) scene.lookAt(w.x, w.z); },
   })));
 }
