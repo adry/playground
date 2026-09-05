@@ -636,7 +636,7 @@ export function buildHead({ materials }) {
       // of bright triangular spokes radiating out of each socket. The ribbon's
       // outer flange reaches well past this and tucks under the skin.
       for (const side of [1, -1]) if (socketR(p.x, p.y, side) <= 1.06) return false;
-      if (grinR(p.x, p.y) <= 1.00) return false;
+      if (grinR(p.x, p.y) <= 0.96) return false;
       return true;
     },
   });
@@ -686,9 +686,12 @@ export function buildHead({ materials }) {
     const w = SOCK_HW * 0.34;
     const d = M.socket.depth;
     put(group, ribbon(frames, [
-      { t: w * 3.0, n: -d * 0.30 },     // well under the skin, outside the cut
-      { t: w * 1.6, n: -d * 0.02 },
-      { t: w * 0.55, n: d * 0.30 },     // the crest of the lid
+      // SHORT and DEEP, not long and shallow. The outward direction is in the
+      // surface, so a long flange leaves a curving head and floats off it as a
+      // spike; the way to hide the cut edge is to dive behind the skin quickly,
+      // not to reach a long way over it.
+      { t: w * 1.05, n: -d * 0.60 },
+      { t: w * 0.55, n: d * 0.28 },     // the crest of the lid
       { t: -w * 0.10, n: -d * 0.25 },
       { t: -w * 0.45, n: -d * 0.80 },
       { t: -w * 0.75, n: -d * 1.25 },
@@ -752,8 +755,7 @@ export function buildHead({ materials }) {
     const w = GRIN_HH * 0.42;
     const d = M.grin.depth;
     put(group, ribbon(frames, [
-      { t: w * 3.0, n: -d * 0.35 },
-      { t: w * 1.5, n: -d * 0.04 },
+      { t: w * 1.05, n: -d * 0.60 },
       { t: w * 0.50, n: d * 0.22 },        // the lip, such as it is
       { t: -w * 0.10, n: -d * 0.30 },
       { t: -w * 0.50, n: -d * 1.00 },
