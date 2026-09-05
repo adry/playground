@@ -199,10 +199,10 @@ push('lantern', 'brazier', -12.6, 5.8);
 // planting and pumpkins
 // One of each clipped form, plus the overgrown shrub, so the demo level shows
 // the whole of the planting set rather than the default twice.
-
-
-
-
+push('bush', 'ball', -3.6, 12.8);
+push('bush', 'cone', -11.4, 10.2);
+push('bush', 'box', 12.6, 5.2);
+push('bush', 'wild', -12.4, 12.2);
 push('grass', 'patch', -8.2, 1.4);
 push('grass', 'patch', 8.4, 12.4);
 push('flowers', 'daisies', -13.0, -1.4);

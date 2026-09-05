@@ -10,13 +10,20 @@ without agreeing on anything else.
 |---|---|---|
 | the maze | fence runs, hedges, kerbed plots | the fence already exists and is 0.86 tall, low enough to see over and high enough to read as a wall |
 | corridors | sand and gravel paths | a path is a corridor you can see, so the maze is legible without a HUD |
-| pellets | fireflies | they can drift and glow, so a corridor reads as alive rather than dotted |
+| pellets | fireflies | they can drift and glow, so a corridor reads as alive rather than dotted. SIX on the board, and five more the moment one is left |
 | the ghost pen | **every headstone**, chosen at random | skeletons climb out of the ground, which the skeleton already does, and it takes 3.4 s, which is a spawn animation for free. It used to be four hand-placed graves; see "The pen is the yard" below |
 | power pellet | **nothing** | it was a lit jack-o'-lantern and the owner has taken it out. See rules.js for what the game loses |
 | Pac-Man | the cloth ghost | already the player character |
 
 The one deliberate inversion: **the ghost is the player and the skeletons are
 the monsters**, so a ghost is running from skeletons in a graveyard. Keep it.
+
+**And the run is endless.** There are no waves, nothing is cleared and there is
+no progression from one arena to the next. One yard, six fireflies, five more
+whenever one is left, until something catches you. What replaces the wave curve
+is the HERD: one skeleton at the start and one more allowed every six fireflies
+up to five, so the difficulty is driven by how well the player is doing rather
+than by how long they have been alive.
 
 ## The floor is a lattice
 
@@ -130,15 +137,59 @@ ball; the other three are the editor's to place.
    is what this document calls cute. What IS an error is a yard with fewer than
    `SPAWN_FLOOR` markers left, which is audit.js's `spawn` rule.
 
-## The pen is the yard
+## The pen is the yard, and the player opens it
+
+A skeleton comes out because **the player walked past a tombstone**. That is the
+whole spawn mechanic: no schedule, no pen, no timer. Passing within 6.5 of a
+spawn-capable headstone rolls once, and on a hit a skeleton climbs out in front
+of that stone, which teaches the player to fear the stones, which is what a
+graveyard is for.
+
+Four rules hold it together, and `rules.js`'s TUNING block carries the numbers:
+
+- **Never all the time.** The roll is `spawnChance` times READINESS times
+  PRESSURE. Readiness is time since the last spawn over `spawnPeriod`, so it is
+  zero right after one and climbs back over four and a half seconds; without it
+  an unlucky player walks past three stones in two seconds and meets three
+  skeletons, which is a death nobody could have played around. Pressure is how
+  far the herd is below its allowance, so the population converges on the cap
+  instead of wandering under it, and at the start, where the cap is one and one
+  is up, it is zero and the stones are quiet.
+- **Never on top of you.** A stone nearer than `spawnMin` 2.0 does not fire.
+  Beyond that the emergence itself is the reaction window: the climb takes 3.4 s
+  and the figure is not solid until it ends, which at the ghost's 3.66 is 12.4
+  units of escape. There is no spawn a moving player cannot get away from.
+- **At least one, at all times.** With nothing up, one is forced, and it comes
+  up where the old pen band put it: ten to twenty units away, weighted to the
+  middle. Not the nearest stone, which is a spawn on top of a player who has
+  just been caught, and not the furthest, which is a monster that takes twenty
+  seconds to become one.
+- **And they leave.** A skeleton that has been up for `retireAfter` 45 s burrows
+  back, unless it is the last one. This is the decision most worth arguing with:
+  if they never left, the count would climb to five and stay there, "gradually
+  more" would be a one-way ramp, and passing a stone would stop mattering the
+  moment the cap was reached.
+
+**What the level owes the mechanic**, and it is a new obligation: the rate the
+whole thing runs at is set by HOW MANY SPAWN-CAPABLE HEADSTONES THERE ARE.
+Measured on generated arenas, 4.6 markers produce 9.5 ring entries a minute and
+about three skeletons a minute; the shipped demo has four markers out of
+twenty-three headstones. A yard laid out for this mechanic wants many more, and
+the audit's `spawn` rule count is now a gameplay number and not only a fairness
+floor.
+
+## Where a skeleton comes out
 
 Pac-Man's ghosts leave from a box in the middle of the board, and the reason
 that works is that the player always knows where danger comes from. This game
 had the same thing, four graves placed by hand with a personality each and an
-order. It does not any more: a skeleton going underground comes back up in front
-of a headstone chosen at random from the ones in a band 10 to 20 units around
-the player, weighted toward the middle of that band, with a 12 s cooldown on a
-stone something has just come out of.
+order. It does not any more: every headstone with a face and a clear plot is a
+place a skeleton can climb out of, and the section above says who decides when.
+
+The FORCED spawn, and the leash, still choose for themselves, and they choose
+the same way: at random from the markers in a band 10 to 20 units around the
+player, weighted toward the middle of it, with a 12 s cooldown on a stone
+something has just come out of.
 
 **Random rather than best.** The old pick scored every grave and took the
 nearest the middle of the band. With four graves that was almost forced, since
@@ -150,7 +201,8 @@ what stands between the player and a skeleton surfacing at their shoulder, and
 neither edge of the band is preferred: near is cruel and far is a herd that
 never arrives.
 
-**Measured, it is not the crueller game it sounds like.** Sixty generated arenas,
+**Measured against the four graves it replaced, before the proximity mechanic
+went in, it is not the crueller game it sounds like.** Sixty generated arenas,
 the same seeds and the same bot, the only difference being which stones the
 spawn list holds:
 
@@ -214,9 +266,15 @@ createWorld({ seed, size = 30 }) -> {
 }
 
 // rules.js
-createGame({ world }) -> {
+createGame({ world, skeletons = 5 }) -> {
   update(dt, input) -> state,
-  state: { score, lives, mode, fireflies, skeletons },
+  state: {
+    score, lives, mode, fireflies,     // the six on the board, as they stand
+    flyRemaining,                      // 6 down to 1, then 6 again
+    skeletons,                         // all five slots, `live` false for the
+                                       // ones that are not in the game
+    skeletonsUp, skeletonCap,
+  },
 }
 ```
 
