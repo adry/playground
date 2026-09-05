@@ -36,6 +36,12 @@ cross-limbed walk.
 | body | `metrics.js`, `model.js`, `parts/*`, `lab.html`, `lab.js`, `shot.mjs` |
 | animation | everything else in this directory |
 
+`parts/` was rebuilt from scratch in the fourth pass. `parts/skin.js` is gone
+and `parts/forms.js` replaces it; `POSTMORTEM.md` is why, and the header of
+`parts/forms.js` is how. The seam above did not move: the animation half took
+delivery of the new body with no edits, because it measures every dimension off
+the rig at construction rather than importing it.
+
 Nothing outside `src/ghost/props/zombie/` belongs to either of us.
 
 ## `metrics.js` -- owned by the body agent
@@ -133,6 +139,52 @@ The skeleton's `perform.js` shed plan also names `ribL6` and `ribR7`. This
 figure has three rib pairs, not eight, so those two are absent and
 `shed.get()` returns undefined for them.
 
+## How the body is built, in one page
+
+Everything is a CLOSED VOLUME. There is no shared parametric shell with
+features carved into it, which is what the third pass was and what
+`POSTMORTEM.md` section 2 is the bill for.
+
+`parts/forms.js` has one structural idea and the rest follows from it:
+
+* `closedRadial` builds a volume that is **star-shaped about its own centre**.
+  Its surface is `dir * R(dir)` for a smooth positive `R`. The cranium and the
+  three trunk blocks are all one of these.
+* `grommet` sets a feature into such a volume -- an eye socket, the nasal
+  aperture, the mouth, the chest window -- by evaluating **the same `R` at the
+  same direction** and offsetting along that ray. A dish is `dir * (R - sink)`
+  with `sink >= 0`; a rim is `dir * (R + jut)`.
+
+Three consequences, and they are the reason the rebuild took this shape:
+
+1. **A feature cannot escape its host at any rotation.** Containment is a
+   property of the construction, not of a viewing angle, and
+   `assertInsideRadial` checks it at build time. That is the answer to the
+   postmortem's failure 4, which worked square-on and broke the moment the
+   walk turned the head twenty degrees.
+2. **A feature cannot drift against its host.** Nothing is inverted: the
+   direction is built first and `R` is evaluated on it, so there is no second
+   opinion to disagree by a fraction of a millimetre. That is the answer to
+   failures 2 and 3.
+3. **There are no colour zones inside any one surface.** Every material
+   boundary on this figure is a real geometric edge between two separate
+   volumes, so nothing in postmortem section 2.2 has anywhere to occur.
+
+The host's own hole is cut on cell boundaries and is ragged. It is never what
+you see: the rim band is cut larger than the hole at both ends and covers it,
+which is the chest cavity's lip-ribbon trick applied everywhere.
+`grommet(...).cut(rhoCut, cellAngle)` **throws** if the rim cannot cover the
+ragged band, because that failure is silent from most angles and unmistakable
+from one.
+
+Two more things that throw rather than being trusted, both for the reason
+recorded in postmortem 2.2: `assertOutward` on every closed volume (the winding
+trap of 2.3), and the `REST`/`LEFT_X` loop in `model.js` that was already there.
+
+`model.js` finishes with `mergeWithinNodes`, which collapses the meshes under
+each joint to one per material and never merges across a joint. 104 meshes to
+60, losslessly, and the triangle count is asserted unchanged.
+
 ## Three things about this body that a walk cycle has to know
 
 1. **There is no neck.** The chin is 4.4 px above the top of the shoulder mass.
@@ -154,6 +206,17 @@ folder so that building it touches nothing outside:
     node src/ghost/props/zombie/shot.mjs --mode solo --pose walk
     node src/ghost/props/zombie/shot.mjs --mode solo --pose crouch
     node src/ghost/props/zombie/shot.mjs --mode face            # flat elevation
+    node src/ghost/props/zombie/shot.mjs --mode sil --spins 0,0.785   # THE FIRST TEST
+
+`--mode sil` is flat black on white and it is the test that comes FIRST, before
+a minute is spent on surface detail. All three faults that killed the third
+pass were silhouette faults and none of them is expensive to fix; see
+`POSTMORTEM.md` 2.5.
+
+Two tuning views, neither of which anything is judged on:
+
+    --bare 1              hide the clothes, to see the ribcage and the body's forms
+    --focus head|face|chest|hips --view 0.3    frame one region close
 
 `?mode=face` is a flat orthographic elevation and is for tuning only. Nothing
 is judged on it: the scene camera and a crop at game scale are what decide.

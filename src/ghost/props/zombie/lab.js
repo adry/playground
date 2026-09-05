@@ -19,6 +19,8 @@ import M from './metrics.js';
 //                   silhouette. Surface detail cannot rescue a shape that is
 //                   wrong as a black blob, and a figure whose arms vanish into
 //                   its body reads as a bollard however good its face is.
+//   ?focus=head     frame tightly on one region, with ?view for the half-height.
+//                   Tuning only, like ?mode=face.
 //   ?bare=1         hide the clothes, so the ribcage cavity and the body's own
 //                   forms can be judged without a jacket over them. A tuning
 //                   view like ?mode=face: nothing is judged on it.
@@ -208,6 +210,12 @@ async function boot() {
     target.set(0.10, 1.20, 0);
   } else {
     frame(holder);
+  }
+  const focus = params.get('focus');
+  if (focus) {
+    const at = { head: M.y.brow, face: M.y.grin, chest: 0.5 * (M.y.cavityTop + M.y.cavityBottom), hips: M.y.hip };
+    target.set(0, at[focus] ?? Number(focus), 0);
+    if (!FIXED_VIEW) view = 0.40;
   }
   resize(canvas.clientWidth || 900, canvas.clientHeight || 700);
   renderer.render(scene, camera);

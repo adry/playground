@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import M from '../metrics.js';
-import { limb, ovoid, roundBox, closedRadial, roundBoxR, put, v3, mix, smoothstep } from './forms.js';
+import { limb, ovoid, roundBox, closedRadial, roundBoxR, put, v3, smoothstep } from './forms.js';
 
 // The legs and the boots.
 //
@@ -77,22 +77,33 @@ export function buildLower({ materials }) {
       * (1 + 0.16 * smoothstep(0.30, 0.95, d.z) * smoothstep(0.35, -0.55, d.y))
       * (1 - 0.20 * smoothstep(0.20, 0.90, -d.z) * smoothstep(-0.10, 0.85, d.y));
     const shell = track(closedRadial({ uSteps: 22, vSteps: 14, R: bootR }));
-    // the ankle sits above the middle of the boot and behind its centre
-    const bootCentre = v3(0, -M.y.ankle + bh * 0.86, BOOT.length * 0.16);
+    // The ankle sits above the middle of the boot and behind its centre.
+    //
+    // SOLES AT y = 0 IS A CONTRACT TERM, not a nicety, so the boot is seated
+    // by MEASURING it rather than by arithmetic on its half-height. `bootR`
+    // carries a toe swell and a heel tuck on top of the superellipsoid, so its
+    // true lowest point is not `-bh` and the boot sank 15.6 mm into the floor
+    // when it was placed as though it were. The bounding box is the honest
+    // answer and it costs one pass over the vertices.
+    shell.computeBoundingBox();
+    const low = shell.boundingBox.min.y;
+    const bootCentre = v3(0, -M.y.ankle + BOOT.heel * 0.62 - low, BOOT.length * 0.16);
     shell.translate(bootCentre.x, bootCentre.y, bootCentre.z);
     put(boot, shell, materials.boot, { name: 'boot' });
 
     // The sole: a flatter slab under it, so there is a line where the boot
-    // meets the ground rather than a smooth curve fading into the floor.
-    const sole = track(roundBox(BOOT.width / 2 * 1.04, BOOT.heel / 2, BOOT.length / 2 * 1.02, { n: 4.2, uSteps: 18, vSteps: 10 }));
+    // meets the ground rather than a smooth curve fading into the floor. This
+    // is the piece that actually touches y = 0.
+    const soleH = BOOT.heel / 2;
+    const sole = track(roundBox(BOOT.width / 2 * 1.04, soleH, BOOT.length / 2 * 1.02, { n: 4.2, uSteps: 18, vSteps: 10 }));
     put(boot, sole, materials.bootSole, {
-      pos: v3(bootCentre.x, -M.y.ankle + BOOT.heel / 2, bootCentre.z), name: 'sole',
+      pos: v3(bootCentre.x, -M.y.ankle + soleH, bootCentre.z), name: 'sole',
     });
 
     // The shaft cuff, a scuffed roll at the top of the boot.
     const cuff = track(ovoid(BOOT.width / 2 * 0.86, BOOT.heel * 0.62, BOOT.width / 2 * 0.86, { uSteps: 14, vSteps: 8 }));
     put(boot, cuff, materials.bootSole, {
-      pos: v3(0, -M.y.ankle + BOOT.height * 0.94, BOOT.length * 0.04), name: 'boot-cuff',
+      pos: v3(0, -M.y.ankle + BOOT.height * 0.90, BOOT.length * 0.04), name: 'boot-cuff',
     });
 
     // Toes through the front of one boot. Real volumes poking out of a real
@@ -103,7 +114,7 @@ export function buildLower({ materials }) {
       for (let k = 0; k < 3; k++) {
         const t = track(ovoid(BOOT.width * 0.11, BOOT.width * 0.10, BOOT.width * 0.13, { uSteps: 10, vSteps: 7 }));
         put(boot, t, materials.skin, {
-          pos: v3((k - 1) * BOOT.width * 0.24, -M.y.ankle + BOOT.heel + BOOT.width * 0.14, BOOT.length * 0.60),
+          pos: v3((k - 1) * BOOT.width * 0.24, -M.y.ankle + BOOT.heel + BOOT.width * 0.16, bootCentre.z + BOOT.length * 0.44),
           name: 'toe',
         });
       }

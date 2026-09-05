@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import M from '../metrics.js';
-import { limb, ovoid, roundBox, arcTube, put, v3, mix, assertOutward } from './forms.js';
+import { limb, ovoid, roundBox, put, recentre, v3, mix, assertOutward } from './forms.js';
 
 // The arms, and they are the reason the last figure read as a bollard.
 //
@@ -119,18 +119,31 @@ export function buildArm({ materials, side = 'L' }) {
     const rm = put(elbow, ring, materials.muscle, { pos: cuffTo, name: 'fore-tear' });
     rm.lookAt(foreEnd);
     rm.rotateX(Math.PI / 2);
-    // The bone: a straight pale shaft running the length of the forearm.
-    const bone = track(limb(
-      foreA.clone().lerp(foreEnd, 0.10), foreEnd.clone(),
-      A.boneRadius, A.boneRadius * 0.86,
-      { radial: 9, segments: 6, waist: 0.90 }));
-    put(elbow, bone, materials.bone, { name: 'ulna' });
-    // The muscle strap, beside it and a little forward.
-    const off = v3(-s * A.boneRadius * 1.25, 0, A.boneRadius * 0.55);
+    // Two bones and a strap of muscle between them, not one stick.
+    //
+    // Built as a single thin shaft with a single thin red rod beside it, the
+    // stripped forearm read at the game camera as a red pen: two lines of
+    // saturated colour with a gap of background between them, which is thinner
+    // than the sleeved arm on the other side and reads as damage to the MODEL
+    // rather than to the character. A forearm with the flesh off is still a
+    // forearm-shaped bundle; it is just a bundle you can see the parts of.
+    const bundle = (t) => foreA.clone().lerp(foreEnd, t);
+    for (const [lat, r0, r1, mat, name] of [
+      [+0.95, A.boneRadius, A.boneRadius * 0.84, materials.bone, 'radius'],
+      [-0.95, A.boneRadius * 0.88, A.boneRadius * 0.74, materials.bone, 'ulna'],
+    ]) {
+      const off = v3(s * A.boneRadius * lat, 0, -A.boneRadius * 0.25);
+      const b = track(limb(bundle(0.06).add(off), bundle(1.0).add(off), r0, r1,
+        { radial: 9, segments: 6, waist: 0.92 }));
+      put(elbow, b, materials.bone, { name });
+    }
+    // The muscle: a fuller strap lying in front of and between the two bones,
+    // so what shows between them is dark red rather than background.
+    const off = v3(s * A.boneRadius * 0.10, 0, A.boneRadius * 0.62);
     const musc = track(limb(
-      foreA.clone().lerp(foreEnd, 0.08).add(off), foreA.clone().lerp(foreEnd, 0.94).add(off),
-      A.boneRadius * 1.05, A.boneRadius * 0.72,
-      { radial: 9, segments: 6, waist: 0.78 }));
+      bundle(0.04).add(off), bundle(0.90).add(off),
+      A.boneRadius * 1.30, A.boneRadius * 0.80,
+      { radial: 10, segments: 6, waist: 0.80 }));
     put(elbow, musc, materials.muscle, { name: 'flexor' });
   }
 
@@ -175,8 +188,12 @@ export function buildArm({ materials, side = 'L' }) {
       HAND.nailRadius, HAND.nailRadius * 0.18, { radial: 6, segments: 3 }));
     put(node, nail, materials.nail, { name: 'claw' });
     // Shed by the skeleton's names, so one shed plan drives either figure.
-    if (side === 'L' && k === 3) shed.set('fingerL4', node);
-    if (side === 'R' && k === 2) shed.set('fingerR3', node);
+    // Recentred first, so a shed finger tumbles about itself rather than about
+    // the wrist it left.
+    if ((side === 'L' && k === 3) || (side === 'R' && k === 2)) {
+      recentre(node);
+      shed.set(side === 'L' ? 'fingerL4' : 'fingerR3', node);
+    }
   }
   // The thumb, out to the side and a little forward.
   {

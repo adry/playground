@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import M from '../metrics.js';
 import {
   closedRadial, roundBoxR, grommet, ellipseOutline, ovoid, arcTube, limb,
-  put, v3, mix, smoothstep, assertOutward, assertInsideRadial,
+  put, v3, mix, smoothstep, recentre, assertOutward, assertInsideRadial,
 } from './forms.js';
 
 // The trunk, and the open ribcage in it.
@@ -44,18 +44,16 @@ const C = M.cavity;
 // Block geometry, in WORLD heights. Every block is star-shaped about its own
 // centre so a grommet can be set into it.
 const BLOCKS = {
-  // The pelvis. Wider than the waist, because the shorts have to hang on
-  // something and a chibi's hips are its widest lower landmark.
-  pelvis: { cy: 0.5 * (M.y.hip - 0.075 + M.y.pelvisTop + 0.010), hh: 0.0 },
-  belly: {},
-  chest: {},
+  // The pelvis. Wider than the waist, because the shorts hang on it and a
+  // chibi's hips are its widest lower landmark. It reaches from below the hip
+  // joint up past the waist, so it overlaps the belly through a full bend.
+  pelvis: { cy: 0.672, hh: 0.118, hw: T.pelvisWidth / 2, hd: T.pelvisDepth / 2, n: T.section },
+  // The belly's TOP is not free: it has to sit below `M.y.cavityBottom` or it
+  // pokes up inside the chest cavity and you see green where the flesh should
+  // be. That constraint sets cavityBottom, not the other way round.
+  belly: { cy: 0.775, hh: 0.068, hw: T.waistWidth / 2, hd: T.waistDepth / 2, n: T.section * 0.95 },
+  chest: { cy: 0.960, hh: 0.172, hw: T.chestWidth / 2, hd: T.chestDepth / 2, n: T.section },
 };
-BLOCKS.pelvis = { cy: 0.672, hh: 0.118, hw: T.pelvisWidth / 2, hd: T.pelvisDepth / 2, n: T.section };
-// The belly's TOP is not free: it has to sit below `M.y.cavityBottom` or it
-// pokes up inside the chest cavity and you see green where the flesh should
-// be. That constraint sets cavityBottom, not the other way round.
-BLOCKS.belly = { cy: 0.775, hh: 0.068, hw: T.waistWidth / 2, hd: T.waistDepth / 2, n: T.section * 0.95 };
-BLOCKS.chest = { cy: 0.960, hh: 0.172, hw: T.chestWidth / 2, hd: T.chestDepth / 2, n: T.section };
 
 if (BLOCKS.belly.cy + BLOCKS.belly.hh > M.y.cavityBottom) {
   throw new Error('zombie/torso: the belly block reaches above M.y.cavityBottom and will show inside the chest cavity.');
@@ -95,7 +93,7 @@ export function trunkRadius(y, azimuth) {
   const each = [
     [BLOCKS.pelvis, blockR(BLOCKS.pelvis, { taperDown: 0.14, taperUp: 0.16 })],
     [BLOCKS.belly, blockR(BLOCKS.belly, { taperDown: 0.06, taperUp: 0.10 })],
-    [BLOCKS.chest, blockR(BLOCKS.chest, { taperDown: 0.30, taperUp: 0.12 })],
+    [BLOCKS.chest, blockR(BLOCKS.chest, { taperDown: 0.20, taperUp: 0.12 })],
   ];
   for (const [b, R] of each) {
     if (y < b.cy - b.hh * 1.02 || y > b.cy + b.hh * 1.02) continue;
@@ -157,7 +155,7 @@ export function buildTorso({ materials }) {
 
   // --- the chest and its cavity ----------------------------------------------
   const B = BLOCKS.chest;
-  const chestR = blockR(B, { taperDown: 0.30, taperUp: 0.12 });
+  const chestR = blockR(B, { taperDown: 0.20, taperUp: 0.12 });
   const chestCentreLocal = v3(0, B.cy - M.y.chest, 0);
 
   // The window. Its azimuthal half-width is published (0.58 rad, 66 degrees of
@@ -242,33 +240,77 @@ export function buildTorso({ materials }) {
   // THREE PAIRS, not a cage. The window is 12 px tall in a shipped frame; four
   // ribs is a 3 px pitch and combs into a grey bar.
   const rShell = (h, a) => radiusAt(chestR, B.cy, h, a);
-  const rFlesh = (h, a) => {
-    // the column's radius at the same height and azimuth, after the scale
-    const r = radiusAt(chestR, B.cy, (h - B.cy) / 0.97 + B.cy, a);
-    const x = Math.sin(a) * r * C.floorX, z = Math.cos(a) * r * C.floorZ;
-    return Math.hypot(x, z);
+
+  // The FLESH COLUMN's radius at a height and azimuth, solved rather than
+  // approximated. The column is the chest's own surface under a diagonal
+  // scale, and an anisotropic scale MOVES A POINT'S AZIMUTH: scaling z by 0.34
+  // and x by 0.88 sends a point at 30 degrees off the front to nearly 60. A
+  // first version scaled the shell's radius componentwise and read the result
+  // back at the original azimuth, which is a different point on a different
+  // ray, and the answer was up to 60 per cent wrong at the sides -- so the
+  // ribs, which are placed between this and the skin, stood proud of the skin.
+  const rColumn = (h, a) => {
+    const hp = h - B.cy;
+    let lo = 1e-4, hi = 1.0;
+    for (let k = 0; k < 40; k++) {
+      const rc = 0.5 * (lo + hi);
+      // pull the candidate back through the scale and ask the chest
+      const q = v3(Math.sin(a) * rc / C.floorX, hp / 0.97, Math.cos(a) * rc / C.floorZ);
+      const len = q.length();
+      if (len < 1e-9) { lo = rc; continue; }
+      if (len < chestR(q.clone().divideScalar(len))) lo = rc; else hi = rc;
+    }
+    return 0.5 * (lo + hi);
   };
-  const ribSpan = C.halfAngle * 0.90;
+
+  // --- 4. ribs and spine ------------------------------------------------------
+  //
+  // THREE PAIRS, not a cage. The window is 12 px tall in a shipped frame; four
+  // ribs is a 3 px pitch and combs into a grey bar.
+  // The ribs sweep PAST the edge of the window, not up to it. Stopped at the
+  // window's edge their end caps float in the cavity as two bright discs;
+  // carried a fifth further round they are behind solid skin, so the cap is
+  // hidden by the body rather than by a clamp, and the rib reads as continuing
+  // into the chest the way a rib does.
+  const ribSpan = C.halfAngle * 1.24;
+  const ribs = [];
   for (let k = 0; k < C.ribPairs; k++) {
     const h = C.ribTop - k * C.ribSpacing;
     for (const side of [+1, -1]) {
       const node = new THREE.Object3D();
-      node.position.y = 0;
       spineUpper.add(node);
       const pts = [];
-      const N = 9;
+      const N = 11;
       for (let i = 0; i <= N; i++) {
         const f = i / N;
-        const a = side * mix(0.06, ribSpan, f);
-        // Ends dive toward the shell so the tube is swallowed by the body
-        // rather than lying half outside it, which is what 1.0 does.
-        const toward = mix(C.ribFront, 0.86, smoothstep(0.72, 1.0, f));
-        const rr = mix(rFlesh(h, a), rShell(h, a), toward);
-        const drop = Math.sin(f * Math.PI * 0.5) * C.ribSpacing * 0.34;
-        pts.push(v3(Math.sin(a) * rr, h - M.y.chest - drop, Math.cos(a) * rr));
+        // Starting well off the centre line, with a sternum strip between the
+        // two halves. Started at the centre they meet nose to nose and the
+        // three pairs read as a lattice of crossed sticks rather than as ribs.
+        const a = side * mix(0.15, ribSpan, f);
+        const drop = Math.sin(f * Math.PI * 0.5) * C.ribSpacing * 0.16;
+        const hh = h - drop;
+        const shell = rShell(hh, a);
+        // Where the rib WANTS to be: a fixed fraction of the way from the
+        // flesh column out toward the skin, so it stands in the gap.
+        const want = mix(rColumn(hh, a), shell, C.ribFront);
+        // Where it is ALLOWED to be: far enough in that the tube, not just
+        // its centre line, is inside the body. The ends then dive under the
+        // skin and their caps are never seen. POSTMORTEM 2.6 gives 0.86 of
+        // the shell as a rule of thumb; on a chest this narrow that is not
+        // enough on its own, so the clamp is written in terms of the tube's
+        // own radius and cannot be outgrown.
+        const room = shell - C.ribRadius - T.shellThickness * 0.30;
+        const dive = mix(1.0, 0.94, smoothstep(0.80, 1.0, f));
+        pts.push(v3(Math.sin(a) * Math.min(want, room) * dive, hh - M.y.chest, Math.cos(a) * Math.min(want, room) * dive));
       }
-      const rib = track(arcTube(pts, C.ribRadius, C.ribRadius * 0.78, { radial: 6 }));
+      const rib = track(arcTube(pts, C.ribRadius, C.ribRadius * 0.74, { radial: 8 }));
+      // Checked, not trusted: a rib that has crept outside the skin is exactly
+      // the sort of thing that reads as a modelling mistake and is invisible
+      // from the one angle you happen to be looking from.
+      assertInsideRadial(rib, chestCentreLocal, chestR, `rib ${side > 0 ? 'L' : 'R'}${k + 1}`, 1e-4);
       put(node, rib, materials.bone, { name: `rib${side > 0 ? 'L' : 'R'}${k + 1}` });
+      recentre(node);
+      ribs.push(node);
       // The shed names are the SKELETON's, so one shed plan drives either
       // figure. Three pairs, so `ribL6`/`ribR7` are simply absent and
       // `shed.get()` returns undefined for them, which the contract allows.
@@ -276,13 +318,27 @@ export function buildTorso({ materials }) {
       if (side < 0 && k === 1) shed.set('ribR4', node);
     }
   }
+  // The sternum, between the two halves of each pair. Without it the left and
+  // right arcs meet on the centre line and the cage reads as crossed sticks.
+  {
+    const pts = [];
+    const N = 7;
+    for (let i = 0; i <= N; i++) {
+      const h = mix(C.ribTop + C.ribSpacing * 0.42, C.ribTop - C.ribSpacing * (C.ribPairs - 0.55), i / N);
+      const rr = Math.min(mix(rColumn(h, 0), rShell(h, 0), C.ribFront), rShell(h, 0) - C.ribRadius);
+      pts.push(v3(0, h - M.y.chest, rr));
+    }
+    const st = track(arcTube(pts, C.ribRadius * 0.80, C.ribRadius * 0.62, { radial: 6 }));
+    put(spineUpper, st, materials.bone, { name: 'sternum' });
+  }
+
   // The spine, BEHIND the ribs, so its knobs show through the gaps and below
   // the lowest rib. That is what sells the cavity as an opening with a back to
   // it: you are looking past one piece of geometry at another.
   for (let k = 0; k < C.spineKnobs; k++) {
     const h = C.spineTop - k * C.spineSpacing;
-    const rr = mix(rFlesh(h, 0), rShell(h, 0), 0.24);
-    const knob = track(ovoid(C.spineRadius * 0.92, C.spineRadius * 0.62, C.spineRadius * 0.72, { uSteps: 10, vSteps: 7 }));
+    const rr = mix(rColumn(h, 0), rShell(h, 0), 0.22);
+    const knob = track(ovoid(C.spineRadius * 0.92, C.spineRadius * 0.60, C.spineRadius * 0.70, { uSteps: 10, vSteps: 7 }));
     put(spineUpper, knob, materials.bone, { pos: v3(0, h - M.y.chest, rr), name: 'spine' });
   }
 

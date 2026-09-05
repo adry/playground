@@ -68,8 +68,9 @@ function hemAt(u) {
   // So the jacket is cropped just below the ribcage window, and the two front
   // tails are the only cloth that hangs, because they sit at the edge of the
   // opening where the trunk is at its shallowest.
-  const tail = Math.exp(-Math.pow((side - 0.255) / 0.055, 2));
-  return mix(J.hem, J.hem - 0.072, tail);
+  const tail = Math.exp(-Math.pow((side - 0.255) / 0.065, 2));
+  const backTail = Math.exp(-Math.pow((side - 1.0) / 0.14, 2));
+  return mix(J.hem, J.hem - 0.098, Math.max(tail, backTail * 0.72));
 }
 
 function jacketSection(y) {
@@ -114,7 +115,7 @@ export function buildJacket({ materials }) {
   // Two holes worn through the back and one shoulder, each with a rim for
   // free because the sheet is closed.
   const keep = (u, v) => {
-    const holes = [[0.50, 0.62, 0.085, 0.16], [0.19, 0.30, 0.055, 0.10]];
+    const holes = [[0.50, 0.62, 0.075, 0.18], [0.185, 0.34, 0.040, 0.12]];
     for (const [cu, cv, ru, rv] of holes) {
       if (Math.hypot((u - cu) / ru, (v - cv) / rv) < 1) return false;
     }
@@ -135,14 +136,17 @@ export function buildJacket({ materials }) {
       uSteps: 7, vSteps: 10,
       point: (u, v) => {
         const y = mix(topAt(side > 0 ? 0 : 1), M.y.cavityBottom - J.tatter, v);
-        // rolls out and forward as it comes down, widest at the chest
-        const roll = u * mix(0.26, 0.62, Math.sin(Math.PI * Math.min(1, v * 1.5))) * side;
-        const a = a0 - roll * 0.62;
+        // Rolls OUTWARD, away from the opening, widest at the chest. Rolled
+        // inward -- which is what it did first -- the two lapels close across
+        // the ribcage window and cover the one feature the opening exists to
+        // show. A lapel folds back onto the chest, not over it.
+        const roll = u * mix(0.22, 0.50, Math.sin(Math.PI * Math.min(1, v * 1.5)));
+        const a = a0 + side * roll * 0.55;
         const r = jacketSection(y)(a) * (1 + 0.10 * u);
         return v3(Math.sin(a) * r, y, Math.cos(a) * r + u * J.thickness * 1.4);
       },
-      normalAt: (u, v) => {
-        const a = a0 - u * 0.5 * side;
+      normalAt: (u) => {
+        const a = a0 + side * u * 0.28;
         return v3(Math.sin(a), 0, Math.cos(a));
       },
       thickness: J.thickness * 0.9,
@@ -170,7 +174,7 @@ export function buildJacket({ materials }) {
         // corner on each shoulder, which is most of what made the first
         // clothed silhouette read as a sandwich board.
         const dome = Math.sin(Math.min(1, t * 3.4) * Math.PI / 2);
-        const r = mix(M.arm.upperRadius * 1.20, M.arm.elbowRadius * 1.30, t) * mix(0.42, 1.0, dome);
+        const r = mix(M.arm.upperRadius * 1.12, M.arm.elbowRadius * 1.18, t) * mix(0.40, 1.0, dome);
         const cx = sx + side * (M.arm.outboard[0] + t * (M.arm.upperRadius * 0.62));
         return v3(cx + Math.cos(a) * r * side, y, Math.sin(a) * r);
       },

@@ -74,8 +74,8 @@ export const PALETTE = {
   // light enough that the sunken sockets read as holes in it.
   skin: '#9db983',
   skinDeep: '#7c9668',      // inside the mouth trough's throat and under rags
-  flesh: '#5e2a28',
-  muscle: '#8a3a33',
+  flesh: '#71332e',
+  muscle: '#7d403a',
   bone: '#ddd2b8',
   tooth: '#efe8d2',
   // NOT BLACK. Flat black in a big round socket is a Roswell grey, not a
@@ -84,9 +84,17 @@ export const PALETTE = {
   // in the open chest.
   socket: '#4a2432',
   socketDeep: '#28131d',
-  jacket: '#aba08a',
-  jacketDark: '#7d745f',
-  shorts: '#7d8365',
+  // The clothes are DARKER THAN THE SKIN, and by enough to matter.
+  //
+  // At true game scale the figure is 105 px and the eye is reading three
+  // masses, not a costume: a bright head, a dark body, dark feet. The third
+  // pass's jacket and shorts sat within a few per cent of the skin's value, so
+  // the whole torso came out as one mottled area and the head lost the
+  // contrast that makes it read. Hue does almost nothing at this size; value
+  // does all of it.
+  jacket: '#7e7660',
+  jacketDark: '#575044',
+  shorts: '#5f664c',
   boot: '#4c4038',
   bootSole: '#332c26',
   nail: '#33291f',
@@ -153,6 +161,29 @@ export function put(parent, geometry, material, { pos = null, rot = null, scale 
   if (name) m.name = name;
   parent.add(m);
   return m;
+}
+
+// Move a node's origin to the centre of what it holds, without moving the
+// geometry a millimetre in world space.
+//
+// This is for the SHED pieces. The contract says each detachable piece is "a
+// self-contained subtree whose world transform is meaningful when reparented",
+// and a rib node parked at the chest joint is not: reparent it and let it
+// tumble and it swings about a point 100 mm away from the rib, which reads as
+// the rib being flung on a string. Recentred, it tumbles about itself.
+export function recentre(node) {
+  const box = new THREE.Box3();
+  const p = new THREE.Vector3();
+  const meshes = node.children.filter((c) => c.isMesh);
+  if (!meshes.length) return;
+  for (const m of meshes) {
+    m.updateMatrix();
+    const pos = m.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) box.expandByPoint(p.fromBufferAttribute(pos, i).applyMatrix4(m.matrix));
+  }
+  const c = box.getCenter(new THREE.Vector3());
+  for (const m of meshes) m.position.sub(c);
+  node.position.add(c);
 }
 
 export function triangleCount(object3D) {
@@ -234,13 +265,37 @@ export function assertInsideRadial(geometry, centre, R, name, slack = 1e-6) {
 //
 // Poles are real fans off a single vertex rather than a degenerate row, so
 // there are no zero-area triangles and no black speck at the crown.
-export function closedRadial({ uSteps = 64, vSteps = 40, R, skip = null }) {
+// Concentrate grid samples around `at`. The map is
+//     f(t) = t - (k / 2pi) sin(2pi (t - at))
+// whose derivative is 1 - k cos(2pi (t - at)), so at `at` the step is (1 - k)
+// of uniform and the local density is 1 / (1 - k).
+//
+// u is periodic and can use this directly. v is NOT: it runs pole to pole, and
+// the raw map shifts BOTH ENDS, which pushes v past 1 at the crown and folds
+// the mesh back over the top pole. Subtracting f(0) pins both ends exactly,
+// because f(1) - f(0) is identically 1. (POSTMORTEM notes the same trap; it is
+// a property of the warp, not of what it is used for.)
+//
+// Used here for ONE thing only: the size of the cells a feature's hole is cut
+// out of. There is no zone painting on this model and no predicate deciding
+// which side of an outline a quad falls on, so none of the rest of section 2.2
+// applies -- the warp cannot make a boundary comb, because there is no
+// boundary on this surface to comb.
+export function concentrate(k, at) {
+  const f = (t) => t - (k / (2 * Math.PI)) * Math.sin(2 * Math.PI * (t - at));
+  const f0 = f(0);
+  return (t) => f(t) - f0;
+}
+
+export function closedRadial({ uSteps = 64, vSteps = 40, R, skip = null, uAt = null, vAt = null }) {
   const dirs = [];
   const pts = [];
   const rings = vSteps - 1;                    // interior latitude rings
+  const uOf = uAt || ((x) => x);
+  const vOf = vAt || ((x) => x);
   const dirAt = (i, j) => {
-    const a = 2 * Math.PI * (i / uSteps);
-    const t = Math.PI * ((j + 1) / vSteps);
+    const a = 2 * Math.PI * uOf((((i % uSteps) + uSteps) % uSteps) / uSteps);
+    const t = Math.PI * vOf((j + 1) / vSteps);
     return v3(Math.sin(t) * Math.cos(a), Math.cos(t), Math.sin(t) * Math.sin(a));
   };
   for (let j = 0; j < rings; j++) {
@@ -407,13 +462,36 @@ export function grommet({
     // The predicate the host uses to omit its own quads. Cut BETWEEN the two
     // rho bounds so the ragged edge lands under the rim band with a margin at
     // both ends, and test on DIRECTION so it is independent of the radius.
-    cut: (rhoCut) => (dir) => {
+    // `cellAngle` is the host grid's worst cell size in radians. The cut lands
+    // on cell boundaries, so the real edge is rhoCut plus or minus half a cell
+    // measured in units of the feature's own outline -- and the rim band only
+    // hides it if that whole band lies inside [rhoIn, rhoOut].
+    //
+    // This is checked rather than eyeballed because the failure is silent from
+    // most angles and unmistakable from one: on a nasal aperture six degrees
+    // across, cut out of a grid with four-and-a-half degree cells, the rim
+    // missed the ragged edge entirely and the background showed through the
+    // face in square notches.
+    cut: (rhoCut, cellAngle = 0) => {
+      if (cellAngle > 0) {
+        let smallest = Infinity;
+        for (let i = 0; i < 64; i++) smallest = Math.min(smallest, outline(2 * Math.PI * i / 64));
+        const half = 0.5 * cellAngle / smallest;      // half a cell, in rho units
+        if (rhoCut - half < rhoIn + 0.02 || rhoCut + half > rhoOut - 0.02) {
+          throw new Error(
+            `zombie/forms: a feature's rim cannot cover its cut. The ragged edge runs ` +
+            `rho ${(rhoCut - half).toFixed(3)} to ${(rhoCut + half).toFixed(3)} and the rim only ` +
+            `spans ${rhoIn} to ${rhoOut}. Widen the rim, shrink the host's cells, or make the feature bigger.`);
+        }
+      }
+      return (dir) => {
       const c = Math.max(-1, Math.min(1, dir.dot(A)));
       const th = Math.acos(c);
       if (th < 1e-9) return true;
       const x = dir.dot(U), y = dir.dot(V);
       const phi = Math.atan2(y, x);
       return th < rhoCut * outline(phi);
+      };
     },
     dirAt, axis: A, U, V,
   };

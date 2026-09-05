@@ -176,7 +176,7 @@ export const M = {
     // where the brow ridge is. This is the raised ring of the eye grommet, not
     // a shelf carved into the cranium: the third pass's brow shelf pressed the
     // top of each orbit down and turned two round sockets into two almonds.
-    browJut: f(0.026),
+    browJut: f(0.021),
     // How far behind the head's centre plane the jaw condyle sits.
     jawHingeZ: f(-0.026),
     // A gentle forward swell over the lower face, so the mouth is a hole cut
@@ -224,40 +224,33 @@ export const M = {
     width: f(0.092),
     height: f(0.073),
     depth: f(0.030),
-    // The orbital rim: a raised ring around the socket, as a fraction of
-    // browJut. This is what gives the eye a lid and a brow that overhangs it
-    // rather than a hole punched in a smooth ball.
-    rim: 0.38,
-    // Where the ring sits, in socketR units, and how tight it is. It was at
-    // 1.22 with a wide falloff and the raised ground reached out to 1.6 socket
-    // radii: what that reads as is a big shallow crater with a small dark bead
-    // at the bottom of it, which is not an eye socket. Pulled in tight against
-    // the opening it reads as a rim.
-    // Tight against the opening, and low. A wide rim eats the forehead and
-    // the cheek, which is exactly the face this character cannot spare.
-    rimAt: 1.14,
-    rimWide: 0.11,
-    // NO WOBBLE. The outline is a clean ellipse.
+    // The socket is a GROMMET now, not a recess in the head's own surface:
+    // a rim band and a dish, both built radially against the ball's own radius
+    // function. `parts/head.js` has the reasoning and `parts/forms.js` has the
+    // machinery. Three numbers that used to live here have gone with the
+    // construction they described and are not silently still in force:
     //
-    // It carried a three- and five-lobed wobble for one round, on the argument
-    // that an irregular outline would absorb the staircase where the painted
-    // dark meets the skin. It does not: at close range the two together read
-    // as digital corruption, jagged and pixelly, and it was the single ugliest
-    // thing in the render. The reference's sockets have clean smooth edges and
-    // a torn one is a different character. The staircase is dealt with by
-    // sampling the face three times as finely (see parts/head.js), which is
-    // solving it rather than disguising it.
-    wobble: 0,
+    //   rim / rimAt / rimWide  the old raised ring's height, position and
+    //                          falloff. The rim's crest is now `head.browJut`
+    //                          and its shape is the grommet's jut profile.
+    //   wobble                 a three- and five-lobed irregularity on the
+    //                          outline, added for one round to disguise the
+    //                          staircase where painted dark met skin. It did
+    //                          not disguise it -- the two together read as
+    //                          digital corruption -- and there is no staircase
+    //                          to disguise any more: the visible edge of a
+    //                          socket is the rim's own analytic ellipse.
+    //   slant                  how hard the upper rim cut down toward the
+    //                          nose. Any slant at all turned two round sockets
+    //                          into two angry eyebrows, so it was zero, and a
+    //                          zero with a paragraph attached is a trap for
+    //                          the next person.
+    //
     // Centre to centre. f(0.115) was the first pass and the two sockets came
     // within 0.02 of touching over the bridge, which read as one wide dark
     // band rather than two eyes. Pushed out until there is a clear strip of
     // green between them at game scale.
     separation: f(0.152),
-    // How far the upper rim cuts down toward the nose. The skeleton's note
-    // applies verbatim: 0.60 is a glare, this is a stare. Change knowingly.
-    // Zero. Any slant at all turns two round sockets into two angry eyebrows,
-    // and this character is supposed to be gruesome without being cross.
-    slant: 0.0,
   },
 
   // The nasal aperture. A skull's is a pear or teardrop: a narrow point at the
@@ -267,8 +260,14 @@ export const M = {
   // alien. Small, because there is only the gap between the sockets to put it
   // in, and dark inside for the same reason the sockets are.
   nose: {
-    width: f(0.060),
-    height: f(0.062),
+    // SMALLER than the third pass, and the constraint is not the reference,
+    // it is `M.y`. The aperture's centre is fixed at 0.796 and the mouth's at
+    // 0.740, and both are landmarks. At 0.062 tall the aperture's own opening
+    // ended 1 mm above the mouth's and its RIM hung down over the dark, which
+    // reads as a flap of skin in the mouth. Shrunk to 0.046 there is a clear
+    // strip of green between the two, which is what a skull has.
+    width: f(0.052),
+    height: f(0.046),
     depth: f(0.026),
     // Where the widest part of the pear sits, as a fraction of the aperture's
     // height measured from the bottom. Below the middle: that is what makes it
@@ -283,11 +282,11 @@ export const M = {
     width: f(0.180),          // 0.57 of head width
     height: f(0.052),
     depth: f(0.038),
-    // NO WOBBLE, for the same reason as the socket above: in the reference
-    // the mouth is a smooth wide curve with the teeth clearly seated in it,
-    // and a ragged outline made the teeth read as detached from the slot.
-    wobble: 0,
-    curve: 0.55,              // how far the corners rise, as a fraction of height
+    // How far the whole SLOT rises at the corners, as a fraction of the
+    // mouth's own half-height. It raises the slot; it does not make it taller,
+    // which is what the first version did and which produced a lens with a
+    // pinched middle rather than a smile. See the outline solve in head.js.
+    curve: 0.55,
     // Fewer teeth, bigger teeth. Ten uneven teeth at this size is a grey
     // dither; five is five white blocks and a gap you can actually see.
     teeth: { upper: 5, lower: 4, gapUpper: 3, gapLower: 1 },
@@ -297,21 +296,33 @@ export const M = {
   // break the egg silhouette and they say "this was a person". The first build
   // had them at f(0.030), which is three pixels, tucked behind the equator and
   // effectively invisible; the head read as a bare ball from every angle.
-  ear: { radius: f(0.046), thickness: f(0.020), rim: f(0.011) },
-
-  // Short crossed lines, and they are drawn as real geometry rods rather than
-  // painted, because there is no texture pipeline here and an alpha card has
-  // nothing to reflect in a scene with no environment map. Same rule that
-  // shaped the bushes and the fence.
+  // `stand` is how far the ear stands PROUD of the skull, and it is the only
+  // number here that matters -- an ear on this character is a silhouette
+  // feature and nothing else.
   //
-  // length is set by LEGIBILITY, not by the reference: 4.4 px at 720p is the
-  // shortest mark that still reads as a line rather than a speck.
-  stitch: {
-    length: f(0.030),
-    thickness: f(0.0034),
-    forehead: 3,
-    cheek: 2,
-  },
+  // It is written as a protrusion rather than as a thickness because the
+  // arithmetic is not obvious and got it wrong twice. A flat disc of radius r
+  // seated on a ball of radius R, sunk by d, has its rim at
+  // sqrt((R-d)^2 + r^2), and for a 0.046 ear on a 0.158 head that is still
+  // INSIDE the ball for any sink over 12 mm: the first flat ear was entirely
+  // swallowed and the silhouette test showed a bare skull. The lobe is
+  // therefore sized from `stand` outward, and `sink` is chosen so the rim
+  // still merges into the skull instead of floating off it.
+  ear: { radius: f(0.046), stand: f(0.019) },
+
+  // NO STITCHED SCARS in this pass, and the block that specified them has gone
+  // rather than sitting here unread.
+  //
+  // The third pass drew them as real rods, correctly -- there is no texture
+  // pipeline here and an alpha card has nothing to reflect -- and at the
+  // shortest length that still reads as a line rather than a speck, 4.4 px.
+  // They are off the model because the face is now carrying a brow ridge, two
+  // orbital rims, a nasal aperture and a mouth trough as separate raised and
+  // sunken volumes, and adding a ladder of small dark marks on top of that is
+  // the thing POSTMORTEM 2.4 warns about from the other direction: the amount
+  // of smooth green face left is what carries the charm. If they come back,
+  // they belong over one brow rather than across the centre line, because a
+  // mark down the middle of a symmetrical face reads as a seam in the moulding.
 
   // A chibi has NO NECK, and that is a structural fact rather than a cosmetic
   // one. The chin is at 0.670 and the top of the shoulder mass is at 0.628:
@@ -385,10 +396,6 @@ export const M = {
     // looking into the chest, and it is what makes the opening read as a hole
     // through a solid body rather than as a decal.
     shellThickness: f(0.020),
-    // How far the deltoid mass stands out past the trunk at the shoulder. The
-    // arm has to be ATTACHED at the top even though it is clear below, and
-    // this is the piece that does it.
-    shoulderPad: f(0.030),
   },
 
   // --- the exposed ribcage -------------------------------------------------
@@ -443,7 +450,7 @@ export const M = {
     // separate pale lines with dark between them, which is what a ribcage is
     // at this size. The count is set by the pixel pitch, not by anatomy.
     ribPairs: 3,
-    ribRadius: f(0.0105),
+    ribRadius: f(0.0092),
     ribSpacing: f(0.040),
     ribTop: f(0.572),
     // The spine runs down the middle of the cavity BEHIND the ribs, so its
@@ -473,7 +480,7 @@ export const M = {
     // A cropped torn jacket over an exposed midriff is also simply a better
     // read for this character than a long one: it leaves the ribcage window
     // and the belly showing, which is what the reference is about.
-    hem: f(0.478),
+    hem: f(0.452),
     // The front gap is WIDER than the cavity (0.62), not narrower, so the two
     // lapels frame the ribcage instead of covering its edges. The reference
     // has them overlapping and built that way it ate a fifth of a feature
@@ -548,7 +555,7 @@ export const M = {
     handSplay: 0.44,
     // The stripped forearm. `strippedSide` is which arm it is.
     strippedSide: 'R',
-    boneRadius: f(0.014),
+    boneRadius: f(0.017),
   },
 
   hand: {

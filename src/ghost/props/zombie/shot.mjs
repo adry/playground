@@ -24,6 +24,7 @@ const query = ['mode=' + mode];
 if (args.pose) query.push('pose=' + args.pose);
 if (args.view) query.push('view=' + args.view);
 if (args.bare) query.push('bare=1');
+if (args.focus) query.push('focus=' + args.focus);
 
 const lab = await openLab({
   width, height,
