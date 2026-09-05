@@ -162,17 +162,17 @@ export const MISC = {
 // anything. A single row for `bush` would have to publish the cone's height
 // for all four and would then refuse the ball a spot it fits perfectly well.
 //
-// The box is a box. Its faces are 0.92 by 0.89 and a circle round that corner
-// to corner is 0.639, which is 39% of floor it does not occupy; the box test
+// The box is a box. Its faces are 0.90 by 0.87 and a circle round that corner
+// to corner is 0.627, which is 39% of floor it does not occupy; the box test
 // gets it back. The ball and the cone are round in plan and a yaw does nothing
 // to them.
 //
 // A caller that names no variant gets the ball, which is what a level written
 // before the topiary existed is holding when it says `bush`.
 export const BUSHES = {
-  ball: { shape: 'disc', r: 0.476, height: 0.775 },
-  cone: { shape: 'disc', r: 0.405, height: 1.271 },
-  box: { shape: 'box', halfU: 0.459, halfV: 0.445, height: 0.830 },
+  ball: { shape: 'disc', r: 0.482, height: 0.775 },
+  cone: { shape: 'disc', r: 0.405, height: 1.270 },
+  box: { shape: 'box', halfU: 0.450, halfV: 0.436, height: 0.809 },
   wild: { shape: 'disc', r: 0.576, height: 0.760 },
 };
 

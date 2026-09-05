@@ -70,11 +70,12 @@ import {
 // the render the two meshes gave.
 //
 // COST, per bush, at the sizes below: one draw call for the body and one for
-// the painted contact patch. Triangles over four seeds are 14.5k to 15.4k for
-// the ball, 16.1k to 20.0k for the cone, 24.5k to 29.0k for the box and 21.6k
+// the painted contact patch. Triangles over four seeds are 15.2k to 17.8k for
+// the ball, 18.9k to 21.8k for the cone, 26.0k to 31.0k for the box and 21.6k
 // to 22.8k for the wild one. The box is the dearest because it has the most
 // surface to cover and the leaf is one fixed size: six faces of a 0.9 cube is
-// nearly twice the skin of a 0.9 ball.
+// nearly twice the skin of a 0.9 ball. Building one costs 40 to 76 ms, nearly
+// all of it in scattering the leaf clusters.
 
 export const BUSH_VARIANTS = ['ball', 'cone', 'box', 'wild'];
 
@@ -174,29 +175,43 @@ export function createBush({ seed = 1, scale = 1, variant = DEFAULT_VARIANT } = 
 // and it makes the cone read as a ball seen from further away, which is the
 // exact opposite of what "the same plant cut three ways" needs.
 //
-// Four numbers, and it is the last two that decide whether the surface reads
-// as clipped foliage or as bubble wrap.
+// Five numbers, and between them they decide whether the surface reads as
+// foliage, as bubble wrap or as gravel.
 //
-//   LEAF     the radius of one cluster, in plan.
-//   SPACING  how far apart their centres go: about one radius, so a cluster's
-//            visible scallop covers its neighbour's centre and the surface
-//            closes. At one and a half radii the scallops separated into
-//            petals stuck on a dark ball, which is the failure this number is
-//            set against.
-//   NAP      how far a tip stands proud of the mass, which is the RELIEF of
-//            the whole surface and nothing else.
-//   FLAT     how squashed a cluster is along its own axis.
+//   LEAF         the radius of one cluster.
+//   SPACING      how far apart their centres go: about one radius, so a
+//                cluster's visible scallop covers its neighbour's centre and
+//                the surface closes. At one and a half radii the scallops
+//                separated into petals stuck on a dark ball.
+//   NAP          how far a tip stands proud of the mass, which is the RELIEF
+//                of the whole surface and nothing else.
+//   FLAT         how squashed a cluster is along its own axis.
+//   LEAF_DETAIL  the icosphere the cluster is made from. 0 is twenty
+//                triangles.
 //
-// The first version had NAP at a third of LEAF and FLAT at 0.52, and every
+// TWO ROUNDS OF THIS, and the second is the one that matters. The first had
+// LEAF at 0.072 with relief a third of it and a round-ish lump, and every
 // cluster came out a little dome with a shading gradient of its own: three
-// heads of broccoli. Turning the relief down on its own made it worse rather
-// than better, because a shallower cut through the same round lump exposes a
-// SMALLER cap, and the surface opened into islands with dark mass between
-// them. Both knobs had to move together: at 0.016 of relief on a cluster
-// squashed to a third of its width, the exposed cap is nearly the cluster's
-// full radius, so the scallops overlap and the crevice shading still draws
-// every one of them, while the outline wobbles by under two per cent of the
-// prop's width and the form is what the eye reads first.
+// heads of broccoli. Turning the relief down alone made it worse rather than
+// better, because a shallower cut through the same round lump exposes a
+// SMALLER cap and the surface opened into islands with dark mass between them;
+// flattening the lump at the same time fixed that, and at four times the size
+// this prop is seen at, it looked right.
+//
+// It was not right. At the size the yard actually shows a bush, a 0.14 cluster
+// is six pixels and reads as a pebble, and on the cone the rows of them read
+// as a pinecone. THE ONLY RENDER THAT DECIDES THIS IS THE ONE AT GAME SCALE.
+// So the leaf is halved, to 0.068 across, which is under three pixels there,
+// and a box now carries about a thousand clusters instead of two hundred and
+// fifty.
+//
+// That is paid for by making a cluster a TWENTY triangle icosahedron instead
+// of an eighty triangle icosphere. Four and a half times as many clusters at a
+// quarter of the price each is a six per cent increase in triangles, and at
+// three pixels across nothing in the world can tell a twenty-triangle blob
+// from an eighty-triangle one. What a cluster is for at this size is not its
+// own silhouette; it is one crevice in the vertex-colour bake and one grain of
+// the outline, and both of those it still has.
 const LEAF = 0.034;
 const SPACING = 0.036;
 const NAP = 0.008;
@@ -244,12 +259,12 @@ const CLIPPED = {
   //
   // THE TIP IS THE HARD PART, and it is a leaf problem rather than a geometry
   // one. The apex arc started at 16% of the base radius, which is 0.059 units,
-  // against leaf clusters 0.13 across: one cluster landed on the tip and the
-  // cone grew a knob like the stopper of a bottle. Widening the arc to 20% and
-  // shrinking the clusters over the top of the cone was not enough on its own
-  // either, because the nap DEPTH was still a constant and the mass under the
-  // tip was still inset the full amount, so the tip stayed a bud with a
-  // crevice down the middle of it.
+  // against leaf clusters that were 0.13 across at the time: one landed on the
+  // tip and the cone grew a knob like the stopper of a bottle. Widening the arc
+  // to 20% and shrinking the clusters over the top of the cone was not enough
+  // on its own either, because the nap DEPTH was still a constant and the mass
+  // under the tip was still inset the full amount, so the tip stayed a bud with
+  // a crevice down the middle of it.
   //
   // What works is thinning the whole leaf layer toward the point: over the top
   // fifth of the height the mass is inset less and the clusters shrink to match,

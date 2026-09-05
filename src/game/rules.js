@@ -186,7 +186,13 @@ import { createHerd, DEFAULT_SPEEDS, DEFAULT_CHASE, EMERGE_TIME, PERSONALITIES, 
 
 export const TUNING = {
   // --- the two speeds, and see the essay above ------------------------------
-  ghostSpeed: 3.05,
+  //
+  // 3.66, which is 3.05 plus the owner's twenty per cent. The nominal ratio
+  // against the skeleton's 2.15 goes from 0.705 to 0.587, and that is a big
+  // move: soak.mjs measures what it does to the chase and the report says so.
+  // The skeleton's speed is NOT compensated, because the owner asked for a
+  // faster ghost and not for a faster game.
+  ghostSpeed: 3.66,
   ghostAccel: 0.12,
   speeds: DEFAULT_SPEEDS,
   chase: DEFAULT_CHASE,
@@ -224,15 +230,80 @@ export const TUNING = {
     { mode: 'scatter', t: 3 }, { mode: 'chase', t: Infinity },
   ],
 
+  // --- THE FIREFLIES, SIX AT A TIME AND FOR EVER ----------------------------
+  //
+  // The owner's rule: six on the map, and when one is left five more appear.
+  // So the board cycles 6, 5, 4, 3, 2, 1, 6, and the run has no end in it.
+  // That replaces "an arena holds five and can be CLEARED", which is where the
+  // 'cleared' phase and the clear bonus went.
+  //
+  // WHERE THE FIVE COME FROM. The level's own firefly spots first: an author
+  // placed them, or fireflies.js placed them by rule, and either way they are
+  // spread for the measured spacing DESIGN.md argues for and are known to be
+  // reachable. A spot within `flyNear` of the player at the moment of the
+  // refill is SKIPPED and comes back on the next cycle, so the refill cannot
+  // drop one in the player's lap. Only when that leaves too few does the
+  // sampler below invent a position.
+  flyOnBoard: 6,
+  flyRefillAt: 1,
+  flyNear: 10.0,
+  flyApart: 9.0,
+
+  // --- THE HERD, AND HOW IT GROWS -------------------------------------------
+  //
+  // A skeleton comes out because the PLAYER WALKED PAST A TOMBSTONE. That is
+  // the owner's rule and it is the whole spawn mechanic; there is no schedule
+  // and no pen. What is here is the shape of it.
+  //
+  //   spawnRange   how near counts as passing by. 5.0 is about a second and a
+  //                half of running at the new speed, and it is wide enough
+  //                that the stone that produced the skeleton is unmistakably
+  //                the one you just walked past, which is the whole point:
+  //                the player has to learn to fear the stones.
+  //   spawnMin     and how near is too near. A skeleton must never break the
+  //                surface inside the player. The figure is 0.95 across and
+  //                the ghost 1.10, so anything past about 1.1 is not a
+  //                collision; 2.0 is that with room, and it is also the
+  //                distance at which the climb is legibly a separate object.
+  //   spawnChance  at full readiness, per stone passed. Not every stone, which
+  //                is the owner's "but not all the time".
+  //   spawnPeriod  and readiness is time since the last one came up, over
+  //                this. So the chance is ZERO immediately after a spawn and
+  //                climbs back to spawnChance over nine seconds. That is the
+  //                answer to "the probability should not be flat": a flat
+  //                chance lets an unlucky player walk past three stones in two
+  //                seconds and meet three skeletons, which is a death nobody
+  //                could have played around.
+  //   spawnQuiet   and a stone that has just produced one is quiet for this
+  //                long, so pacing back and forth past one stone does not
+  //                farm it.
+  //
+  // THE POPULATION. One at all times, five at the most, and the clock is
+  // FIREFLIES COLLECTED because it is the only progress an endless run has.
+  // One more allowed every `skelPerFly` collected, so the fifth arrives at 24,
+  // which at the measured collection rate is a few minutes in.
+  //
+  // AND THEY LEAVE. A skeleton that has been up for `retireAfter` seconds
+  // burrows back, unless it is the last one. This is a design decision and it
+  // is the one worth arguing with: if they never left, the population would
+  // climb to five and stay, "gradually more" would be a one-way ramp, and the
+  // proximity mechanic would stop mattering the moment the cap was reached.
+  // With them leaving, the count breathes, walking past a stone is a live
+  // decision for the whole run, and the cap is a ceiling on how bad it can get
+  // rather than a description of the late game.
+  skelMax: 5,
+  skelPerFly: 6,
+  spawnRange: 5.0,
+  spawnMin: 2.0,
+  spawnChance: 0.55,
+  spawnPeriod: 9.0,
+  spawnQuiet: 12.0,
+  retireAfter: 34.0,
+
   // --- scoring --------------------------------------------------------------
   fireflyScore: 100,
   streakStep: 5,
   streakCap: 8,
-  // Only paid in a bounded world, and multiplied by the streak. 1000 at a
-  // streak multiplier of 8 is 8000, which is about what nine fireflies pay, so
-  // clearing an arena cleanly is worth doing it twice.
-  clearBonus: 1000,
-
   lives: 3,
   deathPause: 1.6,
   readyPause: 1.8,
@@ -265,27 +336,33 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
   const airTime = (2 * T.jumpUp) / T.jumpGravity;
 
   const nav = createNav(world);
-  const herd = createHerd({ nav, count: Math.max(1, skeletons), seed, speeds: T.speeds, chase: T.chase });
+  // FIVE SLOTS, always, however many are up. `skeletons` used to be how many
+  // were in the game; it is now the ceiling on how many may be, and the
+  // director below decides how many of the slots are filled at any moment.
+  const herd = createHerd({
+    nav, count: Math.max(1, Math.min(skeletons, T.skelMax)), seed, speeds: T.speeds, chase: T.chase,
+  });
 
-  // Taken pickups, by the world's own stable id. A ten minute run collects
-  // perhaps sixty fireflies, so this stays small; if a run ever gets long
-  // enough for it to matter, it is prunable by distance from the ghost, since
-  // the world outside the window is not published.
-  const takenFly = new Set();
+  // A local stream, for the spawn rolls. Named rather than shared so that
+  // changing how often a skeleton comes out does not resequence the herd's own
+  // decisions, which is the same argument rng.js makes about the generator.
+  const rng = (() => {
+    let a = ((seed * 2654435761) ^ 0x5f356495) >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  })();
 
-  // A BOUNDED world is a level, and a level can be cleared. The endless plane
-  // could not be, so there was no 'cleared' phase in it; an arena of 30 by 30
-  // holds about nine fireflies and a run that has taken all of them has nothing
-  // left to do, which is not a game. So the two worlds differ in exactly one
-  // rule and it is this one.
-  //
-  // OPEN QUESTION for the owner, flagged rather than decided: clearing an arena
-  // could mean the next arena, which is Pac-Man and is what scene.js's wave
-  // machinery already does, or the fireflies could come back and the run
-  // continue in the same yard. This implements the first, because it is the
-  // reading that invents least, and the second is one line if it is wanted.
+  // THE RUN IS ENDLESS AND THE ARENA CANNOT BE CLEARED. There was a 'cleared'
+  // phase here, and a clear bonus, and above this a wave machine that started
+  // the next arena when the last firefly went. The owner has replaced all of it
+  // with one rule: six fireflies, five more when one is left, until something
+  // catches you. So the only ways a run ends are the last life and the player
+  // stopping.
   const bounds = world.bounds || null;
-  const flyTotal = bounds ? world.fireflies(bounds).length : 0;
 
   const ghost = {
     x: world.spawn.x, z: world.spawn.z,
@@ -304,9 +381,17 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     mode: 'scatter',
     modeIndex: 0,
     modeLeft: 0,
-    // Only meaningful in a bounded world; 0 and 0 in an endless one.
+    // How many are on the board and how many the board holds when it is full.
+    // `flyRemaining` counts down 6, 5, 4, 3, 2, 1 and then goes back to 6; it
+    // is not a countdown to anything, because there is nothing to count down
+    // to any more.
     flyTotal: 0,
     flyRemaining: 0,
+    // How many skeletons are up, and how many are allowed to be. The cap
+    // climbs with `collected`; see TUNING.
+    skeletons: [],
+    skeletonsUp: 0,
+    skeletonCap: 1,
     // The endless-run numbers. `lifeTime` drives Cruise Elroy; `streak` and
     // `multiplier` drive the score; `distance` is the other half of a
     // leaderboard row.
@@ -327,22 +412,73 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     // renderer instantiates from these lists and the ids are the world's, so a
     // firefly that leaves the list and comes back is the same firefly.
     fireflies: [],
-    skeletons: [],
     events: [],
     readyLeft: 0,
     dyingLeft: 0,
   };
 
-  // --- the published pickup lists -------------------------------------------
-  let pubX = NaN;
-  let pubZ = NaN;
+  // --- THE FIREFLIES, and the cycle that never ends -------------------------
+  //
+  // The board holds `flyOnBoard` and refills to it the moment `flyRefillAt` are
+  // left. The list is the RULES' now rather than the world's: the world's
+  // fireflies used to be the level's own fixed five and the rules only
+  // remembered which had been taken, which is a fine model for a board that can
+  // be cleared and no model at all for one that refills for ever.
+  //
+  // THE SPOTS ARE STILL THE LEVEL'S. `world.fireflies()` is a pool of authored
+  // or rule-placed positions, spread for the spacing DESIGN.md measured and
+  // known to be reachable, and the refill draws from it. Only when the pool
+  // cannot supply enough does `inventSpot` make one up.
+  const pool = (bounds ? world.fireflies(bounds) : world.fireflies()).map((f) => ({ x: f.x, z: f.z }));
+  let flySeq = 0;
   let flyPool = [];
-  function refreshPickups(force) {
-    if (!force && Math.hypot(ghost.x - pubX, ghost.z - pubZ) < 8) return;
-    pubX = ghost.x;
-    pubZ = ghost.z;
-    flyPool = nav.near(pubX, pubZ, T.publishRange, 'fireflies').filter((f) => !takenFly.has(f.id));
+
+  // Somewhere a firefly can be picked up from: the ghost's own disc has to fit,
+  // because a firefly the player can see and cannot reach is worse than no
+  // firefly. Reachability needs no flood: audit.js's wedge rule is the standing
+  // proof that every place a body fits in a passing level is a place a body
+  // could have walked to, which is exactly the question and is why that rule
+  // exists.
+  const canStand = (x, z) => nav.discClear(x, z, T.ghostRadius + 0.05);
+
+  function inventSpot(avoid) {
+    const b = bounds || {
+      minX: ghost.x - 20, maxX: ghost.x + 20, minZ: ghost.z - 20, maxZ: ghost.z + 20,
+    };
+    const m = 2.5;
+    let best = null;
+    let bestScore = -Infinity;
+    for (let i = 0; i < 400; i++) {
+      const x = b.minX + m + rng() * Math.max(0.1, b.maxX - b.minX - 2 * m);
+      const z = b.minZ + m + rng() * Math.max(0.1, b.maxZ - b.minZ - 2 * m);
+      if (!canStand(x, z)) continue;
+      let score = Math.hypot(x - ghost.x, z - ghost.z);
+      for (const o of avoid) score = Math.min(score, Math.hypot(x - o.x, z - o.z));
+      if (score > bestScore) { bestScore = score; best = { x, z }; }
+      if (bestScore >= T.flyApart) break;
+    }
+    return best;
+  }
+
+  // Top the board back up. A pool spot within `flyNear` of the player is
+  // skipped rather than used, so a refill never drops one at the player's feet;
+  // it comes back on the next cycle, when they are somewhere else.
+  function refillFlies() {
+    const avoid = () => [{ x: ghost.x, z: ghost.z }, ...flyPool];
+    const lit = new Set(flyPool.map((f) => `${f.sx},${f.sz}`));
+    const spots = pool
+      .filter((p) => !lit.has(`${p.x},${p.z}`))
+      .filter((p) => Math.hypot(p.x - ghost.x, p.z - ghost.z) >= T.flyNear && canStand(p.x, p.z))
+      // Furthest from the player first, so a partial refill is the good half.
+      .sort((a, c) => Math.hypot(c.x - ghost.x, c.z - ghost.z) - Math.hypot(a.x - ghost.x, a.z - ghost.z));
+    let guard = 0;
+    while (flyPool.length < T.flyOnBoard && guard++ < 64) {
+      const p = spots.shift() || inventSpot(avoid());
+      if (!p) break;
+      flyPool.push({ id: `fly/${flySeq++}`, x: p.x, z: p.z, sx: p.x, sz: p.z });
+    }
     state.fireflies = flyPool;
+    state.flyRemaining = flyPool.length;
   }
 
   function startWaves() {
@@ -368,16 +504,23 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     const fixed = nav.resolveDisc(ghost.x, ghost.z, T.ghostRadius);
     ghost.x = fixed.x;
     ghost.z = fixed.z;
-    herd.reset(ghost);
+    // THE BOARD SURVIVES A DEATH and the herd does not. Losing a life costs
+    // the streak, which is most of the score, and it should not also cost the
+    // five fireflies you were halfway through: an endless run has no other
+    // progress in it. The herd goes back to one, which is the mercy the mode
+    // schedule's restart used to be.
+    herd.reset();
     startWaves();
     state.lifeTime = 0;
     state.streak = 0;
     state.multiplier = 1;
     state.phase = 'ready';
     state.readyLeft = T.readyPause;
-    state.flyTotal = flyTotal;
-    state.flyRemaining = Math.max(0, flyTotal - state.collected);
-    refreshPickups(true);
+    state.flyTotal = T.flyOnBoard;
+    quiet.clear();
+    inRing.clear();
+    lastSpawn = -1e9;
+    refillFlies();
   }
   resetRound();
 

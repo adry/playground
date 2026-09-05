@@ -25,7 +25,6 @@ import { createFencePanel } from '../ghost/props/fence/panel.js';
 import { createGate } from '../ghost/props/fence/gate.js';
 import { createFireflies } from '../ghost/props/fireflies.js';
 import { buildLevelProp } from '../game/level/build.js';
-import { wallPointAt } from '../game/level/format.js';
 import { createGroundCover } from '../game/level/groundcover.js';
 import { PERSONALITIES } from '../game/level/catalogue.js';
 
@@ -603,7 +602,7 @@ export function createEditorScene({ canvas }) {
 
   function syncOverlay(world, doc, {
     selection = new Set(), flagged = new Set(), hover = null, brush = null, wedges = [],
-    gizmo = null, ghost = null,
+    gizmo = null, ghost = null, wallHover = null, wallMarks = [],
   } = {}) {
     clearOverlay();
     const d = world._derived;
@@ -614,15 +613,25 @@ export function createEditorScene({ canvas }) {
     // WHERE THE WALL CHANGES HANDS. A change is stored as a distance along the
     // run, which is the right way to store it and no way at all to see it, so
     // each one is drawn as a bar standing across the wall where it stands.
-    for (const st of doc.wall.styles) {
-      const at = wallPointAt(doc.wall.points, st.at);
+    for (const at of wallMarks) {
       const nx = -at.dz;
       const nz = at.dx;
       overlay.add(lineOf([
         [at.x - nx * 0.9, at.z - nz * 0.9],
         [at.x + nx * 0.9, at.z + nz * 0.9],
-      ], 0xb06a1f, 0.95));
-      overlay.add(ringOf(at.x, at.z, 0.22, 0xb06a1f, 0.9));
+      ], 0xf0902a, 0.95));
+    }
+
+    // AND WHICH SECTION THE NEXT CLICK PAINTS. Two lines either side of that
+    // stretch of the wall's centreline and a bar at each end, so the author can
+    // see the five unit square they are about to change before they change it.
+    if (wallHover && wallHover.length > 1) {
+      const off = (p, s2) => [p.x - p.dz * s2, p.z + p.dx * s2];
+      overlay.add(lineOf(wallHover.map((p) => off(p, 0.75)), 0xf0902a, 0.95));
+      overlay.add(lineOf(wallHover.map((p) => off(p, -0.75)), 0xf0902a, 0.95));
+      for (const end of [wallHover[0], wallHover[wallHover.length - 1]]) {
+        overlay.add(lineOf([off(end, 0.75), off(end, -0.75)], 0xf0902a, 0.95));
+      }
     }
 
     for (const g of d.gates) {

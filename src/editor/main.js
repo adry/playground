@@ -73,14 +73,15 @@ import { MATERIALS as GROUND_COLOURS } from '../game/level/groundcover.js';
 import {
   emptyLevel, normalizeLevel, serializeLevel, createLevelWorld, renumberGraves,
   packPaint, unpackPaint, GROUND_MATERIALS, LEVEL_FORMAT,
-  WALL_VARIANTS, WALL_JOINTS, MAX_STYLES, MAX_WALL_CHANGES,
-  wallLength, wallDistanceTo, SESSION_KEY, SESSION_LEVEL,
+  WALL_VARIANTS, WALL_JOINTS, MAX_STYLES, WALL_SECTION,
+  wallDistanceTo, wallPointAt, wallSections, wallSectionCount, setWallSections,
+  SESSION_KEY, SESSION_LEVEL,
 } from '../game/level/format.js';
 import {
   validateLevel, reviewLevel, placementCheck, placementProps,
 } from '../game/level/validate.js';
 import { checkFairness, FAIR_MESSAGES } from '../game/level/fairness.js';
-import { PALETTE, PERSONALITIES, levelFootprint } from '../game/level/catalogue.js';
+import { PALETTE, levelFootprint } from '../game/level/catalogue.js';
 import { LEVEL_SIZE } from '../game/world/field.js';
 
 const AUTOSAVE = 'graveyard-editor/doc/v1';
@@ -256,6 +257,13 @@ function overlayOpts(extra = {}) {
     hover,
     brush: tool === 'paint' && hover ? { ...hover, r: brush.radius } : null,
     ghost: hover ? previewAt(snapped(hover.x), snapped(hover.z)) : null,
+    // WHICH SECTION OF WALL THE NEXT CLICK PAINTS. Without it an author is
+    // clicking a hundred and twenty units of wall and guessing where the five
+    // unit boundaries fall.
+    wallHover: tool === 'wall' && hover && wallSectionAt(hover.x, hover.z)
+      ? wallSectionOutline(wallSectionAt(hover.x, hover.z).i)
+      : null,
+    wallMarks: doc.wall.styles.map((st) => wallPointAt(doc.wall.points, st.at)),
     gizmo: gizmoNow(),
     ...extra,
   };
@@ -520,54 +528,75 @@ function toggleGate(x, z) {
   return true;
 }
 
-// THE WALL, PIECE BY PIECE. A click on the perimeter changes what it is built
-// of from that point on; a click on a change takes it out again. It is the gate
-// tool wearing a different hat, and deliberately so: a style change is written
-// at a DISTANCE ALONG THE RUN, which is the same coordinate a gate is written
-// in, so the two are the same gesture and the same arithmetic.
+// THE WALL IS BUILT IN SECTIONS, and a section is one large square of the
+// floor's own grid: five units, six to a side, twenty four round a 30 by 30
+// arena. Click a section, it is made of the stone you picked. That is the whole
+// of the tool and it needs no explanation, which is the point of it.
 //
-// The budget it can run out of is not the number of changes -- there is no
-// useful limit on those -- but the number of STONES, because the geometry
-// carries a style index per vertex and wall.js holds MAX_STYLES builds. Ashlar
-// to brick and back is two changes and two stones; a fourth stone is the last
-// one that fits.
-function wallStones(extra) {
-  const out = new Set([doc.wall.variant]);
-  for (const st of doc.wall.styles) {
-    out.add(st.variant);
-    if (st.jointVariant) out.add(st.jointVariant);
-  }
-  if (extra) for (const v of extra) if (v) out.add(v);
+// What it replaced was a distance model: a change of stone written at "34 units
+// along the run, anticlockwise from the first corner", with a number box, an
+// add button and a paragraph explaining that a change holds until the next one.
+// It was exact, it matched the file, and nobody who had not read the file could
+// use it. The FILE still stores changes at distances -- see setWallSections --
+// because that is what wall.js takes and it is the run length encoding of the
+// sections anyway.
+//
+// THE LIMIT THAT BITES. wall.js carries at most MAX_STYLES distinct stones,
+// because the geometry holds a style index per vertex, and with twenty four
+// sections an author reaches for a fifth long before they have run out of wall.
+// So it is shown at the point of use: a stone that would be the fifth is
+// offered greyed out with the reason on it, rather than failing at the click or
+// throwing at save.
+function wallStones(sections = wallSections(doc.wall), extra = null) {
+  const out = new Set(sections);
+  if (extra) out.add(extra);
   return out;
 }
 
-function toggleWallStyle(x, z) {
+// Which section of the wall a point on the floor is nearest to, and how far
+// away it is. Null when the pointer is nowhere near the perimeter.
+function wallSectionAt(x, z) {
   const near = wallDistanceTo(doc.wall.points, x, z);
-  if (near.away > 2.2) { say('click on the perimeter wall to change what it is built of from there on'); return false; }
-  // Within a bay of an existing change is that change, so the same click takes
-  // it away. 1.6 is a little under the pier spacing, so two changes can still
-  // sit at neighbouring piers.
-  const hit = doc.wall.styles.findIndex((st) => Math.abs(st.at - near.at) < 1.6);
-  if (hit >= 0) {
-    doc.wall.styles.splice(hit, 1);
-    say('took that change of stone out');
-    return true;
+  if (near.away > 2.6) return null;
+  const n = wallSectionCount(doc.wall.points);
+  const i = Math.min(n - 1, Math.max(0, Math.floor(near.at / WALL_SECTION)));
+  return { i, n, away: near.away };
+}
+
+// The section drawn on the floor: the centreline of that stretch of wall,
+// sampled rather than assumed straight, so a section that crossed a corner
+// would still draw as the wall goes. On a square arena none does, because a
+// side is exactly six sections.
+function wallSectionOutline(i) {
+  const pts = [];
+  for (let d = 0; d <= WALL_SECTION + 1e-6; d += 0.5) {
+    const at = wallPointAt(doc.wall.points, i * WALL_SECTION + d);
+    pts.push(at);
   }
-  if (doc.wall.styles.length >= MAX_WALL_CHANGES) {
-    say(`a wall carries at most ${MAX_WALL_CHANGES} changes of stone`);
+  return pts;
+}
+
+// Would this stone fit, if that section were made of it?
+function stoneFits(i, stone) {
+  const sections = wallSections(doc.wall);
+  sections[i] = stone;
+  return wallStones(sections).size <= MAX_STYLES;
+}
+
+function paintWallSection(x, z) {
+  const hit = wallSectionAt(x, z);
+  if (!hit) { say('click a section of the perimeter wall to change what it is built of'); return false; }
+  const sections = wallSections(doc.wall);
+  if (sections[hit.i] === wallPick.variant) {
+    say(`that section is already ${wallPick.variant}`);
     return false;
   }
-  const stones = wallStones([wallPick.variant]);
-  if (stones.size > MAX_STYLES) {
-    say(`a wall is built of at most ${MAX_STYLES} stones and it already has ${[...wallStones()].join(', ')}. Change one of those first, or pick a stone it already uses.`);
+  if (!stoneFits(hit.i, wallPick.variant)) {
+    say(`a wall can be built of ${MAX_STYLES} stones at once and this one already uses ${[...wallStones()].join(', ')}`);
     return false;
   }
-  doc.wall.styles.push({
-    at: Math.round(near.at * 2) / 2,
-    variant: wallPick.variant,
-    joint: wallPick.joint,
-  });
-  doc.wall.styles.sort((a, b) => a.at - b.at);
+  sections[hit.i] = wallPick.variant;
+  setWallSections(doc.wall, sections, wallPick.joint);
   return true;
 }
 
@@ -688,7 +717,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (tool === 'place') { commitIf(() => placeAt(snapped(at.x), snapped(at.z))); return; }
   
   if (tool === 'gate') { commitIf(() => toggleGate(at.x, at.z)); return; }
-  if (tool === 'wall') { commitIf(() => toggleWallStyle(at.x, at.z)); return; }
+  if (tool === 'wall') { commitIf(() => paintWallSection(at.x, at.z)); return; }
 
   if (tool === 'fence') {
     commit(() => {
@@ -741,7 +770,7 @@ canvas.addEventListener('pointermove', (e) => {
     // changed, so nothing is rebuilt and nothing is revalidated -- the
     // placement check is a millisecond and a half against the world that is
     // already built, which is what makes it affordable per pointer move.
-    if (world && (tool === 'paint' || tool === 'place')) {
+    if (world && (tool === 'paint' || tool === 'place' || tool === 'wall')) {
       scene.overlayOnly(world, doc, overlayOpts({ wedges: review.stale ? [] : review.wedges }));
     }
     return;
@@ -1013,7 +1042,7 @@ function saveFile({ anyway = false } = {}) {
   // the URL it will have is knowable too, and printing `<url>` for the reader
   // to work out was the tool being coy about the one fact it had.
   const link = `/lab/?game=1&level=/levels/${a.download}`;
-  say(`saved ${a.download}. Put it in public/levels/ and it plays at ${link}. The play button needs none of that.`);
+  say(`saved ${a.download}. Play needs none of this; a saved file is how a level is kept, and once it is in public/levels/ it plays at ${link}`);
 }
 
 async function openFile(file) {
@@ -1131,15 +1160,15 @@ function placeGroups() {
       items: [
         {
           tool: 'fence', label: 'fence run', key: 'F',
-          title: 'Click a corner at a time. Enter finishes the run, c closes it into a pen. A pen gets a gate put in it, because a pen with no way in is a pocket.',
+          title: 'Click a corner at a time; enter finishes the run and c closes it into a pen. A closed pen always gets a gate, because one with no way in is somewhere the player can hide.',
         },
         {
           tool: 'gate', label: 'gate', key: 'G',
-          title: 'Click on a fence to cut a gate into it, and on a gate to take it out again. A gate is a hole in the run, so it lives on the run and cannot be dragged away from it.',
+          title: 'Click a fence to cut a gateway into it, and click a gateway to close it up again. A gateway belongs to its fence, so it moves when the fence does.',
         },
         {
-          tool: 'wall', label: 'change of stone', key: 'W',
-          title: 'Click on the perimeter wall to change what it is built of from that point on, and on a change to take it out. The stone and the joint are the two selects under WALL on the right.',
+          tool: 'wall', label: 'wall stone', key: 'W',
+          title: 'Click a section of the perimeter wall to change what it is built of. A section is one large square of the floor grid, five units across.',
         },
       ],
     },
@@ -1605,7 +1634,7 @@ function drawRight() {
             selection.clear();
             pending = null;
           });
-          say('an empty arena. Place a spawn with S, then build outward from it.');
+          say('an empty arena. Pick something out of the list on the left and click the floor.');
         } }),
       ]),
     ], {
@@ -1613,50 +1642,40 @@ function drawRight() {
     }),
 
     card('wall', 'wall', [
+      // ONE STONE PICKER, not two. There used to be a "starts in" and a "stamp"
+      // side by side and no way to tell which was which; with sections there is
+      // only one question, which is what the next click paints.
+      el('p', { class: 'note', text: 'pick the wall stone tool, then click a section of the wall' }),
       el('div', { class: 'row' }, [
-        el('label', { text: 'built of' }),
-        segment(WALL_VARIANTS, doc.wall.variant, (v) => commit(() => { doc.wall.variant = v; })),
-      ]),
-      // WHAT THE WALL TOOL STAMPS. Two rows and then clicks on the wall itself,
-      // which is how a wall gets built piece by piece: drawing a whole boundary
-      // in four clicks is still there and is still the right way to start, and
-      // this is the way to work along it afterwards.
-      // TWO STONES ON SCREEN AT ONCE, and until these were labelled it was not
-      // possible to tell which was which: one is what the wall is made of and
-      // one is what the next click will change it to.
-      el('p', { class: 'note', text: 'change of stone tool, then click the wall:' }),
-      el('div', { class: 'row' }, [
-        el('label', { text: 'change to' }),
-        segment(WALL_VARIANTS, wallPick.variant, (v) => { wallPick.variant = v; setTool('wall'); }),
+        el('label', { text: 'make it' }),
+        el('div', { class: 'seg' }, WALL_VARIANTS.map((v) => {
+          // A FIFTH STONE IS OFFERED GREYED OUT WITH THE REASON ON IT. The wall
+          // carries four at once and an author with twenty four sections will
+          // reach for a fifth; finding that out at the click, or at the save,
+          // would be the tool keeping a rule to itself.
+          const fits = stones.includes(v) || stones.length < MAX_STYLES;
+          return el('button', {
+            text: v,
+            disabled: fits ? null : '',
+            title: fits ? `click a section to make it ${v}`
+              : `the wall already uses ${stones.join(', ')}, and it can carry ${MAX_STYLES} stones at once`,
+            'aria-pressed': String(wallPick.variant === v),
+            onclick: () => { wallPick.variant = v; setTool('wall'); },
+          });
+        })),
       ]),
       el('div', { class: 'row' }, [
         el('label', { text: 'joined by' }),
-        segment(WALL_JOINTS, wallPick.joint, (v) => { wallPick.joint = v; setTool('wall'); }),
-      ]),
-      ...doc.wall.styles.map(styleRow),
-      el('div', { class: 'row' }, [
-        el('button', {
-          class: 'grow',
-          text: 'add one halfway along',
-          disabled: doc.wall.styles.length >= MAX_WALL_CHANGES ? '' : null,
-          onclick: () => commit(() => {
-            // A sixth of the way on from the last change, which is a place an
-            // author can see rather than a place the arithmetic liked.
-            const len = wallLength(doc.wall.points);
-            const last = doc.wall.styles.length ? doc.wall.styles[doc.wall.styles.length - 1].at : 0;
-            const want = wallStones([wallPick.variant]);
-            doc.wall.styles.push({
-              at: Math.min(len - 0.5, Math.round((last + len / 6) * 2) / 2),
-              variant: want.size <= MAX_STYLES ? wallPick.variant : doc.wall.variant,
-              joint: wallPick.joint,
-            });
-            doc.wall.styles.sort((a, b) => a.at - b.at);
-          }),
-        }),
+        segment(WALL_JOINTS, wallPick.joint, (v) => commit(() => {
+          wallPick.joint = v;
+          // Every boundary at once, because with sections a boundary either has
+          // a joint or it is not a boundary, and one wall wants one answer.
+          setWallSections(doc.wall, wallSections(doc.wall), v);
+        })),
       ]),
     ], {
       count: `${stones.length} of ${MAX_STYLES} stones`,
-      help: `The wall can change what it is built of as it goes round. Pick the change of stone tool in the palette, then click the wall where you want it to change; click a change to take it out again. Each change is written as how far round the wall it is, measured from the first corner anticlockwise, and the wall is ${wallLength(doc.wall.points).toFixed(0)} across all four sides. This one uses ${stones.join(', ')}, and four different stones is all one wall can carry.`,
+      help: `The wall is built in sections, and a section is one large square of the floor: five across, six to a side, ${wallSectionCount(doc.wall.points)} round the whole arena. Click one and it is made of the stone you picked. The joint is how two different stones meet where they touch: a pier standing on the join, the new stone toothed into the old course by course, or a straight step. Four stones at once is all the wall can carry.`,
     }),
 
     card('view', 'view', [
@@ -1754,16 +1773,17 @@ function inspector(id) {
       el('button', { class: 'grow', text: 'face the camera', onclick: () => commit(() => { r.yaw = FACE_YAW; }) }),
     ]));
   }
+  // A GRAVE FROM AN OLDER FILE. Nothing places one any more -- a skeleton
+  // climbs out in front of a headstone now -- so what is offered here is the
+  // two things you might want to do to one that is already there: turn the
+  // heap of earth round, or take the whole plot out.
   if (k === 'grave') {
-    rows.push(el('div', { class: 'row' }, [
-      el('label', { text: 'skeleton' }),
-      segment(PERSONALITIES, r.personality, (v) => commit(() => { r.personality = v; })),
-    ]));
+    rows.push(el('p', { class: 'note', text: 'an open grave from an older level. Skeletons climb out in front of headstones now, so nothing new places these.' }));
     rows.push(el('div', { class: 'row' }, [
       el('button', {
         class: 'grow',
-        text: 'throw the spoil the other way',
-        title: 'Which long side the heap lands on. The wrong side puts it through a fence.',
+        text: 'heap the earth the other side',
+        title: 'Which long side of the hole the spoil lands on. The wrong side puts it through a fence.',
         onclick: () => commit(() => { r.pile = (r.pile || 1) * -1; }),
       }),
     ]));
@@ -1773,75 +1793,15 @@ function inspector(id) {
       toggle('closed pen', r.closed, (v) => commit(() => {
         r.closed = v;
         if (v && !r.gates.length) r.gates.push({ edge: 0, t: 0.5 });
-      }), 'A closed run is a pen, and a pen gets a gate put in it because a pen with no way in is a pocket.'),
+      }), 'A closed run always gets a gateway, because one with no way in is somewhere the player can hide.'),
     ]));
-    rows.push(el('p', { class: 'note', text: `${r.points.length} points, ${r.gates.length} gate${r.gates.length === 1 ? '' : 's'}` }));
+    rows.push(el('p', { class: 'note', text: `${r.points.length} corners, ${r.gates.length} gateway${r.gates.length === 1 ? '' : 's'}` }));
   }
   return el('div', {}, rows);
 }
 
 const round = (v) => Math.round(v * 100) / 100;
 
-// One change of stone along the perimeter. `at` is a distance from the first
-// corner, exactly as a gate's is, so this is the gate placement UI wearing a
-// different hat.
-//
-// Two rows, because a change of stone has two halves and they are different
-// questions. The first is WHERE and TO WHAT: a distance along the run and the
-// variant that holds from there on. The second is HOW THE TWO MEET, which is
-// the joint, and it only ever has three answers: a pier standing on the change,
-// the new material toothed course by course into the old, or a stepped break
-// with the new build proud of the old.
-//
-// The joint's OWN stone is offered only for a pier, because that is the only
-// joint that has one: wall.js reads jointVariant on a pier and nowhere else, a
-// tooth is by definition the two materials interlocking, and a step is a face
-// of the new build. Its default is not a variant but a sentence -- the older of
-// the two -- which is what a real buttress the new work was laid up to would
-// be, so the empty option says so rather than repeating a stone name.
-function styleRow(st, i) {
-  const len = wallLength(doc.wall.points);
-  const rows = [el('div', { class: 'row' }, [
-    el('label', { text: `at` }),
-    number(st.at, 0, Math.round(len), 0.5, (v) => commit(() => {
-      // Not zero. createWall drops a change at zero -- from there on IS the
-      // base variant -- so an author who typed 0 would watch the row do
-      // nothing at all. Half a unit in is the nearest thing that means it.
-      st.at = Math.max(0.5, Math.min(len, v));
-      doc.wall.styles.sort((a, b) => a.at - b.at);
-    })),
-    el('button', { text: '×', title: 'take this change out', onclick: () => commit(() => {
-      doc.wall.styles.splice(i, 1);
-    }) }),
-  ])];
-  rows.push(el('div', { class: 'row' }, [
-    segment(WALL_VARIANTS, st.variant, (v) => commit(() => { st.variant = v; })),
-  ]));
-  rows.push(el('div', { class: 'row' }, [
-    segment(WALL_JOINTS, st.joint, (v) => commit(() => {
-      st.joint = v;
-      if (v !== 'pier') delete st.jointVariant;
-    })),
-  ]));
-  if (st.joint === 'pier') {
-    // FIVE OPTIONS IS WHERE A SEGMENTED CONTROL GIVES UP. Four stones plus "the
-    // older of the two" does not fit on a 290px panel without truncating every
-    // label to three letters, and a control whose labels read "ol... as... ru..."
-    // is worse than the dropdown it replaced. This is the one place in the tool
-    // a select survives, which is exactly the rule the stylesheet states.
-    rows.push(el('div', { class: 'row' }, [
-      el('label', { text: 'the pier' }),
-      select(['the older stone', ...WALL_VARIANTS], st.jointVariant || 'the older stone', (v) => commit(() => {
-        if (v === 'the older stone') delete st.jointVariant;
-        else st.jointVariant = v;
-      })),
-    ]));
-  }
-  return el('div', { class: 'style' }, rows);
-}
-
-// audit.js's full rule set plus the wedge pass. A wedge is clickable: it flies
-// the camera to the pocket, which is the only way to see one at all.
 // NO RULE IDENTIFIERS ANYWHERE THE OWNER CAN SEE THEM. `overlap`, `gateless`
 // and `F3safeSpot` are what the code calls its rules, and printing one in front
 // of a sentence that already says what is wrong adds nothing to a reader who
@@ -1907,23 +1867,31 @@ function pickFile() {
   input.click();
 }
 
+// WHAT IS IN THE LEVEL, AND WHETHER IT CAN BE PLAYED. Two lines, and every
+// number in them is one somebody would act on.
+//
+// What used to be here and is not any more: "0/4 floor cuts", which is our word
+// for how many grave holes the floor shader is carrying and is a fact about the
+// renderer rather than about the level; "N spawns", from when an author placed
+// them; and "geometry ok", which said that one of three checks had passed while
+// the other two were still running and read as a verdict on all of them. A
+// status that is always the same, or that nobody can act on, is a line of
+// permanent furniture.
 function drawStatus() {
-  const s = scene.stats();
   const errors = report ? report.errors.length : 0;
   const unfair = fair.fail.length;
+  const flies = world ? world.fireflies().length : 0;
+  const apart = world ? world._derived.flies.spacing.toFixed(0) : 0;
+  const checking = review.stale || fair.stale;
+  const wrong = errors + (review.stale ? 0 : review.errors.length) + unfair;
   statusEl.innerHTML = [
-    `<b>${doc.props.length}</b> props · <b>${doc.graves.length}</b> spawns · `
-      + `<b>${world ? world.fireflies().length : 0}</b> fireflies (auto, `
-      + `${world ? world._derived.flies.spacing.toFixed(0) : 0} apart)`,
-    `${s.cuts}/${s.max} floor cuts · ${world ? world._derived.gates.length : 0} gates`,
-    errors ? `<span class="bad">${errors} error${errors === 1 ? '' : 's'}</span>` : 'geometry ok',
-    review.stale ? 'checking...' : (review.errors.length || review.wedges.length)
-      ? `<span class="bad">${review.errors.length} to fix${review.wedges.length ? `, ${review.wedges.length} of them a place the player could hide` : ''}</span>`
-      : 'checks clean',
-    fair.stale ? 'fairness: checking' : unfair
-      ? `<span class="bad">${unfair} unfair thing${unfair === 1 ? '' : 's'}, listed on the right</span>`
-      : 'fair: nowhere to hide, nothing out of reach',
-    message ? `<span>${escapeHtml(message)}</span>` : '',
+    `<b>${doc.props.length}</b> things · <b>${world ? world._derived.gates.length : 0}</b> gates · `
+      + `<b>${flies}</b> fireflies, ${apart} apart`,
+    checking ? 'checking whether it can be played...'
+      : wrong
+        ? `<span class="bad">${wrong} thing${wrong === 1 ? '' : 's'} to fix before it can be played</span>`
+        : '<span class="ok">ready to play</span>',
+    message ? `<span class="say">${escapeHtml(message)}</span>` : '',
   ].filter(Boolean).join('<br>');
 }
 

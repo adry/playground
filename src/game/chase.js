@@ -80,14 +80,28 @@
 // as being caught. Nothing in here is dead: what is left is what runs.
 //
 // ---------------------------------------------------------------------------
-// AND WHERE THEY COME OUT OF
+// WHERE THEY COME OUT OF, AND WHO DECIDES
 // ---------------------------------------------------------------------------
 //
 // The pen is gone. A skeleton used to come up out of one of four graves the
-// level placed by hand; it now comes up in front of any HEADSTONE in the yard,
-// picked at random from the ones the world says are usable. See
-// world/spawn.js for what makes one usable, and pickSpawn below for how the
-// pick is made and why it is random rather than nearest.
+// level placed by hand; it now comes up in front of any HEADSTONE in the yard.
+// See world/spawn.js for what makes a headstone usable.
+//
+// AND THE HERD NO LONGER DECIDES WHEN. The owner's rule is that a skeleton
+// comes out because the PLAYER WALKED PAST A STONE, which is a fact about the
+// player and not about the herd, so the decision belongs to rules.js and this
+// file only carries it out. What is here is the mechanism:
+//
+//   dormant   off the board entirely. Not stepped, not drawn, not solid.
+//   wake(s, home)   put it in front of that marker and start the climb
+//   retire(s)       sink where it stands and go back to dormant
+//
+// A skeleton used to cycle buried -> emerging -> hunting -> sinking -> buried
+// on its own timer, four of them for ever. There is no timer now and no
+// automatic return: something above this file asks for each of those
+// transitions. `pickSpawn` survives because the herd still has to choose a
+// marker when the caller has not named one, which is the "at least one active
+// at all times" floor and the leash.
 
 export const EMERGE_TIME = 3.4;   // what perform.js's climb actually takes
 
@@ -258,8 +272,11 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
     list.push({
       id: i,
       name: PERSONALITIES[i % PERSONALITIES.length],
-      state: 'buried',
+      state: 'dormant',
       timer: 0,
+      // Seconds this one has been above ground on its current outing, which is
+      // what rules.js retires it on.
+      upFor: 0,
       x: 0, z: 0,
       // The headstone this one is currently coming out of, re-chosen every time
       // it goes underground. `yaw` is the way the marker faces, which is the
@@ -376,28 +393,54 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
     return { x: fixed.x, z: fixed.z, yaw: a + Math.PI, id: null };
   }
 
-  function reset(ghost) {
-    const taken = [];
+  // Everything goes away. There is no stagger any more and nothing starts a
+  // climb here: an empty yard is the correct opening state, and rules.js's
+  // "at least one active" floor puts the first skeleton up on the first frame.
+  function reset() {
     usedAt.clear();
     for (const s of list) {
-      s.state = 'buried';
-      s.timer = s.id * EXIT_STAGGER;
-      s.home = pickSpawn(ghost, taken);
-      taken.push(s.home);
-      s.x = s.home.x;
-      s.z = s.home.z;
+      s.state = 'dormant';
+      s.timer = 0;
+      s.upFor = 0;
+      s.home = { x: 0, z: 0, yaw: 0, id: null };
+      s.x = 0;
+      s.z = 0;
       s.hx = 0; s.hz = -1;
       s.legLeft = 0;
       s.committed = null;
       s.speed = 0;
       s.wantReverse = false;
+      s.gaveUp = false;
     }
   }
 
-  // How long after a reset each one starts its climb. The climb takes 3.4 s, so
-  // a 1.2 s stagger means the player gets them one at a time rather than as a
-  // wall, which is the same reason it existed before.
-  const EXIT_STAGGER = 1.2;
+  // PUT ONE UP, in front of a named marker or, with none named, in front of
+  // whatever pickSpawn likes. `home` is a spawn record from world.spawns().
+  function wake(s, home, ghost) {
+    const at = home || pickSpawn(ghost, list.filter((o) => o !== s && o.state !== 'dormant').map((o) => o.home));
+    s.home = { x: at.x, z: at.z, yaw: at.yaw || 0, id: at.id ?? null };
+    if (at.id != null) usedAt.set(at.id, clock);
+    s.x = s.home.x;
+    s.z = s.home.z;
+    s.state = 'emerging';
+    s.timer = EMERGE_TIME;
+    s.upFor = 0;
+    s.legLeft = 0;
+    s.committed = null;
+    s.speed = 0;
+    s.wantReverse = false;
+    s.gaveUp = false;
+    return s;
+  }
+
+  // AND TAKE ONE AWAY. It sinks where it stands, which reads as giving up, and
+  // then it is gone rather than waiting underground for its turn.
+  function retire(s, gaveUp = false) {
+    if (s.state === 'dormant' || s.state === 'sinking') return;
+    s.state = 'sinking';
+    s.timer = 0.45;
+    s.gaveUp = gaveUp;
+  }
 
   // --- the target functions, unchanged ---------------------------------------
   function targetOf(s, ctx) {
@@ -577,17 +620,7 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
     clock += dt / list.length;      // one shared clock, advanced once per frame
     s.speed = speedOf(s, ctx);
     switch (s.state) {
-      case 'buried':
-        s.timer -= dt;
-        if (s.timer <= 0) {
-          // Re-home NOW, at the last possible moment, so the ground opens where
-          // the player is rather than where they were when it closed.
-          s.home = pickSpawn(ctx.ghost, list.filter((o) => o !== s && o.state === 'emerging').map((o) => o.home));
-          s.x = s.home.x;
-          s.z = s.home.z;
-          s.state = 'emerging';
-          s.timer = EMERGE_TIME;
-        }
+      case 'dormant':
         return;
       case 'emerging':
         s.timer -= dt;
@@ -605,21 +638,22 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
         }
         return;
       case 'sinking':
-        // The straight drop back into the hole, the only time a skeleton is
-        // somewhere the chase rules do not apply.
+        // The straight drop back into the ground, the only time a skeleton is
+        // somewhere the chase rules do not apply. It ends DORMANT: nothing
+        // brings it back but rules.js asking for it.
         s.timer -= dt;
-        if (s.timer <= 0) { s.state = 'buried'; s.timer = 0.25; s.gaveUp = false; }
+        if (s.timer <= 0) { s.state = 'dormant'; s.timer = 0; s.gaveUp = false; }
         return;
       default:
         break;
     }
 
+    s.upFor += dt;
+
     // The leash. Checked before anything moves, so a skeleton that has fallen
     // behind never takes a step against geometry that was not loaded.
     if (Math.hypot(s.x - ctx.ghost.x, s.z - ctx.ghost.z) > leashOf()) {
-      s.state = 'sinking';
-      s.timer = 0.45;
-      s.gaveUp = true;
+      retire(s, true);
       return;
     }
 
@@ -679,9 +713,7 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       // broken and this is hiding it.
       if (s.wedged > 5) {
         s.wedged = 0;
-        s.state = 'sinking';
-        s.timer = 0.45;
-        s.gaveUp = true;
+        retire(s, true);
         return;
       }
     }
@@ -690,6 +722,10 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
   return {
     list,
     reset,
+    wake,
+    retire,
+    pickSpawn,
+    active: (s) => s.state !== 'dormant',
     setScatter,
     step(dt, ctx) { for (const s of list) stepOne(s, dt, ctx); },
     // Every skeleton above ground turns round. Called on a mode flip and on the
@@ -703,6 +739,9 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       }
     },
     isSolid: (s) => s.state === 'hunting',
+    // Everything above ground or on its way there, which is the number
+    // rules.js's population cap is about.
+    liveCount: () => list.reduce((n, s) => n + (s.state === 'dormant' ? 0 : 1), 0),
     C,
   };
 }

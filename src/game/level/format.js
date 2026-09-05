@@ -249,6 +249,71 @@ export function wallLength(points) {
   return total;
 }
 
+// ============================================================================
+// THE WALL IS BUILT IN SECTIONS
+// ============================================================================
+//
+// A SECTION IS FIVE UNITS: one large square of the floor's own grid, the one
+// with five by five small squares in it. The owner asked for the wall's stone
+// to be chosen per section and the arithmetic could not be tidier:
+//
+//   the perimeter of a 30 by 30 arena is 120, which is 24 sections exactly
+//   a side is 30, which is 6 sections, so no section straddles a corner
+//   WALL.pier.spacing is already 5, so a section boundary is where a pier
+//     already stands -- the wall was built in five unit bays before anyone
+//     asked for this
+//
+// WHAT THE FILE STORES IS STILL `styles`, and that is deliberate. A section
+// list of 24 entries is what the INTERFACE wants; a list of changes is what
+// wall.js takes and is what a gate is written in, and it is the run length
+// encoding of the section list, so the two are the same information. Six
+// sections of ashlar then eighteen of brick is one change, not eighteen.
+//
+// So these two functions are the whole mapping, and nothing outside them knows
+// both representations.
+export const WALL_SECTION = 5;
+
+export function wallSectionCount(points) {
+  return Math.max(1, Math.round(wallLength(points) / WALL_SECTION));
+}
+
+// What each section is built of, unrolled from the changes.
+export function wallSections(wall) {
+  const n = wallSectionCount(wall.points);
+  const out = new Array(n);
+  const changes = [...(wall.styles || [])].sort((a, b) => a.at - b.at);
+  let stone = wall.variant;
+  let next = 0;
+  for (let i = 0; i < n; i++) {
+    const at = i * WALL_SECTION;
+    // A change lands ON a boundary; one written between two boundaries by hand
+    // takes effect at the section it falls in, which is the only reading of it
+    // that keeps a hand-edited file meaning what it says.
+    while (next < changes.length && changes[next].at <= at + 1e-6) {
+      stone = changes[next].variant;
+      next += 1;
+    }
+    out[i] = stone;
+  }
+  return out;
+}
+
+// And back: the shortest list of changes that produces these sections. The
+// joint is the one the author has chosen and it is written on every boundary,
+// because with sections a boundary either has a joint or it is not a boundary.
+// A jointVariant written by hand is not preserved through this; it has no
+// control in the tool and it is documented above for a file somebody edits.
+export function setWallSections(wall, sections, joint = 'pier') {
+  wall.variant = sections[0];
+  const styles = [];
+  for (let i = 1; i < sections.length; i++) {
+    if (sections[i] === sections[i - 1]) continue;
+    styles.push({ at: i * WALL_SECTION, variant: sections[i], joint });
+  }
+  wall.styles = styles;
+  return wall;
+}
+
 // A point on the wall's centreline at a distance from points[0], and the
 // direction the run is going there. This is the inverse of the coordinate every
 // style change and every gate is written in, so it is what turns "a change at

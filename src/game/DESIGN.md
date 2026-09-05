@@ -68,8 +68,8 @@ spoil heap 1.9 units from the hole it came out of.
 
 The planting publishes one row per variant rather than one for the prop,
 because the bush is four shapes now and their heights differ by two thirds:
-`ball` 0.476 radius and 0.775 tall, `cone` 0.405 and 1.271, `box` 0.459 by
-0.445 and 0.830, `wild` 0.576 and 0.760. Rule 5 is written against height, so
+`ball` 0.482 radius and 0.775 tall, `cone` 0.405 and 1.270, `box` 0.450 by
+0.436 and 0.809, `wild` 0.576 and 0.760. Rule 5 is written against height, so
 a single row would have to publish the cone's for all four and would then
 refuse the ball a spot it fits in perfectly well. The generator places the
 ball; the other three are the editor's to place.
