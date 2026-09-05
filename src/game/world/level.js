@@ -25,6 +25,7 @@ import { levelBox, createField, rngAt, SPAWN_CLEAR, WALL_HALF } from './field.js
 import { levelFences, makeWall, PANEL } from './fence.js';
 import { createPlacer } from './placer.js';
 import { placeGraves, furnishPen, pathLanterns, openSites } from './sites.js';
+import { repairLevel, discClear, NAV_R } from './repair.js';
 
 // The body the rules half moves, and what it needs to get past a barrier.
 export const BODY = 0.60;
@@ -55,7 +56,12 @@ export function buildLevel({ seed = 1, size = 30 } = {}) {
   pathLanterns({ field, placer, box });
   openSites({ field, placer, box, spawn });
 
-  const cut = unpartitionPens({ field, placer, runs, box });
+  // EVERYTHING placed, and now the pass that decides whether the level can be
+  // played rather than whether it looks right. See repair.js: a row of
+  // headstones is a wall as far as anything that walks is concerned, and the
+  // only way to know whether one has closed a passage is to look at the
+  // finished level.
+  const fix = repairLevel({ box, barriers, gates, graves, spawn, placer });
 
   const props = placer.props.map((p, i) => ({
     id: `p${i}`,
@@ -72,125 +78,21 @@ export function buildLevel({ seed = 1, size = 30 } = {}) {
     barriers,
     props,
     graves,
-    stats: { ...placer.rejects, penPropsCut: cut, pens: runs.filter((r) => r.kind === 'pen').length, divider: runs.some((r) => r.kind === 'divider') },
+    walk: fix,
+    stats: {
+      ...placer.rejects,
+      repaired: fix.report.removed, repairRounds: fix.report.rounds,
+      pockets: fix.report.pockets, stuck: fix.report.stuck,
+      pens: runs.filter((r) => r.kind === 'pen').length,
+      divider: runs.some((r) => r.kind === 'divider'),
+    },
   };
 }
 
-// --- keeping a pen in one piece ------------------------------------------------
-//
-// A pen is fair when a body of radius 0.60 that cannot jump can reach every
-// part of the inside from outside the gate. Rasterised at a fifth of a unit,
-// which is fine enough that the narrowest legal passage survives it: a 2.0
-// opening leaves the centre of the body 0.32 either side of the centreline, and
-// a half unit grid can miss that entirely while a fifth cannot.
-function unpartitionPens({ field, placer, runs, box }) {
-  let cut = 0;
-  for (const run of runs) {
-    if (!run.interior) continue;
-    for (let attempt = 0; attempt < 12; attempt++) {
-      const bad = penPockets({ field, props: placer.props, run, box });
-      if (!bad) break;
-      // The last prop placed inside this interior is the one to take out: it is
-      // the one that closed the gap, and dropping the newest keeps the
-      // arrangement the composition intended as far as it can.
-      const inside = placer.props.filter((p) => insideInterior(run.interior, p));
-      if (!inside.length) break;
-      placer.drop([inside[inside.length - 1]]);
-      cut++;
-    }
-  }
-  return cut;
-}
-
-function insideInterior(inner, p) {
-  return Math.abs(p.u - inner.u) <= inner.halfU + 0.6 && Math.abs(p.v - inner.v) <= inner.halfV + 0.6;
-}
-
-// True when some part of the inside admits the body but cannot be walked to.
-function penPockets({ field, props, run, box }) {
-  const cell = 0.2;
-  const pad = 4;
-  const x0 = run.box.minX - pad;
-  const z0 = run.box.minZ - pad;
-  const nx = Math.ceil((run.box.maxX - run.box.minX + 2 * pad) / cell);
-  const nz = Math.ceil((run.box.maxZ - run.box.minZ + 2 * pad) / cell);
-  const open = new Uint8Array(nx * nz).fill(1);
-
-  const blockSeg = (s, reach) => {
-    const a0 = Math.max(0, Math.floor((Math.min(s.x0, s.x1) - reach - x0) / cell));
-    const a1 = Math.min(nx - 1, Math.ceil((Math.max(s.x0, s.x1) + reach - x0) / cell));
-    const b0 = Math.max(0, Math.floor((Math.min(s.z0, s.z1) - reach - z0) / cell));
-    const b1 = Math.min(nz - 1, Math.ceil((Math.max(s.z0, s.z1) + reach - z0) / cell));
-    for (let b = b0; b <= b1; b++) {
-      for (let a = a0; a <= a1; a++) {
-        if (!open[b * nx + a]) continue;
-        if (pointSeg(x0 + (a + 0.5) * cell, z0 + (b + 0.5) * cell, s) < reach) open[b * nx + a] = 0;
-      }
-    }
-  };
-  for (const s of run.segments) blockSeg(s, BODY + s.half);
-  for (const p of props) {
-    if (!p.solid) continue;
-    if (p.x < x0 - 2 || p.x > x0 + nx * cell + 2 || p.z < z0 - 2 || p.z > z0 + nz * cell + 2) continue;
-    const r = BODY + p.radius;
-    const a0 = Math.max(0, Math.floor((p.x - r - x0) / cell));
-    const a1 = Math.min(nx - 1, Math.ceil((p.x + r - x0) / cell));
-    const b0 = Math.max(0, Math.floor((p.z - r - z0) / cell));
-    const b1 = Math.min(nz - 1, Math.ceil((p.z + r - z0) / cell));
-    for (let b = b0; b <= b1; b++) {
-      for (let a = a0; a <= a1; a++) {
-        if (!open[b * nx + a]) continue;
-        if (Math.hypot(x0 + (a + 0.5) * cell - p.x, z0 + (b + 0.5) * cell - p.z) < r) open[b * nx + a] = 0;
-      }
-    }
-  }
-
-  // Flood from OUTSIDE the pen, so the only way in is through the gate. That
-  // makes the test say what it is meant to say: can something that walks get
-  // from the rest of the level to every part of the inside.
-  let start = -1;
-  for (let a = 0; a < nx && start < 0; a++) if (open[a]) start = a;
-  if (start < 0) return false;
-  const seen = new Uint8Array(nx * nz);
-  const stack = [start];
-  seen[start] = 1;
-  while (stack.length) {
-    const i = stack.pop();
-    const a = i % nx;
-    const b = (i - a) / nx;
-    for (const [da, db] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-      const na = a + da;
-      const nb = b + db;
-      if (na < 0 || nb < 0 || na >= nx || nb >= nz) continue;
-      const j = nb * nx + na;
-      if (seen[j] || !open[j]) continue;
-      seen[j] = 1;
-      stack.push(j);
-    }
-  }
-
-  const inner = run.interior;
-  for (let b = 0; b < nz; b++) {
-    for (let a = 0; a < nx; a++) {
-      const i = b * nx + a;
-      if (!open[i] || seen[i]) continue;
-      const x = x0 + (a + 0.5) * cell;
-      const z = z0 + (b + 0.5) * cell;
-      if (x < box.minX || x > box.maxX || z < box.minZ || z > box.maxZ) continue;
-      const g = field.frame.toGrid(x, z);
-      if (Math.abs(g.u - inner.u) <= inner.halfU && Math.abs(g.v - inner.v) <= inner.halfV) return true;
-    }
-  }
-  return false;
-}
-
-function pointSeg(px, pz, s) {
-  const ex = s.x1 - s.x0;
-  const ez = s.z1 - s.z0;
-  const l2 = ex * ex + ez * ez || 1;
-  const t = Math.max(0, Math.min(1, ((px - s.x0) * ex + (pz - s.z0) * ez) / l2));
-  return Math.hypot(px - (s.x0 + ex * t), pz - (s.z0 + ez * t));
-}
+// A prop that is not solid does not stop a body: a hole is a hole and a spoil
+// heap is a mound you walk over. Everything else in the arena is something a
+// skeleton goes round, which is why repair.js exists.
+export { discClear, NAV_R };
 
 export { PANEL, SPAWN_CLEAR, WALL_HALF };
 export default buildLevel;

@@ -449,12 +449,10 @@ export function createNav(world, { window: win = WINDOW } = {}) {
   //   blocked[i]  a disc of radius r does not fit at the cell centre
   //   wall[i]     8 bytes, one per neighbour, set if that step is impossible
   //   fence[i]    the subset of those that are impossible because of a FENCE
-  //   jump[i]     4 entries, one per axis: the cell a VAULT from here arrives
-  //               at, or -1. Everything the asymmetry means, in one table.
+  //   jump        a Map from cell to the cells a VAULT from it arrives at.
+  //               Everything the asymmetry means, in one table, and derived
+  //               from the geometry rather than from the raster: see below.
   const DIR8 = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
-  // The four axis directions, as indices into DIR8, in the order the jump table
-  // uses: +x, +z, -x, -z.
-  const AXIS = [0, 2, 4, 6];
   function makeGrid({ x, z, half, cell = 1.25, radius = 0.55, jumpReach = 1.525 }) {
     const n = Math.max(2, Math.ceil((half * 2) / cell));
     const x0 = x - (n * cell) / 2;
@@ -488,59 +486,99 @@ export function createNav(world, { window: win = WINDOW } = {}) {
         else if (crossesProp(cx(i), cz(i), cx(j), cz(j), radius)) wall[i * 8 + d] = 1;
       }
     }
-    // --- the jump table -------------------------------------------------
+    // --- the vault links -------------------------------------------------
     //
-    // A vault cannot be an edge to the ADJACENT cell, and getting that wrong is
-    // the kind of mistake that quietly makes a whole feature invisible. A fence
-    // of half thickness 0.10 keeps a 0.55 disc 0.65 away on each side, so the
-    // band of cells a ghost cannot stand in is 1.3 units wide, which at any
-    // sensible cell size is more than one cell. The cell across a fence from
-    // you is always blocked; the cell you actually land in is two or three
-    // further on.
+    // Where the ghost can cross a fence, as pairs of cells. Getting this right
+    // took two attempts and the first one was wrong in a way worth recording,
+    // because it is the kind of wrong that looks like a working check.
     //
-    // So jump[i * 4 + a] is the cell a vault from i along axis a arrives at, or
-    // -1. It is found by walking outward until an OPEN cell is reached, and it
-    // counts only if a fence was crossed on the way and no prop was.
+    // THE FIRST VERSION walked outward from each cell along an axis until it
+    // found an open one, up to `jumpReach + cell` away. That last term is the
+    // bug: the reach it searched DEPENDED ON THE CELL SIZE, so the ghost could
+    // jump further on a coarse raster than on a fine one. The fairness rate it
+    // produced was not converging as the raster refined, it was wandering:
+    // F3 came out at 16.7%, 26.7% and 13.3% at 0.4, 0.5 and 0.75 on the same
+    // three hundred levels. A check whose answer depends on how finely you ask
+    // is not measuring the world.
     //
-    // THE RESOLUTION CAVEAT, said plainly because soak.mjs's fairness rests on
-    // it. The reach searched is jumpReach + cell rather than jumpReach, because
-    // neither the takeoff point nor the landing point is a cell centre and each
-    // can be half a cell off in the helpful direction. The true geometry is
-    // kinder than that suggests: a ghost hard against a fence is 0.65 from its
-    // centreline and needs 0.65 on the other side, so a vault has to cover 1.30
-    // and it is given 1.53, which means a straight fence with clear ground both
-    // sides is ALWAYS vaultable and the only question the search is really
-    // answering is whether the far side is clear.
-    const K = Math.max(1, Math.ceil((jumpReach + cell) / cell));
-    const jump = new Int32Array(n * n * 4).fill(-1);
-    for (let i = 0; i < n * n; i++) {
-      if (blocked[i]) continue;
-      // Only cells that are up against something can vault, which is a small
-      // fraction of them and is what keeps this affordable at fine cell sizes.
-      let touching = false;
-      for (let d = 0; d < 8; d++) if (wall[i * 8 + d]) { touching = true; break; }
-      if (!touching) continue;
-      const a0 = i % n;
-      const b0 = (i / n) | 0;
-      for (let ax = 0; ax < 4; ax++) {
-        const [dx, dz] = DIR8[AXIS[ax]];
-        for (let k = 1; k <= K; k++) {
-          const na = a0 + dx * k;
-          const nb = b0 + dz * k;
-          if (na < 0 || nb < 0 || na >= n || nb >= n) break;
-          const j = nb * n + na;
-          if (blocked[j]) continue;
-          // First open cell along the ray. It is a landing only if a fence was
-          // crossed getting here and nothing solid was.
-          if (crossesBarrier(cx(i), cz(i), cx(j), cz(j), 0)
-            && !crossesWall(cx(i), cz(i), cx(j), cz(j), 0)
-            && !crossesProp(cx(i), cz(i), cx(j), cz(j), radius)) jump[i * 4 + ax] = j;
-          break;
+    // THIS VERSION asks the geometry instead, and the raster is only used to
+    // say which cells the two ends fall in. A ghost hard against a fence is
+    // `half + r` from its centreline; it must land at least `half + r` past it
+    // on the other side; the jump carries `jumpReach`. So a vault exists at a
+    // point on a fence exactly when a disc of radius r fits on both sides
+    // within that budget, which is a question about two discs and a line and
+    // has nothing to do with cell size. Refining the raster now only finds
+    // more of the same links, which is convergence rather than drift.
+    const jump = new Map();
+    const addLink = (i, j) => {
+      if (i < 0 || j < 0 || i === j) return;
+      let list = jump.get(i);
+      if (!list) jump.set(i, (list = []));
+      if (!list.includes(j)) list.push(j);
+    };
+    const cellAt = (wx, wz) => {
+      const a = Math.floor((wx - x0) / cell);
+      const b = Math.floor((wz - z0) / cell);
+      return a < 0 || b < 0 || a >= n || b >= n ? -1 : b * n + a;
+    };
+    // The cell to ATTACH a vault end to, which is not the cell containing the
+    // point. A takeoff point is hard against the fence by definition, and the
+    // cell containing it is therefore blocked at its centre almost always: an
+    // earlier version required that cell to be open and threw away most of the
+    // links, which made a one-gate pen look like a pin and fired F4 on 40% of
+    // a generator that has no pins in it. The geometry decides whether the
+    // vault exists; the raster only has to name where its ends are, so walk
+    // outward along the fence's normal to the first cell that can hold a body.
+    const attach = (px, pz, ax, az) => {
+      for (let d = 0; d <= 1.4; d += cell * 0.5) {
+        const i = cellAt(px + ax * d, pz + az * d);
+        if (i >= 0 && !blocked[i]) return i;
+      }
+      return -1;
+    };
+    const SCAN = 0.25;
+    for (const b of barriers) {
+      if (unjumpable(b)) continue;
+      const bx = b.x1 - b.x0;
+      const bz = b.z1 - b.z0;
+      const len = Math.hypot(bx, bz);
+      if (len < 1e-6) continue;
+      const ux = bx / len;
+      const uz = bz / len;
+      const nx = -uz;
+      const nz = ux;
+      const out = b.half + radius + 0.02;      // hard against the fence
+      const far = jumpReach - out;             // the furthest the landing can be
+      if (far < b.half + radius) continue;     // no room for a landing at all
+      const steps = Math.max(1, Math.ceil(len / SCAN));
+      for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        const px = b.x0 + bx * t;
+        const pz = b.z0 + bz * t;
+        for (const side of [1, -1]) {
+          const tx = px - nx * side * out;
+          const tz = pz - nz * side * out;
+          if (!discClear(tx, tz, radius)) continue;
+          const ti = attach(tx, tz, -nx * side, -nz * side);
+          if (ti < 0) continue;
+          // Try the near edge of the landing band first, then the far edge.
+          for (const d of [b.half + radius + 0.03, far - 0.03]) {
+            if (d < b.half + radius) continue;
+            const lx = px + nx * side * d;
+            const lz = pz + nz * side * d;
+            if (!discClear(lx, lz, radius)) continue;
+            const li = attach(lx, lz, nx * side, nz * side);
+            if (li < 0) continue;
+            if (crossesProp(tx, tz, lx, lz, radius)) continue;
+            if (crossesWall(tx, tz, lx, lz, 0)) continue;
+            addLink(ti, li);
+            break;
+          }
         }
       }
     }
     return {
-      n, cell, x0, z0, blocked, wall, fence, jump, DIR8, AXIS, jumpReach,
+      n, cell, x0, z0, blocked, wall, fence, jump, DIR8, jumpReach,
       index: (wx, wz) => {
         const a = Math.floor((wx - x0) / cell);
         const b = Math.floor((wz - z0) / cell);

@@ -140,7 +140,7 @@ const EDGE = 4.0;
 
 export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
   const level = buildLevel({ seed, size });
-  const { field, box, props, barriers, gates, graves, wall, runs, spawn } = level;
+  const { field, box, props, barriers, gates, graves, wall, runs, spawn, walk } = level;
   const frame = field.frame;
 
   // --- paths, which are a field and not a list --------------------------------
@@ -215,6 +215,10 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
           if (Math.hypot(w.x - o.x, w.z - o.z) < FLY_GAP) { bad = true; break; }
         }
       }
+      // And it has to be somewhere a body can WALK TO. A firefly in a pocket a
+      // skeleton cannot enter is a firefly the player collects for free, and
+      // one behind a row of headstones is a firefly nobody can collect at all.
+      if (!bad && !walk.walkable(w.x, w.z, 1.0)) bad = true;
       if (!bad) return { u, v };
     }
     return pick;
@@ -271,14 +275,19 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
     // 5: the open ground of the cell itself.
     if (!pick) pick = { u: centre.u + rng.jitter(1.4), v: centre.v + rng.jitter(1.4), why: 'open' };
 
+    // Separation first, and only then the cell centre, and only then a wide
+    // search: a firefly in the open at the middle of its cell is a worse
+    // firefly than one beside a gate, but two on the same spot are worse than
+    // either, and one nothing can walk to is worst of all.
     const wide = pick.why === 'fence' ? reach + 2.4 : reach;
-    // Separation first, and only then the cell centre as a last resort: a
-    // firefly in the open at the middle of its cell is a worse firefly than one
-    // beside a gate, but two on the same spot are worse than either.
+    const ok = (s) => {
+      const w = frame.toWorld(s.u, s.v);
+      return walk.walkable(w.x, w.z, 1.0)
+        && !apart.some((o) => Math.hypot(w.x - o.x, w.z - o.z) < FLY_GAP);
+    };
     let spot = nudge(pick, centre, wide, clear, apart);
-    if (apart.some((o) => Math.hypot(frame.toWorld(spot.u, spot.v).x - o.x, frame.toWorld(spot.u, spot.v).z - o.z) < FLY_GAP)) {
-      spot = nudge({ u: centre.u, v: centre.v }, centre, wide, clear, apart);
-    }
+    if (!ok(spot)) spot = nudge({ u: centre.u, v: centre.v }, centre, wide, clear, apart);
+    if (!ok(spot)) spot = nudge({ u: centre.u, v: centre.v }, centre, wide + 3.5, clear, apart);
     const w = frame.toWorld(spot.u, spot.v);
     return { x: w.x, z: w.z, why: pick.why };
   }
@@ -332,7 +341,7 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
         const p = field.nearestPath(centre.u, centre.v, 6);
         pick = p.dist <= 6 ? { u: p.u, v: p.v } : centre;
       }
-      const spot = nudge({ u: pick.u, v: pick.v }, centre, 6, PELLET_CLEAR);
+      const spot = nudge({ u: pick.u, v: pick.v }, centre, 8, PELLET_CLEAR);
       const w = frame.toWorld(spot.u, spot.v);
       out.push({
         id: `jack/${i++}`, kind: 'jack', x: w.x, z: w.z,

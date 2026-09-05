@@ -1,0 +1,273 @@
+// The repair pass, and the measurement that made it necessary.
+//
+// The rules half pointed its fairness soak at this generator and found F3, the
+// safe spot, failing in ONE LEVEL IN FOUR. F3 says: everywhere the ghost can
+// reach using its jump must be somewhere a skeleton can reach without one. When
+// it fails there is a place the player can stand and be safe for ever, and the
+// game stops being a game.
+//
+// The cause was not the fences. It was the HEADSTONES, and the reason is a
+// number this package did not know it had to respect: navigation treats a solid
+// prop as a CIRCLE of its bounding radius, and a body needs 0.555 of clearance.
+// A headstone therefore blocks a disc of about 1.14, and two headstones placed
+// the legal 0.15 apart block everything between them. A wandering row of five,
+// which is the prettiest thing this generator makes, is a WALL as far as
+// anything that walks is concerned. Lay one against the perimeter and the strip
+// behind it is a place the ghost can hop into and no skeleton can follow.
+//
+// So placement rule 1 is about how a graveyard LOOKS and it is not sufficient.
+// This file adds the rule about how it WORKS:
+//
+//   THE WALKABLE GROUND OF A LEVEL IS ONE PIECE. Every point a 0.60 body can
+//   stand on is connected to every other by walking, with no jump anywhere.
+//
+// That is strictly stronger than F3 and it is much easier to enforce and to
+// state. If the walkable set is connected then the skeletons' reachable set is
+// all of it, the ghost's is a subset of it, and the difference F3 measures is
+// empty by construction.
+//
+// It is enforced by TAKING PROPS BACK OUT. The alternative, refusing them at
+// placement time, cannot work: whether a prop closes a passage depends on every
+// other prop, so it is a property of the finished level and not of any single
+// placement. A row of five that becomes a row of four is still a row, which is
+// the same argument layout/motifs.js makes about refusals, applied at the end
+// instead of at the beginning.
+//
+// The same pass fixes the three smaller failures the soak found, because they
+// are all the same shape of problem, a prop somewhere a body has to be:
+//
+//   the ghost's own spawn has to admit a body
+//   every grave has to admit a skeleton, or nothing can climb out of it
+//   every gate's approach corridor has to admit a body, two units either side
+
+// The rules half's own occupancy model, reproduced rather than approximated.
+// nav.js blocks a cell when a disc of radius r overlaps a barrier's capsule or
+// a solid prop's bounding CIRCLE, and its fairness raster uses
+// max(ghostRadius 0.55, SKEL_RADIUS 0.475 + 0.08) = 0.555. This is that with a
+// margin, because being stricter here can only remove a prop that did not
+// strictly have to go, and being looser ships a level that cannot be played.
+export const NAV_R = 0.60;
+export const NAV_CELL = 0.25;
+// What a skeleton needs where it climbs out, and what a body needs to line
+// itself up on a gate. Both are the rules half's numbers.
+export const SKEL_R = 0.475;
+export const GATE_R = 0.60;
+export const GATE_REACH = 2.0;
+// A component smaller than this is rasterisation at a lip rather than a pocket
+// anything could stand in. Four cells of 0.25 is a sixteenth of a square unit.
+const MIN_POCKET = 4;
+
+const pointSegD2 = (px, pz, ax, az, bx, bz) => {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const ll = dx * dx + dz * dz;
+  let t = ll > 1e-12 ? ((px - ax) * dx + (pz - az) * dz) / ll : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return (px - (ax + dx * t)) ** 2 + (pz - (az + dz * t)) ** 2;
+};
+
+export function discClear(barriers, props, x, z, r) {
+  for (const b of barriers) {
+    const lim = b.half + r;
+    if (pointSegD2(x, z, b.x0, b.z0, b.x1, b.z1) < lim * lim - 1e-6) return false;
+  }
+  for (const p of props) {
+    if (!p.solid) continue;
+    const lim = p.radius + r;
+    if ((x - p.x) ** 2 + (z - p.z) ** 2 < lim * lim - 1e-6) return false;
+  }
+  return true;
+}
+
+// Which solid props are the reason a point is blocked.
+function blockers(props, x, z, r) {
+  const out = [];
+  for (const p of props) {
+    if (!p.solid || p.keep) continue;
+    const lim = p.radius + r;
+    if ((x - p.x) ** 2 + (z - p.z) ** 2 < lim * lim) out.push(p);
+  }
+  return out;
+}
+
+function navGrid(box, barriers, props) {
+  const n = Math.ceil((box.maxX - box.minX) / NAV_CELL);
+  const x0 = box.minX;
+  const z0 = box.minZ;
+  const blocked = new Uint8Array(n * n);
+  const wx = (i) => x0 + (i % n) * NAV_CELL + NAV_CELL / 2;
+  const wz = (i) => z0 + (((i / n) | 0) * NAV_CELL) + NAV_CELL / 2;
+  for (let i = 0; i < n * n; i++) blocked[i] = discClear(barriers, props, wx(i), wz(i), NAV_R) ? 0 : 1;
+  const index = (x, z) => {
+    const a = Math.floor((x - x0) / NAV_CELL);
+    const b = Math.floor((z - z0) / NAV_CELL);
+    return a < 0 || b < 0 || a >= n || b >= n ? -1 : b * n + a;
+  };
+  const nearestOpen = (x, z, within = 1.5) => {
+    const c = index(x, z);
+    if (c < 0) return -1;
+    const span = Math.ceil(within / NAV_CELL);
+    const a0 = c % n;
+    const b0 = (c / n) | 0;
+    let best = -1;
+    let bestD = Infinity;
+    for (let b = b0 - span; b <= b0 + span; b++) {
+      for (let a = a0 - span; a <= a0 + span; a++) {
+        if (a < 0 || b < 0 || a >= n || b >= n || blocked[b * n + a]) continue;
+        const d = (a - a0) ** 2 + (b - b0) ** 2;
+        if (d < bestD) { bestD = d; best = b * n + a; }
+      }
+    }
+    return best;
+  };
+  return { n, x0, z0, cell: NAV_CELL, blocked, wx, wz, index, nearestOpen };
+}
+
+const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+function components(grid) {
+  const { n, blocked } = grid;
+  const label = new Int32Array(n * n).fill(-1);
+  const sizes = [];
+  const stack = [];
+  for (let s = 0; s < n * n; s++) {
+    if (blocked[s] || label[s] !== -1) continue;
+    const id = sizes.length;
+    let size = 0;
+    label[s] = id;
+    stack.push(s);
+    while (stack.length) {
+      const i = stack.pop();
+      size++;
+      const a = i % n;
+      for (const [da, db] of DIR8) {
+        const na = a + da;
+        if (na < 0 || na >= n) continue;
+        const j = i + db * n + da;
+        if (j < 0 || j >= n * n || blocked[j] || label[j] !== -1) continue;
+        label[j] = id;
+        stack.push(j);
+      }
+    }
+    sizes.push(size);
+  }
+  return { label, sizes };
+}
+
+// --- the pass ---------------------------------------------------------------
+//
+// Returns what it had to take out, and the walkable grid the collectibles are
+// then placed against, so a firefly is never put somewhere nothing can walk.
+export function repairLevel({ box, barriers, gates, graves, spawn, placer, rounds = 40 }) {
+  const report = { removed: 0, rounds: 0, pockets: 0, spawn: 0, grave: 0, gate: 0, stuck: null };
+
+  for (let round = 0; round < rounds; round++) {
+    report.rounds = round + 1;
+    const props = placer.props;
+    const grid = navGrid(box, barriers, props);
+    const { label, sizes } = components(grid);
+
+    // The main piece is the one the ghost starts in. If the ghost cannot stand
+    // where it starts, that is the first thing to fix.
+    const spawnCell = grid.nearestOpen(spawn.x, spawn.z, 0.6);
+    if (spawnCell < 0) {
+      const bad = blockers(props, spawn.x, spawn.z, NAV_R + 0.4);
+      if (!bad.length) { report.stuck = 'spawn'; break; }
+      placer.drop(bad);
+      report.removed += bad.length;
+      report.spawn++;
+      continue;
+    }
+    const main = label[spawnCell];
+
+    // 1. Every point a body can stand on is in the main piece.
+    let worst = -1;
+    let worstSize = MIN_POCKET;
+    for (let id = 0; id < sizes.length; id++) {
+      if (id !== main && sizes[id] > worstSize) { worst = id; worstSize = sizes[id]; }
+    }
+    if (worst >= 0) {
+      // Whatever is walling the pocket in, counted over its whole boundary, so
+      // the prop that is most of the wall goes rather than an arbitrary one.
+      const votes = new Map();
+      for (let i = 0; i < grid.n * grid.n; i++) {
+        if (label[i] !== worst) continue;
+        for (const [da, db] of DIR8) {
+          const a = (i % grid.n) + da;
+          if (a < 0 || a >= grid.n) continue;
+          const j = i + db * grid.n + da;
+          if (j < 0 || j >= grid.n * grid.n || !grid.blocked[j]) continue;
+          for (const p of blockers(props, grid.wx(j), grid.wz(j), NAV_R)) {
+            votes.set(p, (votes.get(p) || 0) + 1);
+          }
+        }
+      }
+      if (!votes.size) { report.stuck = 'pocket'; break; }
+      let pick = null;
+      let best = -1;
+      for (const [p, v] of votes) if (v > best) { best = v; pick = p; }
+      placer.drop([pick]);
+      report.removed++;
+      report.pockets++;
+      continue;
+    }
+
+    // 2. Every grave admits a skeleton, and is in the main piece.
+    let fixed = false;
+    for (const g of graves) {
+      if (discClear(barriers, props, g.x, g.z, SKEL_R)) {
+        const c = grid.nearestOpen(g.x, g.z, 1.0);
+        if (c >= 0 && label[c] === main) continue;
+      }
+      const bad = blockers(props, g.x, g.z, SKEL_R + 0.5);
+      if (!bad.length) continue;
+      placer.drop(bad);
+      report.removed += bad.length;
+      report.grave++;
+      fixed = true;
+      break;
+    }
+    if (fixed) continue;
+
+    // 3. Every gate's approach corridor admits a body, two units either side.
+    for (const gate of gates) {
+      const bad = [];
+      for (let t = -GATE_REACH; t <= GATE_REACH + 1e-9; t += 0.25) {
+        const x = gate.x + gate.nx * t;
+        const z = gate.z + gate.nz * t;
+        if (discClear(barriers, props, x, z, GATE_R)) continue;
+        for (const p of blockers(props, x, z, GATE_R)) if (!bad.includes(p)) bad.push(p);
+      }
+      if (!bad.length) continue;
+      placer.drop(bad);
+      report.removed += bad.length;
+      report.gate++;
+      fixed = true;
+      break;
+    }
+    if (fixed) continue;
+
+    // Nothing left to fix. Hand back the grid the collectibles will be placed
+    // against, with the walkable set already worked out.
+    const reach = new Uint8Array(grid.n * grid.n);
+    for (let i = 0; i < reach.length; i++) reach[i] = label[i] === main ? 1 : 0;
+    return { report, grid, reach, walkable: (x, z, within = 1.0) => {
+      const c = grid.nearestOpen(x, z, within);
+      return c >= 0 && reach[c] === 1;
+    } };
+  }
+
+  // Ran out of rounds. Hand back what there is; world-check.mjs will say so.
+  const grid = navGrid(box, barriers, placer.props);
+  const { label } = components(grid);
+  const spawnCell = grid.nearestOpen(spawn.x, spawn.z, 1.5);
+  const main = spawnCell >= 0 ? label[spawnCell] : -1;
+  const reach = new Uint8Array(grid.n * grid.n);
+  for (let i = 0; i < reach.length; i++) reach[i] = label[i] === main ? 1 : 0;
+  return { report, grid, reach, walkable: (x, z, within = 1.0) => {
+    const c = grid.nearestOpen(x, z, within);
+    return c >= 0 && reach[c] === 1;
+  } };
+}
+
+export default repairLevel;

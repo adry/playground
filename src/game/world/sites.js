@@ -288,6 +288,9 @@ export function placeGraves({ field, placer, box, spawn, runs, rng }) {
             placer.drop(group);
             continue;
           }
+          // Never taken back out by the repair pass: a grave is guaranteed
+          // content and rule 4 needs all three pieces of it.
+          for (const q of group) q.keep = true;
           made = group;
           break;
         }

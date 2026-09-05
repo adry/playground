@@ -84,6 +84,8 @@
 //                    (default 30) instead of the endless plane
 //   --standin        with --arena, use refworld.mjs's arena rather than the
 //                    real src/game/world/ generator
+//   --faironly       play only seeds that pass every fairness property, and
+//                    say how many were skipped
 //   --limit N        how long one run may last, simulated seconds (300)
 //   --faircell N     fairness raster step (0.5 in an arena, 0.75 on the plane)
 //   --spacing N      mean firefly spacing in the stand-in world (18)
@@ -169,6 +171,38 @@ const makeWorld = (seed, fence = FENCE) => {
   if (!ARENA) return createWorld({ seed, spacing: SPACING, fence });
   return STANDIN ? createArena({ seed, size: ARENA_SIZE }) : createLevel({ seed, size: ARENA_SIZE });
 };
+
+// --faironly plays only the seeds that PASS every fairness property, and it
+// exists for one question: whether the jump-versus-gate asymmetry pays, which
+// cannot be answered on levels that are broken in ways that have nothing to do
+// with it. A level with a safe spot in it is a level where the bot may be
+// standing somewhere no skeleton can reach, and its clear time means nothing.
+// The count of seeds skipped is printed, because a comparison run on a third
+// of the seeds is a different claim from one run on all of them.
+const FAIRONLY = has('--faironly');
+const fairCache = new Map();
+function isFair(seed) {
+  if (fairCache.has(seed)) return fairCache.get(seed);
+  const w = makeWorld(seed);
+  const ok = fairOne(w, w.bounds
+    ? { x: (w.bounds.minX + w.bounds.maxX) / 2, z: (w.bounds.minZ + w.bounds.maxZ) / 2 }
+    : { x: ((seed * 37) % 400) - 200, z: ((seed * 91) % 400) - 200 }).length === 0;
+  fairCache.set(seed, ok);
+  return ok;
+}
+// The seeds to play: `count` fair ones if --faironly, else 1..count.
+function seedsFor(count) {
+  if (!FAIRONLY) return { list: Array.from({ length: count }, (_, i) => i + 1), skipped: 0 };
+  const list = [];
+  let seed = 0;
+  let skipped = 0;
+  while (list.length < count && seed < count * 30) {
+    seed++;
+    if (isFair(seed)) list.push(seed);
+    else skipped++;
+  }
+  return { list, skipped };
+}
 
 const pct = (a, b) => (b ? ((100 * a) / b).toFixed(1) + '%' : '-');
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
@@ -280,10 +314,8 @@ function flood(grid, seeds, jump, out, plug) {
     // And the vaults, which are never a step to the adjacent cell: see the
     // jump table in nav.js for why.
     if (jump) {
-      for (let a = 0; a < 4; a++) {
-        const m = grid.jump[n * 4 + a];
-        if (m >= 0 && !out[m] && !(plug && plug.has(m))) { out[m] = 1; q[tail++] = m; }
-      }
+      const links = grid.jump.get(n);
+      if (links) for (const m of links) if (!out[m] && !(plug && plug.has(m))) { out[m] = 1; q[tail++] = m; }
     }
   }
   return out;
@@ -374,10 +406,8 @@ function fairOne(world, at) {
       if (lm < 0 || lm === li) continue;
       if (!grid.wall[i * 8 + d]) gateOut[li].add(lm);
     }
-    for (let a = 0; a < 4; a++) {
-      const m = grid.jump[i * 4 + a];
-      if (m >= 0 && label[m] >= 0 && label[m] !== li) vaultOut[li].add(label[m]);
-    }
+    const links = grid.jump.get(i);
+    if (links) for (const m of links) if (label[m] >= 0 && label[m] !== li) vaultOut[li].add(label[m]);
   }
   // In a BOUNDED world the region the ghost starts in is the level, not a
   // pocket. Its only boundary is the perimeter wall, which is unvaultable by
@@ -474,10 +504,8 @@ function fairOne(world, at) {
           seen[m] = id;
           bfs[tail++] = m;
         }
-        for (let a2 = 0; a2 < 4; a2++) {
-          const m = grid.jump[n * 4 + a2];
-          if (m >= 0 && ghostSet[m] && !plug.has(m) && seen[m] === -1) { seen[m] = id; bfs[tail++] = m; }
-        }
+        const links = grid.jump.get(n);
+        if (links) for (const m of links) if (ghostSet[m] && !plug.has(m) && seen[m] === -1) { seen[m] = id; bfs[tail++] = m; }
       }
       sizes.push(size);
     }
@@ -711,7 +739,9 @@ function check(game, s) {
 function playMany(seeds, opts, title) {
   const t0 = Date.now();
   const rows = [];
-  for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, opts));
+  const pick = seedsFor(seeds);
+  for (const seed of pick.list) rows.push(playOne(seed, opts));
+  if (pick.skipped) console.log(`\n  (--faironly: ${pick.skipped} seeds skipped for failing a fairness property, ${pick.list.length} played)`);
   const over = rows.filter((r) => r.phase === 'over');
   const cleared = rows.filter((r) => r.phase === 'cleared');
   const alive = rows.filter((r) => r.survived);
@@ -804,7 +834,7 @@ function jumpSweep(seeds) {
   console.log('  jumpCost  to the limit  median life  score       fireflies  vaults/min  walked round  threat%');
   for (const jc of [1.0, 1.5, 2.0, 3.0, 5.0, 9.0, 1e6]) {
     const rows = [];
-    for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, { botFactory: (g) => createBot(g, { jumpCost: jc }), limit: LIMIT }));
+    for (const seed of seedsFor(seeds).list) rows.push(playOne(seed, { botFactory: (g) => createBot(g, { jumpCost: jc }), limit: LIMIT }));
     const times = rows.map((r) => r.time);
     const alive = rows.filter((r) => r.survived).length;
     const vpm = mean(rows.map((r) => r.vaults)) / (mean(times) / 60);
@@ -831,10 +861,12 @@ function players(seeds) {
   console.log(`\n--- 5b. THE FOUR PLAYERS, ${seeds} runs each ---`);
   console.log('  player                 median life  reached limit  score    fireflies/min  vaults/min  deaths  threat%');
   const keep = {};
+  const pick = seedsFor(seeds);
+  if (pick.skipped) console.log(`  (--faironly: ${pick.skipped} seeds skipped for failing a fairness property, ${pick.list.length} played)`);
   for (const [name, f] of Object.entries(V)) {
     const limit = f === passiveBot ? Math.min(200, LIMIT) : LIMIT;
     const rows = [];
-    for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, { botFactory: f, limit }));
+    for (const seed of pick.list) rows.push(playOne(seed, { botFactory: f, limit }));
     keep[name] = rows;
     const times = rows.map((r) => r.time);
     console.log(`  ${name.padEnd(21)}  ${median(times).toFixed(0).padStart(10)}s  ${pct(rows.filter((r) => r.survived).length, seeds).padStart(12)}  ${mean(rows.map((r) => r.score)).toFixed(0).padStart(7)}  ${(mean(rows.map((r) => r.collected)) / (mean(times) / 60)).toFixed(2).padStart(13)}  ${(mean(rows.map((r) => r.vaults)) / (mean(times) / 60)).toFixed(2).padStart(10)}  ${mean(rows.map((r) => r.deaths)).toFixed(2).padStart(6)}  ${pct(mean(rows.map((r) => r.threat)), mean(times)).padStart(7)}`);

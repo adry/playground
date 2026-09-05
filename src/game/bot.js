@@ -321,16 +321,17 @@ export function createBot(game, opts = {}) {
       // vault and a bot that has decided not to vault look identical: the
       // jumpCost sweep printed the same row seven times, at every price from
       // free to never, and that is what gave it away.
-      for (let ax = 0; ax < 4; ax++) {
-        const m = grid.jump[n * 4 + ax];
-        if (m < 0) continue;
-        const dist2 = Math.hypot(grid.wx(m) - grid.wx(n), grid.wz(m) - grid.wz(n));
-        const c = dn + dist2 * S.jumpCost * riskMul(m);
-        if (c >= dist[m]) continue;
-        dist[m] = c;
-        prev[m] = n;
-        prevJump[m] = 1;
-        heap.push(m, c);
+      const links = grid.jump.get(n);
+      if (links) {
+        for (const m of links) {
+          const span = Math.hypot(grid.wx(m) - grid.wx(n), grid.wz(m) - grid.wz(n));
+          const c = dn + span * S.jumpCost * riskMul(m);
+          if (c >= dist[m]) continue;
+          dist[m] = c;
+          prev[m] = n;
+          prevJump[m] = 1;
+          heap.push(m, c);
+        }
       }
     }
     stats.plans++;

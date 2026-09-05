@@ -557,8 +557,19 @@ export function heightToNormalMap(canvas, strength, step = 2) {
     // CanvasTexture colour map gets for free has to happen here by hand.
     const row = (h - 1 - y) * w;
     for (let x = 0; x < w; x++) {
-      const gx = at(x + d, y) - at(x - d, y);
-      const gy = at(x, y + d) - at(x, y - d);
+      // Sobel rather than a plain central difference, and the reason is
+      // quantisation, not accuracy. The height canvas is 8 bit and its mottle
+      // is a slow swell -- a tenth of a level per texel -- so a two-texel
+      // difference of it is 0 or 1, a staircase, and at strength 14 that
+      // staircase comes back as a fine dither over every smooth part of the
+      // stone. It was faintly visible at 1024 and plainly visible at 512, where
+      // the span is half as long and the steps twice as coarse. Averaging three
+      // lines either side answers a straight edge exactly the way the central
+      // difference does and cuts the dither by about two thirds.
+      const gx = (at(x + d, y - d) + 2 * at(x + d, y) + at(x + d, y + d)
+                - at(x - d, y - d) - 2 * at(x - d, y) - at(x - d, y + d)) / 4;
+      const gy = (at(x - d, y + d) + 2 * at(x, y + d) + at(x + d, y + d)
+                - at(x - d, y - d) - 2 * at(x, y - d) - at(x + d, y - d)) / 4;
       // v runs up the stone while canvas y runs down, hence the sign on gy.
       const nx = -gx * strength;
       const ny = gy * strength;
@@ -617,7 +628,18 @@ export const FACE_ROWS = 1024;
 function buildTextures(variant, faceAspect, rng) {
   const FH = FACE_ROWS;
   const FW = Math.round(FH * faceAspect);
-  const STRIP = Math.round(FH * (160 / 1024));
+  // The strip is NOT scaled with FACE_ROWS, and this is worth a note because
+  // scaling it was the one thing that showed when the face map was halved.
+  //
+  // The face is MINIFIED -- a thousand texels over a hundred and fifty pixels of
+  // screen -- so halving it costs nothing the mip chain was not already taking.
+  // The strip is the opposite: the sides and the back sample a 112 texel band
+  // of it stretched over the whole depth of the stone, so it is MAGNIFIED, and
+  // halving it put a visible stipple down the rounded arris of every stone
+  // where the speckle stopped being sub-pixel. It is 160 columns whatever the
+  // face is, which on a 512 map is a third of a megabyte a stone and buys back
+  // the edge exactly.
+  const STRIP = 160;
   const w = FW + STRIP;
 
   const colour = document.createElement('canvas');

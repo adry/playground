@@ -392,6 +392,12 @@ export async function startViewer({ canvas, params }) {
       camTarget.z += (ghost.pos.z - camTarget.z) * k;
     }
     placeCamera();
+    // The grid's fade is anchored on uFocus, and nothing was driving it, so it
+    // sat at the world origin: walk far enough and the grid quietly stops
+    // being drawn under your feet while the floor stays the same grey. It is
+    // invisible while a level sits near the origin and is a bug the moment one
+    // does not. Both other pages already do this; this one did not.
+    ground.userData.uniforms?.uFocus.value.copy(camTarget);
     flies?.update(time, dt);
 
     hud.textContent = `seed ${seed}   ${ghost.pos.x.toFixed(0)}, ${ghost.pos.z.toFixed(0)}   `
