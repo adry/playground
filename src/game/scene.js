@@ -52,6 +52,7 @@ import {
   waveTuning, waveSeed, clearBonus,
   loadBoard, submitScore, shareUrl, shareText,
 } from './run.js';
+import { createShareRecorder } from './share.js';
 import { createTombstone } from '../ghost/props/stones/index.js';
 import { createPumpkin } from '../ghost/props/pumpkin.js';
 import { createFenceRun } from '../ghost/props/fence/panel.js';
@@ -755,6 +756,11 @@ export async function startGame({ canvas, params }) {
     placeCamera();
   }
 
+  // The share picture's ring buffer. See src/game/share.js: it copies the last
+  // drawn frame four times a second so that the picture posted to X can be the
+  // moment before the run ended rather than the dead ghost after it.
+  const shots = createShareRecorder({ canvas, camera, state: () => game.state });
+
   // --- HUD and the end card --------------------------------------------------
   const hud = document.createElement('div');
   hud.className = 'hud';
@@ -835,6 +841,10 @@ export async function startGame({ canvas, params }) {
     again.addEventListener('click', () => { card.hidden = true; newRun(); });
     card.appendChild(again);
 
+    // Everything additive about the share lives behind this one call, and the
+    // anchor above still works exactly as it did if it fails.
+    shots.attach(share, { run: { ...run, remaining: game.state.flyRemaining }, best: place === 1 });
+
     card.hidden = false;
   }
 
@@ -883,6 +893,10 @@ export async function startGame({ canvas, params }) {
   let time = 0;
   let scripted = null;
   function advance(dt) {
+    // Sampled FIRST. At this point the canvas still holds the last frame drawn
+    // and the camera is still the camera that drew it, so the crop share.js
+    // works out matches the pixels it copies.
+    shots.tick(dt);
     time += dt;
     if (!run.over) run.time += dt;
     // input.sample takes the ghost's position because the drag control is

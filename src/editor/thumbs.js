@@ -185,20 +185,29 @@ export function createThumbnails({ renderer, size = 76 }) {
     return true;
   }
 
-  // ONE BATCH. Everything missing from `entries` is built, drawn into the
-  // atlas, read back once and sliced. Synchronous on purpose: back to back is
-  // the cheap regime, and the caller is expected to have painted a "drawing"
-  // line before calling it.
+  // ONE CHUNK. Everything missing from `entries`, up to a rowful, is built,
+  // drawn into the atlas, read back once and sliced.
+  //
+  // BACK TO BACK WITHIN A CHUNK, AND A BREATH BETWEEN CHUNKS. Back to back is
+  // the cheap regime and the reason this is not one bake per frame. But the
+  // twenty nine headstones together are six seconds of solid main thread, which
+  // is six seconds of a tool that does not answer the pointer, so the caller
+  // runs this repeatedly until `done` and yields in between. Yielding is free
+  // as long as NOTHING RENDERS in the gap: the editor draws on demand now, so
+  // an idle gap costs no draw and the next chunk's bakes are still cold. A
+  // pointer move in the gap will render and put the next chunk in the expensive
+  // regime, which is a fair trade for a tool that moves when you move it.
   function renderBatch(entries) {
     const todo = [];
     for (const e of entries) {
       const k = keyOf(e.kind, e.variant);
       if (cache.has(k)) continue;
       todo.push({ k, kind: e.kind, variant: e.variant });
+      if (todo.length >= COLS) break;
     }
-    if (!todo.length) return [];
+    if (!todo.length) return { made: [], done: true };
 
-    fitAtlas(Math.ceil(todo.length / COLS));
+    fitAtlas(1);
 
     const pr = renderer.getPixelRatio();
     const wasTarget = renderer.getRenderTarget();
@@ -279,7 +288,7 @@ export function createThumbnails({ renderer, size = 76 }) {
       made.push({ key: p.k, url });
     }
     save();
-    return made;
+    return { made, done: !entries.some((e) => !cache.has(keyOf(e.kind, e.variant))) };
   }
 
   return {

@@ -374,8 +374,7 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
 
   const state = {
     time: 0,
-    phase: 'ready',          // ready | play | dying | cleared | over.
-                             // 'cleared' happens only in a bounded world.
+    phase: 'ready',          // ready | play | dying | over. Nothing clears.
     score: 0,
     lives: T.lives,
     mode: 'scatter',
@@ -432,6 +431,12 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
   const pool = (bounds ? world.fireflies(bounds) : world.fireflies()).map((f) => ({ x: f.x, z: f.z }));
   let flySeq = 0;
   let flyPool = [];
+
+  // The director's own memory, declared up here because resetRound clears it
+  // and resetRound runs before anything else does.
+  const quiet = new Map();     // marker id -> the clock it may next produce one
+  const inRing = new Set();    // markers the ghost is inside the ring of, now
+  let lastSpawn = -1e9;
 
   // Somewhere a firefly can be picked up from: the ghost's own disc has to fit,
   // because a firefly the player can see and cannot reach is worse than no
@@ -534,6 +539,7 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     state.ghost.airY = ghost.airY;
     state.ghost.airProgress = ghost.air ? 1 - ghost.airT / airTime : 0;
     state.ghost.canJump = !ghost.air && ghost.cool <= 0 && state.ghost.speed >= T.jumpMinSpeed;
+    state.skeletonsUp = herd.liveCount();
     for (let i = 0; i < herd.list.length; i++) {
       const s = herd.list[i];
       const out = state.skeletons[i]
@@ -551,7 +557,9 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
       out.speed = s.speed;
       out.yaw = Math.atan2(s.hx, s.hz);
       out.emergeProgress = s.state === 'emerging' ? 1 - s.timer / EMERGE_TIME
-        : s.state === 'buried' ? 0 : 1;
+        : s.state === 'dormant' ? 0 : 1;
+      // Nothing is drawn for a dormant one and nothing collides with it.
+      out.live = s.state !== 'dormant';
     }
     return state;
   }
@@ -659,10 +667,9 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     for (let i = flyPool.length - 1; i >= 0; i--) {
       const f = flyPool[i];
       if ((f.x - ghost.x) ** 2 + (f.z - ghost.z) ** 2 > r2) continue;
-      takenFly.add(f.id);
       flyPool.splice(i, 1);
       state.collected++;
-      state.flyRemaining = Math.max(0, flyTotal - state.collected);
+      state.flyRemaining = flyPool.length;
       state.streak++;
       if (state.streak > state.bestStreak) state.bestStreak = state.streak;
       state.multiplier = Math.min(T.streakCap, 1 + Math.floor(state.streak / T.streakStep));
@@ -670,6 +677,87 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
       state.score += paid;
       state.events.push({ type: 'firefly', id: f.id, x: f.x, z: f.z, score: paid, multiplier: state.multiplier });
     }
+    if (flyPool.length <= T.flyRefillAt) {
+      const before = flyPool.length;
+      refillFlies();
+      if (flyPool.length > before) {
+        state.events.push({ type: 'fireflies', added: flyPool.length - before, onBoard: flyPool.length });
+      }
+    }
+    state.fireflies = flyPool;
+    state.flyRemaining = flyPool.length;
+  }
+
+  // --- THE SPAWN DIRECTOR ----------------------------------------------------
+  //
+  // Everything about WHEN a skeleton comes out. chase.js owns what one does
+  // once it is up and world/spawn.js owns which headstones can produce one;
+  // this is the third piece and it is the owner's rule, which is that the
+  // player walking past a tombstone is what causes a spawn.
+  //
+  // Read the TUNING block above for the numbers and the reasoning. What is
+  // worth saying beside the code is the ORDER, because it is load bearing:
+  // retire first, then roll, then force. Rolling before retiring would let the
+  // cap be full of skeletons that are about to leave; forcing before rolling
+  // would put one up at a stone the player is nowhere near while they are
+  // standing next to one.
+  function wakeAt(mark) {
+    const slot = herd.list.find((k) => k.state === 'dormant');
+    if (!slot) return false;
+    herd.wake(slot, mark, ghost);
+    if (mark && mark.id != null) quiet.set(mark.id, state.time + T.spawnQuiet);
+    lastSpawn = state.time;
+    state.events.push({
+      type: 'spawn',
+      skeleton: slot.id,
+      name: slot.name,
+      // The stone it came out of, so the renderer can make the cause visible.
+      // A spawn the player cannot attribute to the stone they just passed is
+      // the mechanic failing to teach itself.
+      stone: mark ? mark.stone ?? mark.id : null,
+      forced: !mark,
+      x: slot.x,
+      z: slot.z,
+    });
+    return true;
+  }
+
+  function direct() {
+    state.skeletonCap = Math.min(T.skelMax, 1 + Math.floor(state.collected / T.skelPerFly));
+
+    // 1. The long-serving go back down, but never the last one.
+    if (herd.liveCount() > 1) {
+      for (const s of herd.list) {
+        if (s.state === 'hunting' && s.upFor > T.retireAfter) { herd.retire(s); break; }
+      }
+    }
+
+    // 2. Passing a stone. One roll per stone per pass, on the frame the ghost
+    //    crosses into its ring, so walking a circle round one stone is one
+    //    roll and not sixty a second.
+    const near = nav.near(ghost.x, ghost.z, T.spawnRange + 2, 'spawns');
+    const now = new Set();
+    for (const m of near) {
+      const d = Math.hypot(m.x - ghost.x, m.z - ghost.z);
+      if (d > T.spawnRange) continue;
+      now.add(m.id);
+      if (inRing.has(m.id)) continue;
+      if (d < T.spawnMin) continue;
+      if (herd.liveCount() >= state.skeletonCap) continue;
+      if ((quiet.get(m.id) ?? -1e9) > state.time) continue;
+      const readiness = Math.min(1, Math.max(0, (state.time - lastSpawn) / T.spawnPeriod));
+      if (rng() < T.spawnChance * readiness) wakeAt(m);
+    }
+    inRing.clear();
+    for (const id of now) inRing.add(id);
+
+    // 3. The floor. Nothing is up, so something has to be, and it comes up
+    //    where chase.js's own band puts it: ten to twenty units away, weighted
+    //    to the middle. Not the nearest stone, which would be a spawn on top of
+    //    a player who has just been caught, and not the furthest, which is a
+    //    skeleton that takes twenty seconds to become a threat.
+    if (herd.liveCount() === 0) wakeAt(null);
+    state.skeletonsUp = herd.liveCount();
   }
 
   function contacts() {
@@ -736,19 +824,9 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     advanceModes(h);
     if (input.jump) tryJump();
     moveGhost(h, input);
-    refreshPickups(false);
+    direct();
     herd.step(h, ctx());
     pickups();
-    if (bounds && flyTotal > 0 && state.collected >= flyTotal) {
-      // The clear bonus rides the streak, so clearing an arena without dying is
-      // worth several times clearing it three lives down. That is the same
-      // argument the streak itself rests on: two runs of the same length have
-      // to score differently.
-      state.score += T.clearBonus * state.multiplier;
-      state.phase = 'cleared';
-      state.events.push({ type: 'clear', score: T.clearBonus * state.multiplier });
-      return;
-    }
     contacts();
   }
 
@@ -774,11 +852,11 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
         substep(h, { x: axis.x, y: axis.y, jump: jumpEdge });
         jumpEdge = false;
         remain -= h;
-        if (state.phase === 'over' || state.phase === 'cleared') break;
+        if (state.phase === 'over') break;
       }
       return publish();
     },
-    debug: { ghost, heading, takenFly, T, PERSONALITIES, SKEL_RADIUS },
+    debug: { ghost, heading, T, PERSONALITIES, SKEL_RADIUS },
   };
 }
 

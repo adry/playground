@@ -1329,23 +1329,32 @@ function drawGroupThumbs(id, items) {
   // Two frames, then the work: one for the browser to lay the expanded group
   // out and one for it to paint that line. A setTimeout alone can land before
   // the paint and the author watches a frozen tool with no explanation on it.
-  requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => {
-    let made = [];
+  //
+  // A ROWFUL AT A TIME, with a yield between rows. Twenty nine headstones in
+  // one go measured at 6.2 seconds of solid main thread on the first pick of a
+  // session, which is six seconds in which the tool does not answer the
+  // pointer. The total is the same; what changes is that the tiles arrive in
+  // waves of eight and the hand stays connected to the tool. See renderBatch
+  // for why the gap has to be a gap and not a frame.
+  const chunk = () => {
+    let out = { made: [], done: true };
     try {
-      made = thumbs.renderBatch(items);
+      out = thumbs.renderBatch(items);
     } finally {
-      drawing.delete(id);
+      if (out.done) drawing.delete(id);
     }
-    for (const m of made) {
+    for (const m of out.made) {
       for (const img of left.querySelectorAll(`img[data-thumb="${CSS.escape(m.key)}"]`)) {
         img.src = m.url;
       }
     }
+    if (!out.done) { setTimeout(chunk, 0); return; }
     note?.remove();
     // The batch borrowed the renderer, so the scene is told to draw itself
     // again: it only renders when something has changed now.
     scene.invalidate();
-  }, 0)));
+  };
+  requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(chunk, 0)));
 }
 
 function placeGroup(group) {
@@ -1589,17 +1598,11 @@ function drawRight() {
           onchange: (e) => commit(() => { doc.name = e.target.value; }),
         }),
       ]),
-      // THIRTY, AND NO CHOICE. The owner fixed it: thirty is six of the floor's
-      // major grid squares and the number every other number in the project was
-      // measured against -- the firefly spacing, the camera's framing, the four
-      // pellets one to a quadrant. The FORMAT still carries a size and
-      // everything downstream still reads it, so a smaller arena remains a
-      // thing the file can say and a harness can ask for; it is only the tool
-      // that has stopped offering it.
-      el('div', { class: 'row' }, [
-        el('label', { text: 'arena' }),
-        el('span', { class: 'grow value', text: `${doc.size} by ${doc.size}${doc.size === LEVEL_SIZE ? '' : ' (made at another size)'}` }),
-      ]),
+      // THE ARENA'S SIZE IS NOT HERE. It is thirty, it cannot be anything else
+      // from this tool, and a row that always says the same thing is furniture.
+      // The FORMAT still carries a size and everything downstream still reads
+      // it, so a smaller arena remains a thing a file can say and a harness can
+      // ask for; the number is in this card's help for anyone who wonders.
       // NOT "seed". To us it is the number every random decision is drawn
       // from; to somebody laying out a graveyard it was an unexplained figure
       // in a box next to the level's name. What it DOES to them is shuffle the
@@ -1638,7 +1641,7 @@ function drawRight() {
         } }),
       ]),
     ], {
-      help: 'Variation shuffles the things you do not place by hand: how each headstone leans, how its stone is grained, where the fireflies land. The same number always draws the same level, so change it only if you want a different shuffle. Play opens the game on what is on screen. Save writes a file, which is how a level becomes permanent.',
+      help: `The arena is ${doc.size} by ${doc.size} and every level is. Variation shuffles the things you do not place by hand: how each headstone leans, how its stone is grained, where the fireflies land. The same number always draws the same level, so change it only if you want a different shuffle. Play opens the game on exactly what is on screen. Save writes a file, which is how a level is kept.`,
     }),
 
     card('wall', 'wall', [
@@ -1807,6 +1810,22 @@ const round = (v) => Math.round(v * 100) / 100;
 // of a sentence that already says what is wrong adds nothing to a reader who
 // has not read the source and reads as a fault code to one who has not. The
 // sentence stays; the label goes.
+// THE AUDIT'S OWN WORDS, WITH ITS OWN NAMES TAKEN OUT OF THEM. audit.js writes
+// for whoever is debugging audit.js, and it says things like "stone/celtic and
+// dirt/null gap 0.031" and "fly/2 cannot be walked to". The finding is right
+// and the nouns are ours: a `kind/variant` pair is how the catalogue keys a
+// prop and `fly/2` is a firefly's id. Rewritten here rather than there, because
+// there they are the right words for the job that file does.
+function plainly(text) {
+  return String(text)
+    .replace(/\bfly\/\d+/g, 'a firefly')
+    .replace(/\bjack\/\d+/g, 'a pellet')
+    .replace(/\bg\d+\/(hole|dirt|head)\b/g, 'a grave')
+    .replace(/\b([a-z]+)\/(null|undefined)\b/g, '$1')
+    .replace(/\b([a-z]+)\/([a-z]+)\b/g, '$2 $1')
+    .replace(/\bgap (-?[\d.]+)/g, 'with only $1 between them');
+}
+
 function auditList() {
   if (review.stale) {
     return el('ul', { class: 'issues' }, [el('li', { class: 'none', text: 'checking...' })]);
@@ -1816,7 +1835,7 @@ function auditList() {
   }
   const rows = review.issues.map((i) => el('li', {
     'data-severity': i.severity === 'error' ? 'error' : 'warn',
-    text: i.message,
+    text: plainly(i.message),
     onclick: () => {
       const m = /at (-?[\d.]+), (-?[\d.]+)/.exec(i.message);
       if (m) scene.lookAt(Number(m[1]), Number(m[2]));

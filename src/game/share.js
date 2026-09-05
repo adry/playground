@@ -36,11 +36,16 @@
 // enough that two figures are still two figures at thumbnail size.
 //
 // Then it is composited: the game's own card style, over the game's own frame.
-export const OUT_W = 1600;
-export const OUT_H = 900;
-
 import * as THREE from 'three';
 import { shareText } from './run.js';
+
+// 16:9. X shows an attached photo at up to 16:9 without cropping it, and a
+// square grab of a square canvas would be letterboxed or cut to pieces. The
+// LINK card is 1.91:1 and is a different picture entirely -- see the meta tags
+// in lab/index.html, which cannot be per-run and cannot work until the site is
+// hosted at all.
+export const OUT_W = 1600;
+export const OUT_H = 900;
 
 // --- the ring ----------------------------------------------------------------
 
@@ -188,7 +193,14 @@ export function createShareRecorder({ canvas, camera, state }) {
     ));
   }
 
-  return { tick, pick, attach: (anchor, opts) => attach({ pick, anchor, ...opts }) };
+  const kit = { tick, pick, attach: (anchor, opts) => attach({ pick, anchor, ...opts }) };
+  // The harness hook, the same shape as window.__game and window.__perf on the
+  // page beside it. capture/share-shot.mjs drives a run to its end and then
+  // reads the picture off this rather than clicking a link it cannot see.
+  if (typeof window !== 'undefined') {
+    window.__share = { compose: composeShareImage, pick, dataUrl: null, files: false };
+  }
+  return kit;
 }
 
 // --- the composite -----------------------------------------------------------
@@ -249,7 +261,7 @@ function wrap(ctx, text, maxWidth, maxLines) {
  * The picture. `frame` is a 16:9 canvas out of the ring; everything else is the
  * run. Returns a fresh 1600x900 canvas.
  */
-export function composeShareImage({ frame, run, best = false }) {
+export function composeShareImage({ frame, run = null, best = false, caption = null }) {
   const out = make2D(OUT_W, OUT_H);
   const ctx = out.getContext('2d');
   ctx.imageSmoothingEnabled = true;
@@ -270,11 +282,30 @@ export function composeShareImage({ frame, run, best = false }) {
   ctx.fillStyle = vig;
   ctx.fillRect(0, 0, OUT_W, OUT_H);
 
+  // What the panel says. Derived from the run, and overridable, because the
+  // STATIC card at public/share-card.png is this same composition with the
+  // run's own facts taken out of it: one graveyard, no score.
+  const lines = run ? shareText(run).split('\n') : [];
+  const spec = {
+    badge: best ? 'BEST RUN' : 'CAUGHT',
+    headline: lines[0] || 'A run in the graveyard.',
+    // Line 1 of the share text is the points and the fireflies, which the stat
+    // row says better. Line 2, when there is one, is the near miss, and that is
+    // the line worth keeping.
+    subline: lines[2] || '',
+    stats: run ? [
+      ['SCORE', run.score.toLocaleString('en-US')],
+      ['FIREFLIES', String(run.fireflies)],
+      ['MAZE', String(run.wave)],
+    ] : null,
+    ...(caption || {}),
+  };
+
   // --- the badge, top left ---------------------------------------------------
   // The end card's h1, and the one strong dark shape in the picture. At
   // thumbnail size it is the only thing that is certainly readable, so it says
   // the outcome and nothing else.
-  const badge = best ? 'BEST RUN' : 'CAUGHT';
+  const badge = spec.badge;
   ctx.font = `700 17px ${MONO}`;
   const badgeTrack = 17 * 0.22;
   const badgeW = trackedWidth(ctx, badge, badgeTrack);
@@ -293,12 +324,8 @@ export function composeShareImage({ frame, run, best = false }) {
   drawTracked(ctx, badge, 56 + 26, 56 + bh / 2 + 1, badgeTrack);
 
   // --- the caption panel, bottom left ---------------------------------------
-  const lines = shareText(run).split('\n');
-  const headline = lines[0] || 'A run in the graveyard.';
-  // Line 1 of the share text is the points and the fireflies, which the stat
-  // row below says better. Line 2, when there is one, is the near miss, and
-  // that is the line worth keeping.
-  const subline = lines[2] || '';
+  const headline = spec.headline;
+  const subline = spec.subline;
 
   const PAD = 34;
   const PANEL_W = 700;
@@ -310,7 +337,8 @@ export function composeShareImage({ frame, run, best = false }) {
 
   let hgt = PAD + 17 + 22 + head.length * 46;
   if (subline) hgt += 30;
-  hgt += 26 + 14 + 1 + 22 + 34 + PAD;
+  if (spec.stats) hgt += 26 + 14 + 1 + 22 + 34 + PAD;
+  else hgt += PAD - 12;
 
   const py = OUT_H - 56 - hgt;
 
@@ -348,19 +376,16 @@ export function composeShareImage({ frame, run, best = false }) {
     y += 30;
   }
 
+  if (!spec.stats) return out;
+
   y += 26;
   ctx.fillStyle = 'rgba(47, 53, 66, 0.12)';
   ctx.fillRect(px + PAD, Math.round(y), inner, 1);
   y += 1 + 22;
 
   // The numbers, tabular, in the same monospace the board uses.
-  const stats = [
-    ['SCORE', run.score.toLocaleString('en-US')],
-    ['FIREFLIES', String(run.fireflies)],
-    ['MAZE', String(run.wave)],
-  ];
   const col = inner / 3;
-  stats.forEach(([label, value], i) => {
+  spec.stats.forEach(([label, value], i) => {
     const x = px + PAD + col * i;
     ctx.fillStyle = MUTED;
     ctx.font = `400 12px ${MONO}`;
@@ -443,8 +468,9 @@ export function attach({ pick, anchor, run, best = false }) {
       file = new File([blob], name, { type: 'image/png' });
       files = canShareFiles([file]);
       note.textContent = files
-        ? 'Posting hands the picture to X with it.'
-        : 'This browser cannot attach a file to a post, so the picture downloads instead and you add it in X. ';
+        ? 'Posting hands the picture to X with it. '
+        : 'This browser cannot attach a file to a post, so the picture downloads '
+          + 'instead and you add it in X. ';
       const save = document.createElement('a');
       save.href = '#';
       save.textContent = 'Save the picture';
@@ -453,7 +479,7 @@ export function attach({ pick, anchor, run, best = false }) {
       note.appendChild(save);
       // A hook for the capture script, the same shape as __game and __perf. It
       // is the only way to see the picture without a person clicking.
-      window.__share = { dataUrl: () => preview.src, files, name };
+      if (window.__share) Object.assign(window.__share, { dataUrl: preview.src, files, name });
     } catch (err) {
       // A share that cannot build its image is a share link, which is what the
       // game shipped with. Nothing here is worth breaking the end card for.
