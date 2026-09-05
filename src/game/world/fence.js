@@ -88,8 +88,17 @@ export const GATE_CLEAR_R = 1.05;
 // unit of keep-out there is a unit a pen cannot use: 1.8 still leaves a body
 // room to walk behind a pen, which is what stops the strip behind it being a
 // sealed pocket.
-export const RUN_GAP = 2.4;
-export const WALL_GAP = 1.8;
+// A gate's approach corridor reaches 2.0 either side of the opening and a body
+// needs 0.6, so anything within 2.6 of a gate is standing in its doorway. 2.8
+// between two runs, and 3.0 from the wall.
+export const RUN_GAP = 2.8;
+// THE PERIMETER LANE. The rules half measured 4.7% of a run spent within 4.0 of
+// the wall and 33% of the deaths there, a risk ratio of seven, because a corner
+// is where you are pinned and the wall is the one barrier the ghost cannot
+// vault. Three units of clear ground all the way round is Pac-Man's outer
+// corridor: it leaves a walkable loop about 2.2 wide, so there is always a way
+// out of a corner that is not through whatever is chasing you.
+export const WALL_GAP = 3.0;
 
 // The grid yaw of a box whose long axis runs along the grid direction (du, dv).
 // geom.js reads a yaw as "local X is (cos, -sin)".
@@ -455,9 +464,13 @@ function makeDivider({ field, rng, box, avoid, spawn }) {
     if (tooClose(frame, panels, avoid, RUN_GAP)) continue;
     // A divider through the ghost's own clearing would pen the player in on
     // their first step, so if the line runs through it, try the next offset.
+    // EVERY panel, the gate one included. Skipping the gate panel let a divider
+    // run straight through where the ghost starts: the opening itself is a gap,
+    // but the two segments that flank it end a unit either side of it, and the
+    // ghost was spawning inside one. That was seven per cent of levels failing
+    // the rules half's spawn check.
     let hitsSpawn = false;
     for (const p of panels) {
-      if (p === panels[gi]) continue;
       const a = frame.toWorld(p.au, p.av);
       const b = frame.toWorld(p.bu, p.bv);
       if (segGap(a.x, a.z, b.x, b.z, spawn.x, spawn.z, spawn.x, spawn.z) < SPAWN_CLEAR) hitsSpawn = true;

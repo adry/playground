@@ -232,17 +232,9 @@ export async function startGame({ canvas, params }) {
   // a wave that builds fifty-seven of them spends half a minute doing it. Waves
   // two onward now build none.
   //
-  // SLOTS is the compromise and it should be read as one. Two props sharing a
-  // key are bit-identical -- same lean, same mottle, same worn letters -- so
-  // this is how much per-casting variety survives. Four bakes of each variant
-  // against a level that places two or three of any one variant means a repeat
-  // is uncommon and never adjacent by construction, since a repeat needs both
-  // the same variant AND the same slot. Raising it costs one bake and about
-  // 9 MB of texture per extra slot per variant that actually gets used; the
-  // honest fix for a level that wants more variety than this is more variants.
-  // The power pellets live here for the same reason: built once for the run and
-  // moved between waves. Parented straight to the scene, so a wave's teardown
-  // cannot take them with it.
+  // The power pellets live here for the same reason as the skeleton rigs:
+  // built once for the run and moved between waves. Parented straight to the
+  // scene, so a wave's teardown cannot take them with it.
   const lanternHome = new THREE.Group();
   lanternHome.userData.perf = 'lantern';
   scene.add(lanternHome);
@@ -257,7 +249,27 @@ export async function startGame({ canvas, params }) {
     }
   }
 
-  const SLOTS = 4;
+  // SLOTS is the compromise and it should be read as one. Two props sharing a
+  // key are bit-identical -- same lean, same mottle, same worn letters -- so
+  // this is how much per-casting variety survives.
+  //
+  // It is spent carefully rather than hashed, and the first version of this got
+  // it wrong in a way worth recording. Folding the placement's seed down with a
+  // hash gives every prop an independent 1-in-SLOTS chance of colliding with
+  // every other of its variant, and a level with two calvary crosses in it duly
+  // came back with two IDENTICAL calvary crosses five units apart, in frame
+  // together -- which is precisely the failure that got stones sent back while
+  // the set was being built. The slot is now the prop's OCCURRENCE within its
+  // variant, so the first SLOTS castings of any variant are guaranteed to
+  // differ, and this level -- whose commonest variant appears four times -- has
+  // no repeat in it at all.
+  //
+  // Six rather than four for headroom on a bigger level. A slot costs one bake
+  // and about 2.8 MB of texture, and only for a variant that actually reaches
+  // it; slots no level uses cost nothing. When a level finally does force a
+  // repeat it is between the seventh casting of a variant and the first, not
+  // between any two of them.
+  const SLOTS = 6;
   const propCache = createPropCache({
     build(key) {
       const [kind, variant, slot] = key.split('|');
@@ -353,16 +365,16 @@ export async function startGame({ canvas, params }) {
     // skipped rather than guessed at. The level is still valid: a missing bench
     // changes nothing about whether a corridor is clear.
     const placements = [];
+    // How many of each variant this chunk has placed. See SLOTS: the count IS
+    // the slot, so two castings of a variant cannot share a bake until the
+    // chunk has run out of slots to give them.
+    const seen = new Map();
     for (const p of lay.props) {
       if (p.kind === 'stone' || p.kind === 'pumpkin') {
-        // The same per-placement seed as before, folded down to a slot. Derived
-        // from the position, so a prop keeps its look wherever its chunk is
-        // rebuilt, which is what an endless world needs.
-        const seed = p.kind === 'stone'
-          ? (p.x * 977 + p.z * 131) | 0
-          : (p.x * 613 + p.z * 89) | 0;
-        const slot = (hashKey(`${seed}`) >>> 0) % SLOTS;
-        placements.push({ key: `${p.kind}|${p.variant}|${slot}`, x: p.x, z: p.z, yaw: p.yaw || 0 });
+        const variant = `${p.kind}|${p.variant}`;
+        const n = seen.get(variant) || 0;
+        seen.set(variant, n + 1);
+        placements.push({ key: `${variant}|${n % SLOTS}`, x: p.x, z: p.z, yaw: p.yaw || 0 });
         continue;
       }
       if (p.kind === 'hole' && built.holes.length < 4) {

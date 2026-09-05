@@ -95,34 +95,52 @@
 // WHAT IT SAID LAST TIME IT WAS RUN IN FULL
 // ===========================================================================
 //
-// THE ARENA, 30 by 30 with a wall round it, against src/game/refworld.mjs's
-// stand-in. `--arena --selftest --fair 400 --play 30 --passive 30 --players 16
-// --jump 10 --stability 4`:
+// AGAINST THE REAL GENERATOR, src/game/world/, 30 by 30 arena.
+// `--arena --fair 150`, and the resolution study underneath it, which is the
+// part worth reading:
 //
-//   self test    all 20 checks and load-bearing rules fired on their own case
-//   fairness     400 arenas, 13.6 fence segments, 3.1 gates and 9.0 fireflies
-//                each, 0 failures on any of the eight properties
-//   careful bot  96.7% cleared the arena, in a mean 36 s with 2.97 of 3 lives
-//                left. 0.13 deaths a run, 2.74 units a second of travel, 10.2%
-//                of the run within 8.0 units of a skeleton and 3.2% within 4.0
-//   passive      83.3% lost all three lives, first at a median of 15 s. The
-//                other 16.7% is a known defect: see skeleton-stalled below
-//   stability    84k frames across ten timesteps from 1/240 to 3.0 s, clean
+//   spawn         8.0%    the ghost's own disc does not fit at (0, 0)
+//   F1graveCut    0 to 2%
+//   F2sealed      0.3%
+//   F3safeSpot    18 to 20%   THE ONE THAT MATTERS
+//   F4pin         0%
+//   flyReach      1 to 5%
+//   graveClear    0 to 1.3%
+//   gateWide      1.3%
 //
-//   THE VAULT, which is the question the whole redirection turns on:
+//   careful bot   95% cleared, median 54 s, 0.35 deaths, 23.9% of the run
+//                 within 8.0 units of a skeleton and 5.9% within 4.0, which is
+//                 the closest anything here has come to the old maze's 25.9%
+//                 and 3.5%
+//   passive       70% lost all three lives, median 69 s
 //
-//     jumpCost   clear   vaults/min   journeys walked round
-//       1.0       31s       9.60             6.4
-//       1.5       32s       5.42            37.5
-//       3.0       34s       3.38            46.3
-//       9.0       38s       0.47            90.2
-//       never     38s       0.00           110.3
+//   THE VAULT, on levels that pass every fairness property (--faironly):
 //
-//   So the jump is worth 18% off the clear time at any price, the price
-//   controls how often it is taken without changing what it is worth, and a
-//   player who has not learned it is not lost, only slower. It is an
-//   efficiency edge and not a decisive one, and the honest reading is in the
-//   report rather than in this table.
+//     careful, a vault priced at 3x walking   54 s to clear, 9.76 fireflies/min
+//     the same bot, never jumping             64 s to clear, 8.74 fireflies/min
+//
+//   So the jump is worth 16% of the clear time and 12% of the collection rate,
+//   and 0.9% of the SCORE, because an arena pays for nine fireflies and a clear
+//   bonus however long you take. Score is the weakest of the three measures
+//   here and quoting it alone would have said the mechanic does not exist.
+//
+// AGAINST THE STAND-IN, refworld.mjs's arena, `--arena --standin --fair 120`
+// at 0.6, 0.4 and 0.25: 0 failures on all eight properties at every step. Two
+// independent generators against one set of checks, one clean and one not, is
+// what makes the failures above a statement about the generator rather than
+// about the checks.
+//
+// THE RESOLUTION STUDY, and it is the reason those F3 figures are quoted as a
+// range. The checks flood a raster, and a raster is an approximation. The
+// first version of them answered 24.0%, 23.3%, 21.3%, 12.0% and 3.3% at cell
+// steps of 0.6 down to 0.25: falling the whole way and still falling, which
+// means it was measuring the raster. Two things were wrong and both are fixed
+// in nav.js with the reasoning at the code: the vault reach scaled with the
+// cell size, and a cell was called blocked when its CENTRE was blocked rather
+// than when all of it was. With both fixed the same study gives 19.0%, 20.0%
+// and 18.0%, which is convergence, and 18 to 20% is the honest answer.
+// Individual seeds still flip between resolutions, because the property is
+// marginal on some levels; the rate does not.
 //
 // THE ENDLESS PLANE, kept because the rules work in either and the comparison
 // is informative. `--play 16 --passive 16`:
@@ -131,11 +149,13 @@
 //                minute, 2.93 units a second, 15.4% threat and 2.1% danger
 //   passive      100% lost all three lives, median 56 s
 //
+// SELF TEST, all 20 checks and load-bearing rules fired on their own case.
+//
 // KNOWN DEFECT, not fixed and not hidden: `skeleton-stalled` still fires in
-// about one arena in twenty against the stand-in world, which is the same
-// thing as the 16.7% of arenas a motionless player survives. The steering has
-// a wedge case left in it. chase.js's five second give-up caps how long any
-// one instance lasts; the check is what will say when it is gone.
+// about one arena in twenty, which is the same thing as the arenas a
+// motionless player survives. The steering has a wedge case left in it.
+// chase.js's five second give-up caps how long any one instance lasts; the
+// check is what will say when it is gone.
 
 // THE ONE LINE. `createArena` is the stand-in this half wrote to unblock
 // itself; `createLevel` is the real generator. Both satisfy the same contract
@@ -871,11 +891,29 @@ function players(seeds) {
     const times = rows.map((r) => r.time);
     console.log(`  ${name.padEnd(21)}  ${median(times).toFixed(0).padStart(10)}s  ${pct(rows.filter((r) => r.survived).length, seeds).padStart(12)}  ${mean(rows.map((r) => r.score)).toFixed(0).padStart(7)}  ${(mean(rows.map((r) => r.collected)) / (mean(times) / 60)).toFixed(2).padStart(13)}  ${(mean(rows.map((r) => r.vaults)) / (mean(times) / 60)).toFixed(2).padStart(10)}  ${mean(rows.map((r) => r.deaths)).toFixed(2).padStart(6)}  ${pct(mean(rows.map((r) => r.threat)), mean(times)).padStart(7)}`);
   }
-  // THE ONE NUMBER. A player who never learned the jump against one who prices
-  // it. Within a few points of each other and the mechanic is not in the game.
-  const a = mean(keep['careful (jumpCost 3)'].map((r) => r.score));
-  const g = mean(keep['ground (never jumps)'].map((r) => r.score));
-  console.log(`\n  THE JUMP IS WORTH ${(((a - g) / Math.max(1, g)) * 100).toFixed(1)}% of score: careful ${a.toFixed(0)} against a player who never jumps ${g.toFixed(0)}.`);
+  // THE ONE NUMBER, reported three ways, because in a bounded arena SCORE is
+  // the wrong one and quoting it alone would answer the question wrongly.
+  //
+  // An arena holds a fixed nine fireflies and pays a fixed clear bonus, so a
+  // player who takes twice as long scores almost the same: the score measures
+  // whether you finished, not how well. What moves is TIME and RATE. On clean
+  // levels the careful bot and the bot that never jumps are within 1% of each
+  // other on score and 16% apart on clear time, and reporting only the first
+  // would have said the mechanic does not exist when it does.
+  const ca = keep['careful (jumpCost 3)'];
+  const gr = keep['ground (never jumps)'];
+  const sA = mean(ca.map((r) => r.score));
+  const sG = mean(gr.map((r) => r.score));
+  const tA = median(ca.map((r) => r.time));
+  const tG = median(gr.map((r) => r.time));
+  const rA = mean(ca.map((r) => r.collected)) / (mean(ca.map((r) => r.time)) / 60);
+  const rG = mean(gr.map((r) => r.collected)) / (mean(gr.map((r) => r.time)) / 60);
+  console.log(`\n  THE JUMP IS WORTH, careful against a player who never learned it:`);
+  console.log(`    score        ${sA.toFixed(0)} against ${sG.toFixed(0)}   ${(((sA - sG) / Math.max(1, sG)) * 100).toFixed(1)}%`);
+  console.log(`    time         ${tA.toFixed(0)}s against ${tG.toFixed(0)}s   ${(((tG - tA) / Math.max(1, tG)) * 100).toFixed(1)}% faster`);
+  console.log(`    collection   ${rA.toFixed(2)} against ${rG.toFixed(2)} a minute   ${(((rA - rG) / Math.max(0.01, rG)) * 100).toFixed(1)}%`);
+  console.log('    In a level with a fixed number of fireflies and a fixed clear bonus, score is');
+  console.log('    the weakest of the three: it says whether you finished, not how well.');
 
   // And the arena's own question: is a hard wall a trap? The share of DEATHS
   // near it, against the share of TIME spent near it. A ratio near 1 means the

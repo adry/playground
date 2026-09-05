@@ -27,14 +27,51 @@ import { flattenByMaterial } from './merge.js';
 // That is the trade the slot count buys back, and it is the caller's number to
 // choose. See createPropCache.
 
-export function createPropCache({ build }) {
+// `limit` is the cache's ceiling in TEMPLATES, and an endless world needs one.
+//
+// A stone's two maps are about 2.8 MB with mips at the shipped 512 rows. One
+// level uses twenty-odd templates and the cache is the whole reason a second
+// wave costs nothing -- but a long run walks through every variant in the set,
+// each up to SLOTS times, and twenty-nine variants at six slots is a hundred
+// and seventy-four templates and half a gigabyte of texture. A cache with no
+// ceiling is not a cache, it is a leak with good manners.
+//
+// 48 is about 136 MB of stone and holds two or three levels' worth of
+// templates, so the waves that matter -- the one being played and the one
+// before it -- never miss. Eviction is least recently used and only ever takes
+// a template no live field is drawing; a field retains what it uses and
+// releases it when the chunk is torn down. Nothing in the scene can be evicted
+// out from under it.
+export function createPropCache({ build, limit = 48 }) {
   // key -> { parts: [{ geometry, material, castShadow, receiveShadow, renderOrder }],
-  //          extra: Object3D[]  (anything the flatten could not swallow),
-  //          prop }
+  //          extra: Object3D  (anything the flatten could not swallow, or null),
+  //          prop, refs, used }
   const templates = new Map();
+  let clock = 0;
+
+  const free = (t) => {
+    for (const p of t.parts) { p.geometry.dispose(); p.material.dispose(); }
+    t.prop?.dispose?.();
+    templates.delete(t.key);
+  };
 
   return {
     size: () => templates.size,
+
+    // Held by a live field, so it cannot be evicted.
+    retain(t) { if (t) t.refs += 1; },
+    release(t) { if (t) t.refs = Math.max(0, t.refs - 1); },
+
+    // Drop unreferenced templates, oldest use first, until the cache is inside
+    // its ceiling. Called by a field once it has retained what it needs, so the
+    // templates this chunk is about to draw are never candidates.
+    trim() {
+      if (templates.size <= limit) return 0;
+      const idle = [...templates.values()].filter((t) => t.refs === 0).sort((a, b) => a.used - b.used);
+      let dropped = 0;
+      while (templates.size > limit && idle.length) { free(idle.shift()); dropped += 1; }
+      return dropped;
+    },
 
     // The template for a key, built on first sight.
     //
@@ -43,7 +80,7 @@ export function createPropCache({ build }) {
     // life of the cache, so it may be as expensive as it likes.
     get(key) {
       let t = templates.get(key);
-      if (t) return t;
+      if (t) { t.used = ++clock; return t; }
       const made = build(key);
       const root = made?.group || made;
       if (!root) return null;
@@ -74,6 +111,8 @@ export function createPropCache({ build }) {
         // itself, which is the correct answer rather than a silently unlit
         // pumpkin.
         extra: leftover ? root : null,
+        refs: 0,
+        used: ++clock,
       };
       templates.set(key, t);
       return t;
@@ -82,10 +121,7 @@ export function createPropCache({ build }) {
     // The cache owns its geometries and materials and outlives any one chunk,
     // which is the entire point. This is for tearing the whole page down.
     dispose() {
-      for (const t of templates.values()) {
-        for (const p of t.parts) { p.geometry.dispose(); p.material.dispose(); }
-        t.prop?.dispose?.();
-      }
+      for (const t of [...templates.values()]) free(t);
       templates.clear();
     },
   };
@@ -102,10 +138,12 @@ export function createPropCache({ build }) {
 export function createPropField({ placements = [], cache, tile = 16 }) {
   const group = new THREE.Group();
   const buckets = new Map();
+  const held = new Set();
 
   for (const p of placements) {
     const t = cache.get(p.key);
     if (!t) continue;
+    if (!held.has(t)) { held.add(t); cache.retain(t); }
     for (let i = 0; i < t.parts.length; i++) {
       const bk = `${p.key}#${i}@${Math.floor(p.x / tile)},${Math.floor(p.z / tile)}`;
       let b = buckets.get(bk);
@@ -146,14 +184,21 @@ export function createPropField({ placements = [], cache, tile = 16 }) {
     group.add(mesh);
   }
 
+  // Now that this chunk's templates are retained, the cache may drop whatever
+  // an older chunk left behind.
+  cache.trim?.();
+
   return {
     group,
     update() {},
     // The geometries and materials belong to the cache and are NOT freed here.
-    // Only the instanced meshes are this field's own.
+    // Only the instanced meshes are this field's own. Releasing is what makes
+    // this chunk's templates evictable again.
     dispose() {
       for (const c of group.children) c.dispose?.();
       group.clear();
+      for (const t of held) cache.release(t);
+      held.clear();
     },
   };
 }

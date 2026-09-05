@@ -123,7 +123,7 @@
 
 import {
   levelBox, gridBoxOf, worldBoxOf, padBox, boxesOverlap, inBox, rngAt,
-  LEVEL_SIZE, PATH_HALF, FLY_CELL, FLY_REACH, POWERUPS, SPAWN_CLEAR, WALL_HEIGHT, WALL_HALF,
+  LEVEL_SIZE, PATH_HALF, FLY_CELL, FLY_REACH, FLY_GAP, POWERUPS, SPAWN_CLEAR, WALL_HEIGHT, WALL_HALF,
 } from './field.js';
 import { buildLevel, BODY } from './level.js';
 import { GATE_HALF, PANEL, FENCE_HALF, BARRIER_HEIGHT, segGap } from './fence.js';
@@ -178,11 +178,6 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
   // nine of them, so the order below is the design: inside a pen, beside a
   // gate, past a fence, on a path, and only then in the open.
 
-  // The least ground the player must cover between two of them. Nine fireflies
-  // pulled toward the same pen or the same gate end up on top of each other,
-  // and two fireflies two units apart are one firefly: the walk between them is
-  // the whole point.
-  const FLY_GAP = 4.5;
 
   function nudge(pick, centre, reach, clear, apart = []) {
     const tries = [{ du: 0, dv: 0 }];
@@ -288,7 +283,15 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
     let spot = nudge(pick, centre, wide, clear, apart);
     if (!ok(spot)) spot = nudge({ u: centre.u, v: centre.v }, centre, wide, clear, apart);
     if (!ok(spot)) spot = nudge({ u: centre.u, v: centre.v }, centre, wide + 3.5, clear, apart);
-    const w = frame.toWorld(spot.u, spot.v);
+    let w = frame.toWorld(spot.u, spot.v);
+    // Last resort: the middle of a cell the repair pass has already proved a
+    // body can walk to. A firefly somewhere pretty that nobody can collect is
+    // not a firefly, and one in the open in the wrong half of the cell is.
+    if (!ok({ u: spot.u, v: spot.v })) {
+      const c = walk.nearestReachable(w.x, w.z, 10, apart, FLY_GAP)
+        || walk.nearestReachable(w.x, w.z, 10);
+      if (c) w = c;
+    }
     return { x: w.x, z: w.z, why: pick.why };
   }
 

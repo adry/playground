@@ -38,14 +38,16 @@ import { boundingRadius } from '../layout/footprints.js';
 import { OCCLUSION, K } from '../layout/frame.js';
 import { PROP_MARGIN, CORRIDOR_MARGIN, OCCLUSION_MARGIN, halfAcross } from '../layout/place.js';
 import { PATH_HALF, WALL_HALF } from './field.js';
-import { FENCE_MARGIN, GATE_CLEAR_R, gridYawAlong } from './fence.js';
+import { FENCE_MARGIN, GATE_CLEAR_R, WALL_GAP, gridYawAlong } from './fence.js';
 
 // The tallest thing the arena places is the obelisk at 1.85, so nothing can
 // argue with anything more than this far away in screen depth.
 export const OCCLUSION_REACH = 1.9 / OCCLUSION;
 export const OVERLAP_REACH = 4.2;
-// How much daylight a prop leaves against the perimeter wall.
-export const WALL_MARGIN = 0.25;
+// Nothing stands in the perimeter lane. See fence.js: three units of clear
+// ground all the way round the arena, so the corner the rules half measured a
+// sevenfold risk in always has a way out of it.
+export const WALL_MARGIN = WALL_GAP - WALL_HALF;
 
 // Kinds that stop a body. A hole is a hole and a spoil heap is a mound you walk
 // over; everything else in the arena is something you go round.

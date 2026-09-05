@@ -61,9 +61,13 @@ export const NAV_R = 0.555;
 export const SKEL_R = 0.475;
 export const GATE_R = 0.60;
 export const GATE_REACH = 2.0;
-// A component smaller than this is rasterisation at a lip rather than a pocket
-// anything could stand in. Four cells of 0.25 is a sixteenth of a square unit.
-const MIN_POCKET = 4;
+// A pocket of one cell is rasterisation at the lip of a gate; two is already
+// half a square unit of ground the ghost can stand in and nothing can follow it
+// to. The rules half tolerates six cells of leak in total, so this tolerates
+// two in any one pocket and three across the whole level, which leaves their
+// check three cells of headroom over the strictest thing this pass can promise.
+const MIN_POCKET = 2;
+const MAX_LEAK = 3;
 
 import { createNav } from '../nav.js';
 
@@ -123,6 +127,22 @@ function navGrid(box, barriers, gates, props, spawn) {
 // The no-jump pieces of the walkable ground, over nav's own edge mask: a step
 // between two open cells is not a step if the edge between them crosses a
 // barrier, which is a distinction a cell-only raster cannot make.
+// Only what is INSIDE the wall counts. The raster reaches a few units past the
+// perimeter so the wall itself is represented rather than falling off the edge,
+// and the ground out there in the darkness is a component like any other: the
+// first version of this pass spent every round trying to remove a headstone
+// that would connect the arena to the outside of it.
+function insideCount(grid, label, id, box) {
+  let n = 0;
+  for (let i = 0; i < grid.n * grid.n; i++) {
+    if (label[i] !== id) continue;
+    const x = grid.wx(i);
+    const z = grid.wz(i);
+    if (x > box.minX && x < box.maxX && z > box.minZ && z < box.maxZ) n++;
+  }
+  return n;
+}
+
 function components(grid) {
   const N = grid.n * grid.n;
   const label = new Int32Array(N).fill(-1);
@@ -169,8 +189,8 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
 
     // The main piece is the one the ghost starts in. If the ghost cannot stand
     // where it starts, that is the first thing to fix.
-    const spawnCell = grid.nearestOpen(spawn.x, spawn.z, 0.6);
-    if (spawnCell < 0) {
+    const spawnCell = grid.nearestOpen(spawn.x, spawn.z);
+    if (spawnCell < 0 || Math.hypot(grid.wx(spawnCell) - spawn.x, grid.wz(spawnCell) - spawn.z) > 0.8) {
       const bad = blockers(props, spawn.x, spawn.z, NAV_R + 0.4);
       if (!bad.length) { report.stuck = 'spawn'; break; }
       placer.drop(bad);
@@ -182,9 +202,23 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
 
     // 1. Every point a body can stand on is in the main piece.
     let worst = -1;
-    let worstSize = MIN_POCKET;
+    let worstSize = 0;
+    let leak = 0;
     for (let id = 0; id < sizes.length; id++) {
-      if (id !== main && sizes[id] > worstSize) { worst = id; worstSize = sizes[id]; }
+      if (id === main) continue;
+      const inside = insideCount(grid, label, id, box);
+      if (inside <= MIN_POCKET) { leak += inside; continue; }
+      leak += inside;
+      if (inside > worstSize) { worst = id; worstSize = inside; }
+    }
+    if (worst < 0 && leak > MAX_LEAK) {
+      // Several pockets, none of them big on its own, but enough of them
+      // together to fail. Take the largest whatever its size.
+      for (let id = 0; id < sizes.length; id++) {
+        if (id === main) continue;
+        const inside = insideCount(grid, label, id, box);
+        if (inside > worstSize) { worst = id; worstSize = inside; }
+      }
     }
     if (worst >= 0) {
       // Whatever is walling the pocket in, counted over its whole boundary, so
@@ -213,8 +247,8 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
     let fixed = false;
     for (const g of graves) {
       if (discClear(barriers, props, g.x, g.z, SKEL_R)) {
-        const c = grid.nearestOpen(g.x, g.z, 1.0);
-        if (c >= 0 && label[c] === main) continue;
+        const c = grid.nearestOpen(g.x, g.z);
+        if (c >= 0 && label[c] === main && Math.hypot(grid.wx(c) - g.x, grid.wz(c) - g.z) < 1.2) continue;
       }
       const bad = blockers(props, g.x, g.z, SKEL_R + 0.5);
       if (!bad.length) continue;
@@ -248,10 +282,7 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
     // against, with the walkable set already worked out.
     const reach = new Uint8Array(grid.n * grid.n);
     for (let i = 0; i < reach.length; i++) reach[i] = label[i] === main ? 1 : 0;
-    return { report, grid, reach, walkable: (x, z, within = 1.0) => {
-      const c = grid.nearestOpen(x, z, within);
-      return c >= 0 && reach[c] === 1;
-    } };
+    return { report, grid, reach, ...walkApi(grid, reach) };
   }
 
   // Ran out of rounds. Hand back what there is; world-check.mjs will say so.
@@ -261,10 +292,32 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
   const main = spawnCell >= 0 ? label[spawnCell] : -1;
   const reach = new Uint8Array(grid.n * grid.n);
   for (let i = 0; i < reach.length; i++) reach[i] = label[i] === main ? 1 : 0;
-  return { report, grid, reach, walkable: (x, z, within = 1.0) => {
-    const c = grid.nearestOpen(x, z, within);
-    return c >= 0 && reach[c] === 1;
-  } };
+  return { report, grid, reach, ...walkApi(grid, reach) };
+}
+
+// What the collectibles are placed against: is this somewhere a body can walk
+// to, and if not, where is the nearest place that is.
+function walkApi(grid, reach) {
+  const walkable = (x, z, within = 1.0) => {
+    const c = grid.nearestOpen(x, z);
+    return c >= 0 && reach[c] === 1 && Math.hypot(grid.wx(c) - x, grid.wz(c) - z) <= within;
+  };
+  const nearestReachable = (x, z, radius = 6, apart = [], gap = 0) => {
+    let best = null;
+    let bestD = radius * radius;
+    for (let i = 0; i < reach.length; i++) {
+      if (!reach[i]) continue;
+      const cx = grid.wx(i);
+      const cz = grid.wz(i);
+      const d = (cx - x) ** 2 + (cz - z) ** 2;
+      if (d >= bestD) continue;
+      if (gap && apart.some((o) => Math.hypot(cx - o.x, cz - o.z) < gap)) continue;
+      bestD = d;
+      best = { x: cx, z: cz };
+    }
+    return best;
+  };
+  return { walkable, nearestReachable };
 }
 
 export default repairLevel;

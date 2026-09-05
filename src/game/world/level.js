@@ -63,6 +63,13 @@ export function buildLevel({ seed = 1, size = 30 } = {}) {
   // finished level.
   const fix = repairLevel({ box, barriers, gates, graves, spawn, placer });
 
+  // WHERE THE GHOST ACTUALLY STARTS. Everything above kept SPAWN_CLEAR off the
+  // middle of the arena, but a gate's flank or a prop the repair pass could not
+  // remove can still land on it, and a ghost that starts inside a fence is a
+  // ghost that never moves. So the spawn is resolved last, against the finished
+  // level, by walking out from the middle until a body fits.
+  const start = resolveSpawn({ box, barriers, props: placer.props, spawn, walk: fix });
+
   const props = placer.props.map((p, i) => ({
     id: `p${i}`,
     kind: p.kind, variant: p.variant,
@@ -73,7 +80,7 @@ export function buildLevel({ seed = 1, size = 30 } = {}) {
   }));
 
   return {
-    seed, size, box, spawn, field,
+    seed, size, box, spawn: start, field,
     wall, runs, gates,
     barriers,
     props,
@@ -87,6 +94,26 @@ export function buildLevel({ seed = 1, size = 30 } = {}) {
       divider: runs.some((r) => r.kind === 'divider'),
     },
   };
+}
+
+// The ghost's own patch of ground, resolved against the finished level. The
+// rules half tests exactly this with discClear at the ghost's own radius, so
+// that is what is tested here.
+const GHOST_R = 0.55;
+function resolveSpawn({ box, barriers, props, spawn, walk }) {
+  const ok = (x, z) => discClear(barriers, props, x, z, GHOST_R + 0.02) && walk.walkable(x, z, 0.9);
+  if (ok(spawn.x, spawn.z)) return spawn;
+  for (let r = 0.4; r <= 8; r += 0.4) {
+    const steps = Math.max(8, Math.round((2 * Math.PI * r) / 0.4));
+    for (let k = 0; k < steps; k++) {
+      const a = (k / steps) * Math.PI * 2;
+      const x = spawn.x + Math.cos(a) * r;
+      const z = spawn.z + Math.sin(a) * r;
+      if (x < box.minX + 1.5 || x > box.maxX - 1.5 || z < box.minZ + 1.5 || z > box.maxZ - 1.5) continue;
+      if (ok(x, z)) return { x, z };
+    }
+  }
+  return spawn;
 }
 
 // A prop that is not solid does not stop a body: a hole is a hole and a spoil

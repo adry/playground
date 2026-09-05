@@ -235,9 +235,19 @@ export function placeGraves({ field, placer, box, spawn, runs, rng }) {
     }))),
   });
 
-  for (let q = 0; q < GRAVES; q++) {
-    const [sx, sz] = quadrants[q % 4];
-    const qBox = {
+  // A quadrant each, and then anywhere at all for whichever quadrants could
+  // not take one. Four graves is a FLOOR the rules half re-homes dead skeletons
+  // against, so a level with three is a level where a skeleton can be stranded,
+  // and a grave in the wrong quarter is better than no grave.
+  const regions = quadrants.map((q) => ({ q, wide: false }));
+  for (let extra = 0; extra < 4; extra++) regions.push({ q: quadrants[extra % 4], wide: true });
+  for (const region of regions) {
+    if (out.length >= GRAVES) break;
+    const [sx, sz] = region.q;
+    const qBox = region.wide ? {
+      minX: box.minX + inset, maxX: box.maxX - inset,
+      minZ: box.minZ + inset, maxZ: box.maxZ - inset,
+    } : {
       minX: sx < 0 ? box.minX + inset : mid.x + 1, maxX: sx < 0 ? mid.x - 1 : box.maxX - inset,
       minZ: sz < 0 ? box.minZ + inset : mid.z + 1, maxZ: sz < 0 ? mid.z - 1 : box.maxZ - inset,
     };
@@ -394,7 +404,7 @@ export function pathLanterns({ field, placer, box }) {
 // so the arena is uneven at the scale of a corner as well as at the scale of a
 // stone, and thinned to nothing where the ghost stands.
 
-export const SITE_PITCH = 5.0;
+export const SITE_PITCH = 4.5;
 
 export function openSites({ field, placer, box, spawn }) {
   const size = box.maxX - box.minX;
@@ -408,7 +418,7 @@ export function openSites({ field, placer, box, spawn }) {
       const z = box.minZ + (j + 0.5) * pitch + rng.float(-2.0, 2.0);
       if (Math.hypot(x - spawn.x, z - spawn.z) < SPAWN_CLEAR) continue;
       const g = field.frame.toGrid(x, z);
-      if (!rng.chance(0.42 + 0.5 * field.density(g.u, g.v))) continue;
+      if (!rng.chance(0.55 + 0.4 * field.density(g.u, g.v))) continue;
       const make = rng.weighted(SITE_KINDS);
       placed += make({ rng, placer, field, u: g.u, v: g.v }) || 0;
     }
