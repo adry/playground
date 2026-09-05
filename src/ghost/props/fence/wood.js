@@ -56,6 +56,8 @@ export function board({
   profile = null,
   segments = 14,
   ring = 12,
+  knee = null,          // where the profile stops being straight, in t
+  kneeShare = 0.32,     // how much of the ring budget goes above the knee
 } = {}) {
   const hw = width / 2;
   const ht = thickness / 2;
@@ -70,8 +72,25 @@ export function board({
   // smoother than filleting a box after the fact.
   const n = 2 / Math.max(0.06, r / ht);
 
+  // Where the rings go along the length.
+  //
+  // Evenly, unless the caller says the profile has a knee in it. A picket's
+  // point lives in its top tenth and a post's eased rim in its top twentieth,
+  // and an even spacing has to be made dense EVERYWHERE to get three rings into
+  // either: the post ran at 44 segments and still put only two and a half into
+  // the ease it was raised for. `knee` is the t the shape stops being straight
+  // at and `kneeShare` the fraction of the budget spent above it, so the rings
+  // land where the surface actually turns instead of up the straight run where
+  // nothing happens. Same shape, fewer than half the triangles, and a better
+  // resolved top than the even spacing ever gave.
+  const along = knee === null
+    ? (k) => k
+    : (k) => (k <= 1 - kneeShare
+      ? (k / (1 - kneeShare)) * knee
+      : knee + ((k - (1 - kneeShare)) / kneeShare) * (1 - knee));
+
   for (let i = 0; i <= segments; i++) {
-    const t = i / segments;
+    const t = along(i / segments);
     const [sw, st] = prof(t);
     const y = t * length;
     const drift = warp * Math.sin(Math.PI * t);

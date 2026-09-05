@@ -40,14 +40,22 @@
 //   every grave has to admit a skeleton, or nothing can climb out of it
 //   every gate's approach corridor has to admit a body, two units either side
 
-// The rules half's own occupancy model, reproduced rather than approximated.
-// nav.js blocks a cell when a disc of radius r overlaps a barrier's capsule or
-// a solid prop's bounding CIRCLE, and its fairness raster uses
-// max(ghostRadius 0.55, SKEL_RADIUS 0.475 + 0.08) = 0.555. This is that with a
-// margin, because being stricter here can only remove a prop that did not
-// strictly have to go, and being looser ships a level that cannot be played.
-export const NAV_R = 0.60;
-export const NAV_CELL = 0.25;
+// THE RULES HALF'S OWN RASTERISER, IMPORTED RATHER THAN REPRODUCED.
+//
+// The first version of this file reproduced nav.js's occupancy model here, and
+// it cut F3 from 24% to 16% and no further, because a reproduction is not the
+// thing: their raster blocks EDGES as well as cells, uses half a unit rather
+// than a quarter, and takes its radius from the two bodies rather than from a
+// number written down twice. Every one of those differences is a level this
+// generator believes is connected and their check does not. So the repair pass
+// asks nav.js the same question the soak asks it, on the same grid, and cannot
+// drift from it.
+export const NAV_CELL = 0.5;
+// max(TUNING.ghostRadius 0.55, SKEL_RADIUS 0.475 + 0.08), which is soak.mjs's
+// FAIR_RADIUS. Written here rather than imported from rules.js, because
+// importing the rules into the world would be a cycle; world-check.mjs asserts
+// the two agree.
+export const NAV_R = 0.555;
 // What a skeleton needs where it climbs out, and what a body needs to line
 // itself up on a gate. Both are the rules half's numbers.
 export const SKEL_R = 0.475;
@@ -56,6 +64,8 @@ export const GATE_REACH = 2.0;
 // A component smaller than this is rasterisation at a lip rather than a pocket
 // anything could stand in. Four cells of 0.25 is a sixteenth of a square unit.
 const MIN_POCKET = 4;
+
+import { createNav } from '../nav.js';
 
 const pointSegD2 = (px, pz, ax, az, bx, bz) => {
   const dx = bx - ax;
@@ -90,48 +100,36 @@ function blockers(props, x, z, r) {
   return out;
 }
 
-function navGrid(box, barriers, props) {
-  const n = Math.ceil((box.maxX - box.minX) / NAV_CELL);
-  const x0 = box.minX;
-  const z0 = box.minZ;
-  const blocked = new Uint8Array(n * n);
-  const wx = (i) => x0 + (i % n) * NAV_CELL + NAV_CELL / 2;
-  const wz = (i) => z0 + (((i / n) | 0) * NAV_CELL) + NAV_CELL / 2;
-  for (let i = 0; i < n * n; i++) blocked[i] = discClear(barriers, props, wx(i), wz(i), NAV_R) ? 0 : 1;
-  const index = (x, z) => {
-    const a = Math.floor((x - x0) / NAV_CELL);
-    const b = Math.floor((z - z0) / NAV_CELL);
-    return a < 0 || b < 0 || a >= n || b >= n ? -1 : b * n + a;
-  };
-  const nearestOpen = (x, z, within = 1.5) => {
-    const c = index(x, z);
-    if (c < 0) return -1;
-    const span = Math.ceil(within / NAV_CELL);
-    const a0 = c % n;
-    const b0 = (c / n) | 0;
-    let best = -1;
-    let bestD = Infinity;
-    for (let b = b0 - span; b <= b0 + span; b++) {
-      for (let a = a0 - span; a <= a0 + span; a++) {
-        if (a < 0 || b < 0 || a >= n || b >= n || blocked[b * n + a]) continue;
-        const d = (a - a0) ** 2 + (b - b0) ** 2;
-        if (d < bestD) { bestD = d; best = b * n + a; }
-      }
-    }
-    return best;
-  };
-  return { n, x0, z0, cell: NAV_CELL, blocked, wx, wz, index, nearestOpen };
+// nav.js's grid over the whole arena and a little beyond it, so the wall is
+// represented rather than falling off the edge of the raster.
+function navGrid(box, barriers, gates, props, spawn) {
+  const at = { x: (box.minX + box.maxX) / 2, z: (box.minZ + box.maxZ) / 2 };
+  const half = Math.max(box.maxX - at.x, box.maxZ - at.z) + 4.5;
+  const nav = createNav({
+    spawn,
+    barriers: () => barriers,
+    gates: () => gates,
+    props: () => props,
+    fireflies: () => [],
+    powerups: () => [],
+    graves: () => [],
+  });
+  nav.focus(at.x, at.z);
+  const grid = nav.makeGrid({ x: at.x, z: at.z, half, cell: NAV_CELL, radius: NAV_R });
+  grid.nav = nav;
+  return grid;
 }
 
-const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-
+// The no-jump pieces of the walkable ground, over nav's own edge mask: a step
+// between two open cells is not a step if the edge between them crosses a
+// barrier, which is a distinction a cell-only raster cannot make.
 function components(grid) {
-  const { n, blocked } = grid;
-  const label = new Int32Array(n * n).fill(-1);
+  const N = grid.n * grid.n;
+  const label = new Int32Array(N).fill(-1);
   const sizes = [];
   const stack = [];
-  for (let s = 0; s < n * n; s++) {
-    if (blocked[s] || label[s] !== -1) continue;
+  for (let s = 0; s < N; s++) {
+    if (grid.blocked[s] || label[s] !== -1) continue;
     const id = sizes.length;
     let size = 0;
     label[s] = id;
@@ -139,12 +137,12 @@ function components(grid) {
     while (stack.length) {
       const i = stack.pop();
       size++;
-      const a = i % n;
-      for (const [da, db] of DIR8) {
-        const na = a + da;
-        if (na < 0 || na >= n) continue;
-        const j = i + db * n + da;
-        if (j < 0 || j >= n * n || blocked[j] || label[j] !== -1) continue;
+      const a = i % grid.n;
+      for (let d = 0; d < 8; d++) {
+        const [dx, dz] = grid.DIR8[d];
+        if (a + dx < 0 || a + dx >= grid.n) continue;
+        const j = i + dz * grid.n + dx;
+        if (j < 0 || j >= N || grid.blocked[j] || label[j] !== -1 || grid.wall[i * 8 + d]) continue;
         label[j] = id;
         stack.push(j);
       }
@@ -153,6 +151,8 @@ function components(grid) {
   }
   return { label, sizes };
 }
+
+const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
 // --- the pass ---------------------------------------------------------------
 //
@@ -164,7 +164,7 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
   for (let round = 0; round < rounds; round++) {
     report.rounds = round + 1;
     const props = placer.props;
-    const grid = navGrid(box, barriers, props);
+    const grid = navGrid(box, barriers, gates, props, spawn);
     const { label, sizes } = components(grid);
 
     // The main piece is the one the ghost starts in. If the ghost cannot stand
@@ -192,14 +192,11 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
       const votes = new Map();
       for (let i = 0; i < grid.n * grid.n; i++) {
         if (label[i] !== worst) continue;
-        for (const [da, db] of DIR8) {
-          const a = (i % grid.n) + da;
-          if (a < 0 || a >= grid.n) continue;
-          const j = i + db * grid.n + da;
-          if (j < 0 || j >= grid.n * grid.n || !grid.blocked[j]) continue;
-          for (const p of blockers(props, grid.wx(j), grid.wz(j), NAV_R)) {
-            votes.set(p, (votes.get(p) || 0) + 1);
-          }
+        // Everything within a body's reach of the pocket that is solid and not
+        // a grave. Voting over the pocket's whole boundary means the prop that
+        // is most of the wall goes rather than an arbitrary one.
+        for (const p of blockers(props, grid.wx(i), grid.wz(i), NAV_R + NAV_CELL * 2)) {
+          votes.set(p, (votes.get(p) || 0) + 1);
         }
       }
       if (!votes.size) { report.stuck = 'pocket'; break; }
@@ -258,7 +255,7 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
   }
 
   // Ran out of rounds. Hand back what there is; world-check.mjs will say so.
-  const grid = navGrid(box, barriers, placer.props);
+  const grid = navGrid(box, barriers, gates, placer.props, spawn);
   const { label } = components(grid);
   const spawnCell = grid.nearestOpen(spawn.x, spawn.z, 1.5);
   const main = spawnCell >= 0 ? label[spawnCell] : -1;

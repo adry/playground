@@ -463,9 +463,50 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     // The two have to be kept apart because the airborne ghost ignores exactly
     // one of them, and the bot's jump edges are laid on exactly this mask.
     const fence = new Uint8Array(n * n * 8);
-    const cx = (i) => x0 + (i % n) * cell + cell / 2;
-    const cz = (i) => z0 + ((i / n) | 0) * cell + cell / 2;
-    for (let i = 0; i < n * n; i++) if (!discClear(cx(i), cz(i), radius)) blocked[i] = 1;
+    // A CELL'S REPRESENTATIVE POINT, and why it is not simply its centre.
+    //
+    // A raster flood is only as good as the points it samples, and sampling
+    // cell centres asks the wrong question: it asks whether the MIDDLE of this
+    // square is clear, when what matters is whether ANY of it is. A corridor
+    // two units wide between two headstones is walkable, but if no cell centre
+    // happens to land in it the flood cannot use it, and the region beyond
+    // reads as unreachable. That error does not go away as the raster refines,
+    // it merely gets luckier: F3 against the real generator came out at 24.0%,
+    // 23.3%, 21.3%, 12.0% and 3.3% at 0.6 down to 0.25, falling the whole way
+    // and still falling. A check that answers differently every time you ask it
+    // more precisely is not measuring the world, and reporting its coarsest
+    // answer as a defect rate would have been reporting the raster.
+    //
+    // So each cell keeps the best point IN it rather than the point at the
+    // middle of it: the centre when the centre is clear, otherwise the clearest
+    // of a small sub-sample. A cell is blocked only when no point in it can
+    // hold a body. Everything downstream, the edges, the floods, the vault
+    // links and the bot's pursuit, uses these points.
+    const px = new Float64Array(n * n);
+    const pz = new Float64Array(n * n);
+    const SUB = [0, -0.34, 0.34];
+    for (let i = 0; i < n * n; i++) {
+      const bx = x0 + (i % n) * cell + cell / 2;
+      const bz = z0 + ((i / n) | 0) * cell + cell / 2;
+      px[i] = bx;
+      pz[i] = bz;
+      if (discClear(bx, bz, radius)) continue;
+      let found = false;
+      for (let a = 0; a < 3 && !found; a++) {
+        for (let b = 0; b < 3 && !found; b++) {
+          if (!a && !b) continue;
+          const qx = bx + SUB[a] * cell;
+          const qz = bz + SUB[b] * cell;
+          if (!discClear(qx, qz, radius)) continue;
+          px[i] = qx;
+          pz[i] = qz;
+          found = true;
+        }
+      }
+      if (!found) blocked[i] = 1;
+    }
+    const cx = (i) => px[i];
+    const cz = (i) => pz[i];
     for (let i = 0; i < n * n; i++) {
       if (blocked[i]) continue;
       const a = i % n;

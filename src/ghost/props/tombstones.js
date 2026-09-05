@@ -557,19 +557,8 @@ export function heightToNormalMap(canvas, strength, step = 2) {
     // CanvasTexture colour map gets for free has to happen here by hand.
     const row = (h - 1 - y) * w;
     for (let x = 0; x < w; x++) {
-      // Sobel rather than a plain central difference, and the reason is
-      // quantisation, not accuracy. The height canvas is 8 bit and its mottle
-      // is a slow swell -- a tenth of a level per texel -- so a two-texel
-      // difference of it is 0 or 1, a staircase, and at strength 14 that
-      // staircase comes back as a fine dither over every smooth part of the
-      // stone. It was faintly visible at 1024 and plainly visible at 512, where
-      // the span is half as long and the steps twice as coarse. Averaging three
-      // lines either side answers a straight edge exactly the way the central
-      // difference does and cuts the dither by about two thirds.
-      const gx = (at(x + d, y - d) + 2 * at(x + d, y) + at(x + d, y + d)
-                - at(x - d, y - d) - 2 * at(x - d, y) - at(x - d, y + d)) / 4;
-      const gy = (at(x - d, y + d) + 2 * at(x, y + d) + at(x + d, y + d)
-                - at(x - d, y - d) - 2 * at(x, y - d) - at(x + d, y - d)) / 4;
+      const gx = at(x + d, y) - at(x - d, y);
+      const gy = at(x, y + d) - at(x, y - d);
       // v runs up the stone while canvas y runs down, hence the sign on gy.
       const nx = -gx * strength;
       const ny = gy * strength;
@@ -620,7 +609,7 @@ export const GRIME = 0.2;
 //
 // Raise it if a close-up ever needs it. It is one number and everything follows
 // it.
-export const FACE_ROWS = 1024;
+export const FACE_ROWS = 512;
 
 // Colour map + height map for one stone. The face artwork occupies a region of
 // exact face aspect on the left; the narrow strip on the right is plain stone

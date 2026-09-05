@@ -338,10 +338,20 @@ export function postGeometry({ rand = rng(POST_SEED) } = {}) {
     warp: (rand() - 0.5) * 2 * F.post.warp,
     warpAxis: 'z',
     profile,
-    // High, and deliberately so: the eased top lives in the last 5.5% of the
-    // length, and board() samples t evenly. At 16 segments the whole ease fell
-    // between two rings and the post came back with a flat top again.
-    segments: 44,
+    // The eased top lives in the last 5.5% of the length. This used to be 44
+    // evenly spaced rings, which is what it takes to land even two and a half
+    // of them inside that 5.5% -- at 16 the whole ease fell between two rings
+    // and the post came back with a flat top again. board() will now put them
+    // where the shape is instead: 15 rings up the straight run, 7 across the
+    // ease. Half the triangles of the even spacing and nearly three times the
+    // resolution on the one part of the post that is not a straight line.
+    //
+    // The post is the fence's expensive piece -- two of them are 39% of a
+    // panel's triangles and there are 138 panels in a level -- so this is the
+    // one number here worth being careful about.
+    segments: 22,
+    knee: 1 - ease,
+    kneeShare: 0.32,
     ring,
   });
   return paintBoard(geo, rand);
