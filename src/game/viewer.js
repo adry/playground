@@ -19,7 +19,19 @@
 //   f                      follow on and off. Off lets the camera be dragged
 //                          away from the ghost to look at somewhere else
 //   r                      a new seed, so a bad arrangement can be checked for
-//                          being this seed's fault or the rules' fault
+//                          being this seed's fault or the rules' fault. It does
+//                          nothing when a level came out of a file: there is no
+//                          seed to change and nothing to go back to.
+//
+// A LEVEL FROM A FILE. ?level=<url> loads a hand-made level written by the
+// editor at /editor/ instead of generating one:
+//
+//   /lab/?world=1&level=/levels/mine.json
+//
+// The file answers exactly the queries the generator answers, so nothing below
+// this line knows the difference; see src/game/level/format.js. This is also
+// the ONLY door between the editor and a page that ships, and it needs a URL
+// typed by hand, which is the point.
 //
 // STREAMING. The world is infinite and the renderer is not, so props exist only
 // within RADIUS of the ghost and are thrown away beyond it. The one thing that
@@ -31,17 +43,14 @@ import { createGround } from '../ghost/ground.js';
 import { Ghost } from '../ghost/ghost.js';
 import { Input } from '../ghost/input.js';
 import { createWorld } from './world/index.js';
-import { createTombstone } from '../ghost/props/stones/index.js';
-import { createPumpkin } from '../ghost/props/pumpkin.js';
 import { createFencePanel } from '../ghost/props/fence/panel.js';
 import { createGate } from '../ghost/props/fence/gate.js';
 import { createFireflies } from '../ghost/props/fireflies.js';
-import { createGraveHole } from '../ghost/props/ground/hole.js';
-import { createDirtPile } from '../ghost/props/ground/dirtpile.js';
-import { createSandPath } from '../ghost/props/ground/sandpath.js';
-import { createBush } from '../ghost/props/foliage/bush.js';
-import { createGroundLantern } from '../ghost/props/lanterns/ground.js';
-import { createPostLantern } from '../ghost/props/lanterns/post.js';
+// The prop switch this file used to carry lives here now, so the editor at
+// /editor/ builds a level the same way this page does. See level/build.js.
+import { buildLevelProp, buildLevelPath } from './level/build.js';
+import { loadLevelFrom } from './level/format.js';
+import { createGroundCover } from './level/groundcover.js';
 
 // How far from the ghost props exist. 46 covers a screen and a half at the
 // widest useful zoom, so nothing pops in inside the frame at normal play, and
@@ -120,7 +129,28 @@ export async function startViewer({ canvas, params }) {
   scene.add(ground);
 
   // --- the world -------------------------------------------------------------
-  let world = createWorld({ seed });
+  // A LEVEL FROM A FILE, or a level from a seed.
+  //
+  //   /lab/?world=1                      the generator, as before
+  //   /lab/?world=1&level=/levels/a.json a hand-made level from /editor/
+  //
+  // This is the ONLY way an authored level reaches a page that ships. The
+  // editor writes to its own localStorage and to a file the owner downloads;
+  // nothing here reads either, so a level in progress cannot appear on a
+  // shipped page by accident. The URL has to be typed.
+  const levelUrl = params.get('level');
+  let world = levelUrl ? await loadLevelFrom(levelUrl) : createWorld({ seed });
+
+  // A hand-made level can carry painted ground cover, which the generator has
+  // no equivalent of. It is one static group; see level/groundcover.js.
+  let cover = null;
+  function refreshCover() {
+    if (cover) { scene.remove(cover.group); cover.dispose(); cover = null; }
+    if (!world.ground) return;
+    cover = createGroundCover({ ground: world.ground, seed: world.seed || seed });
+    scene.add(cover.group);
+  }
+  refreshCover();
 
   // What is currently built, by the world's own stable ids, so a prop is never
   // built twice and never lost. The world guarantees an id is deterministic in
@@ -130,27 +160,13 @@ export async function startViewer({ canvas, params }) {
   let queue = [];
   let holeCount = 0;
 
+  // The switch moved to level/build.js so the editor cannot drift from it. The
+  // one thing that stays here is the floor's four-cut budget, because it is a
+  // property of THIS page's floor and not of the prop: past four, the pit is
+  // simply not registered and reads as a filled grave, which is the tidy
+  // fallback hole.js documents rather than a missing prop.
   function buildProp(p) {
-    const s = (Math.abs(Math.round(p.x * 977 + p.z * 131)) | 0) || 1;
-    switch (p.kind) {
-      case 'stone': return createTombstone({ variant: p.variant, seed: s });
-      case 'pumpkin': return createPumpkin({ variant: p.variant, seed: s });
-      case 'bench': return createTombstone({ variant: 'bench', seed: s });
-      case 'bush': return createBush({ seed: s });
-      case 'dirt': return createDirtPile({ seed: s, spade: (s & 3) === 0 });
-      case 'lantern':
-        return p.variant === 'post' ? createPostLantern({ seed: s }) : createGroundLantern({ seed: s });
-      case 'hole': {
-        // The floor takes four cuts and THROWS at the fifth, so this is a hard
-        // engine limit rather than a taste one. Past four, the pit is simply
-        // not registered: the geometry still builds and reads as a filled
-        // grave, which is a tidy fallback rather than a missing prop.
-        const h = createGraveHole({ seed: s });
-        h.__wantsCut = holeCount < 4;
-        return h;
-      }
-      default: return null;
-    }
+    return buildLevelProp(p, { allowCut: holeCount < 4 });
   }
 
   function add(id, made, x, z, yaw) {
@@ -237,7 +253,7 @@ export async function startViewer({ canvas, params }) {
       if (live.has(p.id) || queue.some((q) => q.id === p.id)) continue;
       queue.push({
         id: p.id, x: 0, z: 0, yaw: 0,
-        make: () => createSandPath({ seed: 3, width: p.width || 1.3, points: p.points }),
+        make: () => buildLevelPath(p, { seed: 3 }),
       });
     }
 
@@ -363,7 +379,9 @@ export async function startViewer({ canvas, params }) {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'g' || e.key === 'G') { overlay.visible = !overlay.visible; refreshOverlay(ghost.pos.x, ghost.pos.z); }
     else if (e.key === 'f' || e.key === 'F') follow = !follow;
-    else if (e.key === 'r' || e.key === 'R') reset((Math.random() * 1e9) | 0);
+    // A new seed throws the level away, so it is refused when the level came
+    // out of a file rather than out of the generator.
+    else if ((e.key === 'r' || e.key === 'R') && !levelUrl) reset((Math.random() * 1e9) | 0);
   });
 
   let time = 0;

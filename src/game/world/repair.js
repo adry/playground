@@ -60,13 +60,52 @@
 // second more often than the first. So the repair is done at the finest raster
 // anybody measures at, and it costs about forty milliseconds a level.
 export const NAV_CELL = 0.25;
-// max(TUNING.ghostRadius 0.55, SKEL_RADIUS 0.475 + 0.08), which is soak.mjs's
-// FAIR_RADIUS. Written here rather than imported from rules.js, because
-// importing the rules into the world would be a cycle; world-check.mjs asserts
-// the two agree.
-export const NAV_R = 0.555;
-// What a skeleton needs where it climbs out, and what a body needs to line
-// itself up on a gate. Both are the rules half's numbers.
+// THE BODY, PLUS A MARGIN, AND THE MARGIN IS THE POINT.
+//
+// soak.mjs judges with FAIR_RADIUS = max(TUNING.ghostRadius 0.55, SKEL_RADIUS
+// 0.475 + 0.08) = 0.555. Repairing at exactly that left a residue of about one
+// arena in a hundred that MOVED between raster steps: seed 139 failed at 0.5
+// and 0.4 and passed at 0.3, seed 115 the other way round. A failure that moves
+// with the measuring instrument is not a hole in the world, it is a passage
+// sitting exactly on the limit, and whether a raster sees it depends on where
+// its cell centres happen to land rather than on anything about the level.
+//
+// So the repair works to a body slightly wider than the one that has to fit.
+// The margin cannot be large: a gate's opening is 2.0 between two posts of
+// 0.0775, which leaves a body of radius r just 2.0 - 2 * (0.0775 + r) of room
+// to steer in, and at r = 0.705 that is 0.435, narrower than the coarse raster
+// the first round uses. The repair then reads a perfectly good gate as sealed,
+// decides the pen behind it is a pocket, finds no prop to blame and gives up on
+// the whole level. That regression cost more than the margin bought. 0.08 keeps
+// 0.575 of steering room, wider than any raster in use, and still leaves every
+// passage 0.16 wider than the body that has to fit.
+// ONE CLEARANCE FOR EVERYTHING, AND THE GATES RE-OPENED BY HAND.
+//
+// This is the number that took three tries to get right, so the reasoning is
+// worth writing down.
+//
+// A flood fill only SEES a passage when a line of cell centres runs through the
+// free part of it, so a channel of physical width W is seen at cell size c only
+// once W - 2 * 0.555 is about c. Rasters in use run from 0.5 down to 0.2, so
+// any channel between 1.11 and 1.61 wide is one that some rasters find and
+// others do not, and a region behind such a channel is a pocket that appears
+// and disappears with the measuring instrument. Every residual F3 failure was
+// one of those: a five cell wedge between a pen's fence and a headstone a
+// metre off it, which the ghost vaults into and a skeleton reaches through a
+// gap that half the rasters cannot see.
+//
+// Widening the body does not fix it on its own, because the gap between two
+// fence posts at a GATE is only 1.845 and a body wide enough to force every
+// other channel above 1.61 cannot get through one. So the repair does both
+// halves of the obvious thing: it blocks everything at a radius that puts every
+// channel it keeps above the band, and then RE-OPENS the gates, which are known
+// passable by construction and are checked separately anyway.
+export const UNIFORM_R = 0.805;
+// What makeGrid is asked for, which only has to be right for the edge mask it
+// builds; the rings below do the rest.
+export const NAV_R = 0.635;
+// The body the gates are re-opened for, which is the one that has to fit.
+export const GATE_BODY_R = 0.58;
 export const SKEL_R = 0.475;
 export const GATE_R = 0.60;
 export const GATE_REACH = 2.0;
@@ -113,6 +152,7 @@ function blockers(props, x, z, r) {
   return out;
 }
 
+
 // nav.js's grid over the whole arena and a little beyond it, so the wall is
 // represented rather than falling off the edge of the raster.
 function navGrid(box, barriers, gates, props, spawn, cell = NAV_CELL) {
@@ -132,6 +172,53 @@ function navGrid(box, barriers, gates, props, spawn, cell = NAV_CELL) {
   });
   nav.focus(at.x, at.z);
   const grid = nav.makeGrid({ x: at.x, z: at.z, half, cell, radius: NAV_R });
+  const x0 = at.x - half;
+  const z0 = at.z - half;
+  const box2 = (cx, cz, r) => ({
+    a0: Math.max(0, Math.floor((cx - r - x0) / cell)),
+    a1: Math.min(grid.n - 1, Math.ceil((cx + r - x0) / cell)),
+    b0: Math.max(0, Math.floor((cz - r - z0) / cell)),
+    b1: Math.min(grid.n - 1, Math.ceil((cz + r - z0) / cell)),
+  });
+  // Everything up to the uniform clearance, props and barriers alike.
+  for (const p of props) {
+    if (!p.solid) continue;
+    const r = p.radius + UNIFORM_R;
+    const w = box2(p.x, p.z, r);
+    for (let b = w.b0; b <= w.b1; b++) {
+      for (let a = w.a0; a <= w.a1; a++) {
+        const i = b * grid.n + a;
+        if (!grid.blocked[i] && Math.hypot(grid.wx(i) - p.x, grid.wz(i) - p.z) < r) grid.blocked[i] = 1;
+      }
+    }
+  }
+  for (const s of barriers) {
+    const r = s.half + UNIFORM_R;
+    const w = box2((s.x0 + s.x1) / 2, (s.z0 + s.z1) / 2, Math.hypot(s.x1 - s.x0, s.z1 - s.z0) / 2 + r);
+    for (let b = w.b0; b <= w.b1; b++) {
+      for (let a = w.a0; a <= w.a1; a++) {
+        const i = b * grid.n + a;
+        if (!grid.blocked[i] && Math.sqrt(pointSegD2(grid.wx(i), grid.wz(i), s.x0, s.z0, s.x1, s.z1)) < r) grid.blocked[i] = 1;
+      }
+    }
+  }
+  // And the gates back open. A gate is 1.845 between the posts, which is above
+  // the band and passable at every raster, but it is below the uniform
+  // clearance, so blocking it and then re-opening it is the only way to have
+  // both. Nothing else in the level gets this treatment.
+  for (const g of gates) {
+    const w = box2(g.x, g.z, 3.0);
+    for (let b = w.b0; b <= w.b1; b++) {
+      for (let a = w.a0; a <= w.a1; a++) {
+        const i = b * grid.n + a;
+        if (!grid.blocked[i]) continue;
+        const cx = grid.wx(i);
+        const cz = grid.wz(i);
+        if (Math.hypot(cx - g.x, cz - g.z) > 3.0) continue;
+        if (discClear(barriers, props, cx, cz, GATE_BODY_R)) grid.blocked[i] = 0;
+      }
+    }
+  }
   grid.nav = nav;
   return grid;
 }
@@ -144,6 +231,15 @@ function navGrid(box, barriers, gates, props, spawn, cell = NAV_CELL) {
 // and the ground out there in the darkness is a component like any other: the
 // first version of this pass spent every round trying to remove a headstone
 // that would connect the arena to the outside of it.
+// A component's identity across rounds, since the labels are renumbered every
+// time: the world position of its lowest cell, rounded to the nearest unit.
+function signature(grid, label, id) {
+  for (let i = 0; i < grid.n * grid.n; i++) {
+    if (label[i] === id) return `${Math.round(grid.wx(i))},${Math.round(grid.wz(i))}`;
+  }
+  return 'none';
+}
+
 function insideCount(grid, label, id, box) {
   let n = 0;
   for (let i = 0; i < grid.n * grid.n; i++) {
@@ -192,6 +288,12 @@ const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -
 // then placed against, so a firefly is never put somewhere nothing can walk.
 export function repairLevel({ box, barriers, gates, graves, spawn, placer, rounds = 40 }) {
   const report = { removed: 0, rounds: 0, pockets: 0, spawn: 0, grave: 0, gate: 0, stuck: null };
+  // Pockets nothing can be removed to open. They are bounded by fence and wall
+  // rather than by props, so no prop is to blame and there is nothing this pass
+  // can do about them. They are SKIPPED rather than fatal: giving up on the
+  // level the moment one appears leaves every other problem in it unfixed,
+  // which is how a widened margin made the failure rate go UP.
+  const unfixable = new Set();
 
   for (let round = 0; round < rounds; round++) {
     report.rounds = round + 1;
@@ -227,6 +329,7 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
       const scale = (NAV_CELL / cell) ** 2;
       if (inside * scale <= MIN_POCKET) { leak += inside * scale; continue; }
       leak += inside * scale;
+      if (unfixable.has(signature(grid, label, id))) continue;
       if (inside * scale > worstSize) { worst = id; worstSize = inside * scale; }
     }
     // A clean coarse round proves nothing: the fine raster has the last word,
@@ -237,7 +340,7 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
       // Several pockets, none of them big on its own, but enough of them
       // together to fail. Take the largest whatever its size.
       for (let id = 0; id < sizes.length; id++) {
-        if (id === main) continue;
+        if (id === main || unfixable.has(signature(grid, label, id))) continue;
         const inside = insideCount(grid, label, id, box);
         if (inside > worstSize) { worst = id; worstSize = inside; }
       }
@@ -251,11 +354,15 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
         // Everything within a body's reach of the pocket that is solid and not
         // a grave. Voting over the pocket's whole boundary means the prop that
         // is most of the wall goes rather than an arbitrary one.
-        for (const p of blockers(props, grid.wx(i), grid.wz(i), NAV_R + NAV_CELL * 2)) {
+        for (const p of blockers(props, grid.wx(i), grid.wz(i), UNIFORM_R + NAV_CELL * 3)) {
           votes.set(p, (votes.get(p) || 0) + 1);
         }
       }
-      if (!votes.size) { report.stuck = 'pocket'; break; }
+      if (!votes.size) {
+        unfixable.add(signature(grid, label, worst));
+        report.stuck = 'pocket';
+        continue;
+      }
       let pick = null;
       let best = -1;
       for (const [p, v] of votes) if (v > best) { best = v; pick = p; }

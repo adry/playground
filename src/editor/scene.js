@@ -19,7 +19,7 @@
 // rebuilt only when their own signature changes.
 
 import * as THREE from 'three';
-import { createGround, addGroundHole, MAX_GROUND_HOLES } from '../ghost/ground.js';
+import { createGround, MAX_GROUND_HOLES } from '../ghost/ground.js';
 import { createWall, createVoid, WALL } from '../ghost/props/fence/wall.js';
 import { createFencePanel } from '../ghost/props/fence/panel.js';
 import { createGate } from '../ghost/props/fence/gate.js';
@@ -159,14 +159,11 @@ export function createEditorScene({ canvas }) {
   const pathBuilt = new Map();
   let holeCuts = 0;
 
-  function dropCut(entry) {
-    if (entry.cut) { entry.cut.remove(); entry.cut = null; holeCuts -= 1; }
-  }
-
   function drop(id) {
     const e = built.get(id);
     if (!e) return;
-    dropCut(e);
+    // dispose() is what gives a hole's floor cut back. Nothing else does, so
+    // the budget below depends on this being the only way a prop leaves.
     level.remove(e.group);
     e.made?.dispose?.();
     built.delete(id);
@@ -174,36 +171,40 @@ export function createEditorScene({ canvas }) {
 
   function syncProps(world) {
     const seen = new Set();
-    // Holes take the floor's four cuts in the order the level lists them, so
-    // the graves get them and a decorative fifth grave hole simply reads as a
-    // filled one. That is the documented fallback in ground.js rather than a
-    // failure: addGroundHole THROWS at the fifth.
-    holeCuts = 0;
+    // THE FOUR CUTS. src/ghost/ground.js carries at most MAX_GROUND_HOLES and
+    // addGroundHole THROWS at the fifth, so the budget is spent in document
+    // order: the graves are first in the list and take them, and a decorative
+    // fifth grave hole reads as a filled grave, which hole.js documents as the
+    // tidy fallback rather than a failure.
+    const wantCut = new Set(
+      world.props().filter((p) => p.kind === 'hole').slice(0, MAX_GROUND_HOLES).map((p) => p.id),
+    );
+    holeCuts = wantCut.size;
     for (const p of world.props()) {
       seen.add(p.id);
-      const k = `${p.kind}/${p.variant}`;
+      const cut = wantCut.has(p.id);
+      // The cut state is part of the build key: a hole that loses its slot has
+      // to be rebuilt, because registerWith() is one way only.
+      const k = `${p.kind}/${p.variant}/${cut ? 'cut' : 'plain'}`;
       let e = built.get(p.id);
       if (e && e.key !== k) { drop(p.id); e = null; }
       if (!e) {
-        const made = buildLevelProp(p, { allowCut: true });
+        const made = buildLevelProp(p, { allowCut: cut });
         if (!made) continue;
         made.group.userData.pickId = p.id;
         made.group.userData.pickKind = 'prop';
+        made.group.position.set(p.x, 0, p.z);
+        made.group.rotation.y = p.yaw || 0;
         level.add(made.group);
-        e = { group: made.group, key: k, made, cut: null, wantsCut: !!made.__wantsCut };
+        if (cut && made.registerWith) made.registerWith(ground);
+        e = { group: made.group, key: k, made, isHole: p.kind === 'hole' };
         built.set(p.id, e);
       }
       e.group.position.set(p.x, 0, p.z);
       e.group.rotation.y = p.yaw || 0;
-      if (e.wantsCut) {
-        if (holeCuts < MAX_GROUND_HOLES) {
-          const foot = { x: p.x, z: p.z, rotation: -(p.yaw || 0), halfX: 1.06, halfZ: 0.5, radius: 0.3 };
-          if (!e.cut) { e.cut = addGroundHole(ground, foot); } else e.cut.set(foot);
-          holeCuts += 1;
-        } else {
-          dropCut(e);
-        }
-      }
+      // A hole keeps its cut in step through its own update(), which is one
+      // matrix read when it has not moved.
+      if (e.isHole) e.made.update?.();
     }
     for (const id of [...built.keys()]) if (!seen.has(id)) drop(id);
   }
@@ -355,7 +356,6 @@ export function createEditorScene({ canvas }) {
   // than leaving the author to walk round it. The chevron points along the
   // prop's local +Z, which is what footprints.js calls its face, and it turns
   // amber when that face is pointing away from this camera.
-  const FACE_AWAY = 0x00;
   function facingMark(p) {
     const c = Math.cos(p.yaw || 0);
     const s = Math.sin(p.yaw || 0);
@@ -444,6 +444,7 @@ export function createEditorScene({ canvas }) {
   canvas.parentElement.appendChild(badgeLayer);
 
   function syncBadges(world) {
+    if (!world) return;
     const graves = world._derived.graves;
     while (badgeLayer.children.length > graves.length) badgeLayer.lastChild.remove();
     while (badgeLayer.children.length < graves.length) {
@@ -493,6 +494,10 @@ export function createEditorScene({ canvas }) {
   return {
     renderer, scene, camera, level, overlay, ground,
     sync,
+    // The overlay alone. Moving the pointer with the ground brush up has to
+    // redraw the brush ring and nothing else, and a full sync would rebuild
+    // the world and revalidate it sixty times a second to move a circle.
+    overlayOnly(w, d, opts) { syncOverlay(w, d, opts); },
     syncBadges,
     groundAt,
     pickAt,

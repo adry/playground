@@ -143,7 +143,7 @@ export function createPropField({ placements = [], cache, tile = 16 }) {
   for (const p of placements) {
     const t = cache.get(p.key);
     if (!t) continue;
-    if (!held.has(t)) { held.add(t); cache.retain(t); }
+    if (!held.has(t)) { held.add(t); cache.retain?.(t); }
     for (let i = 0; i < t.parts.length; i++) {
       const bk = `${p.key}#${i}@${Math.floor(p.x / tile)},${Math.floor(p.z / tile)}`;
       let b = buckets.get(bk);
@@ -197,7 +197,7 @@ export function createPropField({ placements = [], cache, tile = 16 }) {
     dispose() {
       for (const c of group.children) c.dispose?.();
       group.clear();
-      for (const t of held) cache.release(t);
+      for (const t of held) cache.release?.(t);
       held.clear();
     },
   };

@@ -189,11 +189,20 @@ export function reachability({ box, barriers, props, spawn, radius = BODY / 2 + 
     }
   }
   return {
+    // Reachable means "the player can get to this spot", and the raster is
+    // half a unit, so the question is asked of the cell the point is in AND
+    // its neighbours. Without that, a firefly standing a clear 0.6 from a
+    // fountain is called unreachable because the CENTRE of its cell happens to
+    // be inside the fountain, which is an artefact of the grid and not a fact
+    // about the level.
     reachable(x, z) {
-      const k = at(x, z);
-      // A point in a wall is not reachable, but nor is it a fair question: the
-      // caller asks about firefly and grave positions, which are open ground.
-      return k >= 0 && seen[k] === 1;
+      for (let dj = -1; dj <= 1; dj++) {
+        for (let di = -1; di <= 1; di++) {
+          const k = at(x + di * NAV_CELL, z + dj * NAV_CELL);
+          if (k >= 0 && seen[k] === 1) return true;
+        }
+      }
+      return false;
     },
     open(x, z) {
       const k = at(x, z);
@@ -205,7 +214,11 @@ export function reachability({ box, barriers, props, spawn, radius = BODY / 2 + 
 // --- the whole check ------------------------------------------------------------
 
 // `world` is anything createLevelWorld() returns; `doc` the document behind it.
-export function validateLevel(doc, world) {
+// `deep` runs the flood fill. It is the one check here that costs anything --
+// a 0.5 raster over the whole arena against every barrier and every prop --
+// so a drag in progress asks for the cheap half and the gesture's last call
+// asks for all of it. Everything else runs on every pointer move.
+export function validateLevel(doc, world, { deep = true } = {}) {
   const issues = [];
   const d = world._derived;
   const add = (severity, code, message, at, refs = []) => issues.push({
@@ -319,27 +332,31 @@ export function validateLevel(doc, world) {
     add('warn', 'spawns', `${doc.graves.length} of 4 skeleton spawns placed`, null);
   }
 
-  // --- the ghost's own ground -------------------------------------------------
-  const nav = reachability({ box, barriers: d.barriers, props, spawn: doc.spawn });
-  if (!nav.open(doc.spawn.x, doc.spawn.z)) {
-    add('error', 'spawn', 'the ghost starts inside something', doc.spawn);
-  }
-  for (const g of d.graves) {
-    if (!nav.reachable(g.x, g.z)) {
-      add('error', 'unreachable', `grave ${g.order + 1} is somewhere a body cannot walk to`, g, [g.id]);
-    }
-  }
-  for (const f of d.flies.points) {
-    if (!nav.reachable(f.x, f.z)) {
-      add('warn', 'unreachable', 'a firefly landed somewhere a body cannot walk to', f);
-    }
-  }
   if (d.flies.missed > 0) {
     add('warn', 'fireflies', `${d.flies.missed} of ${d.flies.cells} firefly cells had nowhere to put one`, null);
   }
-  for (const p of d.powerups) {
-    if (!nav.reachable(p.x, p.z)) {
-      add('error', 'unreachable', 'a pellet is somewhere a body cannot walk to', p, [p.id]);
+
+  // --- the ghost's own ground -------------------------------------------------
+  let nav = null;
+  if (deep) {
+    nav = reachability({ box, barriers: d.barriers, props, spawn: doc.spawn });
+    if (!nav.open(doc.spawn.x, doc.spawn.z)) {
+      add('error', 'spawn', 'the ghost starts inside something', doc.spawn);
+    }
+    for (const g of d.graves) {
+      if (!nav.reachable(g.x, g.z)) {
+        add('error', 'unreachable', `grave ${g.order + 1} is somewhere a body cannot walk to`, g, [g.id]);
+      }
+    }
+    for (const f of d.flies.points) {
+      if (!nav.reachable(f.x, f.z)) {
+        add('warn', 'unreachable', 'a firefly landed somewhere a body cannot walk to', f);
+      }
+    }
+    for (const p of d.powerups) {
+      if (!nav.reachable(p.x, p.z)) {
+        add('error', 'unreachable', 'a pellet is somewhere a body cannot walk to', p, [p.id]);
+      }
     }
   }
 

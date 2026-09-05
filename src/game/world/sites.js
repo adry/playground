@@ -289,7 +289,10 @@ export function placeGraves({ field, placer, box, spawn, runs, rng }) {
           // the heap will actually end up in rather than against plain v. The
           // untorned version put the heap on the path side of one grave in two
           // hundred, which is exactly the levels where the grave had to turn.
-          const near = field.nearestPath(u, v, 10);
+          // Reach right across the arena: at ten units a grave in the middle
+          // of an empty quarter saw no path at all and fell back to a guess,
+          // and the guess was wrong about one grave in a hundred.
+          const near = field.nearestPath(u, v, 24);
           const heapDir = { u: -Math.sin(theta), v: Math.cos(theta) };
           const toPath = Number.isFinite(near.dist)
             ? { u: near.u - u, v: near.v - v } : { u: 0, v: 1 };
@@ -426,7 +429,7 @@ export function openSites({ field, placer, box, spawn }) {
       const z = box.minZ + (j + 0.5) * pitch + rng.float(-2.0, 2.0);
       if (Math.hypot(x - spawn.x, z - spawn.z) < SPAWN_CLEAR) continue;
       const g = field.frame.toGrid(x, z);
-      if (!rng.chance(0.55 + 0.4 * field.density(g.u, g.v))) continue;
+      if (!rng.chance(0.6 + 0.4 * field.density(g.u, g.v))) continue;
       const make = rng.weighted(SITE_KINDS);
       placed += make({ rng, placer, field, u: g.u, v: g.v }) || 0;
     }

@@ -13,6 +13,14 @@ export default defineConfig({
         main: 'index.html',
         ghostly: 'ghostly/index.html',
         lab: 'lab/index.html',
+        // The level editor. It ships, because the owner uses it against the
+        // built site, and it is UNLISTED rather than private: nothing links to
+        // /editor/ and it links nowhere, but a static page has no door on it,
+        // so anyone handed the URL can open it. It writes only to its own
+        // localStorage and to a file the owner downloads; the game reads a
+        // level only from a URL typed into /lab/, so nothing here can reach a
+        // shipped page by itself.
+        editor: 'editor/index.html',
       },
       // There is deliberately no manualChunks here. It used to force everything
       // into one chunk so the standalone build could inline a single file, but

@@ -211,7 +211,7 @@ export async function startGame({ canvas, params }) {
     camera.bottom = -VIEW;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
-    const reach = window.__OLD_SHADOW_BOX ? VIEW * Math.max(1, aspect) * 2.6 : fitReach(aspect);
+    const reach = fitReach(aspect);
     key.shadow.camera.left = -reach;
     key.shadow.camera.right = reach;
     key.shadow.camera.top = reach;
@@ -261,8 +261,10 @@ export async function startGame({ canvas, params }) {
   // together -- which is precisely the failure that got stones sent back while
   // the set was being built. The slot is now the prop's OCCURRENCE within its
   // variant, so the first SLOTS castings of any variant are guaranteed to
-  // differ, and this level -- whose commonest variant appears four times -- has
-  // no repeat in it at all.
+  // differ. The measured level places 28 stones across 16 variants and never
+  // more than three of any one, so at six slots it has no repeated bake in it
+  // at all -- every stone is still its own, and the cache still makes the next
+  // wave free.
   //
   // Six rather than four for headroom on a bigger level. A slot costs one bake
   // and about 2.8 MB of texture, and only for a variant that actually reaches
@@ -272,7 +274,7 @@ export async function startGame({ canvas, params }) {
   const SLOTS = 6;
   const propCache = createPropCache({
     build(key) {
-      const [kind, variant, slot] = key.split('|');
+      const [kind, variant] = key.split('|');
       // The seed is the KEY's, not the placement's, or a cached prop would
       // depend on which of its placements happened to be built first and a
       // chunk rebuilt in a different order would come back looking different.

@@ -79,7 +79,10 @@ function makeTest({ box, barriers, gates, props, spawn, rule }) {
     for (const o of taken) if (Math.hypot(x - o.x, z - o.z) < rule.gap) return false;
     for (const p of props) {
       if (!p.solid) continue;
-      if (Math.hypot(x - p.x, z - p.z) < rule.clear + p.radius) return false;
+      // A BODY's clearance, not the firefly's own. The generator asks the same
+      // question a different way (`walk.walkable(x, z, 1.0)`): a firefly the
+      // player cannot stand next to is a firefly nobody collects.
+      if (Math.hypot(x - p.x, z - p.z) < Math.max(rule.clear, 0.62) + p.radius) return false;
     }
     for (const g of gates) {
       if (Math.hypot(x - g.sweep.x, z - g.sweep.z) < g.sweep.r + 0.15) return false;
