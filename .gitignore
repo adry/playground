@@ -27,6 +27,7 @@ out/
 /*-smoke.mjs
 /*-record.mjs
 /*-perf.mjs
+/*-probe.mjs
 /*-tmp.mjs
 /dbg.mjs
 /legs.html

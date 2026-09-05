@@ -150,12 +150,10 @@ for (const [i, plan] of spawnPlan.entries()) {
 }
 renumberGraves(doc);
 
-// --- the pellets ---------------------------------------------------------------
-for (const [i, [x, z]] of [[-12.0, -5.0], [11.0, -12.5], [-12.5, 12.5], [12.5, 11.0]].entries()) {
-  tryOne([[0, 0], [1, 1], [-1, -1], [2, 0], [0, 2]], (o) => {
-    doc.powerups.push({ id: `jack${i}`, x: x + o[0], z: z + o[1] });
-  }, () => doc.powerups.pop());
-}
+// NO PELLETS. Four lit jack-o'-lanterns went here, one per quadrant, and they
+// were Pac-Man's power pellet. The owner has taken the pellet out of the game.
+// The format still carries a `powerups` list so a level written before that
+// still opens; a level written now has none.
 
 // --- the props -----------------------------------------------------------------
 //
@@ -272,7 +270,8 @@ writeFileSync(path, `${serializeLevel(out)}\n`);
 
 console.log(`wrote ${path}`);
 console.log(`props ${out.props.length} (${dropped} candidates dropped for not fitting)`);
-console.log(`spawns ${placedSpawns}/4  gates ${world._derived.gates.length}  pellets ${out.powerups.length}`);
+console.log(`dug graves ${placedSpawns}/4  gates ${world._derived.gates.length}`);
+console.log(`spawn markers ${world.spawns().length} of ${out.props.filter((p) => p.kind === 'stone').length + out.graves.filter((g) => g.headstone).length} headstones`);
 console.log(`fireflies ${world.fireflies().length} at ${world._derived.flies.spacing.toFixed(1)} apart`);
 console.log(`live checks: ${check.errors.length} errors, ${check.warnings.length} warnings`);
 for (const i of check.issues) console.log(`  ${i.severity}: ${i.message}`);

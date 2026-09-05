@@ -314,25 +314,39 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
   const usedAt = new Map();        // marker id -> the clock it was last used at
   let clock = 0;
 
+  // THREE BUCKETS, AND THE ORDER THEY ARE TRIED IN IS THE WHOLE FALLBACK.
+  //
+  //   band    in the band, off cooldown, not about to be used by somebody else
+  //   spare   in the band but on cooldown, or out of the band
+  //   taken   somebody else is coming out of it right now
+  //
+  // Every preference in here is a PREFERENCE. The cooldown, the band and the
+  // "not two at once" rule are all things to have if the yard can afford them,
+  // and a skeleton that cannot find a marker is worse than any of them being
+  // broken. That has to be said in the structure rather than in a comment,
+  // because the first version excluded the avoided markers outright and, in an
+  // arena with three of them and four skeletons re-homing together, emptied
+  // every bucket and fell through to the last resort. Which put a skeleton
+  // inside the perimeter wall, twice in two hundred runs.
   function pickSpawn(ghost, avoid) {
     const marks = nav.near(ghost.x, ghost.z, C.penMax + 8, 'spawns');
     const band = [];
     const spare = [];
+    const taken = [];
+    const mid = (C.penMin + C.penMax) / 2;
     for (const g of marks) {
       const d = Math.hypot(g.x - ghost.x, g.z - ghost.z);
-      // Two skeletons must not surface in the same plot at the same moment.
-      if (avoid && avoid.some((a) => Math.hypot(a.x - g.x, a.z - g.z) < 1.5)) continue;
-      const cool = clock - (usedAt.get(g.id) ?? -1e9) < C.spawnCool;
-      if (d >= C.penMin && d <= C.penMax) {
-        const mid = (C.penMin + C.penMax) / 2;
-        const t = 1 - Math.abs(d - mid) / ((C.penMax - C.penMin) / 2);
-        const w = Math.max(0.05, t);
-        (cool ? spare : band).push({ g, w });
-      } else {
-        spare.push({ g, w: 1 / (1 + Math.abs(d - (C.penMin + C.penMax) / 2)) });
-      }
+      const inBand = d >= C.penMin && d <= C.penMax;
+      // Weight peaks in the middle of the band and falls to nothing at its
+      // edges; outside the band, the nearer the band the better.
+      const w = inBand
+        ? Math.max(0.05, 1 - Math.abs(d - mid) / ((C.penMax - C.penMin) / 2))
+        : 1 / (1 + Math.abs(d - mid));
+      if (avoid && avoid.some((a) => Math.hypot(a.x - g.x, a.z - g.z) < 1.5)) taken.push({ g, w });
+      else if (inBand && clock - (usedAt.get(g.id) ?? -1e9) >= C.spawnCool) band.push({ g, w });
+      else spare.push({ g, w });
     }
-    const from = band.length ? band : spare;
+    const from = band.length ? band : spare.length ? spare : taken;
     if (from.length) {
       let total = 0;
       for (const e of from) total += e.w;
@@ -342,12 +356,24 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       usedAt.set(hit.id, clock);
       return { x: hit.x, z: hit.z, yaw: hit.yaw || 0, id: hit.id };
     }
-    // Only ever reached in a test harness with no markers in it at all: the
-    // audit's spawn rule refuses a level with fewer than SPAWN_FLOOR. Fall back
-    // to a point in the band rather than throwing.
+    // No marker within reach at all. Only a test harness with an empty spawn
+    // list gets here, since audit.js refuses a level with fewer than
+    // SPAWN_FLOOR of them, but "only a harness" is what was said about the
+    // branch that put a skeleton in the wall. So the point is CLAMPED well
+    // inside the arena and then pushed off anything it landed in, and a
+    // skeleton that comes out of the ground somewhere arbitrary is at least
+    // somewhere it can walk out of.
     const a = rng() * Math.PI * 2;
-    const d = (C.penMin + C.penMax) / 2;
-    return { x: ghost.x + Math.cos(a) * d, z: ghost.z + Math.sin(a) * d, yaw: a + Math.PI, id: null };
+    let x = ghost.x + Math.cos(a) * mid;
+    let z = ghost.z + Math.sin(a) * mid;
+    const bb = nav.bounds;
+    if (bb) {
+      const m = 2.0;
+      x = Math.min(Math.max(x, bb.minX + m), bb.maxX - m);
+      z = Math.min(Math.max(z, bb.minZ + m), bb.maxZ - m);
+    }
+    const fixed = nav.resolveWalker(x, z, SKEL_RADIUS);
+    return { x: fixed.x, z: fixed.z, yaw: a + Math.PI, id: null };
   }
 
   function reset(ghost) {

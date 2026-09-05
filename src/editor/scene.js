@@ -113,8 +113,85 @@ export function createEditorScene({ canvas }) {
 
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
   const target = new THREE.Vector3(0, 0, 0);
-  let view = 18;
   let mode = 'game';   // 'game' or 'plan'
+
+  // --- the camera ---------------------------------------------------------------
+  //
+  // Three complaints from the owner, and they are one complaint about feel:
+  // you could zoom out past the level into void, every notch of the wheel was a
+  // jump, and moving around did not behave like moving a thing you were holding.
+  //
+  //   view      what is on screen this frame
+  //   viewWant  what the wheel has asked for; view chases it
+  //   maxView   the view at which the arena exactly fills the frame, computed
+  //             rather than guessed, and the hard ceiling. An author should
+  //             never see void around their level.
+  //
+  // The wheel handler lives in main.js and is not mine, but it goes through
+  // setView, so all of this works without that file changing: setView moves the
+  // TARGET and the frame loop eases towards it, anchored on the pointer.
+  let view = 18;
+  let viewWant = 18;
+  let maxView = 60;
+  // Half the arena, from the document. Until a level is synced this is the
+  // standing 30 by 30.
+  let arenaHalfX = 15;
+  let arenaHalfZ = 15;
+
+  // How fast the view catches its target and the pan glide dies, per second.
+  // 14 settles a wheel notch in about four frames: fast enough not to feel
+  // laggy, slow enough that the step is a movement rather than a jump.
+  const ZOOM_RATE = 14;
+  const PAN_DECAY = 6.5;
+  // Below this the glide is over. A tenth of a world unit a second is under a
+  // pixel a frame at any zoom this editor allows.
+  const PAN_STOP = 0.1;
+
+  const panVel = new THREE.Vector2(0, 0);
+  let lastPanAt = -1e9;
+  // Where the pointer is over the canvas, so a zoom can be anchored on it. Own
+  // listener, passive, and it never invalidates: knowing where the mouse is is
+  // not a reason to redraw.
+  let pointer = null;
+  if (typeof canvas.addEventListener === 'function') {
+    canvas.addEventListener('pointermove', (e) => { pointer = { x: e.clientX, y: e.clientY }; }, { passive: true });
+    canvas.addEventListener('pointerleave', () => { pointer = null; }, { passive: true });
+  }
+
+  // The view at which the whole arena, wall and all, exactly fills the frame.
+  //
+  // It is not a number anyone can guess, because the arena stands on its
+  // diagonal in this camera and the answer moves with the window's aspect and
+  // with the level's own size. So it is measured: the eight corners of the
+  // arena box are put through the camera's own basis and the extents read off.
+  function fitView(aspect) {
+    const probe = new THREE.Object3D();
+    if (mode === 'plan') { probe.position.set(0, 200, 0.001); probe.up.set(0, 0, -1); }
+    else { probe.position.copy(CAM_DIR).multiplyScalar(120); probe.up.set(0, 1, 0); }
+    probe.lookAt(0, 0, 0);
+    probe.updateMatrixWorld();
+    const inv = probe.matrixWorld.clone().invert();
+    const p = new THREE.Vector3();
+    let mx = 0;
+    let my = 0;
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        for (const y of [0, WALL.height]) {
+          p.set(sx * arenaHalfX, y, sz * arenaHalfZ).applyMatrix4(inv);
+          mx = Math.max(mx, Math.abs(p.x));
+          my = Math.max(my, Math.abs(p.y));
+        }
+      }
+    }
+    return Math.max(my, mx / Math.max(0.001, aspect));
+  }
+
+  // The target cannot leave the arena either. Zooming out is capped at the
+  // whole level; panning is capped at its edges, for the same reason.
+  function clampTarget() {
+    target.x = Math.max(-arenaHalfX, Math.min(arenaHalfX, target.x));
+    target.z = Math.max(-arenaHalfZ, Math.min(arenaHalfZ, target.z));
+  }
 
   const ground = createGround({ fadeStart: 60, fadeEnd: 400 });
   scene.add(ground);
@@ -141,6 +218,24 @@ export function createEditorScene({ canvas }) {
     invalidate(true);
   }
 
+  // The projection alone, for a zoom step. resize() also resizes the drawing
+  // buffer, which a wheel notch has no business doing sixty times.
+  function applyView() {
+    const w = canvas.clientWidth || 800;
+    const h = canvas.clientHeight || 600;
+    const aspect = w / h;
+    maxView = fitView(aspect);
+    view = Math.max(3, Math.min(maxView, view));
+    viewWant = Math.max(3, Math.min(maxView, viewWant));
+    camera.left = -view * aspect; camera.right = view * aspect;
+    camera.top = view; camera.bottom = -view;
+    camera.updateProjectionMatrix();
+    const reach = Math.min(90, view * Math.max(1, aspect) * 1.7);
+    key.shadow.camera.left = -reach; key.shadow.camera.right = reach;
+    key.shadow.camera.top = reach; key.shadow.camera.bottom = -reach;
+    key.shadow.camera.updateProjectionMatrix();
+  }
+
   function resize() {
     const w = canvas.clientWidth || 800;
     const h = canvas.clientHeight || 600;
@@ -153,6 +248,8 @@ export function createEditorScene({ canvas }) {
     key.shadow.camera.left = -reach; key.shadow.camera.right = reach;
     key.shadow.camera.top = reach; key.shadow.camera.bottom = -reach;
     key.shadow.camera.updateProjectionMatrix();
+    applyView();
+    clampTarget();
     placeCamera();
     invalidate(true);
   }
@@ -827,11 +924,46 @@ export function createEditorScene({ canvas }) {
     // to spare: 120 is a frame 240 units deep, eight arenas, which is further
     // out than anyone needs and costs nothing to allow. The floor of 3 is close
     // enough to read the lettering on a headstone.
-    setView(v) { view = Math.max(3, Math.min(120, v)); resize(); },
+    // ASKS for a view. It does not take effect this instant: the frame loop
+    // eases towards it, anchored on the pointer, which is what turns a wheel
+    // notch from a jump into a movement. Clamped to maxView, so no amount of
+    // scrolling shows void around the level.
+    setView(v) {
+      viewWant = Math.max(3, Math.min(maxView, v));
+      invalidate(true);
+    },
+    // Straight there, for a keyboard reset or a fit-to-level button.
+    setViewNow(v) {
+      viewWant = Math.max(3, Math.min(maxView, v));
+      view = viewWant;
+      applyView();
+      clampTarget();
+      placeCamera();
+    },
+    get maxView() { return maxView; },
     get mode() { return mode; },
     setMode(m) { mode = m === 'plan' ? 'plan' : 'game'; placeCamera(); },
-    pan(dx, dz) { target.x += dx; target.z += dz; placeCamera(); },
-    lookAt(x, z) { target.set(x, 0, z); placeCamera(); },
+    // One to one with the ground under the pointer, because main.js hands this
+    // a delta it worked out from two groundAt() readings and those are already
+    // world units. What is added here is the memory of the movement, so a drag
+    // that is thrown carries on for a moment after the button comes up.
+    //
+    // The velocity DECAYS while the pointer is held still, so a drag that is
+    // parked and then released does not drift. That falls out of the same
+    // decay the glide uses and is the whole reason this is safe to do without
+    // main.js telling us when the drag ended.
+    pan(dx, dz) {
+      const now = performance.now();
+      const dt = Math.max(0.008, Math.min(0.1, (now - lastPanAt) / 1000));
+      lastPanAt = now;
+      target.x += dx; target.z += dz;
+      clampTarget();
+      // Smoothed, or one jittery sample decides the throw.
+      panVel.x += ((dx / dt) - panVel.x) * 0.35;
+      panVel.y += ((dz / dt) - panVel.y) * 0.35;
+      placeCamera();
+    },
+    lookAt(x, z) { target.set(x, 0, z); clampTarget(); panVel.set(0, 0); placeCamera(); },
     get target() { return target; },
     // The pixel-ratio cap, live. Anything from 0.5 (soft and fast) upward; the
     // display's own ratio is the ceiling, so raising this past it does nothing.

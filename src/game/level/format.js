@@ -41,7 +41,8 @@
 //
 // {
 //   "format": "graveyard-level",  what this is. Refuse anything else.
-//   "version": 1,                 bumped when a field changes meaning
+//   "version": 2,                 bumped when a field changes meaning. A
+//                                 version 1 file still opens: see LEVEL_VERSION
 //   "name": "my graveyard",
 //   "size": 30,                   the arena is size by size, centred on 0,0.
 //                                 At most 30, which is six of the floor's
@@ -190,7 +191,14 @@ import { spawnPoints } from '../world/spawn.js';
 import { placeFireflies, DEFAULT_FLY_RULE } from './fireflies.js';
 
 export const LEVEL_FORMAT = 'graveyard-level';
-export const LEVEL_VERSION = 1;
+// TWO, because three fields changed meaning and nothing else about the file
+// did. `powerups` and a grave's `order` and `personality` are all inert now:
+// the power pellet is out of the game and a skeleton climbs out in front of a
+// headstone chosen at random rather than out of an authored grave in an
+// authored order. Nothing REFUSES a version 1 file -- every one of those fields
+// is still read, kept and written back -- so the number is here to say what a
+// file means and not to gate anything.
+export const LEVEL_VERSION = 2;
 
 // The body the rules half moves. src/game/world/level.js exports the same
 // number; it is repeated rather than imported because importing level.js pulls

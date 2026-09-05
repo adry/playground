@@ -157,11 +157,11 @@ spawn list holds:
 | | four graves | every marker |
 |---|---|---|
 | deaths a run, careful bot | 0.25 | 0.13 |
-| deaths a run, reckless bot | 1.25 | 1.18 |
+| deaths a run, reckless bot | 1.25 | 1.15 |
 | deaths a run, a player who never moves | 2.83 | 2.77 |
 | median first death, careful bot | 35.5 s | 17.1 s |
-| surfaced at, mean | 12.1 | 12.2 |
-| bearing concentration, passive | 0.26 | 0.53 |
+| surfaced at, mean | 12.1 | 12.0 |
+| bearing concentration, passive | 0.26 | 0.55 |
 
 Two surprises in that table and both are worth keeping. The first is that it is
 very slightly KINDER: four graves often left nothing in the band at all and the

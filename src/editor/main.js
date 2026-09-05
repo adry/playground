@@ -1,9 +1,8 @@
 // THE LEVEL EDITOR. /editor/
 //
 // The owner's authoring tool for the contained graveyard: place props, turn
-// them, draw the fences and the paths, say which skeleton climbs out of which
-// grave and in what order, paint the ground, and save the whole thing as a JSON
-// file the game can load.
+// them, draw the fences, paint the ground and say what the wall is built of,
+// then save the whole thing as a JSON file the game can load.
 //
 // UNLISTED, NOT PRIVATE. See the comment at the top of editor/index.html. This
 // file writes to three places and each one is deliberate: its own localStorage
@@ -144,7 +143,7 @@ function freshId(prefix) {
 function used(id) {
   return doc.props.some((p) => p.id === id) || doc.graves.some((g) => g.id === id)
     || doc.powerups.some((p) => p.id === id) || doc.fences.some((f) => f.id === id)
-    || doc.paths.some((p) => p.id === id);
+    ;
 }
 
 // EVERY change goes through here. The snapshot is taken before the mutation,
@@ -224,7 +223,6 @@ const selection = new Set();
 let tool = 'select';
 let brush = { material: 1, radius: 1.5 };
 let placeEntry = { kind: 'stone', variant: 'cross' };
-let pathStyle = { material: 'sand', width: 1.3 };
 // What the wall tool stamps: the stone from this point on, and how the two
 // builds meet. Not the same thing as doc.wall.variant, which is what the run
 // STARTS in.
@@ -272,7 +270,7 @@ function overlayOpts(extra = {}) {
 function connectivitySig() {
   return JSON.stringify([
     doc.size, doc.seed, doc.spawn, doc.wall, doc.fences,
-    doc.props, doc.paths, doc.graves, doc.powerups, doc.fireflies,
+    doc.props, doc.graves, doc.powerups, doc.fireflies,
   ]);
 }
 
@@ -365,7 +363,6 @@ function recordOf(id) {
     || doc.graves.find((g) => g.id === id)
     || doc.powerups.find((p) => p.id === id)
     || doc.fences.find((f) => f.id === id)
-    || doc.paths.find((p) => p.id === id)
     || null;
 }
 
@@ -374,7 +371,6 @@ function kindOf(id) {
   if (doc.graves.some((g) => g.id === id)) return 'grave';
   if (doc.powerups.some((p) => p.id === id)) return 'powerup';
   if (doc.fences.some((f) => f.id === id)) return 'fence';
-  if (doc.paths.some((p) => p.id === id)) return 'path';
   return null;
 }
 
@@ -632,7 +628,6 @@ function deleteSelection() {
   doc.graves = doc.graves.filter((g) => !ids.has(g.id));
   doc.powerups = doc.powerups.filter((p) => !ids.has(p.id));
   doc.fences = doc.fences.filter((f) => !ids.has(f.id));
-  doc.paths = doc.paths.filter((p) => !ids.has(p.id));
   renumberGraves(doc);
   selection.clear();
 }
@@ -651,11 +646,11 @@ function duplicateSelection() {
       const copy = { ...r, id: freshId('jack'), x: r.x + 0.8, z: r.z + 0.8 };
       doc.powerups.push(copy);
       made.push(copy.id);
-    } else if (k === 'path' || k === 'fence') {
+    } else if (k === 'fence') {
       const copy = JSON.parse(JSON.stringify(r));
-      copy.id = freshId(k === 'path' ? 'path' : 'f');
+      copy.id = freshId('f');
       for (const p of copy.points) { p[0] += 0.8; p[1] += 0.8; }
-      (k === 'path' ? doc.paths : doc.fences).push(copy);
+      doc.fences.push(copy);
       made.push(copy.id);
     }
     // A grave is not duplicated: there are four of them and each is a distinct
@@ -695,21 +690,12 @@ canvas.addEventListener('pointerdown', (e) => {
   if (tool === 'gate') { commitIf(() => toggleGate(at.x, at.z)); return; }
   if (tool === 'wall') { commitIf(() => toggleWallStyle(at.x, at.z)); return; }
 
-  if (tool === 'fence' || tool === 'path') {
+  if (tool === 'fence') {
     commit(() => {
       if (!pending) {
-        if (tool === 'fence') {
-          const f = { id: freshId('f'), points: [[snapped(at.x), snapped(at.z)]], closed: false, gates: [] };
-          doc.fences.push(f);
-          pending = { kind: 'fence', id: f.id };
-        } else {
-          const p = {
-            id: freshId('path'), material: pathStyle.material, width: pathStyle.width,
-            points: [[snapped(at.x), snapped(at.z)]],
-          };
-          doc.paths.push(p);
-          pending = { kind: 'path', id: p.id };
-        }
+        const f = { id: freshId('f'), points: [[snapped(at.x), snapped(at.z)]], closed: false, gates: [] };
+        doc.fences.push(f);
+        pending = { kind: 'fence', id: f.id };
       } else {
         // An undo mid-draw can take the run out from under `pending`, so the
         // record is looked up rather than assumed. Losing the run is a
@@ -850,7 +836,6 @@ function finishPending(close) {
     if (!r) { pending = null; return; }
     if (r.points.length < 2) {
       doc.fences = doc.fences.filter((f) => f.id !== pending.id);
-      doc.paths = doc.paths.filter((p) => p.id !== pending.id);
     } else if (pending.kind === 'fence') {
       r.closed = close;
       // A closed pen with no gate is a pocket nothing can get into. The
@@ -902,7 +887,6 @@ window.addEventListener('keydown', (e) => {
       pending = null;
       commit(() => {
         doc.fences = doc.fences.filter((f) => f.id !== id);
-        doc.paths = doc.paths.filter((f) => f.id !== id);
       });
     } else {
       selection.clear();
@@ -1092,7 +1076,7 @@ function el(tag, props = {}, children = []) {
 
 function setTool(t) {
   tool = t;
-  if (pending && t !== 'fence' && t !== 'path') finishPending(false);
+  if (pending && t !== 'fence') finishPending(false);
   stage.dataset.tool = t;
   refresh();
 }
@@ -1158,19 +1142,6 @@ function placeGroups() {
           title: 'Click on the perimeter wall to change what it is built of from that point on, and on a change to take it out. The stone and the joint are the two selects under WALL on the right.',
         },
       ],
-    },
-    {
-      id: 'lines',
-      label: 'paths',
-      items: [
-        { tool: 'path', path: 'sand', label: 'sand path', key: 'P' },
-        { tool: 'path', path: 'gravel', label: 'gravel path' },
-        { tool: 'path', path: 'kerb', label: 'kerb run' },
-      ],
-      after: () => el('div', { class: 'row' }, [
-        el('label', { text: 'width' }),
-        number(pathStyle.width, 0.4, 3, 0.1, (v) => { pathStyle.width = v; }),
-      ]),
     },
     {
       id: 'cover',
@@ -1243,14 +1214,12 @@ function addKerb() {
 function isPicked(e) {
   if (tool !== e.tool) return false;
   if (e.tool === 'place') return placeEntry.kind === e.kind && placeEntry.variant === e.variant;
-  if (e.tool === 'path') return pathStyle.material === e.path;
   if (e.tool === 'paint') return brush.material === e.material;
   return true;
 }
 
 function pick(e) {
   if (e.tool === 'place') placeEntry = { kind: e.kind, variant: e.variant };
-  if (e.tool === 'path') pathStyle.material = e.path;
   if (e.tool === 'paint') brush.material = e.material;
   setTool(e.tool);
 }
@@ -1453,49 +1422,10 @@ const WALL_SVG = `<svg viewBox="0 0 48 48" aria-hidden="true">
   <path d="M21 31.5l6-1.7V12.3l-6 1.7z" fill="${STONE}" stroke="${LINE}" stroke-width="1" stroke-linejoin="round" />
 </svg>`;
 
-// A path: a ribbon curving away, in its own material. A route rather than a
-// swatch, which is what the word path means to whoever is drawing one.
-function pathSvg(fill, marks) {
-  return `<svg viewBox="0 0 48 48" aria-hidden="true">
-    <path d="M11 45C15 33 27 31 30 20c1.6-5.6 2-9 2.6-13"
-      stroke="${fill}" stroke-width="13" fill="none" stroke-linecap="round" />
-    <path d="M11 45C15 33 27 31 30 20c1.6-5.6 2-9 2.6-13"
-      stroke="rgba(0,0,0,0.18)" stroke-width="13" fill="none" stroke-linecap="round" stroke-dasharray="0 999" />
-    ${marks}
-  </svg>`;
-}
-
-const PATH_SVGS = {
-  sand: pathSvg('#c3b9a3', `
-    <g fill="rgba(70,60,45,0.45)">
-      <ellipse cx="17" cy="37" rx="1.5" ry="1" /><ellipse cx="24" cy="30" rx="1.2" ry="0.8" />
-      <ellipse cx="29" cy="22" rx="1.4" ry="0.9" /><ellipse cx="32" cy="12" rx="1.1" ry="0.8" />
-    </g>`),
-  gravel: pathSvg('#9a9994', `
-    <g fill="rgba(30,32,36,0.5)">
-      <circle cx="15" cy="39" r="1.1" /><circle cx="19" cy="34" r="0.9" /><circle cx="23" cy="36" r="1" />
-      <circle cx="24" cy="29" r="1.1" /><circle cx="28" cy="26" r="0.9" /><circle cx="27" cy="19" r="1.1" />
-      <circle cx="31" cy="16" r="0.9" /><circle cx="31" cy="9" r="1" /><circle cx="20" cy="42" r="1" />
-    </g>`),
-  // A kerb is not a surface, it is the two rows of stones that edge one, so it
-  // is drawn as the stones and the ground between them stays the ground.
-  kerb: `<svg viewBox="0 0 48 48" aria-hidden="true">
-    <path d="M14 45C18 33 30 31 33 20c1.6-5.6 2-9 2.6-13"
-      stroke="rgba(0,0,0,0.08)" stroke-width="14" fill="none" stroke-linecap="round" />
-    <path d="M8 44C12 32 24 30 27 19c1.5-5.4 2-8.6 2.6-12.6"
-      stroke="${STONE}" stroke-width="4.6" fill="none" stroke-linecap="round"
-      stroke-dasharray="4.5 2.4" />
-    <path d="M20 46C24 34 36 32 39 21c1.5-5.4 2-8.6 2.6-12.6"
-      stroke="${SHADE}" stroke-width="4.6" fill="none" stroke-linecap="round"
-      stroke-dasharray="4.5 2.4" />
-  </svg>`,
-};
-
 function glyphFor(e) {
   if (e.tool === 'fence') return FENCE_SVG;
   if (e.tool === 'gate') return GATE_SVG;
   if (e.tool === 'wall') return WALL_SVG;
-  if (e.tool === 'path') return PATH_SVGS[e.path] || PATH_SVGS.sand;
   return null;
 }
 
@@ -1667,7 +1597,7 @@ function drawRight() {
         // THE FRONT DOOR. Every level starts here now, so what it gives has to
         // be the whole of a blank page and nothing else: the wall, the ground,
         // and the spot the ghost starts on. emptyLevel is already exactly that
-        // -- no props, no fences, no paths, no graves, no paint.
+        // -- no props, no fences, no graves, no paint.
         el('button', { class: 'grow danger', text: 'new', onclick: () => {
           if (!confirm('start a new empty level? the current one is only in this tab.')) return;
           commit(() => {
@@ -1836,16 +1766,6 @@ function inspector(id) {
         title: 'Which long side the heap lands on. The wrong side puts it through a fence.',
         onclick: () => commit(() => { r.pile = (r.pile || 1) * -1; }),
       }),
-    ]));
-  }
-  if (k === 'path') {
-    rows.push(el('div', { class: 'row' }, [
-      el('label', { text: 'made of' }),
-      segment(['sand', 'gravel', 'kerb'], r.material, (v) => commit(() => { r.material = v; })),
-    ]));
-    rows.push(el('div', { class: 'row' }, [
-      el('label', { text: 'width' }),
-      number(r.width, 0.4, 3, 0.1, (v) => commit(() => { r.width = v; })),
     ]));
   }
   if (k === 'fence') {

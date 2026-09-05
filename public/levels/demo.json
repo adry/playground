@@ -1,6 +1,6 @@
 {
   "format": "graveyard-level",
-  "version": 1,
+  "version": 2,
   "name": "demo",
   "size": 30,
   "seed": 7,
@@ -431,28 +431,7 @@
       "headstone": "celtic"
     }
   ],
-  "powerups": [
-    {
-      "id": "jack0",
-      "x": -12,
-      "z": -5
-    },
-    {
-      "id": "jack1",
-      "x": 11,
-      "z": -12.5
-    },
-    {
-      "id": "jack2",
-      "x": -12.5,
-      "z": 12.5
-    },
-    {
-      "id": "jack3",
-      "x": 12.5,
-      "z": 11
-    }
-  ],
+  "powerups": [],
   "ground": {
     "cell": 0.5,
     "w": 60,
