@@ -437,7 +437,14 @@ export function auditLevel(world, fail) {
   if (holes > MAX_GROUND_HOLES) fail('holes', `${holes} open graves, the floor allows ${MAX_GROUND_HOLES}`);
   if (world.graves().length !== GRAVES) fail('floor', `${world.graves().length} graves, not ${GRAVES}`);
   if (world.powerups().length !== POWERUPS) fail('floor', `${world.powerups().length} pellets, not ${POWERUPS}`);
-  if (world.fireflies().length < 8) fail('floor', `only ${world.fireflies().length} fireflies`);
+  // Five, on the owner's decision, and the number is a floor rather than a
+  // target. Measured over 40 arenas with points placed for distance alone,
+  // nine fireflies in a 30 by 30 arena cannot be more than 13.8 apart and come
+  // out at about 11 once they also dodge props and fences, where five reach
+  // 19.8. The owner asked to have to cross the screen for the next one, so
+  // they took five and the spacing rather than nine and the density. Anything
+  // below five is not that decision, it is a level with nothing to collect.
+  if (world.fireflies().length < 5) fail('floor', `only ${world.fireflies().length} fireflies`);
   // Four of these are the graves' own headstones, so six is two free standing
   // stones and is the point below which the arena stops reading as a graveyard
   // at all rather than merely reading as a thin one.

@@ -139,7 +139,7 @@
 
 import {
   levelBox, gridBoxOf, worldBoxOf, padBox, boxesOverlap, inBox, rngAt,
-  LEVEL_SIZE, PATH_HALF, FLY_CELL, FLY_REACH, FLY_GAP, POWERUPS, SPAWN_CLEAR, WALL_HEIGHT, WALL_HALF,
+  LEVEL_SIZE, PATH_HALF, FLY_REACH, FLY_GAP, POWERUPS, SPAWN_CLEAR, WALL_HEIGHT, WALL_HALF,
 } from './field.js';
 import { buildLevel, BODY } from './level.js';
 import { GATE_HALF, PANEL, FENCE_HALF, BARRIER_HEIGHT, segGap } from './fence.js';
@@ -311,42 +311,43 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
     return { x: w.x, z: w.z, why: pick.why };
   }
 
-  // Nine fireflies on a 3 by 3 lattice of the arena, inset from the wall.
+  // FIVE fireflies in a quincunx: the four corners of the inset square and one
+  // in the middle.
   //
-  // THE LATTICE IS CORNER TO CORNER, and the arithmetic matters more than it
-  // looks. Laid out as cells, with a firefly at the middle of each, the nine
-  // sit in the middle 14.7 units of a 30 unit arena: inset once by EDGE and
-  // again by half a cell, so the whole outer ring of the level holds none and
-  // the nearest neighbour is 6.2 apart. Laid out as a LATTICE, with the corner
-  // fireflies ON the inset rather than half a cell inside it, the same nine
-  // span 22 units at a pitch of 11. The owner asked to have to cross the screen
-  // for the next one and the camera shows 22 across, so this is the difference
-  // between asking for a walk and asking for a step.
+  // The count is the owner's, and it is a decision about spacing rather than
+  // about how much there is to collect. Nine on a 3 by 3 lattice of this arena
+  // are 13.5 apart at best and about 11 in practice; the quincunx puts five at
+  // 19.1, because a corner's nearest neighbour is the CENTRE across the
+  // diagonal rather than the next corner along the edge. That is the whole
+  // reason for this shape: a 2 by 2 of four would be 27 apart but leaves the
+  // middle of the arena empty, and a row of five is not a level.
+  //
+  // The arithmetic that was wrong before is worth keeping written down. Laid
+  // out as CELLS, with a firefly at the middle of each, nine sat in the middle
+  // 14.7 units of a 30 unit arena: inset once by EDGE and again by half a cell,
+  // so the whole outer ring held none and the nearest neighbour was 6.2. Laid
+  // out as a LATTICE, with the outer fireflies ON the inset, the same nine
+  // spanned 22. Corner to corner, always.
   const flyList = (() => {
-    const span = size - 2 * EDGE;
-    const n = Math.max(2, Math.round(span / FLY_CELL));
-    const pitch = span / (n - 1);
+    const lo = EDGE;
+    const hi = size - EDGE;
+    const at = (fx, fz) => ({ x: box.minX + lo + fx * (hi - lo), z: box.minZ + lo + fz * (hi - lo) });
+    const spots = [at(0, 0), at(1, 0), at(0, 1), at(1, 1), at(0.5, 0.5)];
     const out = [];
-    for (let j = 0; j < n; j++) {
-      for (let i = 0; i < n; i++) {
-        const cx = box.minX + EDGE + i * pitch;
-        const cz = box.minZ + EDGE + j * pitch;
-        // The middle cell of a 3 by 3 lattice lands exactly where the ghost
-        // starts, so it is pushed out of the clearing rather than dropped: with
-        // nine of them in the level, losing one to arithmetic is losing an
-        // eighth of the level.
-        let px = cx;
-        let pz = cz;
-        const d = Math.hypot(cx - spawn.x, cz - spawn.z);
-        if (d < SPAWN_CLEAR + 1) {
-          const a = rngAt(seed, 'flyshove', i, j).float(0, Math.PI * 2);
-          px = spawn.x + Math.cos(a) * (SPAWN_CLEAR + 1.6);
-          pz = spawn.z + Math.sin(a) * (SPAWN_CLEAR + 1.6);
-        }
-        const c = collectible(px, pz, FLY_REACH, FLY_CLEAR, 'fly', out);
-        out.push({ id: `fly/${i},${j}`, ...c });
+    spots.forEach((s, i) => {
+      let { x: px, z: pz } = s;
+      // The middle one lands exactly where the ghost starts, so it is pushed
+      // out of the clearing rather than dropped. With five in the level,
+      // losing one to arithmetic is losing a fifth of it.
+      const d = Math.hypot(px - spawn.x, pz - spawn.z);
+      if (d < SPAWN_CLEAR + 1) {
+        const a = rngAt(seed, 'flyshove', i, 0).float(0, Math.PI * 2);
+        px = spawn.x + Math.cos(a) * (SPAWN_CLEAR + 1.6);
+        pz = spawn.z + Math.sin(a) * (SPAWN_CLEAR + 1.6);
       }
-    }
+      const c = collectible(px, pz, FLY_REACH, FLY_CLEAR, 'fly', out);
+      out.push({ id: `fly/${i}`, ...c });
+    });
     return out;
   })();
 

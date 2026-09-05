@@ -69,9 +69,20 @@ export const PATH_HALF = 1.15;
 //
 // Counts for a 30 by 30 level. index.js turns them into positions and says why
 // each number is what it is.
-export const FLY_CELL = 8;          // one firefly per 8 by 8 cell of the arena
+// FIVE fireflies in a quincunx, which is the owner's decision and is a
+// statement about spacing rather than about count. Measured over 40 arenas with
+// points placed for distance alone: nine of them in a 30 by 30 arena cannot be
+// further apart than 13.8 and come out at about 11 once they also dodge props
+// and fences, where five reach 19.8. The owner asked to have to cross the
+// screen for the next one, and the camera shows about 22 across, so nine is
+// asking for a step and five is asking for a walk.
+export const FLIES = 5;
 export const FLY_REACH = 2.2;       // how far one may be pulled toward a gate or a pen
-export const FLY_GAP = 7.0;         // the least ground between two of them
+// The least ground between two of them. Raised with the count: at nine this
+// was the binding constraint and at five it is slack, since the quincunx puts
+// them 19.1 apart before anything moves. It is now a floor that catches a pair
+// shoved together by two nudges, not the thing setting the spacing.
+export const FLY_GAP = 12.0;
 export const POWERUPS = 4;          // Pac-Man's four, one per quadrant
 export const GRAVES = 4;            // exactly MAX_GROUND_HOLES, so there is no budget to keep
 export const SPAWN_CLEAR = 3.2;     // the ghost's own patch of ground
