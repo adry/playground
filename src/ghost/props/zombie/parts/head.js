@@ -177,7 +177,7 @@ function nosePoint(s, r) {
   return [cx + (ex - cx) * r, NOSE_Y + NOSE_HH * (cy + (ey - cy) * r)];
 }
 
-function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
+function surfacePoint(u, vv, { mouth = true, sockets = true, lumps = true } = {}) {
   const d = unitDir(u, vv);
 
   // --- 3. flattened occiput. Only the back, and only the outer part of it,
@@ -313,14 +313,14 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
     if (recess > 0) p.addScaledVector(n, -recess * front);
   }
 
-  // --- 8. irregularity.
+  // --- 8. irregularity.  (switchable: see the note in dentDisc)
   //
   // A very low amplitude lumpiness over the whole cranium, three octaves of
   // it. At 34 px not one bump is resolvable; what IS resolvable is that the
   // terminator across the head is not a clean arc, and that alone is the
   // difference between a moulded ball and a head. The skull went round this
   // same loop: the fix is authored irregularity, not more polygons.
-  {
+  if (lumps) {
     const a = u * Math.PI * 2;
     const lump =
       Math.sin(a * 3 + 0.7) * Math.sin(vv * 7.0 + 1.3) * 0.55 +
@@ -454,6 +454,7 @@ function dentDisc({
   wobble = 0, phase = 0, outline = null,
 }) {
   const bare = { mouth: false, sockets: false };
+  const bareFlat = { mouth: false, sockets: false, lumps: false };
   return gridSurface({
     uSteps: sectors, vSteps: rings, closedU: true,
     point: (a, t) => {
@@ -472,6 +473,14 @@ function dentDisc({
       if (lift) y += lift(x);
       const [u, vv] = frontUV(x, y);
       const p0 = surfacePoint(u, vv, bare);
+      // The DEPTH QUERY is made on the surface WITHOUT the lumpiness, because
+      // that is the point the shell itself measured: the shell applies its
+      // three octaves of lumps last, after it has already decided how deep to
+      // recess. Query the lumpy point instead and the answer is wrong by up to
+      // four tenths of the socket's depth wherever the wall is steep, which is
+      // several times the clearance, and the cup rips through the skin in a
+      // fan of dark rays. Position with lumps, depth without.
+      const pq = depthOf ? surfacePoint(u, vv, bareFlat) : null;
       // Two ways to place the sheet.
       //
       // A FLAT disc at one depth (`proud`) is right for a shallow feature and
@@ -486,7 +495,7 @@ function dentDisc({
       // slightly negative at the last ring, so the cup tucks under the skin at
       // its edge rather than standing proud of it as a dark halo.
       const drop = depthOf
-        ? -(depthOf(p0) - depth * (0.10 * (1 - t) - 0.04 * t))
+        ? -(depthOf(pq) - depth * (0.10 * (1 - t) - 0.04 * t))
         : -depth * (1 - proud);
       // Along the LOCAL base normal, not one axis taken at the feature's
       // centre: over a socket's width that direction swings twenty degrees,
