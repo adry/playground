@@ -1335,7 +1335,13 @@ function drawLeft() {
 // working in folds up under your hand. A group also opens itself when the entry
 // picked is one of its own, which is what makes a keyboard shortcut show you
 // where it went.
-const openGroups = new Set(['boundary', 'stones']);
+// NOT the headstones, however much they are the group an author reaches for
+// first. Opening a group is what draws its pictures, and twenty-nine of them is
+// the one batch big enough to be felt; having it happen before the tool had
+// even appeared would be the stall this whole schedule exists to avoid. The
+// group opens the moment it is asked for, and every time after the first the
+// pictures are already in storage and it is instant.
+const openGroups = new Set(['boundary']);
 
 // THE PICTURES ARE DRAWN A GROUP AT A TIME, OFF THE RENDER LOOP.
 //
@@ -1353,27 +1359,38 @@ const openGroups = new Set(['boundary', 'stones']);
 // session: the pictures are kept in localStorage.
 const drawing = new Set();
 
-function drawGroupThumbs(group, items) {
-  if (drawing.has(group.id) || !thumbs.missing(items)) return;
-  drawing.add(group.id);
+function drawGroupThumbs(id, items) {
+  if (drawing.has(id) || !thumbs.missing(items)) return;
+  drawing.add(id);
+  // NOTHING HERE REDRAWS THE PANEL, and that is not a preference. A rebuild
+  // sets the `open` attribute on every group, setting it fires `toggle`, and a
+  // toggle handler that rebuilt the panel was an endless task loop that
+  // saturated the main thread: the tool stayed usable-looking and the
+  // compositor never got another frame, so a screenshot could not be taken at
+  // all. The line below and the pictures above are both written straight into
+  // the DOM that is already there.
+  const body = left.querySelector(`details[data-group="${CSS.escape(id)}"] .body`);
+  let note = null;
+  if (body) {
+    note = el('p', { class: 'note', text: 'drawing them...' });
+    body.prepend(note);
+  }
   // Two frames, then the work: one for the browser to lay the expanded group
-  // out and one for it to paint it. A setTimeout alone can land before the
-  // paint and the author watches a frozen tool with no explanation on it.
+  // out and one for it to paint that line. A setTimeout alone can land before
+  // the paint and the author watches a frozen tool with no explanation on it.
   requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => {
     let made = [];
     try {
       made = thumbs.renderBatch(items);
     } finally {
-      drawing.delete(group.id);
+      drawing.delete(id);
     }
-    // Straight into the tiles that are waiting, rather than by redrawing the
-    // panel, which would throw away the author's scroll position.
     for (const m of made) {
       for (const img of left.querySelectorAll(`img[data-thumb="${CSS.escape(m.key)}"]`)) {
         img.src = m.url;
       }
     }
-    for (const node of left.querySelectorAll(`[data-drawing="${CSS.escape(group.id)}"]`)) node.remove();
+    note?.remove();
     // The batch borrowed the renderer, so the scene is told to draw itself
     // again: it only renders when something has changed now.
     scene.invalidate();
@@ -1386,14 +1403,20 @@ function placeGroup(group) {
   // Only what is OPEN, which is the whole scheduling policy: a group nobody has
   // expanded costs nothing at all.
   const open = openGroups.has(group.id) || items.some(isPicked);
-  if (open && shots.length) drawGroupThumbs(group, shots);
+  if (open && shots.length) drawGroupThumbs(group.id, shots);
 
   return el('details', {
     class: 'group',
+    'data-group': group.id,
+    // Remembering the state, and starting the batch. NOT redrawing the panel:
+    // see drawGroupThumbs.
     ontoggle: (e) => {
-      if (e.target.open) openGroups.add(group.id);
-      else openGroups.delete(group.id);
-      drawLeft();
+      if (e.target.open) {
+        openGroups.add(group.id);
+        if (shots.length) drawGroupThumbs(group.id, shots);
+      } else {
+        openGroups.delete(group.id);
+      }
     },
     open: open ? '' : null,
   }, [
@@ -1402,9 +1425,6 @@ function placeGroup(group) {
       el('span', { class: 'n', text: String(items.length) }),
     ]),
     el('div', { class: 'body' }, [
-      open && shots.length && thumbs.missing(shots)
-        ? el('p', { class: 'note', 'data-drawing': group.id, text: 'drawing them...' })
-        : null,
       group.swatches ? swatchRow(items) : tileGrid(items),
       group.after ? group.after() : null,
     ]),
