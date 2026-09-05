@@ -1,10 +1,25 @@
 // The game, on screen.
 //
-//   /lab/?game=1
+//   /lab/?game=1                          a generated level
+//   /lab/?game=1&level=/levels/demo.json  a level somebody authored in /editor/
 //
 // This is the third page in the project and the first one you can lose. The
 // other two are a free-roam graveyard and an asset lineup; this one builds a
-// generated level, runs the rules over it and draws the result.
+// level, runs the rules over it and draws the result.
+//
+// A LEVEL FROM A FILE. `level` takes a URL and loads a level document instead
+// of generating one. The document answers exactly the queries the generator
+// answers -- see src/game/level/format.js, whose whole promise is that one
+// sentence -- so the rules half, the navigation and the audit cannot tell the
+// difference and none of them has a branch in it. What DOES differ is what is
+// drawn: a file carries painted ground cover, a wall variant with style
+// changes along it, paths of three materials and props of every kind in the
+// palette, and the generator carries none of those. Those differences are
+// marked `authored` below and nowhere else.
+//
+// It is still the only door between the editor and a page that ships: the URL
+// has to be typed, /editor/ writes only to its own localStorage and to a file
+// the owner downloads, and nothing here reads either.
 //
 // The division of labour is the whole design and it is worth stating once:
 //
@@ -26,7 +41,7 @@ import { createGround, addGroundHole } from '../ghost/ground.js';
 import { Ghost } from '../ghost/ghost.js';
 import { Input } from '../ghost/input.js';
 import { createWorld } from './world/index.js';
-import { createWalledLevel } from '../ghost/props/fence/wall.js';
+import { createWalledLevel, createWall, createVoid } from '../ghost/props/fence/wall.js';
 import { createGame, TUNING } from './rules.js';
 import {
   waveTuning, waveSeed, clearBonus,
@@ -59,6 +74,49 @@ export async function startGame({ canvas, params }) {
   const seed = Number(params.get('seed')) || 1;
   const testMode = params.get('test') === '1';
 
+  // --- the level, if there is one --------------------------------------------
+  //
+  // Loaded FIRST, before the renderer exists, for two reasons. It is a fetch,
+  // so anything built before it would sit idle waiting; and the whole point of
+  // knowing the level up front is that its variant set is known up front too.
+  // See BAKE, below: every prop template this level will ever need is baked
+  // inside startWave(1), which runs before the first requestAnimationFrame,
+  // and a canvas bake costs about five times more once the renderer has drawn.
+  //
+  // The four modules behind it are imported here rather than at the top of the
+  // file so that a page playing a generated level never pays for them. Between
+  // them they pull in every prop in the palette -- the fountain, the shed, nine
+  // lanterns -- which is most of what an authored level can contain and none of
+  // what a generated one does.
+  const levelUrl = params.get('level');
+  let authored = null;
+  if (levelUrl) {
+    const [format, build, cover, gate] = await Promise.all([
+      import('./level/format.js'),
+      import('./level/build.js'),
+      import('./level/groundcover.js'),
+      import('../ghost/props/fence/gate.js'),
+    ]);
+    // loadLevelFrom is the format's own door: fetch, normalise, build. A file
+    // that is missing or is not a level throws here, before a renderer exists,
+    // which is the right place for it to throw.
+    const first = await format.loadLevelFrom(levelUrl);
+    authored = {
+      // The DOCUMENT is what is kept, not just the world built from it. A wave
+      // rebuilds the world from the document so each wave gets its own arrays
+      // and nothing a previous wave held can leak into the next. Rebuilding is
+      // a pure function of the document, so every wave is the same level down
+      // to the last firefly; wave one uses the world already built above.
+      doc: first.doc,
+      pending: first,
+      createLevelWorld: format.createLevelWorld,
+      buildLevelProp: build.buildLevelProp,
+      buildLevelPath: build.buildLevelPath,
+      createGroundCover: cover.createGroundCover,
+      createGate: gate.createGate,
+    };
+  }
+
   // A RUN is a sequence of waves. Everything about the level lives in `world`
   // below and is thrown away between waves; everything about the run outlives
   // them. Keeping the two apart is what makes "endless" a small change rather
@@ -78,8 +136,10 @@ export async function startGame({ canvas, params }) {
   };
   // The arena is square and bounded. 30 is the owner's maximum, six of the
   // floor's major grid squares a side, and the only reason to pass anything
-  // else is a harness wanting a small level to render quickly.
-  const arenaSize = Number(params.get('size')) > 0 ? Number(params.get('size')) : 30;
+  // else is a harness wanting a small level to render quickly. An authored
+  // level says how big it is and ?size cannot argue with it.
+  const arenaSize = authored ? authored.doc.size
+    : (Number(params.get('size')) > 0 ? Number(params.get('size')) : 30);
 
   let layout = null;
   let game = null;

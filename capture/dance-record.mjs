@@ -104,7 +104,10 @@ const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 // main.js looks at y 0.75, which is set for a ghost that floats at knee height
 // on a frame 12.4 units tall. This frame is 5.2 tall and the subject is a line
-// of figures 2.5 tall, so the aim comes up to the middle of a dancer.
+// of figures 2.5 tall, so the aim comes up to the middle of a dancer. 1.24 is
+// where the line sits dead centre, measured: over a phrase the troupe's true
+// silhouette runs y 209..691 of 900, which is 209 px of margin above and 209
+// below. Aiming at 0.75 leaves 173 above and 251 below and the line rides high.
 //
 // Sideways it stays on the line's centre, and that was checked rather than
 // assumed. Projecting the troupe's single world bounding box says the routine
@@ -114,11 +117,11 @@ const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 // corners overstates a silhouette badly under a camera that looks along
 // (1, 0.78, 1), and the nudge it asked for would have pushed the line off
 // centre for real.
-const camTarget = new THREE.Vector3(num('tx', 0), num('ty', 1.12), num('tz', 0));
+const camTarget = new THREE.Vector3(num('tx', 0), num('ty', 1.24), num('tz', 0));
 
 scene.add(new THREE.HemisphereLight(0xdfe6f5, 0x6f7480, 1.15));
 const key = new THREE.DirectionalLight(0xfff4e6, 2.1);
-key.castShadow = num('shadows', 1) === 1;
+key.castShadow = true;
 key.shadow.mapSize.set(2048, 2048);
 key.shadow.bias = -0.0004;
 key.shadow.normalBias = 0.006;
@@ -227,14 +230,13 @@ for (let i = 0; i < num('n', 3); i++) {
   scene.add(rig.group);
   rigs.push(rig);
 }
-const troupe = num('bind', 0) ? { update() {}, metrics: () => ({ maxSlip: 0, maxSlipLoop: 0, maxShort: 0 }) } : createDanceTroupe({
+const troupe = createDanceTroupe({
   rigs,
   scene,
   seed: num('seed', 1),
   spacing: num('spacing', 1.15),
   yaw: num('yaw', Math.PI / 4),
 });
-if (num('bind', 0)) { rigs.forEach((r, i) => { r.group.position.set((i - 1) * 1.15, 0, 0); r.group.rotation.y = num('yaw', Math.PI / 4); }); }
 
 let clock = 0;
 // The simulation, with no draw in it. seek() below runs hundreds of these, and
@@ -317,7 +319,7 @@ await writeFile(path.join(stageDir, 'index.html'), STAGE);
 const query = [
   `view=${view}`, `n=${dancers}`, `seed=${seed}`,
   `spacing=${spacing}`, `stones=${stones}`, `yaw=${yaw}`,
-  args.ty === undefined ? '' : `ty=${args.ty}`, args.shadows === undefined ? '' : `shadows=${args.shadows}`, args.bind === undefined ? '' : `bind=${args.bind}`,
+  args.ty === undefined ? '' : `ty=${args.ty}`, 
 ].filter(Boolean).join('&');
 
 const lab = await openLab({
