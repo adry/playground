@@ -14,7 +14,7 @@ import { dirname } from 'node:path';
 import {
   emptyLevel, normalizeLevel, serializeLevel, createLevelWorld, renumberGraves, packPaint,
 } from '../src/game/level/format.js';
-import { validateLevel } from '../src/game/level/validate.js';
+import { validateLevel, reviewLevel } from '../src/game/level/validate.js';
 import { checkFairness, FAIR_MESSAGES } from '../src/game/level/fairness.js';
 
 const doc = emptyLevel({ size: 30, seed: 7, name: 'demo' });
@@ -53,13 +53,53 @@ doc.paths.push({
 });
 
 // --- the graves, and the order the skeletons come out in ----------------------
+//
+// Each is a POSE and the file stores nothing else: the mouth, the spoil heap
+// and the headstone are synthesised from it. `pile` is chosen here rather than
+// guessed, by audit.js's own rule -- the heap goes on the long side AWAY from
+// the nearest path -- because getting it wrong is a finding the author would
+// have to be told about rather than one the tool can avoid.
 const spawns = [
-  { x: -8.5, z: -9.0, yaw: Math.PI / 4, personality: 'chaser' },
-  { x: 7.2, z: -6.6, yaw: Math.PI / 4, personality: 'ambusher' },
-  { x: -9.5, z: 9.5, yaw: Math.PI / 4 + 0.35, personality: 'flanker' },
-  { x: 9.0, z: 4.5, yaw: Math.PI / 4 - 0.3, personality: 'loner' },
+  { x: -8.6, z: -10.2, yaw: Math.PI / 4, personality: 'chaser', headstone: 'fred' },
+  { x: 7.0, z: -6.4, yaw: Math.PI / 4, personality: 'ambusher', headstone: 'heart' },
+  { x: -10.0, z: 10.4, yaw: Math.PI / 4 + 0.35, personality: 'flanker', headstone: 'gothic' },
+  { x: 10.0, z: 3.4, yaw: Math.PI / 4 - 0.3, personality: 'loner', headstone: 'celtic' },
 ];
-spawns.forEach((s, i) => doc.graves.push({ id: `g${i}`, order: i, pile: 1, ...s }));
+
+function pileSideFor(g) {
+  const c = Math.cos(g.yaw);
+  const s2 = Math.sin(g.yaw);
+  const local = (x, z) => {
+    const dx = x - g.x;
+    const dz = z - g.z;
+    return { x: dx * c - dz * s2, z: dx * s2 + dz * c };
+  };
+  let near = null;
+  for (const p of doc.paths) {
+    for (let i = 0; i + 1 < p.points.length; i++) {
+      const [ax, az] = p.points[i];
+      const [bx, bz] = p.points[i + 1];
+      for (let t = 0; t <= 1.0001; t += 0.05) {
+        const x = ax + (bx - ax) * t;
+        const z = az + (bz - az) * t;
+        const d = Math.hypot(x - g.x, z - g.z);
+        if (!near || d < near.d) near = { x, z, d };
+      }
+    }
+  }
+  if (!near) return 1;
+  const lc = local(near.x, near.z);
+  // Only when the path is genuinely to one SIDE does the side matter; a path
+  // off the end of the grave leaves the heap free to go either way.
+  if (Math.abs(lc.z) < 0.35 * near.d) return 1;
+  return lc.z >= 0 ? -1 : 1;
+}
+
+spawns.forEach((s, i) => {
+  const g = { id: `g${i}`, order: i, head: 1, ...s };
+  g.pile = pileSideFor(g);
+  doc.graves.push(g);
+});
 renumberGraves(doc);
 
 // --- the pellets ---------------------------------------------------------------
@@ -123,13 +163,31 @@ push('pumpkin', 'classic', -6.2, -3.2);
 push('pumpkin', 'squat', 5.4, 11.4);
 push('pumpkin', 'tiny', -0.6, -3.6);
 
+// EVERY CANDIDATE IS TESTED AGAINST THE WHOLE RULE SET, not against a subset.
+//
+// The first version of this script used only the editor's fast checks, and the
+// level it wrote had forty audit findings in it, eleven of them wedges. That is
+// exactly the mistake the editor exists to stop a person making, so the script
+// makes it impossible here too: a candidate goes in, audit.js and findWedges
+// are run over the whole level, and if the count of errors went up the
+// candidate comes back out. It is a couple of hundred milliseconds per
+// candidate and it takes about fifteen seconds, which is the right trade for a
+// file that ships as the example.
+const baseline = reviewLevel(createLevelWorld(doc)).errors.length;
+if (baseline) {
+  console.log(`the empty shell already has ${baseline} findings:`);
+  for (const e of reviewLevel(createLevelWorld(doc)).errors) console.log(`  ${e.code}: ${e.message}`);
+}
+let worst = baseline;
 let dropped = 0;
 for (const [i, c] of wanted.entries()) {
   doc.props.push({ id: `p${i}`, ...c });
-  const check = validateLevel(doc, createLevelWorld(doc), { deep: false });
-  if (check.errors.length) {
+  const n = reviewLevel(createLevelWorld(doc)).errors.length;
+  if (n > worst) {
     doc.props.pop();
     dropped += 1;
+  } else {
+    worst = n;
   }
 }
 
@@ -173,6 +231,7 @@ g.paint = packPaint(cells);
 const out = normalizeLevel(doc);
 const world = createLevelWorld(out);
 const check = validateLevel(out, world);
+const review = reviewLevel(world);
 const path = new URL('../public/levels/demo.json', import.meta.url).pathname;
 mkdirSync(dirname(path), { recursive: true });
 writeFileSync(path, `${serializeLevel(out)}\n`);
@@ -180,8 +239,10 @@ writeFileSync(path, `${serializeLevel(out)}\n`);
 console.log(`wrote ${path}`);
 console.log(`props ${out.props.length} (${dropped} candidates dropped for not fitting)`);
 console.log(`gates ${world._derived.gates.length}  graves ${out.graves.length}  fireflies ${world.fireflies().length}`);
-console.log(`errors ${check.errors.length}  warnings ${check.warnings.length}`);
+console.log(`live checks: errors ${check.errors.length}  warnings ${check.warnings.length}`);
 for (const i of check.issues) console.log(`  ${i.severity}: ${i.message}`);
+console.log(`audit: ${review.errors.length} findings, ${review.wedges.length} wedges, ${review.notes.length} notes`);
+for (const i of review.issues) console.log(`  ${i.severity} ${i.code}: ${i.message}`);
 
 // And the eight the soak checks, which is what actually decides whether this
 // is playable now that nothing procedural stands between it and a player.

@@ -38,11 +38,38 @@
 //                  uncollectable and a grave there strands a skeleton.
 //
 // Severity is honest. An `error` makes the level unplayable; a `warn` makes it
-// worse than it should be. Nothing here refuses to save: the owner can save a
-// level with a warning on it and come back to it.
+// worse than it should be.
+//
+// ============================================================================
+// THIS IS THE FAST HALF. THE OTHER HALF IS THE AUDIT.
+// ============================================================================
+//
+// Everything above runs on every pointer move, which is what puts a red
+// outline under the headstone while your hand is still on it. It is not the
+// whole rule set and it never was: src/game/world/audit.js is, and it is a
+// SECOND IMPLEMENTATION of the geometry on purpose, corner based where this is
+// axis based, so the two disagreeing is information. It also carries three
+// rules this cannot: nothing standing in a path, nothing tall hiding something
+// short from the camera, and WEDGES.
+//
+// A WEDGE is a place a body fits that nothing can walk to, and it is the
+// failure that ends the game: the ghost vaults in, no skeleton can follow, and
+// the player stands there and is safe for ever. No flood fill at a single cell
+// size can see one -- 0.5 reported zero on generated arenas that held eleven --
+// so repair.js's findWedges asks the question generously at 0.25 and then
+// confirms each hit in continuous geometry. It is exported for exactly this
+// and it takes the arrays the world already publishes.
+//
+// reviewLevel() below runs both. It costs a couple of hundred milliseconds,
+// which is nothing between gestures and far too much per pointer move, so the
+// editor debounces it. Nothing else about it is optional: with the generator
+// no longer standing between a hand-made level and the player, this IS the
+// fairness guarantee.
 
 import { BODY } from './format.js';
 import { isSolid } from './catalogue.js';
+import { auditFindings } from '../world/audit.js';
+import { findWedges } from '../world/repair.js';
 
 const RUN_GAP = 2.4;      // world/index.js rule 3, the least ground between two runs
 const NAV_CELL = 0.5;
@@ -398,3 +425,50 @@ export function validateLevel(doc, world, { deep = true } = {}) {
 }
 
 export default validateLevel;
+
+
+// --- the slow half ---------------------------------------------------------------
+
+// Which audit rules are worth blocking a save on. All of them, with one
+// exception: audit.js still asks for at least eight fireflies, and the owner
+// has since fixed the number at FIVE (see level/fireflies.js for the
+// measurement that decided it). Until that constant moves, the finding is a
+// note rather than a fault, and pretending otherwise would train the owner to
+// ignore the panel.
+function auditSeverity(rule, message) {
+  if (rule === 'floor' && /fireflies/.test(message)) return 'note';
+  return 'error';
+}
+
+// The full rule set plus the wedge pass, as issues in the same shape the fast
+// half produces, so the editor has one list to render and one rule for what
+// blocks a save.
+export function reviewLevel(world) {
+  const issues = [];
+  let wedges = [];
+  try {
+    for (const f of auditFindings(world)) {
+      const severity = auditSeverity(f.rule, f.message);
+      issues.push({ severity, code: f.rule, message: f.message, at: null, refs: [], from: 'audit' });
+    }
+  } catch (err) {
+    issues.push({ severity: 'warn', code: 'audit', message: `the audit could not run: ${err.message}`, at: null, refs: [], from: 'audit' });
+  }
+  try {
+    wedges = findWedges({
+      box: world.bounds,
+      barriers: world.barriers(),
+      gates: world.gates(),
+      props: world.props(),
+      spawn: world.spawn,
+    });
+  } catch (err) {
+    issues.push({ severity: 'warn', code: 'wedge', message: `the wedge pass could not run: ${err.message}`, at: null, refs: [], from: 'audit' });
+  }
+  return {
+    issues,
+    wedges,
+    errors: issues.filter((i) => i.severity === 'error'),
+    notes: issues.filter((i) => i.severity === 'note'),
+  };
+}

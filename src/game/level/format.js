@@ -97,17 +97,25 @@
 //   ],
 //
 //   "graves": [
-//     { "id": "g0", "x": 3, "z": -2, "yaw": 0.78,
-//       "order": 0, "personality": "chaser", "pile": 1 }
+//     { "id": "g0", "x": 3, "z": -2, "yaw": 0.78, "order": 0,
+//       "personality": "chaser", "pile": 1, "head": 1, "headstone": "cross" }
 //                                 THE SPAWN ORDER. `order` is which skeleton
 //                                 climbs out and when: 0 first. At most four,
 //                                 because ground.js cuts at most four holes
 //                                 and rules.js runs four personalities.
-//                                 `pile` is which long side the spoil heap is
-//                                 thrown onto, 1 or -1. The generator chooses
-//                                 the side away from the nearest path; here it
-//                                 is the author's, because the wrong side puts
-//                                 a heap through a fence.
+//
+//                                 A GRAVE IS THREE PROPS AND THE FILE STORES
+//                                 ONE POSE. The mouth, the spoil heap and the
+//                                 headstone are synthesised from it in exactly
+//                                 the arrangement layout/motifs.js builds, so
+//                                 audit.js's grave rule passes by construction:
+//                                 `head` is which end the stone stands at and
+//                                 `pile` which long side the spoil is thrown
+//                                 onto, both 1 or -1, and `headstone` is the
+//                                 stone's variant or null for a grave with no
+//                                 marker. The wrong `pile` puts the heap
+//                                 through a fence or on the path side, which
+//                                 the audit calls out and the editor can flip.
 //   ],
 //
 //   "powerups": [ { "id": "jack0", "x": 8, "z": 8 } ],
@@ -278,6 +286,8 @@ export function normalizeLevel(raw) {
     order: num(g.order, i),
     personality: PERSONALITIES.includes(g.personality) ? g.personality : PERSONALITIES[i % 4],
     pile: num(g.pile, 1) < 0 ? -1 : 1,
+    head: num(g.head, 1) < 0 ? -1 : 1,
+    headstone: g.headstone === null ? null : String(g.headstone || 'cross'),
   }));
   renumberGraves(doc);
 
@@ -499,44 +509,78 @@ export function deriveLevel(doc) {
     { points: doc.wall.points, closed: true, gates: [] },
     { half: WALL_HALF, height: WALL_HEIGHT, jumpable: false, id: 'wall' },
   );
-  const runs = doc.fences.map((f) => ({
-    id: f.id,
-    kind: f.closed ? 'pen' : 'run',
-    ...cutRun(f, { half: FENCE_HALF, height: BARRIER_HEIGHT, jumpable: true, id: f.id }),
-    source: f,
-  }));
+  // THE RUN'S KIND IS THE GENERATOR'S VOCABULARY, because audit.js reads it and
+  // treats the three differently: a PEN is closed and must have a gate and
+  // exactly the two free ends its opening makes; a DIVIDER is an open run with
+  // a gate in it; a STUB is an open run whose opening IS its open end, which
+  // needs no gate. An open run an author draws and leaves ungated is a stub,
+  // and calling it one is a statement about its geometry rather than a way
+  // round the check: you walk round its end.
+  const runs = doc.fences.map((f) => {
+    const cut = cutRun(f, { half: FENCE_HALF, height: BARRIER_HEIGHT, jumpable: true, id: f.id });
+    return {
+      id: f.id,
+      kind: f.closed ? 'pen' : (cut.gates.length ? 'divider' : 'stub'),
+      ...cut,
+      source: f,
+    };
+  });
   const barriers = [...wall.segments, ...runs.flatMap((r) => r.segments)];
   const gates = runs.flatMap((r) => r.gates);
-  // A GRAVE IS THREE THINGS AND THE FILE STORES ONE.
+  // A GRAVE IS THREE PROPS AND THE FILE STORES ONE POSE.
   //
-  // The generator's graves are a pose plus a hole prop plus a spoil heap, and
-  // `graves(box)` points at the hole. A hand-made level stores only the pose,
-  // because a spawn the author can move in one piece is the whole point of the
-  // tool, and the two props are synthesised here. They come out of props()
-  // exactly as the generator's do, which is what keeps the renderer, the
-  // overlap check and the reachability fill on one code path.
+  // The generator's graves are a pose plus a hole, a spoil heap and a
+  // headstone, and `graves(box)` points at the hole. A hand-made level stores
+  // only the pose, because a spawn the author can move in one piece is the
+  // whole point of the tool, and the three props are synthesised here. They
+  // come out of props() exactly as the generator's do, which is what keeps the
+  // renderer, the audit and the reachability fill on one code path.
   //
-  // The heap goes on the long side of the mouth: hole is 1.0 by 0.45 in plan
-  // with its long axis along local X, and the heap is 1.0 by 0.643, so 1.2 out
-  // along local Z clears both with a little to spare.
+  // THE ARRANGEMENT IS layout/motifs.js's graveGroup, TO THE CENTIMETRE, and
+  // it has to be: audit.js's grave rule asks that the heap sits on a long side
+  // and the stone at an end, and the numbers below are the ones that satisfy
+  // it with the audit's 0.15 margin to spare. The hole is 2.0 by 0.9 in plan
+  // with its long axis along local X, so
+  //
+  //   the heap   local ( -head * HEAP_SHIFT, pile * (0.45 + 0.643 + 0.22) )
+  //   the stone  local ( head * (1.0 + stone.halfU + 0.25), 0 )
+  //
+  // and all three carry the grave's own yaw, so turning a grave turns the
+  // whole plot. Local to world is x + lx * (cos, -sin) + lz * (sin, cos),
+  // which is what a three.js rotation about Y does.
+  const HEAP_SHIFT = 0.45;
   const graveProps = [];
   for (const g of doc.graves) {
-    const c = Math.cos(g.yaw || 0);
-    const s = Math.sin(g.yaw || 0);
-    graveProps.push(
-      propRecord({ id: `${g.id}/hole`, kind: 'hole', variant: 'grave', x: g.x, z: g.z, yaw: g.yaw }),
-      propRecord({
-        id: `${g.id}/dirt`, kind: 'dirt', variant: null,
-        x: g.x + s * 1.2 * (g.pile || 1), z: g.z + c * 1.2 * (g.pile || 1), yaw: g.yaw,
-      }),
-    );
+    const yaw = g.yaw || 0;
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    const head = g.head === -1 ? -1 : 1;
+    const pile = g.pile === -1 ? -1 : 1;
+    const at = (lx, lz) => ({ x: g.x + lx * c + lz * s, z: g.z - lx * s + lz * c });
+    const hole = levelFootprint('hole');
+    const dirt = levelFootprint('dirt');
+    graveProps.push(propRecord({
+      id: `${g.id}/hole`, kind: 'hole', variant: 'grave', x: g.x, z: g.z, yaw,
+    }));
+    const heap = at(-head * HEAP_SHIFT, pile * (hole.halfV + dirt.halfV + 0.22));
+    graveProps.push(propRecord({
+      id: `${g.id}/dirt`, kind: 'dirt', variant: null, x: heap.x, z: heap.z, yaw,
+    }));
+    if (g.headstone) {
+      const stone = levelFootprint('stone', g.headstone);
+      const at2 = at(head * (hole.halfU + stone.halfU + 0.25), 0);
+      graveProps.push(propRecord({
+        id: `${g.id}/head`, kind: 'stone', variant: g.headstone, x: at2.x, z: at2.z, yaw,
+      }));
+    }
   }
   const props = [...doc.props.map(propRecord), ...graveProps];
   const paths = doc.paths.map((p) => ({
     id: p.id, material: p.material, width: p.width, points: p.points.map((q) => [q[0], q[1]]),
   }));
   const graves = doc.graves.map((g) => ({
-    id: g.id, x: g.x, z: g.z, yaw: g.yaw, order: g.order, personality: g.personality, pile: g.pile,
+    id: g.id, x: g.x, z: g.z, yaw: g.yaw, order: g.order, personality: g.personality,
+    pile: g.pile, head: g.head, headstone: g.headstone,
   }));
   const powerups = doc.powerups.map((p, i) => ({
     id: p.id || `jack${i}`, kind: 'jack', x: p.x, z: p.z, yaw: Math.PI / 4,

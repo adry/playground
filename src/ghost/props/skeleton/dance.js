@@ -419,6 +419,13 @@ const WAVE_SEG = 0.62;         // how long one segment's own bump lasts, in beat
 // the figure turns on its feet: `pivot` below builds them rather than having
 // four rotated pairs of coordinates written out by hand and drifting.
 const STANCE_Z = 0.02;
+// How far the bar 2 shuffle carries the troupe sideways, in metres. It is
+// exported as a number rather than left implicit because the routine is not
+// symmetric about its stance: it steps twice to the figure's left and twice
+// back, so the whole troupe spends a bar off to one side and the frame has to
+// be centred on the ROUTINE rather than on the stance. createDanceTroupe backs
+// the line off by half of it for exactly that reason.
+export const SHUFFLE_SPAN = 0.54;
 function pivot(x, z, deg) {
   const a = deg * D;
   const c = Math.cos(a);
@@ -1353,9 +1360,15 @@ export function createDanceTroupe({
   // yaw of zero is a head facing the viewer.
   at = { x: 0, z: 0 },
   yaw = Math.PI / 4,
-  // Across the line, in world units. 1.45 puts three dancers plus their claws
-  // inside a 900 by 900 frame at view 2.6 with room to shuffle.
-  spacing = 1.45,
+  // Across the line, in world units, measured rather than guessed: at 1.15 the
+  // troupe's true silhouette is 85% of a 900 by 900 frame at view 2.6, which
+  // leaves a figure's shoulder of margin at each edge through the widest moment
+  // of the shuffle. 1.45 was the first guess and it ran to 96%, which touches
+  // both edges. Tighter is also better choreography: at 1.15 the claws of
+  // neighbouring dancers nearly meet, which is what a line of dancers looks
+  // like, and it buys the height back, since the frame can then be filled by
+  // the figures rather than by the gaps between them.
+  spacing = 1.15,
   // The outer two stand slightly back, which stops the line reading as a paper
   // cutout and gives the wave somewhere to travel.
   chevron = 0.18,
@@ -1364,7 +1377,17 @@ export function createDanceTroupe({
 } = {}) {
   const list = Array.isArray(rigs) ? rigs.filter(Boolean) : [];
   const group = new THREE.Group();
-  group.position.set(at.x, 0, at.z);
+  // `at` is where the ROUTINE is centred, not where the stance is: the shuffle
+  // in bar 2 takes the whole line half a metre to one side and holds it there
+  // for a bar, so a line placed at the stance sits off centre for a quarter of
+  // the loop and, at the clip's framing, runs out of frame on one side while
+  // leaving a hand's width of margin on the other. The offset is along the
+  // troupe's own local X, which is why it is resolved through the yaw here.
+  group.position.set(
+    at.x - Math.cos(yaw) * SHUFFLE_SPAN * 0.5,
+    0,
+    at.z + Math.sin(yaw) * SHUFFLE_SPAN * 0.5,
+  );
   group.rotation.y = yaw;
 
   // The rigs come from somewhere: the game builds them once for a whole run and
