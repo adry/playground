@@ -19,6 +19,9 @@ import M from './metrics.js';
 //                   silhouette. Surface detail cannot rescue a shape that is
 //                   wrong as a black blob, and a figure whose arms vanish into
 //                   its body reads as a bollard however good its face is.
+//   ?bare=1         hide the clothes, so the ribcage cavity and the body's own
+//                   forms can be judged without a jacket over them. A tuning
+//                   view like ?mode=face: nothing is judged on it.
 //   ?pose=crouch    bend everything hard, to prove the seams hold
 //   ?pose=walk      one frame of a stride, to prove the limbs are not crossed
 
@@ -152,6 +155,10 @@ function pose(r) {
 
 async function boot() {
   rig = createZombieRig();
+  if (params.get('bare')) {
+    const CLOTH = /jacket|lapel|collar|sleeve|shorts/;
+    rig.group.traverse((o) => { if (o.isMesh && CLOTH.test(o.name)) o.visible = false; });
+  }
   pose(rig);
   parts.push(rig);
 

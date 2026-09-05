@@ -327,7 +327,12 @@ export const M = {
   //      0.185 against a head width of 0.300, so the head is wider than the
   //      shoulders. That is correct chibi and it is why an arm swing that
   //      would be fine on the skeleton clips the jaw here.
-  neck: { length: f(0.030), radius: f(0.056) },
+  // The neck is a PLUG, not a column: it fills the 4.4 px between the top of
+  // the shoulder mass and the chin and is buried at both ends. Wider than the
+  // third pass's 0.056, because at 0.056 the head visibly sat on a stalk in
+  // the very first silhouette render -- a narrow neck under a head this large
+  // reads as a bobblehead spring, which is a different character.
+  neck: { length: f(0.030), radius: f(0.074) },
 
   // --- torso ---------------------------------------------------------------
   //
@@ -360,12 +365,22 @@ export const M = {
   // now deeper than it is wide at the waist, which is also what keeps the
   // three-quarter silhouette from collapsing.
   torso: {
-    chestWidth: f(0.200),
-    chestDepth: f(0.158),
-    waistWidth: f(0.124),
-    waistDepth: f(0.132),
-    pelvisWidth: f(0.158),
-    pelvisDepth: f(0.146),
+    chestWidth: f(0.176),
+    chestDepth: f(0.124),
+    // The narrowest point on the figure, and it is where the forearm passes.
+    // A hard waist pinch is worth more to the silhouette than anything else on
+    // the body: it is the only place the trunk can get out of the arm's way at
+    // the three-quarter camera, because higher up the ribcage window needs the
+    // width and lower down the pelvis has to carry the shorts.
+    waistWidth: f(0.096),
+    waistDepth: f(0.098),
+    pelvisWidth: f(0.112),
+    pelvisDepth: f(0.104),
+    // The trunk's cross-section exponent. 3.2 was a rounded BOX and its
+    // corners are what the three-quarter camera sees: a box projects its
+    // diagonal, which is 1.41 times its face. 2.4 is nearly an ellipse and
+    // projects 7 per cent narrower at 45 degrees for the same front width.
+    section: 2.4,
     // Shell thickness at the rim of the cavity. This is what you see edge-on
     // looking into the chest, and it is what makes the opening read as a hole
     // through a solid body rather than as a decal.
@@ -397,7 +412,15 @@ export const M = {
   // to a slot the moment it walks off-axis, which is the failure mode: the
   // feature that defines this character must not be a front-view-only feature.
   cavity: {
-    halfAngle: 0.58,
+    // WIDENED from 0.58 to 0.66 -- 76 degrees of the body's circumference.
+    // The trunk had to lose width for the arms to read, and the window's
+    // horizontal extent goes with it; opening the angle buys most of it back
+    // and costs nothing, because a window that wraps further round the front
+    // is exactly what the game's three-quarter camera wants. Narrower and the
+    // cavity closes to a slot the moment the figure walks off-axis, which is
+    // the failure mode: the feature that defines this character must not be a
+    // front-view-only feature.
+    halfAngle: 0.66,
     // The cavity floor, as a fraction of the shell's own section. It is
     // ANISOTROPIC and that is the whole trick.
     //
@@ -440,11 +463,17 @@ export const M = {
   // and the holes are real openings, for the same no-alpha reason as above.
   jacket: {
     top: f(0.616),            // sits on the deltoid
-    // The hem hangs BELOW the shorts' waistband (0.400), not level with it.
-    // Level, the jacket, the waistband and the cuffs stacked into three bands
-    // of cloth round the hips and the figure read as if it were wearing a
-    // barrel. Overlapping, it reads as a jacket worn over shorts.
-    hem: f(0.352),
+    // CROPPED, just below the bottom lip of the ribcage window. The third
+    // pass hung it to 0.352, below the shorts' waistband, on the argument that
+    // an overlap reads as a jacket worn over shorts while a level hem stacks
+    // three bands of cloth round the hips. That argument is right and it is
+    // beaten by a bigger one: cloth at hip height is cloth in the daylight
+    // beside the forearm, and there is no azimuth where a long hem is free.
+    //
+    // A cropped torn jacket over an exposed midriff is also simply a better
+    // read for this character than a long one: it leaves the ribcage window
+    // and the belly showing, which is what the reference is about.
+    hem: f(0.478),
     // The front gap is WIDER than the cavity (0.62), not narrower, so the two
     // lapels frame the ribcage instead of covering its edges. The reference
     // has them overlapping and built that way it ate a fifth of a feature
@@ -497,7 +526,26 @@ export const M = {
     // Radians the rest pose holds the arm out from vertical, length-weighted
     // over the limb. Smaller than the skeleton's 0.22 because these arms are
     // shorter and a wide flare on a short arm reads as a shrug.
+    //
+    // FROZEN: `REST` derives the elbow and the wrist from it, and the
+    // animation half is built against those positions.
     flare: 0.20,
+    // How far the drawn arm sits OUTBOARD of its own joint line, at the
+    // shoulder, the elbow and the wrist. The joints stay exactly where `REST`
+    // puts them -- this is the contract's "rest-pose flare is baked into
+    // geometry, never into a tilt node" taken literally, and it is the only
+    // lever left once the joint positions are frozen and the trunk has already
+    // been narrowed as far as the ribcage allows.
+    //
+    // Kept small on purpose. The elbow's visual centre ends up 2.3 px inboard
+    // of its pivot, so a bent elbow swings about a point slightly inside the
+    // bulb; at 105 px that is not resolvable, and anything larger would read
+    // as the elbow sliding as it folds.
+    outboard: [f(0.013), f(0.026), f(0.038)],
+    // How far the HAND hangs out from vertical, at the wrist. Wider than the
+    // arm's own flare: it costs no pivot accuracy, because there is no joint
+    // below the wrist for it to displace.
+    handSplay: 0.44,
     // The stripped forearm. `strippedSide` is which arm it is.
     strippedSide: 'R',
     boneRadius: f(0.014),
@@ -505,7 +553,7 @@ export const M = {
 
   hand: {
     palmLength: f(0.036),
-    palmWidth: f(0.046),
+    palmWidth: f(0.041),
     palmDepth: f(0.024),
     fingers: 4,
     fingerLength: f(0.030),
@@ -526,10 +574,18 @@ export const M = {
   leg: {
     femur: f(0.172),
     tibia: f(0.134),
-    thighRadius: f(0.050),
-    kneeRadius: f(0.042),
-    shinRadius: f(0.040),
-    ankleRadius: f(0.032),
+    // Slimmer than the third pass. The hands hang beside the upper thigh, so
+    // the thigh is the LAST thing between the arm and the background: a fat
+    // thigh closes the daylight the narrow waist just opened.
+    // The thigh is thin and the shin is not, and that split is deliberate.
+    // The hands hang beside the THIGH, so every millimetre there costs
+    // daylight; nothing hangs beside the shin, so the calf is free to carry
+    // the chunk a toy needs. It also reads correctly: a chibi's mass belongs
+    // low, in the calves and the boots.
+    thighRadius: f(0.040),
+    kneeRadius: f(0.043),
+    shinRadius: f(0.043),
+    ankleRadius: f(0.033),
     hipSeparation: f(0.110),
     bow: 0.045,               // outward bow at mid-shaft, fraction of length
   },

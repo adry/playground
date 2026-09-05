@@ -492,12 +492,21 @@ export class Ghost {
     // the substeps rather than arriving all at once. See `drive` above.
     const sx = this.pos.x;
     const sz = this.pos.z;
+    const sy = this.airY;
     for (let s = 0; s < sub; s++) {
       this.time += h;
       let at = null;
       if (drive) {
         const k = (s + 1) / sub;
         at = { x: sx + (drive.x - sx) * k, z: sz + (drive.z - sz) * k };
+        if (drive.airY !== undefined) {
+          at.y = sy + (drive.airY - sy) * k;
+          // The grounded flag is only handed over on the LAST substep, because
+          // it is what fires the landing squash and the eyes screwing shut. Set
+          // it earlier and the figure lands its reflexes while it is still a
+          // third of a unit off the floor.
+          if (k === 1) at.airborne = !!drive.airborne;
+        }
       }
       this.#stepBody(h, input, at);
       this.cloth.substep(h, this.matrix, this.time, this.axis);
@@ -528,21 +537,56 @@ export class Ghost {
 
     // Hop. The interesting part is not the arc, it is what the skirt does on
     // the way down.
-    if (input.jump && this.grounded) {
-      this.airV = o.jumpUp;
-      this.grounded = false;
-      this.squash = -0.55;
-      if (this.eyes) this.eyes.startle = 1;
-    }
-    if (!this.grounded) {
-      this.airV -= o.jumpGravity * h;
-      this.airY += this.airV * h;
-      if (this.airY <= 0) {
-        this.airY = 0;
-        this.airV = 0;
-        this.grounded = true;
-        this.squash = 0.75;
-        if (this.eyes) this.eyes.squeeze = 1;
+    //
+    // A DRIVEN BODY DOES NOT INTEGRATE ITS OWN HOP EITHER, and that was a real
+    // bug rather than a nicety. The two dials here are 3.6 up against 9.0 down,
+    // which is 0.80 s in the air with an apex of 0.72; rules.js uses 5.0 and
+    // 20.0, which is 0.50 s and 0.625, and it works the arc out analytically
+    // rather than integrating it. scene.js reconciled x and z and left the
+    // vertical alone, so over twelve seconds of hopping the rules were airborne
+    // for 60 frames and the figure for 235, nearly four times as long, with the
+    // two heights up to 0.705 units apart on a figure 1.18 tall. In the trace
+    // the rules land at frame 184 and the figure is still 0.57 up, coming down
+    // at frame 200: a quarter of a second of floating after the game has
+    // decided the fence was cleared.
+    //
+    // Passing the two dials through was measured and is NOT the fix: it gets
+    // 145 frames against 60 and a 0.604 gap, because two integrators of the
+    // same arc still drift. The fault is having two, so a driven body takes the
+    // rules' height and the rules' verdict on being airborne, and keeps only
+    // the reflexes, which are what the FIGURE does about the hop rather than
+    // what the hop is.
+    if (at && at.y !== undefined) {
+      const wasAir = !this.grounded;
+      this.airY = at.y;
+      this.airV = 0;
+      if (at.airborne !== undefined) {
+        this.grounded = !at.airborne;
+        if (!wasAir && at.airborne) {
+          this.squash = -0.55;
+          if (this.eyes) this.eyes.startle = 1;
+        } else if (wasAir && !at.airborne) {
+          this.squash = 0.75;
+          if (this.eyes) this.eyes.squeeze = 1;
+        }
+      }
+    } else {
+      if (input.jump && this.grounded) {
+        this.airV = o.jumpUp;
+        this.grounded = false;
+        this.squash = -0.55;
+        if (this.eyes) this.eyes.startle = 1;
+      }
+      if (!this.grounded) {
+        this.airV -= o.jumpGravity * h;
+        this.airY += this.airV * h;
+        if (this.airY <= 0) {
+          this.airY = 0;
+          this.airV = 0;
+          this.grounded = true;
+          this.squash = 0.75;
+          if (this.eyes) this.eyes.squeeze = 1;
+        }
       }
     }
     this.squash += (0 - this.squash) * (1 - Math.exp(-h / 0.09));

@@ -1,220 +1,199 @@
 import * as THREE from 'three';
-import M, { LEFT_X } from '../metrics.js';
-import { limb, bulb, softBox, ball, put, v } from './skin.js';
-import { tatteredCuff } from './clothes.js';
+import M from '../metrics.js';
+import { limb, ovoid, roundBox, arcTube, put, v3, mix, assertOutward } from './forms.js';
 
-// One arm. `side` is 'L' or 'R' and LEFT IS +X, always: see the note at the top
-// of metrics.js and the assertion in model.js. This is the bug that does not
-// show up until something walks.
+// The arms, and they are the reason the last figure read as a bollard.
 //
-// The rest-pose flare is BAKED INTO THE GEOMETRY, never into a tilt node above
-// the joint, so `shoulder`, `elbow` and `wrist` are all identity at rest and an
-// animator can write absolute Euler targets without first reading the bind
-// pose. Same rule as the skeleton.
+// POSTMORTEM 2.5, fault two: "the arms disappear into the body. Shoulder to
+// hip is one continuous mass with only fingers emerging near the hem, so the
+// distinctive stripped forearm cannot be seen at all." At game scale that
+// matters more than the face does, because an arm is a silhouette and a face
+// is 34 px of shading.
 //
-// The right forearm is the stripped one: skin torn away at the elbow, two bare
-// bones and a strap of muscle, a ragged cuff of skin at each end. It is on the
-// right so it does not compete with the exposed chest, which sits on the
-// centre line: two open wounds side by side and neither one reads.
+// The fix is mostly in `M.torso`, which moved the trunk in. What this file
+// contributes is the other half:
+//
+//  * A BOW. `REST` fixes the shoulder, the elbow and the wrist and the
+//    animation half is built against those three points, so they do not move.
+//    The shaft BETWEEN them is free, and it bows outward at mid-length. That
+//    is the contract's "rest-pose flare is baked into geometry" taken
+//    literally: no tilt node, no change to any joint, and about 9 mm more
+//    daylight exactly where the upper arm passes the ribs.
+//
+//  * A DELTOID that is a separate bulb at the top. The arm has to be ATTACHED
+//    at the shoulder even though it is clear below, and a limb that simply
+//    starts at full radius reads as a peg pushed into a hole. The bulb does
+//    the attaching, and it is the ONLY part of the arm that overlaps the
+//    trunk.
+//
+//  * A WAISTED shaft. `M.limbWaist` is 0.86 -- soft flesh, barely pinched,
+//    against the skeleton's bony 0.62 -- so the mid-shaft is slightly thinner
+//    than the joints, which is what puts a visible line of background between
+//    the arm and the body instead of a tangent.
+//
+// The right forearm is stripped to muscle and bone. It is on the right so it
+// does not fight the exposed ribcage, which sits slightly to the figure's left
+// of centre in the reference.
 
-export function buildArm({ materials, side }) {
-  const sign = side === 'L' ? LEFT_X : -LEFT_X;
-  const stripped = side === M.arm.strippedSide;
+const A = M.arm;
+const HAND = M.hand;
 
-  const shoulder = new THREE.Object3D();     // origin AT the glenoid
-  shoulder.userData.outwardX = sign;
+export function buildArm({ materials, side = 'L' }) {
+  const s = side === 'L' ? +1 : -1;         // LEFT IS +X
+  const group = new THREE.Group();
+  const geos = [];
+  const track = (g) => { geos.push(g); return g; };
   const shed = new Map();
 
-  const dir = v(sign * Math.sin(M.arm.flare), -Math.cos(M.arm.flare), 0);
-  const elbowAt = dir.clone().multiplyScalar(M.arm.upper);
-  const wristAt = dir.clone().multiplyScalar(M.arm.fore);
-
-  // --- deltoid. It belongs to the arm rather than the chest so that a raised
-  // arm carries its own shoulder mass with it; left on the torso, a big reach
-  // tears a visible notch open at the armpit.
-  put(shoulder, ball(M.arm.upperRadius * 1.30, M.arm.upperRadius * 1.34, M.arm.upperRadius * 1.24, 16),
-    materials.skin, { pos: v(sign * M.arm.upperRadius * 0.16, -M.arm.upperRadius * 0.10, 0) });
-
-  // --- upper arm
-  put(shoulder, limb(v(0, 0, 0), elbowAt, M.arm.upperRadius, M.arm.elbowRadius, {
-    radial: 14, segments: 8, bow: 0.03, bowAxis: v(-sign, 0, 0),
-  }), materials.skin);
-
-  // --- the jacket sleeve, in TWO pieces.
-  //
-  // One on the shoulder covering the whole upper arm, one on the elbow
-  // covering the top of the forearm and ending in a torn edge. Two pieces
-  // because a single sleeve long enough to reach the forearm has to hang off
-  // the shoulder, and then it stays put while the elbow bends through it.
-  //
-  // The left sleeve keeps its forearm half. The RIGHT one does not: that is
-  // the arm whose flesh has been stripped, and the sleeve going with it is
-  // why. A torn sleeve that stops exactly where the skin stops reads as one
-  // event; two unrelated tears read as wear.
-  {
-    const cuff = tatteredCuff({
-      material: materials.jacket,
-      top: 0.055 * M.height,
-      bottom: 0.055 * M.height - M.arm.upper * (stripped ? 0.92 : 1.02),
-      rTop: M.arm.upperRadius * 1.55,
-      rBottom: M.arm.upperRadius * 1.30,
-      tatter: M.jacket.tatter * (stripped ? 1.5 : 0.9),
-      teeth: 6,
-      seed: side === 'L' ? 11 : 29,
-      thickness: M.jacket.thickness,
-      uSteps: 20, vSteps: 5,
-    });
-    const g = new THREE.Group();
-    put(g, cuff.geometry, cuff.material);
-    // Stand it along the arm's own axis.
-    g.quaternion.setFromUnitVectors(v(0, -1, 0), dir.clone().normalize());
-    g.position.copy(dir.clone().multiplyScalar(0.055 * M.height));
-    shoulder.add(g);
-  }
-
-  // --- elbow
+  const shoulder = new THREE.Object3D();
+  group.add(shoulder);
   const elbow = new THREE.Object3D();
-  elbow.position.copy(elbowAt);
+  elbow.position.set(s * A.upper * Math.sin(A.flare), -A.upper * Math.cos(A.flare), 0);
   shoulder.add(elbow);
-  put(elbow, bulb(M.arm.elbowRadius), materials.skin);
-
-  // --- forearm
-  if (!stripped) {
-    put(elbow, limb(v(0, 0, 0), wristAt, M.arm.elbowRadius, M.arm.wristRadius, {
-      radial: 14, segments: 8,
-    }), materials.skin);
-  } else {
-    // THE STRIPPED FOREARM.
-    //
-    // Two bones and a muscle strap, with the skin ending in a torn cuff at
-    // each end. What makes it read at eight pixels of forearm is not the
-    // anatomy, it is that the middle of the limb is a DIFFERENT COLOUR from
-    // the ends: pale bone and dark red between two green cuffs. The detail is
-    // for the close renders; the colour banding is for the game.
-    const across = v(sign * Math.cos(M.arm.flare), Math.sin(M.arm.flare), 0);   // in-plane, perpendicular
-    const ulnaA = across.clone().multiplyScalar(-M.arm.boneRadius * 0.55);
-    const ulnaB = wristAt.clone().addScaledVector(across, -M.arm.boneRadius * 0.30);
-    const radA = across.clone().multiplyScalar(M.arm.boneRadius * 0.62).add(v(0, 0, M.arm.boneRadius * 0.25));
-    const radB = wristAt.clone().addScaledVector(across, M.arm.boneRadius * 0.35);
-    put(elbow, limb(ulnaA, ulnaB, M.arm.boneRadius, M.arm.boneRadius * 0.80, { radial: 10, segments: 6, waist: 0.80 }),
-      materials.bone);
-    put(elbow, limb(radA, radB, M.arm.boneRadius * 0.78, M.arm.boneRadius * 0.66, { radial: 10, segments: 6, waist: 0.80 }),
-      materials.bone);
-    // the muscle, laid behind the bones
-    put(elbow, limb(
-      across.clone().multiplyScalar(-M.arm.boneRadius * 0.2).add(v(0, 0, -M.arm.boneRadius * 0.9)),
-      wristAt.clone().add(v(0, 0, -M.arm.boneRadius * 0.7)),
-      M.arm.boneRadius * 1.05, M.arm.boneRadius * 0.55, { radial: 10, segments: 6, waist: 0.86 },
-    ), materials.muscle);
-
-    // the torn skin cuffs
-    for (const [atT, len, rr, seed] of [[0.0, 0.34, M.arm.elbowRadius, 41], [0.72, 0.30, M.arm.wristRadius, 47]]) {
-      const cuff = tatteredCuff({
-        material: materials.skin,
-        top: 0, bottom: -M.arm.fore * len,
-        rTop: rr * 1.02, rBottom: rr * 0.92,
-        tatter: M.arm.fore * 0.10, teeth: 6, seed,
-        thickness: M.torso.shellThickness * 0.5,
-        uSteps: 16, vSteps: 4,
-      });
-      const g = new THREE.Group();
-      put(g, cuff.geometry, cuff.material);
-      g.quaternion.setFromUnitVectors(v(0, -1, 0), dir.clone().normalize());
-      g.position.copy(wristAt.clone().multiplyScalar(atT));
-      if (atT > 0) g.rotateX(Math.PI);           // the wrist cuff opens upward
-      elbow.add(g);
-    }
-  }
-
-  // the forearm half of the sleeve, on the elbow so it bends with it
-  if (!stripped) {
-    const cuff = tatteredCuff({
-      material: materials.jacket,
-      top: M.arm.elbowRadius * 0.9,
-      bottom: M.arm.elbowRadius * 0.9 - M.arm.fore * 0.52,
-      rTop: M.arm.elbowRadius * 1.42,
-      rBottom: M.arm.elbowRadius * 1.22,
-      tatter: M.jacket.tatter * 1.4,
-      teeth: 5,
-      seed: 53,
-      thickness: M.jacket.thickness,
-      uSteps: 18, vSteps: 5,
-    });
-    const g = new THREE.Group();
-    put(g, cuff.geometry, cuff.material);
-    g.quaternion.setFromUnitVectors(v(0, -1, 0), dir.clone().normalize());
-    g.position.copy(dir.clone().multiplyScalar(M.arm.elbowRadius * 0.9));
-    elbow.add(g);
-  }
-
-  // --- wrist
   const wrist = new THREE.Object3D();
-  wrist.position.copy(wristAt);
+  wrist.position.set(s * A.fore * Math.sin(A.flare), -A.fore * Math.cos(A.flare), 0);
   elbow.add(wrist);
-  put(wrist, bulb(M.arm.wristRadius), materials.skin);
 
-  // --- hand. Long dark claw nails, and they earn their place: a nail is read
-  // by the SILHOUETTE it puts on the end of a finger, not by its own shading,
-  // so it survives at game scale where a stitch would not.
-  {
-    const along = dir.clone();
-    const across = v(sign * Math.cos(M.arm.flare), Math.sin(M.arm.flare), 0);
-    const palmC = along.clone().multiplyScalar(M.hand.palmLength * 0.55);
-    const palm = softBox(M.hand.palmWidth, M.hand.palmLength * 1.25, M.hand.palmDepth,
-      { round: 0.55, uSteps: 14, vSteps: 10 });
-    const pm = put(wrist, palm, materials.skin, { pos: palmC });
-    pm.quaternion.setFromUnitVectors(v(0, 1, 0), along.clone().negate());
+  // The outboard offsets. These move the DRAWN arm, never the joints: every
+  // node above is already parked at its REST position and `model.js` checks
+  // all three against metrics.js to 1 mm.
+  // Each is the lateral offset of the DRAWN centre line from its own joint,
+  // expressed in that joint's own frame. Every piece below is built in the
+  // frame of the joint it hangs from, so the three read directly and the
+  // pieces meet: the upper arm ends at `elbow.position + outE` in the
+  // shoulder's frame, and the forearm starts at `outE` in the elbow's, which
+  // is the same point.
+  const OB = A.outboard;
+  const outS = v3(s * OB[0], 0, 0);
+  const outE = v3(s * OB[1], 0, 0);
+  const outW = v3(s * OB[2], 0, 0);
+  const foreA = outE.clone();                          // in the elbow's frame
+  const foreB = wrist.position.clone().add(outW);      // in the elbow's frame
 
-    const base = along.clone().multiplyScalar(M.hand.palmLength * 1.05);
-    for (let i = 0; i < M.hand.fingers; i++) {
-      const t = (i / (M.hand.fingers - 1) - 0.5);
-      const root = base.clone().addScaledVector(across, t * M.hand.palmWidth * 0.72)
-        .add(v(0, 0, (0.5 - Math.abs(t)) * M.hand.palmDepth * 0.30));
-      const len = M.hand.fingerLength * (i === 0 || i === M.hand.fingers - 1 ? 0.84 : 1.0);
-      const tip = root.clone().addScaledVector(along, len).addScaledVector(v(0, 0, 1), len * 0.30);
-      const fg = new THREE.Group();
-      wrist.add(fg);
-      put(fg, limb(root, tip, M.hand.fingerRadius, M.hand.fingerRadius * 0.78, {
-        radial: 8, segments: 5, bow: 0.16, bowAxis: v(0, 0, 1), waist: 0.94,
-      }), materials.skin);
-      const nailTip = tip.clone().addScaledVector(along, M.hand.nailLength * 0.75)
-        .addScaledVector(v(0, 0, 1), M.hand.nailLength * 0.55);
-      put(fg, limb(tip, nailTip, M.hand.nailRadius, M.hand.nailRadius * 0.22, {
-        radial: 7, segments: 4, waist: 1,
-      }), materials.nail);
-      fg.name = `finger${side}${i + 1}`;
-      // The two the skeleton's shed plan asks for, by the same names, so one
-      // performance can drive either figure.
-      if ((side === 'L' && i + 1 === 4) || (side === 'R' && i + 1 === 3)) {
-        shed.set(`finger${side}${i + 1}`, fg);
-      }
-    }
+  // --- deltoid ---------------------------------------------------------------
+  const delt = track(ovoid(A.upperRadius * 1.16, A.upperRadius * 1.24, A.upperRadius * 1.10, { uSteps: 14, vSteps: 10 }));
+  assertOutward(delt, v3(0, 0, 0), 'deltoid');
+  put(shoulder, delt, materials.skin, { pos: v3(s * A.upperRadius * 0.18, -A.upperRadius * 0.22, 0).add(outS), name: 'deltoid' });
 
-    // thumb, off the inner edge and lower down
-    {
-      const root = along.clone().multiplyScalar(M.hand.palmLength * 0.45)
-        .addScaledVector(across, -M.hand.palmWidth * 0.46);
-      const tip = root.clone().addScaledVector(along, M.hand.thumbLength * 0.7)
-        .addScaledVector(across, -M.hand.thumbLength * 0.55)
-        .add(v(0, 0, M.hand.thumbLength * 0.35));
-      put(wrist, limb(root, tip, M.hand.fingerRadius * 1.05, M.hand.fingerRadius * 0.8, {
-        radial: 8, segments: 4, waist: 0.94,
-      }), materials.skin);
-      const nailTip = tip.clone().addScaledVector(along, M.hand.nailLength * 0.55)
-        .addScaledVector(across, -M.hand.nailLength * 0.4);
-      put(wrist, limb(tip, nailTip, M.hand.nailRadius, M.hand.nailRadius * 0.22, {
-        radial: 7, segments: 3, waist: 1,
-      }), materials.nail);
-    }
+  // --- upper arm --------------------------------------------------------------
+  // The bow is outward and slightly forward: outward for daylight, forward
+  // because a shambler's arms hang a little ahead of the body and it stops the
+  // arm being a flat plane against the torso from the side.
+  const upperBow = v3(s * A.upperRadius * 0.80, 0, A.upperRadius * 0.14);
+  const upper = track(limb(
+    outS.clone(), elbow.position.clone().add(outE),
+    A.upperRadius, A.elbowRadius,
+    { radial: 12, segments: 8, waist: M.limbWaist, bow: upperBow, capA: false }));
+  put(shoulder, upper, materials.skin, { name: 'upper-arm' });
+
+  const elbowBall = track(ovoid(A.elbowRadius * M.jointBallScale, A.elbowRadius * M.jointBallScale * 0.94, A.elbowRadius * M.jointBallScale, { uSteps: 12, vSteps: 9 }));
+
+  const stripped = side === A.strippedSide;
+  if (!stripped) {
+    put(elbow, elbowBall, materials.skin, { pos: outE.clone(), name: 'elbow' });
+    const foreBow = v3(s * A.elbowRadius * 0.50, 0, A.elbowRadius * 0.16);
+    const fore = track(limb(
+      foreA.clone(), foreB.clone(),
+      A.elbowRadius * 0.94, A.wristRadius,
+      { radial: 12, segments: 8, waist: M.limbWaist, bow: foreBow, capA: false }));
+    put(elbow, fore, materials.skin, { name: 'forearm' });
+  } else {
+    // --- the stripped forearm -------------------------------------------------
+    //
+    // Flesh gone: one bone shaft, a strap of dark red muscle beside it, and
+    // the skin ending in a torn cuff just below the elbow. Three separate
+    // volumes rather than one shell with a section removed, for the same
+    // reason as everything else here -- a cuff cut out of a tube's own
+    // parameterisation staircases, and a cuff built as its own short ring
+    // does not.
+    put(elbow, elbowBall, materials.skin, { pos: outE.clone(), name: 'elbow' });
+    const foreEnd = foreB.clone();
+    const cuffTo = foreA.clone().lerp(foreEnd, 0.22);
+    const cuff = track(limb(
+      foreA.clone(), cuffTo,
+      A.elbowRadius * 0.98, A.elbowRadius * 0.80,
+      { radial: 12, segments: 4, waist: 1.0, capA: false, capB: false }));
+    put(elbow, cuff, materials.skin, { name: 'fore-cuff' });
+    // A torn ring at the end of the skin, so the cut edge has thickness.
+    const ring = track(ovoid(A.elbowRadius * 0.86, A.elbowRadius * 0.20, A.elbowRadius * 0.86, { uSteps: 14, vSteps: 6 }));
+    const rm = put(elbow, ring, materials.muscle, { pos: cuffTo, name: 'fore-tear' });
+    rm.lookAt(foreEnd);
+    rm.rotateX(Math.PI / 2);
+    // The bone: a straight pale shaft running the length of the forearm.
+    const bone = track(limb(
+      foreA.clone().lerp(foreEnd, 0.10), foreEnd.clone(),
+      A.boneRadius, A.boneRadius * 0.86,
+      { radial: 9, segments: 6, waist: 0.90 }));
+    put(elbow, bone, materials.bone, { name: 'ulna' });
+    // The muscle strap, beside it and a little forward.
+    const off = v3(-s * A.boneRadius * 1.25, 0, A.boneRadius * 0.55);
+    const musc = track(limb(
+      foreA.clone().lerp(foreEnd, 0.08).add(off), foreA.clone().lerp(foreEnd, 0.94).add(off),
+      A.boneRadius * 1.05, A.boneRadius * 0.72,
+      { radial: 9, segments: 6, waist: 0.78 }));
+    put(elbow, musc, materials.muscle, { name: 'flexor' });
   }
 
-  const geometries = [];
-  shoulder.traverse((o) => { if (o.isMesh) geometries.push(o.geometry); });
+  // --- the hand ---------------------------------------------------------------
+  //
+  // Short, and clawed. A nail is read by the SILHOUETTE it puts on the end of
+  // a finger, not by its own shading, so it survives at game scale where a
+  // stitch would not.
+  const hand = new THREE.Object3D();
+  wrist.add(hand);
+  // The hand hangs at a WIDER angle than the arm, and that is a silhouette
+  // decision as much as a character one. Splaying it from the wrist moves the
+  // fingertips 13 mm further outboard without translating anything, so unlike
+  // an offset it introduces no kink at the wrist and no error in the wrist's
+  // centre of rotation. It also happens to be how a zombie's hand hangs.
+  const down = v3(s * Math.sin(A.handSplay), -Math.cos(A.handSplay), 0);
+  // The hand continues the outboard line. There is no joint below the wrist,
+  // so this one costs nothing at all in pivot accuracy.
+  const handOut = v3(s * A.outboard[2], 0, 0);   // exactly where the forearm ends
+  hand.position.copy(handOut);
+
+  const palm = track(roundBox(HAND.palmWidth / 2, HAND.palmLength / 2, HAND.palmDepth / 2, { n: 3.0, uSteps: 14, vSteps: 10 }));
+  const pm = put(hand, palm, materials.skin, { pos: down.clone().multiplyScalar(HAND.palmLength * 0.52), name: 'palm' });
+  pm.lookAt(pm.position.clone().add(down));
+  pm.rotateX(Math.PI / 2);
+
+  const fingerRoot = down.clone().multiplyScalar(HAND.palmLength * 1.02);
+  for (let k = 0; k < HAND.fingers; k++) {
+    const node = new THREE.Object3D();
+    hand.add(node);
+    const across = (k - (HAND.fingers - 1) / 2) / Math.max(1, HAND.fingers - 1);
+    const lat = v3(s * Math.cos(A.flare), Math.sin(A.flare), 0).multiplyScalar(across * HAND.palmWidth * 0.78);
+    const curl = v3(0, 0, 1).multiplyScalar(HAND.fingerLength * 0.30);
+    const a = fingerRoot.clone().add(lat);
+    const len = HAND.fingerLength * mix(0.82, 1.0, 1 - Math.abs(across) * 1.2);
+    const b = a.clone().addScaledVector(down, len).add(curl);
+    const f = track(limb(a, b, HAND.fingerRadius, HAND.fingerRadius * 0.82, { radial: 7, segments: 4, waist: 0.94 }));
+    put(node, f, materials.skin, { name: 'finger' });
+    const tip = b.clone();
+    const nailDir = b.clone().sub(a).normalize();
+    const nail = track(limb(tip, tip.clone().addScaledVector(nailDir, HAND.nailLength).add(v3(0, 0, HAND.nailLength * 0.5)),
+      HAND.nailRadius, HAND.nailRadius * 0.18, { radial: 6, segments: 3 }));
+    put(node, nail, materials.nail, { name: 'claw' });
+    // Shed by the skeleton's names, so one shed plan drives either figure.
+    if (side === 'L' && k === 3) shed.set('fingerL4', node);
+    if (side === 'R' && k === 2) shed.set('fingerR3', node);
+  }
+  // The thumb, out to the side and a little forward.
+  {
+    const a = down.clone().multiplyScalar(HAND.palmLength * 0.42)
+      .addScaledVector(v3(s * Math.cos(A.flare), Math.sin(A.flare), 0), HAND.palmWidth * 0.44);
+    const b = a.clone().addScaledVector(down, HAND.thumbLength * 0.75).add(v3(0, 0, HAND.thumbLength * 0.62));
+    const th = track(limb(a, b, HAND.fingerRadius * 1.08, HAND.fingerRadius * 0.86, { radial: 7, segments: 4 }));
+    put(hand, th, materials.skin, { name: 'thumb' });
+    const nd = b.clone().sub(a).normalize();
+    const nail = track(limb(b, b.clone().addScaledVector(nd, HAND.nailLength * 0.9), HAND.nailRadius, HAND.nailRadius * 0.2, { radial: 6, segments: 3 }));
+    put(hand, nail, materials.nail, { name: 'claw' });
+  }
 
   return {
-    group: shoulder,
+    group,
     joints: { shoulder, elbow, wrist },
     shed,
-    dispose() { for (const g of geometries) g.dispose(); },
+    dispose() { for (const g of geos) g.dispose(); },
   };
 }

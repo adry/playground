@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import M, { LEFT_X, JOINTS, REST } from './metrics.js';
-import { zombieMaterials, disposeMaterials, triangleCount } from './parts/skin.js';
+import { zombieMaterials, disposeMaterials, triangleCount } from './parts/forms.js';
+import { mergeWithinNodes } from '../merge.js';
 import { buildHead } from './parts/head.js';
 import { buildTorso } from './parts/torso.js';
 import { buildArm } from './parts/arms.js';
 import { buildLower } from './parts/legs.js';
-import { buildJacket, buildShortsTrunk } from './parts/clothes.js';
+import { buildJacket, buildShortsTrunk, buildShortsCuff } from './parts/clothes.js';
 
 // The assembler. It owns no geometry of its own: the part modules build the
 // shapes and this file parents them together, publishes the flat joint map,
@@ -46,6 +47,15 @@ export function createZombieRig({ scale = 1 } = {}) {
   torso.frames.inRoot.add(shorts.group);
   const jacket = track(buildJacket({ materials }));
   torso.frames.inUpper.add(jacket.group);
+
+  // The shorts' cuffs hang off the HIP JOINTS, not off the pelvis. A cuff on
+  // the pelvis stays put while the thigh swings straight through it; on the
+  // hip it swings with the leg, which is the whole difference between cloth
+  // and a painted band.
+  for (const side of ['L', 'R']) {
+    const cuff = track(buildShortsCuff({ materials, side }));
+    lower.joints[`hip${side}`].add(cuff.group);
+  }
 
   // `head` is the animator's node above the skull, so a nod does not have to
   // fight whatever origin the head part chose for itself.
@@ -144,6 +154,26 @@ export function createZombieRig({ scale = 1 } = {}) {
 
   group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
 
+  // --- one draw call per joint, not per piece --------------------------------
+  //
+  // This figure is authored as a pile of small closed volumes -- that is the
+  // whole point of the rebuild -- and every one of them is a draw call, twice
+  // over once the shadow pass has had its turn. A scene graph is the right way
+  // to AUTHOR a body and the wrong way to DRAW one.
+  //
+  // `mergeWithinNodes` collapses the meshes under each node to one per
+  // material and never merges ACROSS a node, so every joint still bends, every
+  // shed piece is still there to be detached whole, and not a pixel changes.
+  // The skeleton uses it to go from 544 meshes to 82. The win is asserted
+  // rather than assumed: `group.userData.merge` publishes both counts.
+  const before = triangleCount(group);
+  const flattened = mergeWithinNodes(group);
+  const after = triangleCount(group);
+  if (after !== before) {
+    throw new Error(`zombie: mergeWithinNodes changed the triangle count from ${before} to ${after}. It is meant to be lossless.`);
+  }
+  group.userData.merge = { meshesBefore: flattened.before, meshesAfter: flattened.after };
+
   group.userData.triangles = triangleCount(group);
   group.userData.height = M.height;
 
@@ -156,6 +186,9 @@ export function createZombieRig({ scale = 1 } = {}) {
     update() {},
     dispose() {
       for (const p of parts) p.dispose?.();
+      // The buffers the merge created. The originals belong to `parts` above
+      // and are freed by them, which is why the merge does not free them.
+      for (const g of flattened.geometries) g.dispose();
       disposeMaterials(materials);
     },
   };

@@ -1,141 +1,114 @@
 import * as THREE from 'three';
-import M, { LEFT_X } from '../metrics.js';
-import { limb, bulb, softBox, ball, put, v } from './skin.js';
-import { tatteredCuff } from './clothes.js';
+import M from '../metrics.js';
+import { limb, ovoid, roundBox, closedRadial, roundBoxR, put, v3, mix, smoothstep } from './forms.js';
 
-// Both legs and both boots. Origin at M.y.hip, parents to `root`.
+// The legs and the boots.
 //
-// LEFT IS +X. Every 'L' node here is at positive x and model.js asserts it.
+// The landmark drops are the constraint and the bones follow from them: hip to
+// knee is a pure 0.297 of vertical drop, knee to ankle 0.230, and each shaft
+// is a little longer than its drop because it also bows outward. `REST` puts
+// the hip, the knee and the ankle on ONE vertical line at x = +/-0.099, so the
+// bow lives entirely in the geometry between them -- the same rule the arms
+// follow, and for the same reason: a tilt node above a joint would make every
+// absolute Euler target in the animation half wrong.
 //
-// The shorts CUFFS are built here rather than in clothes.js, and hang off the
-// hip joints, because a cuff parented to the hips stays put while the thigh
-// swings through it, which is the most obvious rigging failure a walk cycle
-// can have. The waistband part of the shorts does belong to the hips and is in
-// clothes.js.
-//
-// The boots are big on purpose: M.boot.length is 0.150 of standing height,
-// which is a realistic foot proportion and therefore looks oversized on a
-// three-head figure. That is what lets a short-legged character stand without
-// looking like it is about to fall over, and it is the same trick the reference
-// toy uses.
+// The boots are big on purpose. 0.150 of standing height is a realistic foot
+// proportion, which on a three-head figure reads as oversized, and that is
+// exactly right for a toy: big feet are what let a short-legged character
+// stand without looking like it is about to topple.
 
-function buildBoot({ materials, sign }) {
-  const g = new THREE.Group();
-  const G = -M.y.ankle;                 // the ground, in ankle-local space
-  const bw = M.boot.width, bl = M.boot.length, bh = M.boot.height;
-
-  // sole, a dark slab a little wider than the boot
-  put(g, softBox(bw * 1.06, M.boot.heel * 1.9, bl * 0.99, { round: 0.32, uSteps: 16, vSteps: 10 }),
-    materials.nail, { pos: v(0, G + M.boot.heel * 0.55, bl * 0.10) });
-
-  // the boot itself. Scuffed reads as SHAPE here, not as texture: the toe is
-  // a separate swollen lump rather than a smooth continuation, so the profile
-  // has a break in it where a worn boot creases.
-  put(g, softBox(bw, bh * 0.92, bl * 0.80, { round: 0.46, uSteps: 18, vSteps: 12 }),
-    materials.boot, { pos: v(0, G + bh * 0.46, bl * 0.02) });
-  put(g, softBox(bw * 0.90, bh * 0.60, bl * 0.42, { round: 0.52, uSteps: 14, vSteps: 10 }),
-    materials.boot, { pos: v(0, G + bh * 0.30, bl * 0.30) });
-
-  // the ankle shaft
-  put(g, limb(v(0, G + bh * 0.55, -bl * 0.04), v(0, G + bh * 1.12, -bl * 0.02),
-    M.leg.ankleRadius * 1.34, M.leg.ankleRadius * 1.10, { radial: 12, segments: 4, waist: 0.94 }),
-    materials.boot);
-
-  // The left boot has toes coming through the front. Three bulbs rather than
-  // a hole cut in the toe cap: at eight pixels of boot, three green dots at
-  // the end of a dark shape read as toes, and a real hole reads as a chip out
-  // of the mesh.
-  if (M.boot.toesOutSide === (sign > 0 ? 'L' : 'R')) {
-    for (let i = 0; i < 3; i++) {
-      const t = (i - 1) / 2;
-      put(g, ball(bw * 0.15, bh * 0.15, bh * 0.16, 10), materials.skin, {
-        pos: v(t * bw * 0.42, G + bh * 0.19 + (1 - Math.abs(t)) * bh * 0.03, bl * 0.46 - Math.abs(t) * bl * 0.05),
-      });
-    }
-    // the torn lip of the boot behind them
-    put(g, softBox(bw * 0.74, bh * 0.12, bl * 0.10, { round: 0.4, uSteps: 12, vSteps: 8 }),
-      materials.nail, { pos: v(0, G + bh * 0.30, bl * 0.40) });
-  }
-
-  // Toes splay outward from the walking line. This is most of what stops a
-  // pair of feet reading as two bricks on the ends of two pipes.
-  g.rotation.y = sign * M.boot.toeOut;
-  return g;
-}
+const L = M.leg;
+const BOOT = M.boot;
 
 export function buildLower({ materials }) {
-  const group = new THREE.Group();          // origin at M.y.hip
-  group.userData.outwardX = LEFT_X;
+  const group = new THREE.Group();          // at `root`, y = M.y.hip
+  const geos = [];
+  const track = (g) => { geos.push(g); return g; };
   const joints = {};
 
   for (const side of ['L', 'R']) {
-    const sign = side === 'L' ? LEFT_X : -LEFT_X;
-
+    const s = side === 'L' ? +1 : -1;
     const hip = new THREE.Object3D();
-    hip.position.set(sign * M.leg.hipSeparation / 2, 0, 0);
+    hip.position.set(s * L.hipSeparation / 2, 0, 0);
     group.add(hip);
+    const knee = new THREE.Object3D();
+    knee.position.y = M.y.knee - M.y.hip;
+    hip.add(knee);
+    const ankle = new THREE.Object3D();
+    ankle.position.y = M.y.ankle - M.y.knee;
+    knee.add(ankle);
     joints[`hip${side}`] = hip;
+    joints[`knee${side}`] = knee;
+    joints[`ankle${side}`] = ankle;
 
-    // where the buttock meets the thigh
-    put(hip, ball(M.leg.thighRadius * 1.12, M.leg.thighRadius * 1.05, M.leg.thighRadius * 1.10, 14),
-      materials.skin, { pos: v(0, M.leg.thighRadius * 0.15, 0) });
+    // The hip ball, which is what joins the thigh to the pelvis mass.
+    const hipBall = track(ovoid(L.thighRadius * 0.94, L.thighRadius * 1.00, L.thighRadius * 1.02, { uSteps: 12, vSteps: 9 }));
+    put(hip, hipBall, materials.skin, { name: 'hip' });
 
-    const kneeAt = v(0, M.y.knee - M.y.hip, 0);
-    put(hip, limb(v(0, 0, 0), kneeAt, M.leg.thighRadius, M.leg.kneeRadius, {
-      radial: 14, segments: 8, bow: M.leg.bow, bowAxis: v(sign, 0, 0),
-    }), materials.skin);
+    const thigh = track(limb(
+      v3(0, 0, 0), v3(0, knee.position.y, 0),
+      L.thighRadius, L.kneeRadius,
+      { radial: 12, segments: 7, waist: M.limbWaist,
+        bow: v3(s * L.thighRadius * L.bow * 3.2, 0, 0), capA: false }));
+    put(hip, thigh, materials.skin, { name: 'thigh' });
 
-    // --- the shorts cuff, on the hip so it swings with the thigh
-    {
-      const holes = side === 'L' ? [[0.25, 0.42, 0.075, 0.20]] : [];
-      const cuff = tatteredCuff({
-        material: materials.shorts,
-        top: -0.026 * M.height,
-        bottom: M.shorts.hem - M.y.hip,
-        rTop: M.leg.thighRadius * 1.62,
-        rBottom: M.leg.thighRadius * 1.46,
-        tatter: M.shorts.tatter,
-        teeth: 6,
-        seed: side === 'L' ? 61 : 83,
-        thickness: M.shorts.thickness,
-        holes,
-        uSteps: 22, vSteps: 6,
-      });
-      put(hip, cuff.geometry, cuff.material);
-      // Behind the left hole, bone. It is the whole reason that hole is where
-      // it is: a hole in a rag with more rag behind it is not a wound.
-      if (side === 'L') {
-        const y = M.shorts.hem - M.y.hip + (M.shorts.top - M.shorts.hem) * 0.42;
-        put(hip, softBox(M.leg.thighRadius * 0.62, M.leg.thighRadius * 0.52, M.leg.thighRadius * 0.30,
-          { round: 0.5, uSteps: 10, vSteps: 8 }), materials.bone,
-        { pos: v(0, y, M.leg.thighRadius * 0.86) });
+    const kneeBall = track(ovoid(L.kneeRadius * M.jointBallScale, L.kneeRadius * M.jointBallScale * 0.92, L.kneeRadius * M.jointBallScale * 1.04, { uSteps: 12, vSteps: 9 }));
+    put(knee, kneeBall, materials.skin, { name: 'knee' });
+
+    const shin = track(limb(
+      v3(0, 0, 0), v3(0, ankle.position.y, 0),
+      L.shinRadius, L.ankleRadius,
+      { radial: 12, segments: 6, waist: 0.94,
+        bow: v3(-s * L.shinRadius * L.bow * 1.4, 0, L.shinRadius * 0.18), capA: false }));
+    put(knee, shin, materials.skin, { name: 'shin' });
+
+    // --- the boot ---------------------------------------------------------------
+    //
+    // One closed volume with a heel and a toe, plus a separate sole slab. It
+    // splays off the walking line by `toeOut`, which is what stops the two
+    // feet reading as one block from the front.
+    const boot = new THREE.Object3D();
+    boot.rotation.y = s * BOOT.toeOut;
+    ankle.add(boot);
+
+    const bh = BOOT.height / 2;
+    const bootR = (d) => roundBoxR(BOOT.width / 2, bh, BOOT.length / 2, 3.4)(d)
+      // the toe box swells and the heel tucks in
+      * (1 + 0.16 * smoothstep(0.30, 0.95, d.z) * smoothstep(0.35, -0.55, d.y))
+      * (1 - 0.20 * smoothstep(0.20, 0.90, -d.z) * smoothstep(-0.10, 0.85, d.y));
+    const shell = track(closedRadial({ uSteps: 22, vSteps: 14, R: bootR }));
+    // the ankle sits above the middle of the boot and behind its centre
+    const bootCentre = v3(0, -M.y.ankle + bh * 0.86, BOOT.length * 0.16);
+    shell.translate(bootCentre.x, bootCentre.y, bootCentre.z);
+    put(boot, shell, materials.boot, { name: 'boot' });
+
+    // The sole: a flatter slab under it, so there is a line where the boot
+    // meets the ground rather than a smooth curve fading into the floor.
+    const sole = track(roundBox(BOOT.width / 2 * 1.04, BOOT.heel / 2, BOOT.length / 2 * 1.02, { n: 4.2, uSteps: 18, vSteps: 10 }));
+    put(boot, sole, materials.bootSole, {
+      pos: v3(bootCentre.x, -M.y.ankle + BOOT.heel / 2, bootCentre.z), name: 'sole',
+    });
+
+    // The shaft cuff, a scuffed roll at the top of the boot.
+    const cuff = track(ovoid(BOOT.width / 2 * 0.86, BOOT.heel * 0.62, BOOT.width / 2 * 0.86, { uSteps: 14, vSteps: 8 }));
+    put(boot, cuff, materials.bootSole, {
+      pos: v3(0, -M.y.ankle + BOOT.height * 0.94, BOOT.length * 0.04), name: 'boot-cuff',
+    });
+
+    // Toes through the front of one boot. Real volumes poking out of a real
+    // hole would need the boot's grid cut; at 3 px of toe that is not worth a
+    // cavity, so they are three small bulbs sitting proud of the toe box,
+    // which reads identically and cannot staircase.
+    if (side === BOOT.toesOutSide) {
+      for (let k = 0; k < 3; k++) {
+        const t = track(ovoid(BOOT.width * 0.11, BOOT.width * 0.10, BOOT.width * 0.13, { uSteps: 10, vSteps: 7 }));
+        put(boot, t, materials.skin, {
+          pos: v3((k - 1) * BOOT.width * 0.24, -M.y.ankle + BOOT.heel + BOOT.width * 0.14, BOOT.length * 0.60),
+          name: 'toe',
+        });
       }
     }
-
-    const knee = new THREE.Object3D();
-    knee.position.copy(kneeAt);
-    hip.add(knee);
-    joints[`knee${side}`] = knee;
-    put(knee, bulb(M.leg.kneeRadius, { squash: 0.94 }), materials.skin);
-
-    const ankleAt = v(0, M.y.ankle - M.y.knee, 0);
-    put(knee, limb(v(0, 0, 0), ankleAt, M.leg.shinRadius, M.leg.ankleRadius, {
-      radial: 12, segments: 7, bow: M.leg.bow * 0.5, bowAxis: v(sign, 0, 0),
-    }), materials.skin);
-
-    const ankle = new THREE.Object3D();
-    ankle.position.copy(ankleAt);
-    knee.add(ankle);
-    joints[`ankle${side}`] = ankle;
-    ankle.add(buildBoot({ materials, sign }));
   }
 
-  const geometries = [];
-  group.traverse((o) => { if (o.isMesh) geometries.push(o.geometry); });
-
-  return {
-    group,
-    joints,
-    dispose() { for (const g of geometries) g.dispose(); },
-  };
+  return { group, joints, dispose() { for (const g of geos) g.dispose(); } };
 }

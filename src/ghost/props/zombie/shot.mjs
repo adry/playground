@@ -23,6 +23,7 @@ const tag = args.tag || mode;
 const query = ['mode=' + mode];
 if (args.pose) query.push('pose=' + args.pose);
 if (args.view) query.push('view=' + args.view);
+if (args.bare) query.push('bare=1');
 
 const lab = await openLab({
   width, height,
