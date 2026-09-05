@@ -52,6 +52,10 @@
 // that acts on what is already there rather than adding to it.
 
 import { createEditorScene } from './scene.js';
+import { createThumbnails } from './thumbs.js';
+// The ground's own colours, read off the module that paints them rather than
+// copied into the panel, so a re-tint of the grass lands on the swatch too.
+import { MATERIALS as GROUND_COLOURS } from '../game/level/groundcover.js';
 import {
   emptyLevel, normalizeLevel, serializeLevel, createLevelWorld, renumberGraves,
   packPaint, unpackPaint, GROUND_MATERIALS, LEVEL_FORMAT,
@@ -197,6 +201,9 @@ function redo() {
 const stage = document.getElementById('stage');
 const canvas = document.getElementById('view');
 const scene = createEditorScene({ canvas });
+// One picture per placeable thing, rendered through the scene's own renderer.
+// Nothing is built until a group is opened; see thumbs.js for the whole policy.
+const thumbs = createThumbnails({ renderer: scene.renderer });
 
 const selection = new Set();
 let tool = 'select';
@@ -919,6 +926,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.ctrlKey || e.metaKey) return;
 
+  if (k === '?' || e.key === 'F1') { showKeys(keysEl.dataset.open !== '1'); return; }
   if (k === 'escape') {
     // Abandon the run being drawn outright rather than stepping back one
     // click: escape means "forget this", and undo is still there for the rest.
@@ -1162,21 +1170,25 @@ function placeGroups() {
       id: 'cover',
       label: 'ground cover',
       items: GROUND_MATERIALS.map((m, i) => ({ tool: 'paint', material: i + 1, label: m })),
-      after: () => el('div', {}, [
+      // THE GROUND IS A COLOUR, so the swatch is the control and the name is a
+      // caption under it. The colours are groundcover.js's own, read off the
+      // module rather than copied, so a re-tint of the grass lands here too.
+      swatches: true,
+      after: () => el('div', { class: 'stack' }, [
         el('div', { class: 'row' }, [
           el('label', { text: 'brush' }),
           number(brush.radius, 0.5, 6, 0.25, (v) => { brush.radius = v; refresh(); }),
+          el('span', { class: 'note', text: 'right-drag erases' }),
         ]),
-        el('p', { class: 'note', text: 'drag to paint, right-drag or alt-drag to erase. Two grounds cross over in about a hand\'s width, with their loose stuff scattered a good deal further into each other.' }),
         // A KERB IS A PAIR OF MATERIALS, NOT A LINE YOU DRAW. groundcover.js
         // finds the join between two painted grounds out of the same field it
         // shades them from, so the stones land on the edge that is already
         // there and repainting the grass moves them. There is nothing here for
         // an author to keep in step with the paint, which is exactly why this
-        // is two selects and not a drawing tool.
-        el('p', { class: 'note', text: 'a row of stones where two grounds meet:' }),
+        // is two swatches and not a drawing tool.
+        el('p', { class: 'note', text: 'a row of stones where two grounds meet' }),
         ...kerbPairs().map((pair, i) => el('div', { class: 'row' }, [
-          el('span', { class: 'grow', text: `${pair[0]} meets ${pair[1]}` }),
+          el('span', { class: 'grow value', text: `${pair[0]} meets ${pair[1]}` }),
           el('button', {
             text: '×',
             title: 'take the stones out',
@@ -1184,8 +1196,8 @@ function placeGroups() {
           }),
         ])),
         el('div', { class: 'row' }, [
-          select(GROUND_MATERIALS, kerbPick.a, (v) => { kerbPick.a = v; }),
-          select(GROUND_MATERIALS, kerbPick.b, (v) => { kerbPick.b = v; }),
+          materialSwatches(kerbPick.a, (v) => { kerbPick.a = v; drawLeft(); }),
+          materialSwatches(kerbPick.b, (v) => { kerbPick.b = v; drawLeft(); }),
           el('button', { text: '+', title: 'lay a row of stones wherever these two grounds meet', onclick: () => commitIf(addKerb) }),
         ]),
       ]),
@@ -1272,23 +1284,77 @@ function drawLeft() {
 const openGroups = new Set(['boundary', 'stones']);
 
 function placeGroup(group) {
+  const items = group.items;
+  // Everything in this group that is a real prop wants a picture of itself.
+  // Asking only for what is OPEN is the whole scheduling policy: a group nobody
+  // has expanded costs nothing, and expanding one queues its own tiles.
+  const open = openGroups.has(group.id) || items.some(isPicked);
+  if (open) thumbs.want(items.filter((e) => e.tool === 'place'));
+
   return el('details', {
+    class: 'group',
     ontoggle: (e) => {
       if (e.target.open) openGroups.add(group.id);
       else openGroups.delete(group.id);
+      drawLeft();
     },
-    open: openGroups.has(group.id) || group.items.some(isPicked) ? '' : null,
+    open: open ? '' : null,
   }, [
-    el('summary', { text: `${group.label} (${group.items.length})` }),
-    el('div', { class: 'swatches' }, group.items.map((e) => el('button', {
-      text: e.label,
+    el('summary', {}, [
+      el('span', { text: group.label }),
+      el('span', { class: 'n', text: String(items.length) }),
+    ]),
+    el('div', { class: 'body' }, [
+      group.swatches ? swatchRow(items) : tileGrid(items),
+      group.after ? group.after() : null,
+    ]),
+  ]);
+}
+
+// A grid of pictures. The name is a caption rather than the button, which is
+// the whole point of the change: "draped" means nothing until you have seen it,
+// and the owner drew all twenty-nine of these by eye.
+function tileGrid(items) {
+  const wide = items.some((e) => e.label.length > 11);
+  return el('div', { class: `tiles${wide ? ' wide' : ''}` }, items.map((e) => {
+    const shot = e.tool === 'place' ? thumbs.get(e.kind, e.variant) : null;
+    return el('button', {
       title: e.title || null,
       'aria-pressed': String(isPicked(e)),
       onclick: () => pick(e),
-    }, e.key ? [el('kbd', { text: e.key })] : []))),
-    group.after ? group.after() : null,
-  ]);
+    }, [
+      e.tool === 'place'
+        ? el('img', { class: 'shot', alt: '', 'data-thumb': thumbs.keyOf(e.kind, e.variant), ...(shot ? { src: shot } : {}) })
+        : el('span', { class: 'shot' }),
+      el('span', { class: 'name', text: e.label }),
+      e.key ? el('kbd', { text: e.key }) : null,
+    ]);
+  }));
 }
+
+// The ground materials, as their own colours.
+function swatchRow(items) {
+  return el('div', { class: 'swatchrow' }, items.map((e) => el('button', {
+    title: `paint ${e.label}`,
+    'aria-pressed': String(isPicked(e)),
+    onclick: () => pick(e),
+  }, [
+    el('span', { class: 'chip', style: `background:${groundColour(e.label)}` }),
+    el('span', { class: 'name', text: e.label }),
+  ])));
+}
+
+// A standalone swatch row that is a choice rather than a tool, for the two ends
+// of a kerb pair.
+function materialSwatches(value, onpick) {
+  return el('div', { class: 'swatchrow grow' }, GROUND_MATERIALS.map((m) => el('button', {
+    title: m,
+    'aria-pressed': String(value === m),
+    onclick: () => onpick(m),
+  }, [el('span', { class: 'chip', style: `background:${groundColour(m)}` })])));
+}
+
+const groundColour = (name) => (GROUND_COLOURS[name] || { color: '#8b93a3' }).color;
 
 function describeFoot(kind, variant) {
   const f = levelFootprint(kind, variant);
@@ -1311,141 +1377,205 @@ function number(value, min, max, step, onchange) {
   });
 }
 
+// A CARD PER SUBJECT. The right column used to be one stream of rows with
+// capitals scattered down it, which is a list of settings rather than a set of
+// things. LEVEL, WALL, VIEW, SPAWNS, SELECTION and the three checkers are
+// separate subjects and now read as separate blocks.
+function card(id, title, children, { count = null, bad = false, help = null } = {}) {
+  const head = [el('span', { text: title })];
+  if (help) {
+    head.push(el('button', {
+      class: 'info',
+      text: '?',
+      title: 'what this is',
+      'aria-pressed': String(openHelp.has(id)),
+      onclick: () => {
+        if (openHelp.has(id)) openHelp.delete(id); else openHelp.add(id);
+        drawRight();
+      },
+    }));
+  }
+  if (count !== null) head.push(el('span', { class: 'count', text: String(count), 'data-bad': bad ? '1' : null }));
+  return el('section', { class: 'card' }, [
+    el('h2', {}, head),
+    ...(help && openHelp.has(id) ? [el('p', { class: 'note', text: help })] : []),
+    ...[].concat(children),
+  ]);
+}
+
+// A SEGMENTED CONTROL. Four stones, three joints, two cameras: a closed set
+// small enough to show whole is not a dropdown, because a dropdown hides the
+// set and the set is the information.
+function segment(options, value, onpick, { labels = null } = {}) {
+  return el('div', { class: 'seg' }, options.map((o, i) => el('button', {
+    text: labels ? labels[i] : o,
+    title: labels ? o : null,
+    'aria-pressed': String(o === value),
+    onclick: () => onpick(o),
+  })));
+}
+
+// A SWITCH IS A BUTTON THAT STAYS DOWN. The browser's tick box is a different
+// house style, a fixed size and a hit target the width of the tick.
+function toggle(label, value, onchange, title = null) {
+  return el('button', {
+    class: 'grow',
+    title,
+    'aria-pressed': String(value),
+    onclick: () => onchange(!value),
+  }, [el('span', { text: label })]);
+}
+
 function drawRight() {
   const sel = [...selection];
+  const stones = [...wallStones()];
   right.replaceChildren(
-    el('h2', { text: 'level' }),
-    el('div', { class: 'row' }, [
-      el('label', { text: 'name' }),
-      el('input', {
-        class: 'grow', type: 'text', value: doc.name,
-        onchange: (e) => commit(() => { doc.name = e.target.value; }),
-      }),
-    ]),
-    // THIRTY, AND NO CHOICE. The owner fixed it: thirty is six of the floor's
-    // major grid squares and the number every other number in the project was
-    // measured against -- the firefly spacing, the camera's framing, the four
-    // pellets one to a quadrant. The FORMAT still carries a size and everything
-    // downstream still reads it, so a smaller arena remains a thing the file
-    // can say and a harness can ask for; it is only the tool that has stopped
-    // offering it.
-    el('div', { class: 'row' }, [
-      el('label', { text: 'size' }),
-      el('span', { class: 'grow', text: `${doc.size} by ${doc.size}${doc.size === LEVEL_SIZE ? '' : ' (this file was made at another size)'}` }),
-    ]),
-    el('div', { class: 'row' }, [
-      el('label', { text: 'seed' }),
-      number(doc.seed, 1, 999999, 1, (v) => commit(() => { doc.seed = v; doc.fireflies.seed = v; })),
-    ]),
-    el('div', { class: 'row' }, [
-      el('button', { class: 'grow', text: 'save json', onclick: saveFile }),
-      el('button', { class: 'grow', text: 'open', onclick: pickFile }),
-    ]),
-    el('div', { class: 'row' }, [
-      el('button', { class: 'grow', text: 'undo', onclick: undo }),
-      el('button', { class: 'grow', text: 'redo', onclick: redo }),
-      // THE FRONT DOOR. Every level starts here now, so what it gives has to
-      // be the whole of a blank page and nothing else: the wall, the ground,
-      // and the spot the ghost starts on. emptyLevel is already exactly that
-      // -- no props, no fences, no paths, no graves, no paint -- and the size
-      // and the seed are carried over because they are the settings the author
-      // just chose rather than anything on the floor.
-      el('button', { class: 'grow danger', text: 'new', onclick: () => {
-        if (!confirm('start a new empty level? the current one is only in this tab.')) return;
-        commit(() => {
-          doc = emptyLevel({ size: LEVEL_SIZE, seed: doc.seed, name: 'graveyard' });
-          selection.clear();
-          pending = null;
-        });
-        say('an empty arena. Place a spawn with S, then build outward from it.');
-      } }),
-    ]),
-
-    el('h2', { text: 'wall' }),
-    el('div', { class: 'row' }, [
-      el('label', { text: 'starts in' }),
-      select(WALL_VARIANTS, doc.wall.variant, (v) => commit(() => { doc.wall.variant = v; })),
-    ]),
-    // WHAT THE WALL TOOL STAMPS. Two selects and then clicks on the wall
-    // itself, which is how a wall gets built piece by piece: the run-based way
-    // of drawing a whole boundary in four clicks is still there and is still
-    // the right way to start, and this is the way to work along it afterwards.
-    el('div', { class: 'row' }, [
-      el('label', { text: 'stamp' }),
-      select(WALL_VARIANTS, wallPick.variant, (v) => { wallPick.variant = v; setTool('wall'); }),
-      select(WALL_JOINTS, wallPick.joint, (v) => { wallPick.joint = v; setTool('wall'); }),
-    ]),
-    el('p', { class: 'note', text: `with the change of stone tool (W), click anywhere on the wall to change it to ${wallPick.variant} from there on, and click a change to take it out. Built of ${[...wallStones()].join(', ')} of ${MAX_STYLES} stones.` }),
-    ...doc.wall.styles.map(styleRow),
-    el('div', { class: 'row' }, [
-      el('button', {
-        class: 'grow',
-        text: `add a change of stone (${doc.wall.styles.length})`,
-        disabled: doc.wall.styles.length >= MAX_WALL_CHANGES ? '' : null,
-        onclick: () => commit(() => {
-          // Halfway to the next corner from the last change, which is a place
-          // an author can see rather than a place the arithmetic liked.
-          const len = wallLength(doc.wall.points);
-          const last = doc.wall.styles.length ? doc.wall.styles[doc.wall.styles.length - 1].at : 0;
-          const stones = wallStones([wallPick.variant]);
-          doc.wall.styles.push({
-            at: Math.min(len - 0.5, Math.round((last + len / 6) * 2) / 2),
-            variant: stones.size <= MAX_STYLES ? wallPick.variant : doc.wall.variant,
-            joint: wallPick.joint,
-          });
-          doc.wall.styles.sort((a, b) => a.at - b.at);
+    card('level', 'level', [
+      el('div', { class: 'row' }, [
+        el('label', { text: 'name' }),
+        el('input', {
+          class: 'grow', type: 'text', value: doc.name,
+          onchange: (e) => commit(() => { doc.name = e.target.value; }),
         }),
-      }),
-    ]),
-    el('p', { class: 'note', text: `the wall runs ${wallLength(doc.wall.points).toFixed(0)} units from the first corner, anticlockwise. A change at that distance holds until the next one.` }),
+      ]),
+      // THIRTY, AND NO CHOICE. The owner fixed it: thirty is six of the floor's
+      // major grid squares and the number every other number in the project was
+      // measured against -- the firefly spacing, the camera's framing, the four
+      // pellets one to a quadrant. The FORMAT still carries a size and
+      // everything downstream still reads it, so a smaller arena remains a
+      // thing the file can say and a harness can ask for; it is only the tool
+      // that has stopped offering it.
+      el('div', { class: 'row' }, [
+        el('label', { text: 'arena' }),
+        el('span', { class: 'grow value', text: `${doc.size} by ${doc.size}${doc.size === LEVEL_SIZE ? '' : ' (made at another size)'}` }),
+      ]),
+      el('div', { class: 'row' }, [
+        el('label', { text: 'seed' }),
+        number(doc.seed, 1, 999999, 1, (v) => commit(() => { doc.seed = v; doc.fireflies.seed = v; })),
+      ]),
+      el('div', { class: 'row' }, [
+        el('button', { class: 'grow', text: 'save json', onclick: saveFile }),
+        el('button', { class: 'grow', text: 'open', onclick: pickFile }),
+      ]),
+      el('div', { class: 'row' }, [
+        el('button', { class: 'grow', text: 'undo', title: 'ctrl+z', onclick: undo, disabled: undoStack.length ? null : '' }),
+        el('button', { class: 'grow', text: 'redo', title: 'ctrl+shift+z', onclick: redo, disabled: redoStack.length ? null : '' }),
+        // THE FRONT DOOR. Every level starts here now, so what it gives has to
+        // be the whole of a blank page and nothing else: the wall, the ground,
+        // and the spot the ghost starts on. emptyLevel is already exactly that
+        // -- no props, no fences, no paths, no graves, no paint.
+        el('button', { class: 'grow danger', text: 'new', onclick: () => {
+          if (!confirm('start a new empty level? the current one is only in this tab.')) return;
+          commit(() => {
+            doc = emptyLevel({ size: LEVEL_SIZE, seed: doc.seed, name: 'graveyard' });
+            selection.clear();
+            pending = null;
+          });
+          say('an empty arena. Place a spawn with S, then build outward from it.');
+        } }),
+      ]),
+    ], { help: 'The seed drives every prop\'s own wobble and where the fireflies land, so the same file draws the same twice. Save writes a json file; the game plays it at /lab/?game=1&level=<url>.' }),
 
-    el('h2', { text: 'view' }),
-    el('div', { class: 'row' }, [
-      el('button', { class: 'grow', text: 'game camera', 'aria-pressed': String(scene.mode === 'game'), onclick: () => setMode('game') }),
-      el('button', { class: 'grow', text: 'from above', 'aria-pressed': String(scene.mode === 'plan'), onclick: () => setMode('plan') }),
-    ]),
-    el('div', { class: 'row' }, [
-      checkbox('grid snap 0.5', snapOn, (v) => { snapOn = v; }),
-    ]),
-    el('div', { class: 'row' }, [
-      checkbox('footprints', showFootprints, (v) => { showFootprints = v; scene.setOverlayFlags({ footprints: v }); refresh(); }),
-    ]),
-    el('div', { class: 'row' }, [
-      checkbox('facing arrows', showFacing, (v) => { showFacing = v; scene.setOverlayFlags({ facing: v }); refresh(); }),
+    card('wall', 'wall', [
+      el('div', { class: 'row' }, [
+        el('label', { text: 'starts in' }),
+        segment(WALL_VARIANTS, doc.wall.variant, (v) => commit(() => { doc.wall.variant = v; })),
+      ]),
+      // WHAT THE WALL TOOL STAMPS. Two rows and then clicks on the wall itself,
+      // which is how a wall gets built piece by piece: drawing a whole boundary
+      // in four clicks is still there and is still the right way to start, and
+      // this is the way to work along it afterwards.
+      el('div', { class: 'row' }, [
+        el('label', { text: 'stamp' }),
+        segment(WALL_VARIANTS, wallPick.variant, (v) => { wallPick.variant = v; setTool('wall'); }),
+      ]),
+      el('div', { class: 'row' }, [
+        el('label', { text: 'joint' }),
+        segment(WALL_JOINTS, wallPick.joint, (v) => { wallPick.joint = v; setTool('wall'); }),
+      ]),
+      ...doc.wall.styles.map(styleRow),
+      el('div', { class: 'row' }, [
+        el('button', {
+          class: 'grow',
+          text: 'add a change of stone',
+          disabled: doc.wall.styles.length >= MAX_WALL_CHANGES ? '' : null,
+          onclick: () => commit(() => {
+            // A sixth of the way on from the last change, which is a place an
+            // author can see rather than a place the arithmetic liked.
+            const len = wallLength(doc.wall.points);
+            const last = doc.wall.styles.length ? doc.wall.styles[doc.wall.styles.length - 1].at : 0;
+            const want = wallStones([wallPick.variant]);
+            doc.wall.styles.push({
+              at: Math.min(len - 0.5, Math.round((last + len / 6) * 2) / 2),
+              variant: want.size <= MAX_STYLES ? wallPick.variant : doc.wall.variant,
+              joint: wallPick.joint,
+            });
+            doc.wall.styles.sort((a, b) => a.at - b.at);
+          }),
+        }),
+      ]),
+    ], {
+      count: `${stones.length}/${MAX_STYLES} stones`,
+      help: `With the change of stone tool (W), click anywhere on the wall to change it from there on, and click a change to take it out. The wall runs ${wallLength(doc.wall.points).toFixed(0)} units from the first corner, anticlockwise, and a change at a distance holds until the next one. It is built of ${stones.join(', ')}, and ${MAX_STYLES} stones is all the geometry can carry.`,
+    }),
+
+    card('view', 'view', [
+      el('div', { class: 'row' }, [
+        segment(['game', 'plan'], scene.mode, (v) => setMode(v), { labels: ['game camera', 'from above'] }),
+      ]),
+      el('div', { class: 'row' }, [
+        toggle('grid snap', snapOn, (v) => { snapOn = v; drawRight(); }, 'Half a unit. Shift inverts it while you drag.'),
+        toggle('footprints', showFootprints, (v) => {
+          showFootprints = v;
+          scene.setOverlayFlags({ footprints: v });
+          refresh();
+        }, 'The box or disc each prop actually takes up.'),
+      ]),
+      el('div', { class: 'row' }, [
+        toggle('facing', showFacing, (v) => {
+          showFacing = v;
+          scene.setOverlayFlags({ facing: v });
+          refresh();
+        }, 'Which way each prop looks. Several were authored to face the camera and read wrong from behind.'),
+        el('span', { class: 'grow' }),
+      ]),
     ]),
 
-    el('h2', { text: `skeleton spawns  ${doc.graves.length}/${MAX_SPAWNS}` }),
-    doc.graves.length
+    card('spawns', 'skeleton spawns', doc.graves.length
       ? el('ul', { class: 'spawns' }, doc.graves.map(spawnRow))
-      : el('p', { class: 'note', text: 'the spawn tool puts a grave down. The number is which skeleton climbs out and when.' }),
+      : el('p', { class: 'note', text: 'the grave tool puts a spawn down. The number is which skeleton climbs out and when.' }),
+    { count: `${doc.graves.length}/${MAX_SPAWNS}`, bad: doc.graves.length !== MAX_SPAWNS }),
 
-    el('h2', { text: 'selection' }),
-    sel.length === 1 ? inspector(sel[0]) : el('p', { class: 'note', text: sel.length ? `${sel.length} selected` : 'nothing selected' }),
+    card('selection', 'selection',
+      sel.length === 1 ? inspector(sel[0])
+        : el('p', { class: 'note', text: sel.length ? `${sel.length} selected` : 'nothing selected. Drag the ring under a selected thing to turn it.' })),
 
-    el('h2', { text: `audit  ${review.stale ? '...' : review.errors.length}` }),
-    auditList(),
+    card('audit', 'audit', auditList(), {
+      count: review.stale ? '...' : review.errors.length,
+      bad: !review.stale && review.errors.length > 0,
+      help: 'audit.js\'s thirteen rules plus the wedge pass, run a moment after you stop. A wedge is a place the ghost can vault into that no skeleton can walk to, and it is the failure that ends a game: it is drawn on the floor because there is nothing else to see.',
+    }),
 
-    el('h2', { text: 'fairness' }),
-    fairnessList(),
+    card('fairness', 'fairness', fairnessList(), {
+      count: fair.stale ? '...' : fair.fail.length,
+      bad: fair.fail.length > 0,
+      help: 'The eight properties the soak proved over three thousand generated levels, run against this one. F3 is the one to read first: it says the ghost can reach somewhere no skeleton can.',
+    }),
 
-    el('h2', { text: `problems  ${report ? report.errors.length : 0} / ${report ? report.warnings.length : 0}` }),
-    issuesList(),
+    card('problems', 'geometry', issuesList(), {
+      count: report ? `${report.errors.length} / ${report.warnings.length}` : '0 / 0',
+      bad: !!(report && report.errors.length),
+      help: 'The fast half, run on every change: overlaps, things in fences, things in gates, things outside the wall. Errors first, then warnings.',
+    }),
   );
 }
+
+// Which cards have their explanation open. A person reads it once.
+const openHelp = new Set();
 
 let showFootprints = true;
 let showFacing = true;
 
-function checkbox(label, value, onchange) {
-  const id = `cb-${label.replace(/\W+/g, '')}`;
-  return el('label', { class: 'grow', for: id }, [
-    el('input', {
-      id, type: 'checkbox', checked: value ? '' : null,
-      onchange: (e) => onchange(e.target.checked),
-    }),
-    el('span', { text: ` ${label}` }),
-  ]);
-}
 
 function spawnRow(g, i) {
   return el('li', {}, [
@@ -1473,7 +1603,10 @@ function inspector(id) {
   const r = recordOf(id);
   const k = kindOf(id);
   if (!r) return el('p', { class: 'note', text: 'nothing selected' });
-  const rows = [el('div', { class: 'row' }, [el('label', { text: 'id' }), el('span', { class: 'grow', text: `${k} ${id}` })])];
+  const rows = [el('div', { class: 'row' }, [
+    el('label', { text: 'what' }),
+    el('span', { class: 'grow value', text: `${k} ${id}` }),
+  ])];
   if (k === 'prop') {
     const group = PALETTE.find((gp) => gp.kind === r.kind);
     if (group) {
@@ -1494,12 +1627,12 @@ function inspector(id) {
     rows.push(el('div', { class: 'row' }, [
       el('label', { text: 'yaw' }),
       el('input', {
-        class: 'grow', type: 'range', min: '-180', max: '180', step: '0.5',
+        class: 'grow dial', type: 'range', min: '-180', max: '180', step: '0.5',
         value: String(round((r.yaw * 180) / Math.PI)),
         oninput: (e) => { beginEdit(); r.yaw = (Number(e.target.value) * Math.PI) / 180; refresh(); },
         onchange: endEdit,
       }),
-      el('span', { text: `${Math.round((r.yaw * 180) / Math.PI)}°` }),
+      el('span', { class: 'value', text: `${Math.round((r.yaw * 180) / Math.PI)}°` }),
     ]));
     rows.push(el('div', { class: 'row' }, [
       el('button', { class: 'grow', text: 'face the camera', onclick: () => commit(() => { r.yaw = FACE_YAW; }) }),
@@ -1507,8 +1640,8 @@ function inspector(id) {
   }
   if (k === 'grave') {
     rows.push(el('div', { class: 'row' }, [
-      el('label', { text: 'spawn' }),
-      select(PERSONALITIES, r.personality, (v) => commit(() => { r.personality = v; })),
+      el('label', { text: 'skeleton' }),
+      segment(PERSONALITIES, r.personality, (v) => commit(() => { r.personality = v; })),
     ]));
     rows.push(el('div', { class: 'row' }, [
       el('button', {
@@ -1521,8 +1654,8 @@ function inspector(id) {
   }
   if (k === 'path') {
     rows.push(el('div', { class: 'row' }, [
-      el('label', { text: 'material' }),
-      select(['sand', 'gravel', 'kerb'], r.material, (v) => commit(() => { r.material = v; })),
+      el('label', { text: 'made of' }),
+      segment(['sand', 'gravel', 'kerb'], r.material, (v) => commit(() => { r.material = v; })),
     ]));
     rows.push(el('div', { class: 'row' }, [
       el('label', { text: 'width' }),
@@ -1531,10 +1664,10 @@ function inspector(id) {
   }
   if (k === 'fence') {
     rows.push(el('div', { class: 'row' }, [
-      checkbox('closed pen', r.closed, (v) => commit(() => {
+      toggle('closed pen', r.closed, (v) => commit(() => {
         r.closed = v;
         if (v && !r.gates.length) r.gates.push({ edge: 0, t: 0.5 });
-      })),
+      }), 'A closed run is a pen, and a pen gets a gate put in it because a pen with no way in is a pocket.'),
     ]));
     rows.push(el('p', { class: 'note', text: `${r.points.length} points, ${r.gates.length} gate${r.gates.length === 1 ? '' : 's'}` }));
   }
@@ -1563,7 +1696,7 @@ const round = (v) => Math.round(v * 100) / 100;
 function styleRow(st, i) {
   const len = wallLength(doc.wall.points);
   const rows = [el('div', { class: 'row' }, [
-    el('span', { class: 'n', text: String(i + 1) }),
+    el('label', { text: `at` }),
     number(st.at, 0, Math.round(len), 0.5, (v) => commit(() => {
       // Not zero. createWall drops a change at zero -- from there on IS the
       // base variant -- so an author who typed 0 would watch the row do
@@ -1571,24 +1704,28 @@ function styleRow(st, i) {
       st.at = Math.max(0.5, Math.min(len, v));
       doc.wall.styles.sort((a, b) => a.at - b.at);
     })),
-    select(WALL_VARIANTS, st.variant, (v) => commit(() => { st.variant = v; })),
-    el('button', { text: '×', title: 'remove', onclick: () => commit(() => {
+    el('button', { text: '×', title: 'take this change out', onclick: () => commit(() => {
       doc.wall.styles.splice(i, 1);
     }) }),
   ])];
   rows.push(el('div', { class: 'row' }, [
-    el('label', { text: 'joint' }),
-    select(WALL_JOINTS, st.joint, (v) => commit(() => {
+    segment(WALL_VARIANTS, st.variant, (v) => commit(() => { st.variant = v; })),
+  ]));
+  rows.push(el('div', { class: 'row' }, [
+    segment(WALL_JOINTS, st.joint, (v) => commit(() => {
       st.joint = v;
       if (v !== 'pier') delete st.jointVariant;
     })),
-    ...(st.joint === 'pier' ? [
-      select(['the older', ...WALL_VARIANTS], st.jointVariant || 'the older', (v) => commit(() => {
-        if (v === 'the older') delete st.jointVariant;
+  ]));
+  if (st.joint === 'pier') {
+    rows.push(el('div', { class: 'row' }, [
+      el('label', { text: 'pier of' }),
+      segment(['older', ...WALL_VARIANTS], st.jointVariant || 'older', (v) => commit(() => {
+        if (v === 'older') delete st.jointVariant;
         else st.jointVariant = v;
       })),
-    ] : []),
-  ]));
+    ]));
+  }
   return el('div', { class: 'style' }, rows);
 }
 
@@ -1674,18 +1811,53 @@ function drawStatus() {
   ].filter(Boolean).join('<br>');
 }
 
-hintEl.textContent = [
-  'selected: drag the middle to move it, drag the ring to turn it',
-  'or: drag to move · alt-drag turns freely, +shift snaps 15° · [ ] nudge 5° · shift-drag snaps to the grid',
-  'space or middle drag pans · wheel zooms · tab swaps the game camera and the plan',
-  'fence and path: click points, enter finishes, c closes · ctrl+z undo · ctrl+s save',
+// THE KEYS, BEHIND A BUTTON, and remembered. Four lines of shortcuts at the
+// bottom of the window are read once and then occupy it for ever. The two
+// things a person could only have learnt from this text -- that a prop can be
+// moved and turned -- are now handles on the floor, which is what made it
+// affordable to fold this away.
+const keysEl = document.getElementById('keys');
+const keysToggle = document.getElementById('keys-toggle');
+const KEYS_OPEN = 'graveyard-editor/keys/v1';
+
+hintEl.innerHTML = [
+  'selected: drag the middle to move, drag the ring to turn',
+  'or <b>drag</b> to move, <b>alt</b>-drag to turn, <b>shift</b> to snap, <b>[ ]</b> to nudge',
+  '<b>space</b> or middle drag pans · <b>wheel</b> zooms · <b>tab</b> swaps camera and plan',
+  'runs: click points, <b>enter</b> finishes, <b>c</b> closes · <b>ctrl+z</b> undo · <b>ctrl+s</b> save',
 ].join('\n');
+
+function showKeys(on) {
+  keysEl.dataset.open = on ? '1' : '0';
+  keysToggle.setAttribute('aria-pressed', String(on));
+  try { localStorage.setItem(KEYS_OPEN, on ? '1' : '0'); } catch { /* private window */ }
+}
+keysToggle.addEventListener('click', () => showKeys(keysEl.dataset.open !== '1'));
+// Open the first time somebody opens the tool, closed ever after, because the
+// first time is the only time it is news.
+let keysWanted = '1';
+try { keysWanted = localStorage.getItem(KEYS_OPEN) ?? '1'; } catch { /* private window */ }
+showKeys(keysWanted === '1');
 
 // --- go ------------------------------------------------------------------------------
 
 scene.onFrame = () => {
   if (paintDirty) flushPaint();
   scene.syncBadges(world);
+  // ONE THUMBNAIL PER FRAME, and none during a gesture. A thumbnail is a real
+  // prop build, which for a headstone is a canvas bake, so this is the whole
+  // of what keeps opening the palette from stalling the page. The picture is
+  // dropped straight into the tile that is waiting for it rather than by
+  // redrawing the panel, which would throw away the scroll position sixty
+  // times while a group filled in.
+  if (!drag && !editing && thumbs.pending) {
+    const made = thumbs.pump();
+    if (made && made.url) {
+      for (const img of left.querySelectorAll(`img[data-thumb="${CSS.escape(made.key)}"]`)) {
+        img.src = made.url;
+      }
+    }
+  }
 };
 
 refresh();

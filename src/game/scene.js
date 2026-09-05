@@ -1,15 +1,17 @@
 // The game, on screen.
 //
-//   /lab/?game=1                          a generated level
-//   /lab/?game=1&level=/levels/demo.json  a level somebody authored in /editor/
+//   /lab/?game=1                          the level the site ships, which is
+//                                         /levels/demo.json and was authored
+//   /lab/?game=1&level=<url>              some other authored level
+//   /lab/?game=1&seed=7                   a generated arena. The developer's
+//                                         door, and the only one left.
 //
 // This is the third page in the project and the first one you can lose. The
 // other two are a free-roam graveyard and an asset lineup; this one builds a
 // level, runs the rules over it and draws the result.
 //
-// A LEVEL FROM A FILE. `level` takes a URL and loads a level document instead
-// of generating one. The document answers exactly the queries the generator
-// answers -- see src/game/level/format.js, whose whole promise is that one
+// A LEVEL FROM A FILE, which is now the ordinary case. The document answers
+// exactly the queries the generator answers -- see src/game/level/format.js, whose whole promise is that one
 // sentence -- so the rules half, the navigation and the audit cannot tell the
 // difference and none of them has a branch in it. What DOES differ is what is
 // drawn: a file carries painted ground cover, a wall variant with style
@@ -74,7 +76,17 @@ export async function startGame({ canvas, params }) {
   const seed = Number(params.get('seed')) || 1;
   const testMode = params.get('test') === '1';
 
-  // --- the level, if there is one --------------------------------------------
+  // --- the level -------------------------------------------------------------
+  //
+  // A LEVEL IS A THING A PERSON MAKES, and this line is where the product says
+  // so. `level` names one; with no `level` at all the game plays the one the
+  // site ships, which is a level somebody authored in /editor/. There is no
+  // longer any URL that quietly hands a player a machine-made arena.
+  //
+  // `?seed=` is what is left of the generator here, and it is the developer's
+  // door rather than a fallback: ask for a seed and you get that seed's arena,
+  // which is what world-check.mjs and every capture script want and what
+  // nobody typing /lab/?game=1 does.
   //
   // Loaded FIRST, before the renderer exists, for two reasons. It is a fetch,
   // so anything built before it would sit idle waiting; and the whole point of
@@ -84,11 +96,12 @@ export async function startGame({ canvas, params }) {
   // and a canvas bake costs about five times more once the renderer has drawn.
   //
   // The four modules behind it are imported here rather than at the top of the
-  // file so that a page playing a generated level never pays for them. Between
-  // them they pull in every prop in the palette -- the fountain, the shed, nine
-  // lanterns -- which is most of what an authored level can contain and none of
-  // what a generated one does.
-  const levelUrl = params.get('level');
+  // file so that a page generating a level never pays for them. Between them
+  // they pull in every prop in the palette -- the fountain, the shed, nine
+  // lanterns -- which is most of what an authored level can contain and none
+  // of what a generated one does.
+  const SHIPPED_LEVEL = '/levels/demo.json';
+  const levelUrl = params.get('level') || (params.get('seed') ? null : SHIPPED_LEVEL);
   let authored = null;
   if (levelUrl) {
     const [format, build, cover, gate] = await Promise.all([
