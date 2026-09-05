@@ -1337,13 +1337,56 @@ function drawLeft() {
 // where it went.
 const openGroups = new Set(['boundary', 'stones']);
 
+// THE PICTURES ARE DRAWN A GROUP AT A TIME, OFF THE RENDER LOOP.
+//
+// This used to be one thumbnail per frame from onFrame, which is the worst of
+// both worlds: a canvas bake costs about five times more once the renderer has
+// drawn, so a bake a frame puts every bake in the expensive regime, and each
+// one also stalled the GPU for its own readback. A tick went to 801 ms, of
+// which 630 was this.
+//
+// Now nothing is drawn until a group is expanded, and then the whole group is
+// drawn back to back in one batch with one readback, from a timer rather than
+// a frame. The batch blocks, which is why the group paints its "drawing them"
+// line first and why the batch waits for that paint before it starts. And it
+// runs once per group for the life of the browser rather than once per
+// session: the pictures are kept in localStorage.
+const drawing = new Set();
+
+function drawGroupThumbs(group, items) {
+  if (drawing.has(group.id) || !thumbs.missing(items)) return;
+  drawing.add(group.id);
+  // Two frames, then the work: one for the browser to lay the expanded group
+  // out and one for it to paint it. A setTimeout alone can land before the
+  // paint and the author watches a frozen tool with no explanation on it.
+  requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => {
+    let made = [];
+    try {
+      made = thumbs.renderBatch(items);
+    } finally {
+      drawing.delete(group.id);
+    }
+    // Straight into the tiles that are waiting, rather than by redrawing the
+    // panel, which would throw away the author's scroll position.
+    for (const m of made) {
+      for (const img of left.querySelectorAll(`img[data-thumb="${CSS.escape(m.key)}"]`)) {
+        img.src = m.url;
+      }
+    }
+    for (const node of left.querySelectorAll(`[data-drawing="${CSS.escape(group.id)}"]`)) node.remove();
+    // The batch borrowed the renderer, so the scene is told to draw itself
+    // again: it only renders when something has changed now.
+    scene.invalidate();
+  }, 0)));
+}
+
 function placeGroup(group) {
   const items = group.items;
-  // Everything in this group that is a real prop wants a picture of itself.
-  // Asking only for what is OPEN is the whole scheduling policy: a group nobody
-  // has expanded costs nothing, and expanding one queues its own tiles.
+  const shots = items.filter((e) => e.tool === 'place');
+  // Only what is OPEN, which is the whole scheduling policy: a group nobody has
+  // expanded costs nothing at all.
   const open = openGroups.has(group.id) || items.some(isPicked);
-  if (open) thumbs.want(items.filter((e) => e.tool === 'place'));
+  if (open && shots.length) drawGroupThumbs(group, shots);
 
   return el('details', {
     class: 'group',
@@ -1359,6 +1402,9 @@ function placeGroup(group) {
       el('span', { class: 'n', text: String(items.length) }),
     ]),
     el('div', { class: 'body' }, [
+      open && shots.length && thumbs.missing(shots)
+        ? el('p', { class: 'note', 'data-drawing': group.id, text: 'drawing them...' })
+        : null,
       group.swatches ? swatchRow(items) : tileGrid(items),
       group.after ? group.after() : null,
     ]),
@@ -1906,20 +1952,6 @@ showKeys(keysWanted === '1');
 scene.onFrame = () => {
   if (paintDirty) flushPaint();
   scene.syncBadges(world);
-  // ONE THUMBNAIL PER FRAME, and none during a gesture. A thumbnail is a real
-  // prop build, which for a headstone is a canvas bake, so this is the whole
-  // of what keeps opening the palette from stalling the page. The picture is
-  // dropped straight into the tile that is waiting for it rather than by
-  // redrawing the panel, which would throw away the scroll position sixty
-  // times while a group filled in.
-  if (!drag && !editing && thumbs.pending) {
-    const made = thumbs.pump();
-    if (made && made.url) {
-      for (const img of left.querySelectorAll(`img[data-thumb="${CSS.escape(made.key)}"]`)) {
-        img.src = made.url;
-      }
-    }
-  }
 };
 
 refresh();
@@ -1940,6 +1972,10 @@ window.__editor = {
   preview: (x, z) => previewAt(x, z),
   gizmo: () => gizmoNow(),
   select(id) { selection.clear(); if (id) selection.add(id); refresh(); },
+  // How many palette pictures exist, and whether a batch is running. A harness
+  // waits on these rather than on a timer.
+  thumbsDrawn: () => thumbs.size,
+  thumbsBusy: () => drawing.size,
   scene,
   serialize: () => serializeLevel(doc),
   format: LEVEL_FORMAT,
