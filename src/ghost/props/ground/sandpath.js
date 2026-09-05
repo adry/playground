@@ -487,7 +487,11 @@ const SAND_DRY = '#c3bcac';   // the crown and the wear, where it has dried out
 const SAND_DAMP = '#9a9488';  // pressed down, in a rut or a print
 const GRIT = '#c6c0b4';
 
+const T = (globalThis.__pathT = globalThis.__pathT || { alloc: 0, draw: 0, normal: 0, geo: 0, calls: 0, px: 0 });
+const now = () => (globalThis.performance ? performance.now() : 0);
+
 function buildMaps(rng, width, length) {
+  const _t0 = now();
   const px = Math.max(26, Math.min(88, 2048 / Math.max(1, length)));
   const w = Math.max(48, Math.min(256, Math.round(width * px)));
   const h = Math.max(64, Math.min(2048, Math.round(length * px)));
@@ -499,7 +503,25 @@ function buildMaps(rng, width, length) {
   const cc = colour.getContext('2d');
   const height = document.createElement('canvas');
   height.width = w; height.height = h;
-  const hc = height.getContext('2d');
+  // willReadFrequently, and it is worth the paragraph because it was fifteen
+  // seconds.
+  //
+  // This canvas is never a texture. It is drawn into and then read back once,
+  // whole, by heightToNormalMap. Chromium's default is to put a 2D canvas on
+  // the GPU, and getImageData off a GPU canvas is a readback that has to
+  // synchronise with the compositor -- which on the first wave transition,
+  // with the previous level's canvases still uploaded and the renderer mid
+  // flight, cost 6.3 seconds for the same 487k pixels that take 470 ms on
+  // every other build. Measured, not guessed: the allocation was 0.3 ms and
+  // the drawing 67 ms in both cases, so the whole difference was in the one
+  // getImageData.
+  //
+  // The flag keeps it in software, where a readback is a memcpy. The colour
+  // canvas above does NOT get it: that one really is uploaded as a texture and
+  // wants to stay where the GPU can reach it.
+  const hc = height.getContext('2d', { willReadFrequently: true });
+  T.alloc += now() - _t0; T.calls += 1; T.px += w * h;
+  const _t1 = now();
 
   cc.fillStyle = SAND;
   cc.fillRect(0, 0, w, h);
@@ -631,6 +653,9 @@ function buildMaps(rng, width, length) {
     blot(cc, x, y, r * 1.25, r * (pxV / pxU) * 1.15, 0, proud ? STONE : DAMP, 0.34);
   }
 
+  T.draw += now() - _t1;
+  const _t2 = now();
+
   const map = new THREE.CanvasTexture(colour);
   map.colorSpace = THREE.SRGBColorSpace;
   map.wrapS = THREE.ClampToEdgeWrapping;
@@ -641,6 +666,7 @@ function buildMaps(rng, width, length) {
   const normalMap = heightToNormalMap(height, 3.4);
   normalMap.wrapS = THREE.ClampToEdgeWrapping;
   normalMap.wrapT = THREE.ClampToEdgeWrapping;
+  T.normal += now() - _t2;
 
   return { map, normalMap };
 }

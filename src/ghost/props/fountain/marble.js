@@ -199,7 +199,9 @@ export function marbleTextures(seed = 1) {
   const height = document.createElement('canvas');
   height.width = TEX;
   height.height = TEX;
-  const hc = height.getContext('2d');
+  // Read back whole by heightToNormalMap and never uploaded, so it belongs
+  // in software. See sandpath.js for what this flag was worth: 6.3 s.
+  const hc = height.getContext('2d', { willReadFrequently: true });
   hc.fillStyle = '#808080';
   hc.fillRect(0, 0, TEX, TEX);
   mottle(hc, TEX, TEX, mulberry32(seed * 40503 + 7), '104,104,104', '168,168,168', 0.06, 70);

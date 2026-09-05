@@ -389,6 +389,9 @@ function makePen({ field, rng, box, avoid, spawn, index }) {
           u: c.u, v: c.v, x: jx, z: jz,
           halfU: halfU - 0.45, halfV: halfV - 0.45,
           gateSide: best.name,
+          // Which way the gate faces, in grid axes, so a collectible can be put
+          // at the far end of the pen from it. See index.js, rule 1.
+          gateOut: best.out,
         },
       });
     }

@@ -192,7 +192,9 @@ function buildTextures(rng, f) {
   const height = document.createElement('canvas');
   height.width = w;
   height.height = h;
-  const hc = height.getContext('2d');
+  // Read back whole by heightToNormalMap and never uploaded, so it belongs
+  // in software. See sandpath.js for what this flag was worth: 6.3 s.
+  const hc = height.getContext('2d', { willReadFrequently: true });
   hc.fillStyle = '#808080';
   hc.fillRect(0, 0, w, h);
   // Half the colour map's amplitude and no speckle: on the height map those

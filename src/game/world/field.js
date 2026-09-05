@@ -71,7 +71,7 @@ export const PATH_HALF = 1.15;
 // each number is what it is.
 export const FLY_CELL = 8;          // one firefly per 8 by 8 cell of the arena
 export const FLY_REACH = 2.2;       // how far one may be pulled toward a gate or a pen
-export const FLY_GAP = 5.5;         // the least ground between two of them
+export const FLY_GAP = 7.0;         // the least ground between two of them
 export const POWERUPS = 4;          // Pac-Man's four, one per quadrant
 export const GRAVES = 4;            // exactly MAX_GROUND_HOLES, so there is no budget to keep
 export const SPAWN_CLEAR = 3.2;     // the ghost's own patch of ground

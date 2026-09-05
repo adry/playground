@@ -652,7 +652,12 @@ function buildTextures(variant, faceAspect, rng) {
   const height = document.createElement('canvas');
   height.width = w;
   height.height = FH;
-  const hc = height.getContext('2d');
+  // See sandpath.js for the measurement behind this flag. Short version: this
+  // canvas is never a texture, it is read back whole by heightToNormalMap, and
+  // a readback off a GPU-backed canvas costs several times what the pixel loop
+  // does -- far more than that on the first build after a teardown. The colour
+  // canvas above is a real texture and deliberately does not get it.
+  const hc = height.getContext('2d', { willReadFrequently: true });
   hc.fillStyle = '#808080';
   hc.fillRect(0, 0, w, FH);
   // Halved from 0.13 because the normal strength below doubled: this mottling

@@ -239,15 +239,26 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
     const centre = frame.toGrid(cx, cz);
     const rng = rngAt(seed, tag, Math.round(cx * 8), Math.round(cz * 8));
     let pick = null;
-    // 1: inside a pen, so the player must gate it or hop the rail.
+    // 1: inside a pen, AT THE FAR END FROM THE GATE, so the player must either
+    // walk the length of the pen from the gate or drop straight in over the
+    // rail. Clamping to the nearest interior point instead, which is what this
+    // did first, tends to land the firefly on the gate's own side, where the
+    // ground route and the hop cost the same and the pen may as well not be
+    // there. The gate side is the expensive one BY CONSTRUCTION: the gate faces
+    // the nearest path, which is the way the player is most likely to arrive.
     for (const run of runs) {
       if (!run.interior || pick) continue;
       const it = run.interior;
       const hu = Math.max(0, it.halfU - 0.9);
       const hv = Math.max(0, it.halfV - 0.9);
-      const u = Math.max(it.u - hu, Math.min(it.u + hu, centre.u));
-      const v = Math.max(it.v - hv, Math.min(it.v + hv, centre.v));
-      if (Math.hypot(u - centre.u, v - centre.v) <= reach) pick = { u, v, why: 'pen' };
+      let u = Math.max(it.u - hu, Math.min(it.u + hu, centre.u));
+      let v = Math.max(it.v - hv, Math.min(it.v + hv, centre.v));
+      const out = it.gateOut;
+      if (out) {
+        if (out.du) u = it.u - Math.sign(out.du) * hu;
+        if (out.dv) v = it.v - Math.sign(out.dv) * hv;
+      }
+      if (Math.hypot(u - centre.u, v - centre.v) <= reach + 2.0) pick = { u, v, why: 'pen' };
     }
     // 2: just past a gate, where the player and the skeleton meet at a choke.
     if (!pick) {
@@ -312,14 +323,25 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
   }
 
   // Nine fireflies on a 3 by 3 lattice of the arena, inset from the wall.
+  //
+  // THE LATTICE IS CORNER TO CORNER, and the arithmetic matters more than it
+  // looks. Laid out as cells, with a firefly at the middle of each, the nine
+  // sit in the middle 14.7 units of a 30 unit arena: inset once by EDGE and
+  // again by half a cell, so the whole outer ring of the level holds none and
+  // the nearest neighbour is 6.2 apart. Laid out as a LATTICE, with the corner
+  // fireflies ON the inset rather than half a cell inside it, the same nine
+  // span 22 units at a pitch of 11. The owner asked to have to cross the screen
+  // for the next one and the camera shows 22 across, so this is the difference
+  // between asking for a walk and asking for a step.
   const flyList = (() => {
     const span = size - 2 * EDGE;
     const n = Math.max(2, Math.round(span / FLY_CELL));
+    const pitch = span / (n - 1);
     const out = [];
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
-        const cx = box.minX + EDGE + ((i + 0.5) * span) / n;
-        const cz = box.minZ + EDGE + ((j + 0.5) * span) / n;
+        const cx = box.minX + EDGE + i * pitch;
+        const cz = box.minZ + EDGE + j * pitch;
         // The middle cell of a 3 by 3 lattice lands exactly where the ghost
         // starts, so it is pushed out of the clearing rather than dropped: with
         // nine of them in the level, losing one to arithmetic is losing an
