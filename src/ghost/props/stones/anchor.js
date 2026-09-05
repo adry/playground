@@ -101,8 +101,8 @@ const TOP_R = MODE === 'free' ? W : 0.20;
 // off the anchor. 0.05 is the number a mason leaves: enough that the key light
 // puts a hard edge down one side of every limb, small enough that the piece
 // still reads as carved out of the slab rather than bolted to it.
-const PROUD = 0.055;
-const ROPE_PROUD = 0.090;
+const PROUD = 0.075;
+const ROPE_PROUD = 0.108;
 
 // The applied relief takes a tighter fillet than the stone's own 0.062. That is
 // not drift, it is the same rule: a fillet is a fixed radius, and 0.062 on a
@@ -110,12 +110,12 @@ const ROPE_PROUD = 0.090;
 // member of the anchor into a sausage. 0.040 leaves each limb a real flat to
 // catch the key, and every limb is at least 0.11 across, over the 0.08 at which
 // the swept front face pinches shut and the outline self-crosses.
-const BEAD = { depth: 0.15, edge: 0.040 };
-const ROPE = { depth: 0.185, edge: 0.052 };
+const BEAD = { depth: 0.17, edge: 0.038 };
+const ROPE = { depth: 0.20, edge: 0.050 };
 
 // In free mode the whole anchor rides up until the ring is half out of the top
 // of the arch and the ends of the stock break its shoulders.
-const LIFT = MODE === 'free' ? 0.13 : 0;
+const LIFT = MODE === 'free' ? 0.08 : 0;
 
 // --- the anchor -------------------------------------------------------------
 //
@@ -131,9 +131,9 @@ const LIFT = MODE === 'free' ? 0.13 : 0;
 // below the stock, so there is daylight all the way across the piece between
 // them. Every hole on the motif is at least 0.05 across, which is 11 px at the
 // ~230 px a unit gets in the scene.
-const RING = { y: 1.100, maj: 0.076, tube: 0.036 }; // outer 0.112, hole 0.080
-const STOCK = { y: 0.885, hl: MODE === 'free' ? 0.365 : 0.335, ht: 0.057 };
-const SHANK = { y0: 0.440, y1: 1.100, ht: 0.065 };
+const RING = { y: 1.100 + LIFT, maj: 0.076, tube: 0.036 }; // outer 0.112, hole 0.080
+const STOCK = { y: 0.885 + LIFT, hl: MODE === 'free' ? 0.365 : 0.335, ht: 0.057 };
+const SHANK = { y0: 0.460 + LIFT, y1: 1.100 + LIFT, ht: 0.066 };
 // The arms and the flukes are ONE piece, and the second version of this stone
 // is the reason. The first had a torus crescent with a wedge bolted on each end
 // for a fluke, and rendered it read as a bowl with two leaves floating over it:
@@ -144,8 +144,8 @@ const SHANK = { y0: 0.440, y1: 1.100, ht: 0.065 };
 // way out, closing to 0.034 at the bill -- one continuous surface from bill to
 // bill with the flukes as swellings in it. That is also what the anchor glyph
 // everyone recognises actually is.
-const CROWN = { y: 0.700, r: 0.275, t: 0.060, half: 66, bill: 0.030, palm: 0.052, palmAt: 0.76, palmW: 0.15 };
-const COIL = { y: 0.657, hw: 0.118, h: 0.240, r: 0.068 };
+const CROWN = { y: 0.706 + LIFT, r: 0.245, t: 0.065, half: 78, bill: 0.030, palm: 0.040, palmAt: 0.82, palmW: 0.11 };
+const COIL = { y: 0.677 + LIFT, hw: 0.102, h: 0.176, r: 0.056 };
 
 // Two lines under the crown. Cap height 0.096 world, against fred's 0.093 and
 // cross's 0.122: the set's own chisel, not a smaller yard's.
@@ -154,7 +154,7 @@ const TEXT = { size: 0.1108, y1: 0.262 + LIFT * 0.55, y2: 0.128 + LIFT * 0.55 };
 // The turns of the rope, in world units. The groove is a shade shorter than the
 // coil is wide, so its ends die on the coil's own rolled rim instead of running
 // off it and leaving two dark ticks on the stone behind.
-const GROOVE = { w: 0.024, len: 0.236, gap: 0.062 };
+const GROOVE = { w: 0.019, len: 0.204, span: 0.104 };
 
 // The groove a line-drawn anchor would be cut with, used by MODE 'incised'
 // only. 0.045 is the narrowest that still carries an 11 px wall on this face.
@@ -177,9 +177,11 @@ let pose = null;
 
 function rollPose(rng) {
   pose = {
-    coilY: COIL.y + (rng() - 0.5) * 0.036,
+    coilY: COIL.y + (rng() - 0.5) * 0.055,
     turns: rng() < 0.45 ? 4 : 3,
-    rake: (rng() - 0.5) * 0.22, // the coil is never wound quite level
+    // A turn of rope climbs, and which way it climbs is which way the coil
+    // was wound. Flipping it is the most visible thing that varies by seed.
+    rake: (rng() < 0.5 ? 1 : -1) * (0.26 + rng() * 0.12),
   };
   return pose;
 }
@@ -402,7 +404,7 @@ function drawFace(ctx, w, h, rng) {
 function inkRope(ctx, X, Y, S, p) {
   const half = (p.turns - 1) / 2;
   for (let i = 0; i < p.turns; i++) {
-    const y = p.coilY + (i - half) * GROOVE.gap;
+    const y = p.coilY + (i - half) * (GROOVE.span / (p.turns - 1));
     ctx.save();
     ctx.translate(X(0), Y(y));
     ctx.rotate(-p.rake);

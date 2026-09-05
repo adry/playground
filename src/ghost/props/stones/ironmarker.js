@@ -148,29 +148,34 @@ const IRON_ROUGH = 0.46;
 
 // --- the face ---------------------------------------------------------------
 //
-// A small cross in the upper point and the burial's number in the register
-// across the middle. That is what these plates carried: no name, because the
-// parish was not paying for one.
+// A small cross and the burial's number in the parish register. That is what
+// these plates carried: no name, because the parish was not paying for one.
 //
-// A lozenge is a hard face to letter and the numbers say how hard. The flat
-// front is the outline inset by the rim radius all the way round, so it is a
-// diamond 0.32 across at its waist and it has lost half of that by a third of
-// the way to either point. A four-digit year at the set's letter size wants
-// 0.29 and its top corners run into the bead; three digits want 0.22 and clear
-// it at every height the line occupies. So the mark is three digits, which is
-// also the right number for a parish register, and there is no name and no
-// date. See the fit table in the report.
+// A lozenge is a hard face to letter and the flat-face table says how hard. The
+// front face is the outline inset by the rim radius all the way round, so it is
+// a diamond 0.362 across at its waist that has lost a third of that a fifth of
+// the way to either point. A four-digit year at the set's letter size measures
+// 0.300 and its corners run into the bead; three digits measure 0.226 and clear
+// it by 36mm a side at every height the line occupies. So the mark is three
+// digits, which is also the right number for a register, and there is no name
+// and no date.
 //
-// Letter size is a fraction of the face canvas height. The face is 0.62 world
-// tall, so 0.225 is 0.140 of em, and Liberation Serif puts its cap height at
-// about two thirds of that: 0.093 world, which is fred's 0.093 and under
-// cross's 0.122. Matching the set's letter SIZE is what has to hold rather than
-// a coverage figure, because a narrower face makes the same chisel cover more
-// of itself.
+// Letter size is a fraction of the face canvas height. The face is 0.66 world
+// tall, so 0.225 is 0.149 of em, and this serif puts its cap height at about
+// two thirds of that: 0.099 world measured off the ink, against fred's 0.093
+// and cross's 0.122. Matching the set's letter SIZE is what has to hold rather
+// than a coverage figure, because a narrower face makes the same chisel cover
+// more of itself.
 const LETTER = 0.225;
-// Numbers are drawn from a list rather than from rng directly so that no plate
-// ever reads 666 or 100, and so the three digits are always three digits. They
-// are tabular in this face, so every one of them is the same width and the fit
+// How wide the moat round each mark is, as a fraction of the face canvas
+// height. See the block on raised lettering at draw(). 0.014 is 14 texels
+// against the treatment's own 11-texel groove blur, which is the smallest ring
+// that survives it; it widens the three digits from 0.226 to 0.244 world, so
+// they still clear the bead by 27mm a side.
+const MOAT = 0.014;
+// Numbers are drawn from a list rather than straight out of rng, so no plate
+// ever reads 666 or 100 and every one of them is three digits. The digits are
+// tabular in this face -- 888 measures 0.224 against 926's 0.226 -- so the fit
 // above holds for all of them.
 const NUMBERS = [107, 214, 236, 341, 358, 402, 419, 573, 618, 742, 807, 926];
 
@@ -220,46 +225,88 @@ registerStone('ironmarker', {
   // left at values the sweep cannot fold on and are never seen.
   shape: { halfWidth: PLATE.halfWidth, height: PLATE.height, depth: PLATE.depth, plinth: 0 },
 
-  // THE ONE THING THE REGISTRY CANNOT SAY
+  // RAISED LETTERING, AND WHAT THE REGISTRY CANNOT SAY
   //
   // Lettering on a cast plate is RAISED. It stands proud of the field because
   // the pattern maker cut it into the mould, which is the exact opposite of
-  // every other stone here, where the letter is where the chisel went.
+  // every other stone here, where the letter is where the chisel went. So this
+  // face has to invert the treatment, and the finding is that `draw` cannot do
+  // it, for a reason that is not the height map.
   //
-  // `draw` cannot express it, and the reason is not the height map. Black on
-  // this canvas is fed to three consumers and only one of them is reversible.
-  // Painting the FIELD black and leaving the letters clear does inverts the
-  // height map correctly -- the field drops, the letters stand -- and it even
-  // gets the two lips the right way round, because lipMask's dark band lands
-  // just under each letter and its lit band just above, which is what a proud
-  // boss does under a light from above. What it cannot survive is the colour
-  // map. buildTextures multiplies the mark with 0.36 of black plus a wide 0.16
-  // smudge around it, so an inverted mark takes the whole FIELD down to about
-  // 0.54 of its value. On pale limestone that would merely be a dirty plaque.
-  // On iron already at 0.47 of the palette it puts the field near 0.15
-  // luminance, which at 80 pixels is exactly the hole in the floor this piece
-  // spends its whole design avoiding, and it puts ink coverage past 90%, five
-  // times what the busiest rejected stone measured.
+  // Black on this canvas is fed to three consumers and only one of them is
+  // reversible. Painting the FIELD black and leaving the letters clear does
+  // invert the height map correctly, and it even gets the two lips the right
+  // way round: lipMask's shaded band lands just under each letter and its lit
+  // band just above, which is what a proud boss does under a light from above.
+  // What it cannot survive is the colour map. buildTextures multiplies the mark
+  // with 0.36 of black plus a wide 0.16 smudge, so an inverted mark takes the
+  // whole FIELD to about 0.54 of its value. On pale limestone that is a dirty
+  // plaque. On iron already at 0.47 of the palette it renders as a black tile
+  // with a bead round it and nothing inside -- exactly the hole in the floor
+  // this piece spends its whole design avoiding -- and it measures 95.9% ink
+  // against the 12 to 19 that got a stone rejected for busy lettering.
   //
-  // All three ways were built and rendered before this settled; the report
-  // names the files. So the marks are CUT, and the finding is that the registry
-  // can carve and cannot emboss, because the SIGN of the mark is baked into the
-  // colour pass and not only into the height pass. What would fix it is one
-  // flag on the stone definition, `raised: true`, switching buildTextures to
-  // stamp the mark as a lit lip and a dropped shadow rather than a dark floor
-  // and to invert its height stamp. That is a change to tombstones.js and this
-  // pass does not make it.
+  // So the registry can carve and cannot emboss, because the SIGN of the mark
+  // is baked into the colour pass and not only into the height pass. One flag
+  // on the stone definition would fix it, `raised: true`, switching
+  // buildTextures to stamp the mark as a lit lip over a dropped shadow rather
+  // than a dark floor, and inverting its height stamp. That is a change to
+  // tombstones.js and this pass does not make it.
   //
-  // It costs less than it sounds at the size this is seen, because a stamped
-  // plate is a real object too: parishes bought blanks and punched the register
-  // entry into them. Read as stamped rather than cast, the piece is honest.
+  // WHAT IS DONE INSTEAD
+  //
+  // The mark that is stamped is a MOAT: the marks dilated by a stroke width and
+  // punched back out of themselves, so what the treatment carves is a narrow
+  // ring round every stroke and the stroke itself is left standing at field
+  // height. That is enough, because relief at this size is read off the two
+  // lips and not off the depth. The ring's lower edge lies against the top of a
+  // letter and is painted LIT; its upper edge lies against the bottom of a
+  // letter and is painted SHADED. Light above, shadow below: the eye reads a
+  // boss. Which is what the render shows, and it is the one version of the
+  // three where the plate keeps its own value and the letters still stand up.
+  //
+  // Measured, all three, on this stone's own 745 x 1024 face:
+  //
+  //   plain cut   4.1% ink. Correct for a chisel, wrong for a casting.
+  //   moat        5.1% ink, between cross's 3.7 and fred's 6.3. Reads as cast.
+  //   inverted    95.9% ink. Correct relief, and the plate goes black.
+  //
+  // The moat's one real cost is at scene size, where the ring is a texel and
+  // mips into a soft halo, so the mark reads a shade fainter than the plain cut
+  // does. Rendered both ways at the shipped framing before choosing: the
+  // difference is under a value step and the closer the camera the further
+  // ahead the moat gets.
   draw(ctx, w, h, rng) {
-    // The cross sits in the upper point, where the face is 0.11 wide and a line
-    // of text could not go anyway. h * 0.155 is 0.096 world tall, an arm span
-    // of 0.065, which clears the bead by 22mm at the height it sits at.
-    inkCross(ctx, w / 2, h * 0.255, h * 0.155);
+    // A small cross in the upper point and the burial's number in the register
+    // across the waist, which is where a lozenge takes its charge and also the
+    // only part of it wide enough to hold three digits.
+    //
+    // The marks go to their own canvas first, because what is stamped into the
+    // face is not the marks: it is a MOAT round them. See the note above.
+    const t = document.createElement('canvas');
+    t.width = w;
+    t.height = h;
+    const tc = t.getContext('2d');
+    tc.fillStyle = '#000000';
+    // 0.155 of the face is 0.102 world tall with an arm span of 0.070, and it
+    // sits where the flat face is 0.113 across, so it clears the bead by 21mm
+    // on each side.
+    inkCross(tc, w / 2, h * 0.285, h * 0.155);
     const size = h * LETTER;
-    inkText(ctx, String(NUMBERS[Math.floor(rng() * NUMBERS.length)]), w / 2, h * 0.585, size, size * 0.04);
+    inkText(tc, String(NUMBERS[Math.floor(rng() * NUMBERS.length)]), w / 2, h * 0.500, size, size * 0.04);
+
+    // The moat: the marks dilated by MOAT and then punched back out of
+    // themselves, which leaves a ring of that width round every stroke. 24
+    // copies on a circle is a clean dilation at this radius; twelve left the
+    // ring scalloped where two strokes run close together.
+    const r = h * MOAT;
+    for (let i = 0; i < 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      ctx.drawImage(t, Math.cos(a) * r, Math.sin(a) * r);
+    }
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.drawImage(t, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
   },
 
   extras({ body, slab, material, lean, halfWidth, height, edge, shape, disposables, stripUV, slabUV }) {

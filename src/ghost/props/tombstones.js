@@ -309,6 +309,30 @@ export function buildSlabGeometry({ halfWidth: W, height: H, depth: D, edge: e, 
 
 const SERIF = '"Liberation Serif", "Times New Roman", Georgia, serif';
 
+// HOW SMALL A LETTER CAN GO, measured rather than guessed, and it is a property
+// of this GROOVE TREATMENT rather than of any one stone.
+//
+// Eight tablets identical but for cap height, rendered in one row at the
+// shipped scene's own density (view 6.2 over an 800px viewport is 64.5 px per
+// world unit):
+//
+//   cap 0.104 world  6.7 px   words, all legible
+//       0.090        5.8 px   words with effort, letters still separate
+//       0.078        5.0 px   clearly lettering, word shapes only
+//       0.070        4.5 px   clearly lettering, no word shape
+//       0.064        4.1 px   a band that reads as an inscription. THE FLOOR
+//       0.056        3.6 px   grey mush, reads as a stain
+//       0.044        2.8 px   gone
+//
+// FOUR PIXELS of cap height, and the collapse between 4.1 and 3.6 is sharp
+// rather than gradual. What fails is the groove itself: 11 texels of wall and
+// 6 of lip on a 1024 row map. So in world units the floor is about 0.050 of the
+// stone's height for anything in this set, and on screen it is simply four
+// pixels. Neither figure depends on how wide the face is.
+//
+// The set's own letters run 0.09 to 0.12 world, which is 6 to 8 px, so a stone
+// that needs more text than usual has roughly one halving in hand and no more.
+
 // Optically centred text: font metrics put the alphabetic baseline low and the
 // em box high, so centring on the glyphs' own ink is the only way three lines
 // come out evenly spaced.

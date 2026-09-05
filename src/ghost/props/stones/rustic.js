@@ -47,13 +47,14 @@ import { Profile, createSink, sinkToGeometry, latheInto, transformRange } from '
 //      their normals out of that dead angle, and the rings go on the TOP of the
 //      upright, whose normal dots the view at 0.45 and which the key light hits
 //      nearly square. That face is the one the eye actually gets.
-//   4. THE LASHING AS BANDS, NOT STRANDS. Three rope wraps, one on the upright
-//      above the joint and one on each arm hard against it. Each is two fat
-//      half-round turns standing 0.036 proud of the log with a narrow flat
-//      between them, which is the groove. They are part of the member's own
-//      lathe profile, so they cost no extra geometry, have no seam and no
-//      normal to reconcile. A lashing built from thin strands was never tried,
-//      because the anchor's rope already proved it does not survive 80 px.
+//   4. THE LASHING AS BANDS, NOT STRANDS. Two rope wraps, one on each arm hard
+//      against the upright. Each is two half-round turns 0.062 through, so the
+//      rope stands 0.031 proud of a log whose radius is 0.096, with a narrow
+//      flat between the turns that IS the groove. It went through three thin
+//      turns first and came back as a screw thread; a lashing at this size is
+//      two fat coils or it is nothing, which is the same answer the anchor's
+//      rope reached. They are part of the member's own lathe profile, so they
+//      cost no extra geometry, have no seam and no normal to reconcile.
 //
 // Construction: the upright, the crossbar and the four stubs are one lathe
 // surface each, appended into one sink from fountain/lathe.js, so the whole
@@ -67,9 +68,9 @@ const smoothstep = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t
 
 // --- the two members ---------------------------------------------------------
 
-const TOP = 1.550;      // the sawn top of the upright, before the saw's tilt
+const TOP = 1.535;      // the sawn top of the upright, before the saw's tilt
 const YC = 1.075;       // the crossing, i.e. the crossbar's centre line
-const ARM = 0.485;      // half span of the crossbar
+const ARM = 0.470;      // half span of the crossbar
 const Z_BAR = 0.068;    // how far in front of the upright's axis the bar lies
 
 // The bar is laid ON the upright rather than through it. 0.068 against radii of
@@ -101,18 +102,35 @@ const END_TILT = 0.036; // the same on the two arm ends, and see note 3 above
 const RING = 0.0055;    // growth ring amplitude on a sawn face
 const RING_K = 262;     // about three rings across the upright's 0.072 of flat
 
-const BARK = 0.0130;    // ridge amplitude on the radius
-const SPLIT = 0.0200;   // extra depth in a split
-const SEG_UP = 44;      // angular steps: nine per ridge, and four across the
-const SEG_BAR = 40;     // narrowest thing on the surface, which is a split
+const BARK = 0.0230;    // furrow depth on the radius, see bark() below
+const SPLIT = 0.0240;   // extra depth where a furrow opens into a split
+const SEG_UP = 72;      // angular steps. Set by the SPLIT, which is the
+const SEG_BAR = 64;     // narrowest feature: see the note on splits() below
+
+// --- the bow -----------------------------------------------------------------
+//
+// The last thing that separates a log from a dowel, and the cheapest. Both
+// members are bowed sideways by a quadratic that is zero at both ends and at
+// most this much in the middle, in a direction drawn per seed. It is applied to
+// the finished vertices rather than to the lathe, because a lathe has an axis
+// by definition and this is a displacement OF the axis.
+//
+// The normals are left alone on purpose. The bow's steepest slope is 4A over
+// the member's length, which is 0.055 * 4 / 1.52 = 0.145, so eight degrees at
+// the very ends and nothing in the middle. Under about ten degrees the error is
+// smaller than the shading difference the bark already puts there, and the
+// alternative is re-deriving normals for a deformation whose whole point is
+// that it is gentle. calvary's die takes the same view of its 3 degree taper.
+const BOW_UP = 0.055;   // the upright's sideways wander, at its widest
+const BOW_BAR = 0.032;  // and the crossbar's
 
 // --- the rope wraps ----------------------------------------------------------
 
-const COIL_W = 0.044;   // one turn: a half-round bulge of this diameter
-const COIL_GAP = 0.008; // the flat between two turns, which IS the groove floor
+const COIL_W = 0.062;   // one turn: a half-round bulge of this diameter
+const COIL_GAP = 0.010; // the flat between two turns, which IS the groove floor
 const COIL_LIFT = 0.008;// the band's base stands this far proud of the log
-const COILS = 3;
-const BAND_L = COILS * COIL_W + (COILS - 1) * COIL_GAP; // 0.148
+const COILS = 2;
+const BAND_L = COILS * COIL_W + (COILS - 1) * COIL_GAP; // 0.134
 
 // --- the plaque --------------------------------------------------------------
 //
@@ -142,33 +160,61 @@ const PL_BITE = 0.012;  // how far its top edge presses into the upright, twice
 
 // --- surface -----------------------------------------------------------------
 
-// Bark. Five broad ridges from a raised cosine to the power 1.7, so the crowns
-// are wide and the gaps between them narrow, which is what bark does and what a
-// plain sinusoid does not. One eighth harmonic on top of it stops the five from
-// reading as fluting. The phase drifts with distance along the member, about a
-// quarter of a ridge over the whole upright, so the grain wanders instead of
-// running dead straight.
+// Bark, as FOUR deep longitudinal furrows rather than as ripples.
 //
-// Amplitude is 0.0118 on a radius of 0.118, a tenth, and it is the number this
-// was tuned to: halved it vanished at the judging size, doubled the log went
-// shaggy, which is a tree and not a headstone.
+// The first pass was a raised cosine to the power 1.7, five of them, which puts
+// narrow crests on a wide flat, and at 480 px the logs came back looking turned
+// on a lathe and polished. Bark does the opposite: broad crowns of bark with a
+// narrow gap between them that you could get a fingernail into. So the power is
+// applied to the INVERTED cosine and the result subtracted, which gives a
+// function sitting near its maximum over most of a period and diving to zero
+// over about half a radian. On a log of radius 0.100 that is a furrow 50 mm
+// across and 0.013 deep, which is seven pixels wide at the size the piece is
+// judged. Seven is the floor. Anything narrower is the film grain this project
+// bans, and it aliases as the camera moves.
+//
+// Five furrows was the first count and four is the shipped one, purely for
+// width: five put the crowns 0.42 radians apart and the whole surface came back
+// as a soft corduroy that the lathe's own central-difference normals then
+// smoothed away to nothing. One seventh harmonic at a sixth of the depth stops
+// the four reading as fluting, and the phase of both drifts along the member,
+// about a quarter of a furrow over the whole upright, so the grain wanders
+// instead of running dead straight.
 function bark(theta, y, ph) {
-  const ridge = Math.pow(0.5 + 0.5 * Math.cos(5 * theta + 0.85 * y + ph[0]), 1.7);
-  return (ridge - 0.45) + 0.30 * Math.sin(8 * theta - 0.55 * y + ph[1]);
+  const a = 4 * theta + 0.85 * y + ph[0];
+  const ridge = 1 - Math.pow(0.5 - 0.5 * Math.cos(a), 2.4);
+  return BARK * ((ridge - 0.72) + 0.16 * Math.sin(7 * theta - 0.55 * y + ph[1]));
 }
 
-// Two splits down the length. A gaussian in the angle rather than another
-// harmonic, because a split is one deep local thing and a harmonic is a pattern
-// of them. 0.30 radians wide is 0.035 world on a 0.118 log, which is five
-// pixels at the size the piece is judged; anything tighter is a scratch that
-// mips away. Depth is capped at one split's worth so two that drift across each
-// other cannot cut the log in half.
-function splits(theta, y, ph) {
+// Two splits, and they are opened along EXISTING furrows rather than cut across
+// the crowns between them. That is what a drying log does, and it is also the
+// only way the depths stay sane: a gash landing on a crown would have to be
+// 0.034 deep before it read as a split at all, and one landing in a furrow only
+// has to finish the 0.013 the furrow already took out. Together they reach
+// 0.037 on a radius of 0.100, so a split is a third of the way into the log,
+// and no two can ever stack because they are opposite furrows.
+//
+// The split is the narrowest thing on the surface and it is what sets the
+// angular step. Its wall runs from 0.09 to 0.28 radians off centre, so 0.19
+// radians of wall, and the lathe takes its normals by central difference over one step
+// either side, so a step anywhere near that wide averages the wall away. That
+// is exactly what happened at 44 steps: the splits were in the geometry and
+// invisible in the render. 72 steps is 0.087 radians, comfortably inside the
+// wall, and it is also what stump.js settled on for the same reason.
+//
+// `pick` chooses which two of the four, per seed, and the split rides the same
+// phase drift as the furrow it lives in, so it cannot wander off it.
+function splits(theta, y, ph, pick) {
+  const drift = 0.85 * y + ph[0];
   let d = 0;
-  for (let k = 0; k < 2; k++) {
-    const a = ph[2 + k] + (k ? -0.55 : 0.55) * y;
-    const t = Math.atan2(Math.sin(theta - a), Math.cos(theta - a));
-    d += Math.exp(-((t / 0.30) ** 2));
+  for (const k of pick) {
+    const c = (Math.PI + 2 * Math.PI * k - drift) / 4;
+    const t = Math.atan2(Math.sin(theta - c), Math.cos(theta - c));
+    // A trench with a floor and two walls, not a gaussian. A gaussian of the
+    // same depth spends most of its width on the shoulders, and the shoulders
+    // are the part the lathe's central difference eats; a plateau 0.18 wide
+    // with walls running from 0.09 to 0.28 keeps a floor the eye can see into.
+    d += 1 - smoothstep(0.09, 0.28, Math.abs(t));
   }
   return d > 1 ? 1 : d;
 }
@@ -179,7 +225,7 @@ function splits(theta, y, ph) {
 function planed(theta, y) {
   const d = Math.atan2(Math.sin(theta - Math.PI / 2), Math.cos(theta - Math.PI / 2));
   const across = 1 - smoothstep(0.50, 0.95, Math.abs(d));
-  const along = smoothstep(0.42, 0.56, y) * (1 - smoothstep(0.96, 1.06, y));
+  const along = smoothstep(0.46, 0.60, y) * (1 - smoothstep(0.90, 1.00, y));
   return across * along;
 }
 
@@ -231,7 +277,8 @@ function uprightProfile(top) {
   P.lineTo(R_BUTT, FOOT_Y, 3);
   P.lineTo(R_BUTT - 0.004, -0.070, 3);
   P.setTag('swell');
-  P.curve([[0.124, 0.010], [0.110, 0.070], [0.104, 0.165]], 8);
+  P.lineTo(0.122, 0.010, 3);
+  P.curve([[0.108, 0.075], [0.104, 0.165]], 7);
   P.setTag('log');
   P.lineTo(R_MID, 0.72, 8);
   P.lineTo(R_TOP + 0.004, 1.20, 6);
@@ -309,10 +356,10 @@ function stubProfile(len, r0, r1) {
 // so the piece never presents a bare pole whichever way you walk round it. The
 // fourth is the bracket the plaque's foot sits on.
 const STUBS = [
-  { on: 'up', theta: 2.66, y: 0.40, tilt: 0.52, len: 0.175, r0: 0.080, r1: 0.066, seg: 22 },
-  { on: 'up', theta: 0.10, y: 0.50, tilt: 0.30, len: 0.185, r0: 0.076, r1: 0.064, seg: 22 },
-  { on: 'up', theta: 4.95, y: 1.31, tilt: 0.70, len: 0.135, r0: 0.070, r1: 0.062, seg: 20 },
-  { on: 'bar', x: -0.310, out: -1, phi: 1.25, tilt: 0.55, len: 0.150, r0: 0.072, r1: 0.060, seg: 20 },
+  { on: 'up', theta: 2.66, y: 0.40, tilt: 0.52, len: 0.185, r0: 0.080, r1: 0.064, seg: 22 },
+  { on: 'up', theta: 0.10, y: 0.50, tilt: 0.26, len: 0.215, r0: 0.076, r1: 0.062, seg: 22 },
+  { on: 'up', theta: 4.95, y: 1.29, tilt: 0.62, len: 0.155, r0: 0.070, r1: 0.060, seg: 20 },
+  { on: 'bar', x: -0.300, out: -1, phi: 1.55, tilt: 0.72, len: 0.170, r0: 0.072, r1: 0.060, seg: 20 },
 ];
 
 // Where they are is the argument, not how many. Two low on the shaft, where the
@@ -350,7 +397,7 @@ function radiusAt(profile, y) {
 // That sits between fred's 0.093 and vault's 0.100, inside the 0.09 to 0.12 the
 // set uses. Matching letter SIZE is what has to hold; a coverage figure on a
 // face this small is the second question.
-const NAMES = ['NORA', 'ABEL', 'RUTH', 'SETH', 'MYRA'];
+const NAMES = ['NORA', 'ABEL', 'RUTH', 'SETH', 'JOAN'];
 const NAME_SIZE = 0.390; // font size, in fractions of the face height
 const NAME_ROW = 0.545;  // baseline, in fractions of the face height down
 
@@ -370,9 +417,42 @@ function buildRustic({ body, slab, material, rng, disposables, stripUV }) {
   const ph = [rng() * 6.283, rng() * 6.283, rng() * 6.283, rng() * 6.283, rng() * 6.283, rng() * 6.283];
   const top = TOP + (rng() - 0.5) * 0.05;
   const yc = YC + (rng() - 0.5) * 0.04;
-  const arm = ARM * (1 + (rng() - 0.5) * 0.07);
+  const arm = ARM * (1 + (rng() - 0.5) * 0.06);
   const len = arm * 2;
   const sawPhi = Math.PI * 1.1 + rng() * 0.7; // the top cut falls away to the back
+  // Which two of the four furrows split open, on each member. A quarter turn
+  // apart, never opposite, and that is a section check rather than a taste one:
+  // two splits facing each other take 0.037 out of both sides of a log whose
+  // radius is 0.100, leaving 0.126 through, which is under the 0.13 floor the
+  // rim radius sets for anything on this piece. At a quarter turn the thinnest
+  // section is 0.148 and no two splits can ever line up.
+  const pick = [Math.floor(rng() * 4), 0];
+  pick[1] = (pick[0] + 1) % 4;
+  const pickBar = [Math.floor(rng() * 4), 0];
+  pickBar[1] = (pickBar[0] + 1) % 4;
+
+  // The bow, drawn once and then used by everything that has to follow it: the
+  // upright's own vertices, the stubs seated on it, and the plaque hung off it.
+  const bowA = rng() * 6.283;
+  const bowB = rng() * 6.283;
+  const bowUp = (y) => {
+    const t = clamp01(y / top);
+    const f = 4 * t * (1 - t);
+    return [BOW_UP * f * Math.cos(bowA), BOW_UP * f * Math.sin(bowA)];
+  };
+  const bowBar = (x, half) => {
+    const t = clamp01((x + half) / (2 * half));
+    const f = 4 * t * (1 - t);
+    return [BOW_BAR * f * Math.cos(bowB), BOW_BAR * f * Math.sin(bowB)];
+  };
+  const bend = (start, end, fn) => {
+    for (let k = start; k < end; k++) {
+      const d = fn(sink.pos[k * 3], sink.pos[k * 3 + 1], sink.pos[k * 3 + 2]);
+      sink.pos[k * 3] += d[0];
+      sink.pos[k * 3 + 1] += d[1];
+      sink.pos[k * 3 + 2] += d[2];
+    }
+  };
 
   const sink = createSink();
   // Every lathe appended here has its UVs rewritten at the end, so each range
@@ -399,8 +479,12 @@ function buildRustic({ body, slab, material, rng, disposables, stripUV }) {
         // surface turns over the rim.
         const up = 1 - smoothstep(top - 0.13, top - 0.03, s.y);
         const flat = 1 - 0.85 * planed(theta, s.y);
-        dr += BARK * bark(theta, s.y, ph) * up * flat;
-        dr -= SPLIT * splits(theta, s.y, ph) * up * flat;
+        dr += bark(theta, s.y, ph) * up * flat;
+        // The split dies out into the butt swell. Run to the ground it opens a
+        // black slot at the one place the eye is looking for a clean joint
+        // between the piece and the floor, and it reads as a hole rather than
+        // as a crack.
+        dr -= SPLIT * splits(theta, s.y, ph, pick) * up * flat * smoothstep(0.06, 0.24, s.y);
       }
       // The saw's tilt on the top face. Scaled by height so it ramps in across
       // the joint rather than folding the surface where it starts, and by
@@ -411,6 +495,8 @@ function buildRustic({ body, slab, material, rng, disposables, stripUV }) {
       return [dr, dy];
     },
   });
+
+  bend(0, sink.pos.length / 3, (x, y) => { const d = bowUp(y); return [d[0], 0, d[1]]; });
 
   // --- the crossbar ----------------------------------------------------------
   //
@@ -436,8 +522,8 @@ function buildRustic({ body, slab, material, rng, disposables, stripUV }) {
         dy += rings(s.r, (s.tag === 'cutA' ? R_BAR_A : R_BAR_B) - RE, ph[5]);
       } else if (s.tag !== 'rope' && s.tag !== 'rimA' && s.tag !== 'rimB') {
         const ends = smoothstep(0, 0.14, s.y) * (1 - smoothstep(len - 0.14, len, s.y));
-        dr += BARK * bark(theta, s.y + 3.1, ph) * ends;
-        dr -= SPLIT * splits(theta, s.y + 3.1, ph) * ends;
+        dr += bark(theta, s.y + 3.1, ph) * ends;
+        dr -= SPLIT * splits(theta, s.y + 3.1, ph, pickBar) * ends;
       }
       // The two end cuts, each tipped so its top edge leans OUT. Nothing to do
       // with realism: an arm end's normal is square on the view direction in
@@ -450,11 +536,18 @@ function buildRustic({ body, slab, material, rng, disposables, stripUV }) {
       return [dr, dy];
     },
   });
+  const bowAtCrossing = bowUp(yc);
   transformRange(sink, barStart, new THREE.Matrix4().compose(
-    new THREE.Vector3(-len / 2, yc, Z_BAR),
+    new THREE.Vector3(-len / 2 + bowAtCrossing[0], yc, Z_BAR + bowAtCrossing[1]),
     new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0)),
     new THREE.Vector3(1, 1, 1),
   ));
+  // The bar rides on the upright, so it takes the upright's own wander at the
+  // crossing height as an offset and then bows about that.
+  bend(barStart / 3, sink.pos.length / 3, (x) => {
+    const d = bowBar(x - bowAtCrossing[0], arm);
+    return [0, d[0], d[1]];
+  });
 
   // --- the stubs -------------------------------------------------------------
   for (let i = 0; i < STUBS.length; i++) {
@@ -486,13 +579,19 @@ function buildRustic({ body, slab, material, rng, disposables, stripUV }) {
       // Seated a little inside the surface: the collar's swelling has to come
       // out OF the log, not sit on it.
       const r = radiusAt(upright, b.y) - 0.040;
-      pos = new THREE.Vector3(r * Math.cos(th), b.y, r * Math.sin(th));
+      const d = bowUp(b.y);
+      pos = new THREE.Vector3(r * Math.cos(th) + d[0], b.y, r * Math.sin(th) + d[1]);
       dir = new THREE.Vector3(Math.cos(th) * Math.cos(tilt), Math.sin(tilt), Math.sin(th) * Math.cos(tilt));
     } else {
       const phi = b.phi + (rng() - 0.5) * 0.22;
       const tilt = b.tilt + (rng() - 0.5) * 0.14;
       const r = 0.092 - 0.040;
-      pos = new THREE.Vector3(b.x, yc + r * Math.cos(phi), Z_BAR + r * Math.sin(phi));
+      const d = bowBar(b.x, arm);
+      pos = new THREE.Vector3(
+        b.x + bowAtCrossing[0],
+        yc + r * Math.cos(phi) + d[0],
+        Z_BAR + bowAtCrossing[1] + r * Math.sin(phi) + d[1],
+      );
       // Off a horizontal limb the branch leaves along the surface normal and
       // then leans out along the limb, which is the second rotation here.
       dir = new THREE.Vector3(0, Math.cos(phi), Math.sin(phi))
@@ -552,9 +651,10 @@ function buildRustic({ body, slab, material, rng, disposables, stripUV }) {
   // the daylight it needs is more than the gap on paper. 0.075 shows a band of
   // bare shaft between the crossing and the plaque, and the cross reads.
   const hingeY = yc - 0.093 - 0.075;
-  const hingeZ = radiusAt(upright, hingeY) - PL_BITE;
+  const hingeBow = bowUp(hingeY);
+  const hingeZ = radiusAt(upright, hingeY) + hingeBow[1] - PL_BITE;
   slab.rotation.x = -PL_TIP;
-  slab.position.set(0, hingeY - backY, hingeZ - backZ);
+  slab.position.set(hingeBow[0], hingeY - backY, hingeZ - backZ);
 }
 
 // ---------------------------------------------------------------------------

@@ -24,10 +24,12 @@ import { registerStone, buildArcSweepGeometry, inkText, inkCross } from '../tomb
 //    over the extras() call. A row of these is the intended look, and a row is
 //    exactly what a random roll destroys.
 //
-// 3. THE FACE CARRIES MORE TEXT THAN ANYTHING ELSE IN THE SET AND THE LETTERS
-//    ARE SMALLER THAN THE SET'S. Three lines plus a cross plus a device inside
-//    the badge, against the cross stone's one mark and one line. The way that
-//    is paid for is size, not omission: see the block over LETTER below.
+// 3. THE FACE CARRIES MORE TEXT THAN ANYTHING ELSE IN THE SET AND ITS OUTER
+//    TWO LINES ARE SMALLER THAN ANY LETTER IN THE GRAVEYARD. Three lines plus a
+//    cross plus a device inside the badge, against the cross stone's one mark
+//    and one line, on the narrowest carved face in the set bar the gothic's.
+//    The way that is paid for is size, not omission, and the block over LETTER
+//    below carries the measurement of exactly how small a carved letter may go.
 //
 // WHY THE REGISTRY'S SLAB IS REPLACED RATHER THAN USED
 //
@@ -50,12 +52,18 @@ import { registerStone, buildArcSweepGeometry, inkText, inkCross } from '../tomb
 //
 // WHAT THE HEAD IS ACTUALLY WORTH, MEASURED
 //
-// The crown sags 29 mm from apex to shoulder across a 548 mm span. At scene
-// size that is under two pixels, and a flat top with the same 0.09 shoulders
-// would have been free. It is here because a row of three is the intended
-// look, the tops line up, and two pixels repeated three times is the only
-// shape cue this stone has. Set CROWN_R to something enormous to get the flat
-// top back and compare; the numbers below all stay valid.
+// The crown sags 29 mm from apex to shoulder across a 548 mm span, which at the
+// scene's 64.5 px per world unit is under two pixels. A flat top with the same
+// 0.09 shoulders would have been free, so the comparison was rendered rather
+// than argued: set CROWN_R to 40 and the outline is that flat top, everything
+// else unchanged.
+//
+// Square on and large, the two are not close. The flat one reads as a rounded
+// rectangle, a domino stood on end, and nothing about it says headstone. In a
+// row at scene size the difference is the two pixels it is supposed to be, and
+// it still tells: three curved tops read as a rank of stones, three flat ones
+// as three tiles. It is kept for the row, which is the arrangement this piece
+// exists for.
 
 // --- the tablet ------------------------------------------------------------
 //
@@ -99,17 +107,18 @@ const SINK = -0.025;
 // It stands PROUD, it is not incised. A cut badge is a dark patch that the
 // grime band and the mottle both compete with; a raised one has a lit top edge
 // and a shadow under its bottom edge, which is two hard value steps in a place
-// where the rest of the stone has none. At 80 px the whole badge is 21 px tall
+// where the rest of the stone has none. At 80 px the whole badge is 22 px tall
 // and everything inside it is texture, so what has to survive is the OUTLINE
 // and the value step, and both do.
 //
-// It is a heater shield, drawn as the convex hull of three circles: one at each
-// top corner and one at the point. That construction is worth naming because it
-// makes the outline an arc chain with straight runs between, tangent by
-// construction, which is exactly what buildArcSweepGeometry wants and exactly
-// what a hand-authored shield outline gets wrong.
+// It is a heater shield, drawn as the convex hull of five circles: two at the
+// top corners, two at the waist and one at the point. That construction is
+// worth naming because it makes the outline an arc chain with straight runs
+// between, tangent by construction, which is exactly what
+// buildArcSweepGeometry wants and exactly what a hand-authored shield outline
+// gets wrong.
 //
-// Its rim is 0.022 and not the house's 0.062. That is the same move stele.js
+// Its rim is 0.018 and not the house's 0.062. That is the same move stele.js
 // makes for its palmette and obelisk.js for its pyramidion: a small applied
 // piece is a thinner slab set on the face, and it gets a rim in proportion to
 // itself. 0.062 on a shield 0.34 across would have rounded the point away.
@@ -151,28 +160,48 @@ const BLADE = { ax: 0.080, ay: 0.090, dy: 0.000, half: 0.015, hilt: 0.62 };
 // percent, so the conflict is real and it is not solved by writing less: a war
 // grave without a rank is not a war grave.
 //
-// It is solved by SIZE, and by hierarchy. The name is the set's own letter,
-// cap 0.090 against fred's 0.100 and the cross's R.I.P. at 0.129. The rank and
-// the year are cut to cap 0.062, which is smaller than anything else in the
-// graveyard, and that is what pays for the third line. Ink goes quadratically
-// in cap height, so dropping the two outer lines from 0.090 to 0.062 costs
-// nothing legible and saves more ink than deleting a whole line at full size
-// would have.
+// It is solved by SIZE, and by hierarchy. The name keeps the set's own letter,
+// cap 0.092 against fred's measured 0.093 and the cross's R.I.P. at 0.119. The
+// rank and the year are cut to cap 0.064 and 0.066, smaller than anything else
+// in the graveyard, and that is what pays for the third line. Ink goes
+// quadratically in cap height, so taking the two outer lines from 0.092 down to
+// 0.065 saves more than deleting a whole line at full size would have, and it
+// deletes nothing.
 //
-// WHERE THE FLOOR IS. Rendered at scene size (the stone 80 px tall, 63 px per
-// world unit) at cap 0.050, 0.056, 0.062, 0.070, 0.078 and 0.090:
-//   0.090  5.7 px  every letter separately visible
-//   0.078  5.0 px  legible as words, individual letters starting to merge
-//   0.070  4.4 px  a line of text, not readable, still clearly lettering
-//   0.062  3.9 px  a textured band that reads as an inscription. THE FLOOR.
-//   0.056  3.6 px  grey mush, reads as a smear or a stain
-//   0.050  3.2 px  gone, the normal map contributes nothing at all
-// So about four pixels of cap height is where a carved letter stops being a
-// letter in this treatment, and 0.062 world at this stone's height is the last
-// size above it. That number is a property of the treatment (an 11 texel groove
-// wall and a 6 texel lip at 1024 rows) and not of this stone, so it transfers:
-// on a face of height Hf the floor is roughly 0.062 * (Hf / 1.28) if the stone
-// is meant to be seen at the same distance.
+// Measured over six seeds on the 552 by 1024 face, alpha weighted, the way
+// scroll.js reports it: 5.5 to 5.8 percent, of which 0.7 is the badge's device
+// and 4.8 to 5.1 is the lettering and the cross. Against the calibration that
+// is above the cross's 3.8 and just under fred's 6.8, on a face 0.69 across,
+// a hair over the gothic's 0.68 and the narrowest upright in the set bar it,
+// which makes it the most expensive place in the graveyard to put a letter:
+// the same chisel covers a third more of this face than of the cross's. The 3 to 5 percent band in the brief is for a
+// piece whose silhouette carries it; this one's silhouette is a plain slab on
+// purpose, so it sits with fred, which is the other stone the lettering IS.
+//
+// WHERE THE FLOOR IS. This is the number the brief asked for and it is worth
+// having. Eight tablets were built identical but for the cap height of all
+// three lines, and rendered in one row at the shipped scene's own pixel
+// density: view 6.2 over an 800 px viewport is 64.5 px per world unit, which
+// puts this stone at 81 px tall. Reading that row left to right:
+//   cap 0.104  6.7 px  reads as words. AIRMAN, LOWE and 1914 all legible
+//   cap 0.090  5.8 px  reads as words with effort, letters still separate
+//   cap 0.078  5.0 px  clearly lettering, word shapes only
+//   cap 0.070  4.5 px  clearly lettering, no word shape left
+//   cap 0.064  4.1 px  a band that reads as an inscription. THE FLOOR
+//   cap 0.056  3.6 px  grey mush. Reads as a stain or a scuff, not as writing
+//   cap 0.050  3.2 px  a faint smudge
+//   cap 0.044  2.8 px  gone. Two grey marks and no sense of text at all
+// So four pixels of cap height is where a carved letter stops being a letter in
+// this treatment, and the collapse between 4.1 and 3.6 px is sharp rather than
+// gradual: there is no useful size in between.
+//
+// That number belongs to the TREATMENT and not to this stone, because what
+// fails is the groove, which is 11 texels of wall and 6 of lip on a 1024 row
+// map however tall the stone is. In world units the wall is 0.011 * H and the
+// lip 0.006 * H, so a letter survives while its cap is about six wall widths.
+// For any stone in this set the floor is therefore near 0.050 * H, and for
+// anything meant to be read at a different distance it is simply four pixels on
+// screen. Neither figure depends on the face's width.
 //
 // `em` is the font size the set's inkText takes. Cap height is 0.649 of it,
 // measured off this face rather than assumed: the first pass used the nominal
@@ -182,15 +211,20 @@ const CAP_TO_EM = 1 / 0.649;
 // letter sizes and photograph them side by side. Nothing in the scene writes
 // to it.
 export const LETTER = {
-  rank: { cap: 0.062, y: 0.705 },
-  name: { cap: 0.090, y: 0.580 },
-  year: { cap: 0.062, y: 0.455 },
+  rank: { cap: 0.064, y: 0.705 },
+  name: { cap: 0.092, y: 0.580 },
+  year: { cap: 0.066, y: 0.455 },
 };
-// No line may run wider than this, so a SERJEANT block is the same width as a
-// GUNNER block and the row stays a row. Long ranks are scaled down to fit
-// rather than tracked in, because tracking a rank out to the same width as the
-// name is the one thing that would make two of these look different.
-const LINE_MAX = 0.50;
+// The widest a line may run. The flat front of the tablet is 0.566 across, the
+// face less twice the 0.062 rim, and a letter reaching past that sits on the
+// curve where the rim turns away from the camera. 0.525 leaves 20 mm of clean
+// stone outboard of the widest word on any seed, TROOPER at 0.522.
+//
+// It is a backstop and not a layout tool: the word lists below are cut so that
+// nothing reaches it. If a word ever did overflow it is scaled down rather than
+// tracked in, because a rank tracked out to the width of the name is the one
+// change that would make two of these look like two objects.
+const LINE_MAX = 0.525;
 
 // The cross. Low, small and plain: 0.175 tall against the cross stone's 0.30,
 // because there it is the only mark on the face and here it is the fourth
@@ -200,17 +234,29 @@ const CROSS = { y: 0.255, h: 0.175 };
 
 // Rank, name and year. This is the entire per-seed variation on the piece,
 // which is the point: two soldier stones side by side differ in who is under
-// them and in nothing else. Ranks are held to eight characters so the fit
-// scaling almost never has to bite.
+// them and in nothing else.
+//
+// Both lists are cut to fit rather than chosen for flavour, and the harness's
+// width probe is what cut them. CORPORAL, SERJEANT and RIFLEMAN measured 0.623
+// at cap 0.066 against the 0.525 line, and initialled names in the CWGC's own form
+// (E. BLYTH) measured 0.690 at cap 0.090. Both would have been scaled to fit,
+// which is uniformity destroyed by the very mechanism meant to protect it: two
+// neighbours whose lettering is 15 percent different in size are two objects.
+// So the ranks stop at seven characters, the names are surnames alone, and no
+// line on any seed is scaled at all.
 const RANKS = [
   'PRIVATE', 'GUNNER', 'SAPPER', 'DRIVER', 'TROOPER',
-  'RIFLEMAN', 'CORPORAL', 'SERJEANT', 'SEAMAN', 'AIRMAN',
+  'SEAMAN', 'AIRMAN', 'STOKER', 'MARINE', 'LANCER',
 ];
 const NAMES = [
-  'J. HALE', 'A. MOSS', 'W. REED', 'T. GRAY', 'R. FINCH',
-  'E. BLYTH', 'H. DALE', 'S. QUINN', 'C. WREN', 'P. LOWE',
+  'HALE', 'MOSS', 'REED', 'GRAY', 'FINCH', 'BLYTH', 'DALE',
+  'QUINN', 'WREN', 'LOWE', 'BELL', 'SHAW', 'KERR', 'PIKE',
+  'TATE', 'BOYD', 'NASH', 'LYNN', 'DUNN', 'ROWE',
 ];
 const YEARS = ['1914', '1915', '1916', '1917', '1918'];
+
+// Every word, for the harness's width check. Nothing in the scene reads it.
+export const WORDS = { RANKS, NAMES, YEARS };
 
 // --- outlines --------------------------------------------------------------
 
@@ -299,8 +345,8 @@ export function drawSoldierFace(ctx, w, h, rng) {
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${spacing}px`;
     const wide = ctx.measureText(text).width;
     if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
-    const cap = LINE_MAX * S;
-    const fit = wide > cap ? cap / wide : 1;
+    const maxPx = LINE_MAX * S;
+    const fit = wide > maxPx ? maxPx / wide : 1;
     inkText(ctx, text, w / 2, py(spec.y), em * fit, spacing * fit);
   };
 
@@ -342,9 +388,10 @@ export function drawSoldierFace(ctx, w, h, rng) {
 registerStone('soldier', {
   // plinth 0 on purpose. A war grave is set straight into the turf and the one
   // upright in the set with no base course reads as exactly that from any
-  // distance. It also keeps the footprint at 0.345 by 0.130, the tightest of
-  // any upright here, which is what lets a row of them stand as close together
-  // as a row of them should.
+  // distance. It also keeps the footprint tight: measured over twelve seeds the
+  // world box is 0.351 by 0.125 half extents, standing 1.257, the smallest
+  // ground area of any upright in the set, which is what lets a row of them
+  // stand as close together as a row of them should.
   shape: { halfWidth: W, height: H, depth: DEPTH, plinth: 0 },
   // The registry's own slab is discarded in extras, so these two only decide
   // how much geometry is built and thrown away. Held at the rim radius, which
@@ -386,8 +433,8 @@ registerStone('soldier', {
     // so a centre at 0.080 leaves 0.035 standing proud and 0.065 buried inside
     // the tablet, which is ten times the light's 0.006 normal bias and nowhere
     // near the dotted self-shadow band a shallow tenon gives. The plate's
-    // widest ring is at 0.108, in front of the face, so the shield meets the
-    // stone on its way out and never undercuts.
+    // widest ring is at 0.112, in front of the face, so the shield is still
+    // opening out where it meets the stone and never undercuts.
     const zc = shape.depth / 2 + BADGE.proud - BADGE.depth / 2;
     add(
       buildArcSweepGeometry({

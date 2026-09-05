@@ -3,8 +3,9 @@ import { registerStone, buildArcSweepGeometry, inkText } from '../tombstones.js'
 
 // A pillow marker: the low wedge that lies at the head of a grave with its
 // inscribed face tipped up toward whoever is standing over it. It is the
-// quietest marker a cemetery has, and at about 0.48 it is by a wide margin the
-// shortest thing in this set. The floor before it was bench and book at 0.81.
+// quietest marker a cemetery has, and at 0.43 to 0.46 depending on the seed it
+// is by a wide margin the shortest thing in this set. The floor before it was
+// bench and book at 0.81, and the next thing up from those is FRED at 1.10.
 //
 // That is the reason it exists. Twenty-nine pieces of which most stand between
 // 1.0 and 1.9 make a level that reads as a forest of uprights, and a layout
@@ -33,19 +34,22 @@ import { registerStone, buildArcSweepGeometry, inkText } from '../tombstones.js'
 // is a leaning headstone and this piece stops being a pillow long before that.
 // What picks it is the height budget. The rise across the marker is
 // depth * tan(alpha), the front lip has to stay a real lip rather than a knife
-// edge, and the back may not go over about 0.5 or the piece is just a small
-// stone standing up. At the 0.66 depth below, alpha 22 lifts the back by 0.265
-// over a 0.17 front lip and lands the top at 0.48; alpha 30 would want 0.38 of
-// rise and a 0.55 back with the front already at its minimum, and at that point
-// the side profile is a ramp.
+// edge, and the back may not go over about 0.5 or the piece is a small stone
+// standing up rather than a marker lying down. At the 0.60 depth below, alpha
+// 22 lifts the back to 0.44 over a 0.19 front lip; alpha 30 on the same plan
+// wants 0.35 of rise, which puts the back at 0.53 with the front lip already
+// down to 0.18, and at that point the side profile is a ramp and the front lip
+// is too thin to roll. Going the other way, alpha 15 gives back a lip of 0.23
+// and a back of 0.40 and costs 12 per cent of the face.
 //
-// So 21.9 degrees, TILT below, and the payoff is not only area. A letter on
-// this face is unforeshortened across its width and squashed to sin(50.9) =
-// 0.777 up the slope. The set's upright stones are seen at cos(29) = 0.875, so
-// a letter here is squashed by 0.89 relative to one on FRED, which is close
-// enough that the lettering needs no pre-stretch to look like the set's. Laid
-// flat it would have been 0.55 of FRED and every glyph would have had to be
-// drawn a third taller than it wanted to be.
+// So 21.9 degrees, and the payoff is not only area. A letter on this face is
+// unforeshortened across its width and squashed to sin(50.9) = 0.775 up the
+// slope. The set's upright stones are seen at cos(29) = 0.875, so a letter here
+// is squashed by 0.89 relative to one on FRED, which is close enough that the
+// lettering needs no pre-stretch to look like the set's. Laid flat it would
+// have been 0.55 of FRED and every glyph would have had to be drawn half again
+// as tall, which is the trade ledger.js had to make on a face that had no
+// choice about pointing at the sky.
 //
 // --- 2. the modelling ------------------------------------------------------
 //
@@ -55,52 +59,68 @@ import { registerStone, buildArcSweepGeometry, inkText } from '../tombstones.js'
 // README warns about and the one the set's rejected contact patches actually
 // were. So the piece is built to carry four tonal steps rather than one:
 //
-//   the rolled front lip, 0.17 tall and mostly rim radius, so the bottom of the
-//   silhouette is a bead catching the key light rather than a cut-off;
-//   the sloped top of the pad, the brightest plane on the piece;
-//   a flat ledge of pad left showing around the tablet on all four sides;
-//   the tablet itself, standing 0.105 proud with its own fat bead, which throws
-//   a real shadow across that ledge on the two sides away from the key.
+//   the rolled front lip, 0.19 tall and almost all of it rim radius, so the
+//   bottom of the silhouette is a bead turning through the light rather than a
+//   cut-off, and the ground line under it is the darkest thing on the piece;
+//   the sloped top of the pad, the brightest plane on it, and the 0.14 apron of
+//   that plane left showing in front of and behind the tablet;
+//   the tablet's own bead, standing 0.085 proud, which is a highlight all the
+//   way round it and a cast shadow on the two sides away from the key;
+//   the tablet's face, tipped a further 22 degrees into the light.
 //
 // Everything above is geometry. The lettering is the fifth step and the
 // smallest, and at the shipped framing it is the first to go: this stone is
-// about 30 by 25 pixels there, so what a player reads is a light-topped wedge
-// with a dark line under its front lip and a shadow beside it.
+// about 30 by 20 pixels at view 6.2, so what a player reads there is a
+// light-topped wedge with a dark line under its front lip and a shadow beside
+// it. That is the whole test this piece had to pass, and out/pillow/yard62-0.png
+// is where it was checked.
+//
+// The other route was built and rejected rather than argued away. A tasselled
+// cushion, a plump lozenge with a fat bead, four corner knobs and buttoned
+// dimples carved into the face, stood beside this one at 300x400 and read as a
+// beanbag with feet: the knobs became castors, the dimples vanished, and the
+// bead swallowed the step that tells the eye which way the face points. The
+// bolster keeps the one thing the cushion loses, a hard horizontal at the
+// bottom of the silhouette, and at 30 pixels that horizontal is the marker.
 
 // --- proportions -----------------------------------------------------------
 //
-// Plan is 0.98 by 0.66, which makes the footprint radius 0.591: the widest
-// horizontal half-extent, half the diagonal of the pad, and the number a layout
-// generator wants. Wide and low on purpose. The postmortem's rule that
+// Plan is 1.02 by 0.60 nominal, which makes the FOOTPRINT RADIUS 0.592: the
+// widest horizontal half-extent, half the diagonal of the pad, and the number a
+// layout generator wants off this piece. The per-seed jitter below moves it
+// between 0.568 and 0.597, so 0.60 is the figure to reserve.
+//
+// Wide and low on purpose. The postmortem's rule that
 // low-and-wide reads as debris is about markers competing with markers, and
 // bench.js already argued the exception; this piece is not competing with the
 // uprights, it is the thing they are read against, and a narrow pillow would
 // read as a dropped brick.
 const PAD_HALF_X = 0.51; // half the width, across the grave
-const PAD_DEPTH = 0.66; // front to back on the ground
-const PAD_TOP_Y = 0.30; // the sloped top plane, at the middle of the pad
+const PAD_DEPTH = 0.60; // front to back on the ground
+const PAD_TOP_Y = 0.315; // the sloped top plane, at the middle of the pad
 const PAD_FLARE = 0.03; // bottom a little longer than the top, so it sits
 const PAD_SINK = 0.03; // bottom edge carried under the floor
 const MIN_SINK = 0.018; // ...and never less than this once it is measured
 const PAD_E = 0.062; // the house rim radius, and a hard floor
 // Corner radii of the side profile, counter-clockwise from the back foot. The
 // front pair is the rolled edge, and it is the one number on the pad that was
-// tuned rather than chosen: the front face is only 0.16 tall, so radii of 0.075
+// tuned rather than chosen: the front face is only 0.19 tall, so radii of 0.075
 // and 0.09 leave about 25mm of flat between them and the whole lip comes out a
-// roll rather than a bevelled kerb. Squared off at 0.09 all round the piece
-// read as a keycap, which is the first thing the render showed.
+// roll rather than a bevelled kerb. At 0.09 all round, with the pad half again
+// as deep, the first render came back a keycap.
 const PAD_R = [0.075, 0.075, 0.090, 0.085];
 
 // The tablet, which is also the registry's own slab and the only surface that
-// carries the inscription. 0.84 by 0.36 gives a 2389 x 1024 face: a wide
+// carries the inscription. 0.88 by 0.38 gives a 2371 x 1024 face: a wide
 // letterbox, wider than bench.js's 2253 and the widest in the set, which is
 // what a marker read across its width rather than up its height wants.
 //
-// It sits well inside the pad on every side: 0.09 of ledge across, and about
-// 0.18 of sloped apron up and down the slope. The first pass had it 0.105 in
-// and nearly as wide as the pad, and the ledge came out as a moulded seam
-// rather than as a step. A step is one of the four tonal breaks this piece has,
-// so it has to be wide enough to hold a shadow.
+// Across the pad it is nearly flush. The pad's flat top ends 0.062 inside its
+// silhouette, at 0.448, and the tablet's silhouette is at 0.44, so what shows
+// at the sides is the pad's rolled shoulder and not a ledge. Up and down the
+// slope it leaves 0.136 of apron at each end, and that number was raised twice:
+// the first pass left 0.105 and the step read as a moulded seam rather than as
+// a step, which is a tonal break lost on a piece that only has four.
 const PW = 0.44; // half the tablet's width
 const PH = 0.38; // its run up the slope, foot to head
 const PT = 0.15; // its thickness. Under 2 * PAD_E the sweep folds, so this is
@@ -113,14 +133,16 @@ const PT = 0.15; // its thickness. Under 2 * PAD_E the sweep folds, so this is
 const PR = 0.075;
 // How far the tablet's underside sits inside the pad. It buys two things: no
 // crack can open along the joint on any seed, and the bead on the tablet's
-// underside is mostly hidden, so the step reads as a tablet standing on a ledge
-// rather than as a biscuit resting on one. What is left proud is 0.105, which
-// is the full top bead plus a sliver of undercut.
+// underside is mostly hidden, so the step reads as a tablet standing on a bed
+// rather than as a biscuit resting on one. What is left proud is 0.085, which
+// is the full top bead plus a sliver of side wall.
 const BURY = 0.065;
-// The tablet set a little up the slope, so the apron below it is wider than the
-// one above. That is where the margin goes on a real slant marker, and here it
-// also keeps the lettering off the part of the face nearest the ground.
-const TAB_SHIFT = 0.025;
+// Where the tablet's centre sits in the pad's top plane, measured up the slope
+// from the middle of the pad. Zero, i.e. centred, and it was tried both ways:
+// pushed up the slope the apron in front grows into an empty plate and the
+// piece goes back to reading as a button on a lid, and pushed down it leaves a
+// shelf behind the head of the inscription that nothing stands on.
+const TAB_SHIFT = 0.0;
 
 // The slope. TILT is what the pad and the tablet are both built at; the
 // registry's own per-seed lean then adds rotation.x of -0.012 to -0.032 to the
@@ -184,15 +206,15 @@ function roundedOutline(points, radii) {
 // leaves the other end of its underside 0.25 in the air, so it has to be buried
 // at one end to hide its own footprint. This piece is SET, not sunk: the ground
 // line runs level all the way round it.
-function padOutline() {
-  const halfZ = PAD_DEPTH / 2;
+function padOutline(topY, depth) {
+  const halfZ = depth / 2;
   const rise = halfZ * Math.tan(TILT); // half the rise across the pad
   return roundedOutline(
     [
       [-halfZ - PAD_FLARE, -PAD_SINK], // back foot
       [halfZ + PAD_FLARE, -PAD_SINK], // front foot
-      [halfZ, PAD_TOP_Y - rise], // front lip, 0.16 up
-      [-halfZ, PAD_TOP_Y + rise], // back edge, 0.44 up
+      [halfZ, topY - rise], // front lip, about 0.19 up
+      [-halfZ, topY + rise], // back edge, about 0.44 up
     ],
     PAD_R,
   );
@@ -201,31 +223,35 @@ function padOutline() {
 // --- the inscription -------------------------------------------------------
 //
 // One word, and the argument for one word is arithmetic rather than taste. The
-// face is 2389 by 1024, which is 0.84 by 0.36 in world units and a third of the
-// area of FRED's. Two lines of the set's own lettering on it measured 10.5 per
-// cent of the canvas: the same absolute area of ink as FRED carries, 0.044
-// square units, on a face that is a third the size, and the render showed
-// exactly what that arithmetic predicts, a keycap with a label on it. One line
-// halves it.
+// face is 2371 by 1024, which is 0.88 by 0.38 in world units, and 0.334 square
+// units against FRED's 0.703: less than half the area. Two lines of the set's
+// own lettering on it measured 10.5 per cent of the canvas, which is the same
+// absolute area of ink FRED carries, 0.044 square units, on a face half the
+// size. The render showed exactly what that arithmetic predicts: a keycap with
+// a label on it. One line at 6.2 per cent is 0.021 square units, half of FRED's
+// ink on half of FRED's face, and it reads as a carving again.
 //
-// So: ASLEEP, caps at 0.100 in world units against FRED's 0.094 and the
-// approved cross's 0.120, which is the middle of the set's band. The slope is
-// what makes that affordable. On screen these caps read 0.100 * sin(50.9) =
-// 0.078 tall, and FRED's, on a vertical face seen at 29 degrees, read
-// 0.094 * cos(29) = 0.082. Same letters, same apparent size, no pre-stretch.
-// Laid flat the same cap would have read 0.048 and had to be drawn half again
-// as tall to survive, which is the trade ledger.js had to make.
+// So: ASLEEP, caps measured off the artwork at 0.096 in world units, against
+// FRED's 0.094 and the approved cross's R.I.P. at 0.120. The middle of the
+// set's own band, and the slope is what makes it affordable. On screen these
+// caps read 0.096 * sin(50.9) = 0.075 tall, and FRED's, on a vertical face seen
+// at 29 degrees, read 0.094 * cos(29) = 0.082, so this is nine per cent under
+// the set's smallest lettering rather than the forty-five per cent under it
+// would have been lying flat.
 //
-// Measured coverage is reported two ways on purpose, because the brief's 3 to 5
-// per cent band is calibrated on roughly square faces and this one is a 2.33:1
-// letterbox. Canvas fraction and letter height are both in the report; the
-// letter height is the number this was designed to.
+// Two coverage numbers are reported rather than one, because the 3 to 5 per
+// cent band is calibrated on roughly square faces and this one is a 2.31:1
+// letterbox where the same cluster of letters covers proportionally more.
+// 6.2 per cent of the canvas, box 66 per cent of the face wide by 25 per cent
+// tall. The wide half of that box is the letterbox, not the lettering: in world
+// units the cluster is 0.58 by 0.096, which is smaller than FRED's 0.36 by 0.42
+// block in every way that costs.
 //
 // ASLEEP rather than anything else the set might say. bench.js has REST AWHILE
 // and book.js has SLEEP WELL, so the two obvious ones are gone, and a pillow is
 // the one marker in a graveyard whose shape is already the word.
 function drawPillowInscription(ctx, w, h) {
-  const size = h * 0.375; // 0.095 in world, measured off the artwork not the em
+  const size = h * 0.375; // 0.096 in world, measured off the artwork not the em
   inkText(ctx, 'ASLEEP', w / 2, h * 0.50, size, size * 0.05);
 }
 
@@ -235,9 +261,8 @@ registerStone('pillow', {
   // extras and only has to be a real height while it exists, or its own corner
   // circles overlap and the sweep folds through itself.
   shape: { halfWidth: PW, height: PH, depth: PT, plinth: 0.12 },
-  // A tablet, not an arch: both radii set and set the same. Generous, because
-  // the tablet is the one part of this piece the eye can see the outline of,
-  // and a hard-cornered rectangle lying on a wedge reads as a paving slab.
+  // A tablet, not an arch: both radii set and set the same, and set tight. See
+  // PR above for why they are tight rather than generous.
   topRadius: PR,
   bottomRadius: PR,
 
@@ -257,15 +282,26 @@ registerStone('pillow', {
     piece.add(slab);
 
     // --- the pad -------------------------------------------------------------
+    //
+    // Jittered per seed, and jittered in the geometry rather than in a scale:
+    // padOutline is called here, not at module load, so a casting is a slightly
+    // different wedge and not the same wedge stretched. The three knobs are the
+    // ones a mason would miss by, a centimetre or two on the height of the top,
+    // the width and the run, and between them they move the front lip between
+    // 0.163 and 0.196, the top between 0.44 and 0.48, and the footprint radius
+    // by about 20mm.
+    const topY = PAD_TOP_Y + (rng() - 0.5) * 0.030;
+    const halfX = PAD_HALF_X + (rng() - 0.5) * 0.044;
+    const depth = PAD_DEPTH + (rng() - 0.5) * 0.030;
     const padGeo = buildArcSweepGeometry({
-      outline: padOutline(),
-      depth: PAD_HALF_X * 2,
+      outline: padOutline(topY, depth),
+      depth: halfX * 2,
       edge: PAD_E,
       // Plain stone, parked in the texture's clean strip. v runs from the foot
       // of the profile to its top through the grime band the registry's own
       // plinth uses, so the pad's ground line is dirty and its sloped top is
       // not, and it cannot read as a whiter material than the tablet on it.
-      uv: (x, y) => stripUV(x, y + PAD_SINK, PAD_DEPTH / 2 + PAD_FLARE, (PAD_TOP_Y + PAD_SINK) * 1.6, 0.34),
+      uv: (x, y) => stripUV(x, y + PAD_SINK, depth / 2 + PAD_FLARE, (topY + PAD_SINK) * 1.6, 0.34),
     });
     const pad = new THREE.Mesh(padGeo, material);
     // Built in the (z, y) plane and swept along its own z; a quarter turn puts
@@ -283,26 +319,38 @@ registerStone('pillow', {
     // marker on the ground is read, from its foot; the tilt then brings the
     // face back toward the viewer by the angle the note at the top argues for.
     //
-    // Per seed, a hair more tilt and never less, so a casting can only ever be
-    // more legible than the one the slope was measured on. It is small: the
-    // pad's top is built at the nominal TILT, so anything the tablet takes on
-    // top of that opens a wedge of daylight under its head, and past about a
-    // degree that is visible as a lifted corner rather than as a settled stone.
+    // Three per-seed knobs again, and all three are small on purpose, because
+    // this joint is the one place a low piece can go wrong: a tablet visibly
+    // off its bed reads as a lid that has slipped.
+    //
+    //   tilt, never less than nominal, so a casting can only be more legible
+    //   than the one the slope was measured on. The pad's top is built at the
+    //   nominal angle, so anything the tablet takes on top of it opens a wedge
+    //   of daylight under the head, and past about a degree that shows.
+    //   spin about the tablet's own face normal, a degree and a half either
+    //   way. This is the one that does the most for a graveyard with two of
+    //   them in it: a tablet a degree out of square with its bed is a stone
+    //   somebody set, and it is applied before the lay-down so it turns the
+    //   tablet in its own plane and never tips the face off the camera.
+    //   slide along the slope and across it, a centimetre either way.
     const tilt = TILT + rng() * 0.018;
-    slab.rotation.set(-Math.PI / 2 + tilt, 0, 0);
-    // Centre of the tablet: the middle of the pad's top plane, pushed out along
+    const spin = (rng() - 0.5) * 0.052;
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + tilt, 0, spin));
+    slab.quaternion.copy(q);
+    // Centre of the tablet: a point on the pad's top plane, pushed out along
     // that plane's normal by what is left of the tablet's half thickness once
     // it is buried. Its own tilt, not the nominal one, or the jitter walks the
     // tablet a few millimetres off the middle of the ledge.
     const out = PT / 2 - BURY;
-    const tnY = Math.cos(tilt);
-    const tnZ = Math.sin(tilt);
-    const up = PH / 2 - TAB_SHIFT; // along the slope, from the pad's middle
-    slab.position.set(
-      0,
-      PAD_TOP_Y + out * tnY - up * tnZ,
-      out * tnZ + up * tnY,
+    const up = TAB_SHIFT + (rng() - 0.5) * 0.02; // along the slope, from the middle
+    const centre = new THREE.Vector3(
+      (rng() - 0.5) * 0.02,
+      topY + up * Math.sin(tilt) + out * Math.cos(tilt),
+      -up * Math.cos(tilt) + out * Math.sin(tilt),
     );
+    // The slab's own origin is at the foot of its face, so the offset from
+    // there to its centre goes out through the same rotation.
+    slab.position.copy(centre).sub(new THREE.Vector3(0, PH / 2, 0).applyQuaternion(q));
 
     // --- seating -------------------------------------------------------------
     //
@@ -311,7 +359,7 @@ registerStone('pillow', {
     // Box3.setFromObject would grow its local box by the rotation and report a
     // depth that is really its width. The bottom bead is meant to run under the
     // floor, so no seed can leave a corner of a piece this low hovering, which
-    // on something 0.48 tall would be the whole read. The registry's lean is
+    // on something 0.44 tall would be the whole read. The registry's lean is
     // applied after this and can lift a far corner by about 0.016 on the
     // extremes of its range; its own 0.012 sink covers most of that and
     // MIN_SINK covers the rest.
