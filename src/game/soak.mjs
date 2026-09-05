@@ -69,11 +69,19 @@
 // the thing that ships rather than trusted as a promise.
 //
 // Section 0 breaks the game once for each check and shows it firing, because a
-// check that has never failed is a check nobody has a reason to believe. Three
-// of those broken cases are not checks at all but RULES: that a jump does not
-// confer invulnerability, that it needs a run-up, and that it is refused when
-// the landing is blocked. Those are the three things holding the jump back from
-// being a dodge, so they are proved rather than asserted in a comment.
+// check that has never failed is a check nobody has a reason to believe. Six of
+// those nineteen broken cases are not checks at all but RULES, and they are
+// there because the jump is the whole game and a rule stated only in a comment
+// is a rule nobody has to keep: that a jump does not confer invulnerability,
+// that it needs a run-up, that it is refused when the landing is blocked, that
+// it does carry the ghost over a fence, that a walk does not, and that a
+// skeleton cannot do it at all. The first three are what stop the jump being a
+// dodge; the last three are what stop the whole feature quietly doing nothing.
+//
+// THE FLAGS
+//   --limit N        how long one run may last, simulated seconds (300)
+//   --spacing N      mean firefly spacing in the stand-in world (18)
+//   --fencescale N   how much fence the stand-in puts down, 1 is its default
 
 import { createWorld, FLY_SPACING } from './refworld.mjs';
 import { createGame, TUNING } from './rules.js';
@@ -88,6 +96,12 @@ const num = (n, d) => {
   return i === -1 || !args[i + 1] || args[i + 1].startsWith('--') ? d : Number(args[i + 1]);
 };
 const SPACING = num('--spacing', FLY_SPACING);
+// How much fence the stand-in world puts down, as a multiple of its default.
+const FENCE = num('--fencescale', 1);
+// How long a single run is allowed to last, in simulated seconds. The sweeps
+// trade resolution for wall clock with it; the headline sections do not.
+const LIMIT = num('--limit', 300);
+const makeWorld = (seed, fence = FENCE) => createWorld({ seed, spacing: SPACING, fence });
 
 const pct = (a, b) => (b ? ((100 * a) / b).toFixed(1) + '%' : '-');
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
@@ -383,7 +397,7 @@ function fairness(seeds) {
   let flies = 0;
   const t0 = Date.now();
   for (let seed = 1; seed <= seeds; seed++) {
-    const world = createWorld({ seed, spacing: SPACING });
+    const world = makeWorld(seed);
     // Look somewhere different in each world rather than always at the spawn,
     // so a thousand seeds is a thousand different neighbourhoods and not a
     // thousand looks at the same one.
@@ -418,8 +432,25 @@ function fairness(seeds) {
 // separately rather than folded in, because "survived 300 seconds" and "was
 // still alive at 300 seconds" are different claims.
 
-function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons = 4 }) {
-  const world = createWorld({ seed, spacing: SPACING });
+// A ghost that has not moved in ten seconds of play is a ghost jammed against
+// something, and it is invisible from the outside: its velocity reads full
+// speed the whole time because the collision resolver puts it back every frame.
+// One of these ran for a hundred and ten seconds inside a passing run and cost
+// that run four fifths of its score without failing anything. Now it fails.
+function jamCheck(track, s) {
+  // A ghost that is not being pushed is not jammed, it is parked, and the
+  // passive player parks for two hundred seconds on purpose. The signature of a
+  // jam is full velocity and no displacement, so the velocity is part of it.
+  if (s.phase !== 'play' || s.ghost.speed < 1.0) { track.t = 0; track.x = s.ghost.x; track.z = s.ghost.z; return null; }
+  if (Math.hypot(s.ghost.x - track.x, s.ghost.z - track.z) > 0.5) {
+    track.t = 0; track.x = s.ghost.x; track.z = s.ghost.z; return null;
+  }
+  track.t += track.dt;
+  return track.t > 10 ? 'ghost-jammed' : null;
+}
+
+function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons = 4, fence = FENCE }) {
+  const world = makeWorld(seed, fence);
   const game = createGame({ world, seed, tuning, skeletons });
   const bot = botFactory(game);
   let s = game.state;
@@ -433,6 +464,7 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
   let refused = 0;
   const maxSteps = Math.ceil(limit / dt);
   let bad = null;
+  const jam = { t: 0, x: 0, z: 0, dt };
   while (steps < maxSteps && s.phase !== 'over') {
     const input = bot.step(s, dt);
     s = game.update(dt, input);
@@ -443,7 +475,7 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
       if (e.type === 'jump') { jumps++; if (e.overFence) vaults++; }
       if (e.type === 'jumpRefused') refused++;
     }
-    if (!bad) bad = check(game, s);
+    if (!bad) bad = check(game, s) || jamCheck(jam, s);
     steps++;
   }
   return {
@@ -452,6 +484,7 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
     deaths, eats, powers, jumps, vaults, refused, firstDeath, bad,
     threat: bot.stats.threatTime, panic: bot.stats.panicTime,
     plannedVaults: bot.stats.plannedVaults || 0,
+    bot: bot.stats,
     survived: steps >= maxSteps,
   };
 }
@@ -529,7 +562,7 @@ function stability(seeds) {
   // The pathological frame: one update carrying a whole second of full stick
   // into a fence, from a grid of starts across a real world, with and without
   // the jump held down.
-  const world = createWorld({ seed: 3, spacing: SPACING });
+  const world = makeWorld(3);
   let escapes = 0;
   let tested = 0;
   for (const dir of [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]]) {
@@ -569,14 +602,14 @@ function stability(seeds) {
 // is doing nothing and the bot is just crossing every fence it meets.
 
 function jumpSweep(seeds) {
-  console.log(`\n--- 5. THE VAULT, ${seeds} runs each, limit 300s ---`);
+  console.log(`\n--- 5. THE VAULT, ${seeds} runs each, limit ${LIMIT}s ---`);
   console.log('  jumpCost is what crossing a fence costs as a multiple of walking the same distance.');
   console.log('  1.0 means a vault is exactly as cheap as open ground; 1e6 means the player never learned it.');
   console.log('');
-  console.log('  jumpCost  runs to 300s  median life  score       fireflies  vaults/min  detours  threat%');
+  console.log('  jumpCost  to the limit  median life  score       fireflies  vaults/min  walked round  threat%');
   for (const jc of [1.0, 1.5, 2.0, 3.0, 5.0, 9.0, 1e6]) {
     const rows = [];
-    for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, { botFactory: (g) => createBot(g, { jumpCost: jc }), limit: 300 }));
+    for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, { botFactory: (g) => createBot(g, { jumpCost: jc }), limit: LIMIT }));
     const times = rows.map((r) => r.time);
     const alive = rows.filter((r) => r.survived).length;
     const vpm = mean(rows.map((r) => r.vaults)) / (mean(times) / 60);
@@ -584,7 +617,7 @@ function jumpSweep(seeds) {
     // count of times a fence was between the ghost and its goal and the route
     // went round. Measured as planned routes that contained no vault while a
     // fence lay on the straight line.
-    const det = mean(rows.map((r) => r.plannedVaults));
+    const det = mean(rows.map((r) => r.bot.fenceRoutes - r.bot.plannedVaults));
     console.log(`  ${String(jc === 1e6 ? 'never' : jc.toFixed(1)).padStart(8)}  ${pct(alive, seeds).padStart(12)}  ${median(times).toFixed(0).padStart(11)}s  ${mean(rows.map((r) => r.score)).toFixed(0).padStart(9)}  ${mean(rows.map((r) => r.collected)).toFixed(1).padStart(9)}  ${vpm.toFixed(2).padStart(10)}  ${det.toFixed(1).padStart(7)}  ${pct(mean(rows.map((r) => r.threat)), mean(times)).padStart(7)}`);
   }
 }
@@ -601,13 +634,53 @@ function players(seeds) {
     passive: passiveBot,
   };
   console.log(`\n--- 5b. THE FOUR PLAYERS, ${seeds} runs each ---`);
-  console.log('  player                 median life  reached 300s  score    fireflies/min  vaults/min  deaths  threat%');
+  console.log('  player                 median life  reached limit  score    fireflies/min  vaults/min  deaths  threat%');
   for (const [name, f] of Object.entries(V)) {
     const limit = f === passiveBot ? 200 : 300;
     const rows = [];
     for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, { botFactory: f, limit }));
     const times = rows.map((r) => r.time);
     console.log(`  ${name.padEnd(21)}  ${median(times).toFixed(0).padStart(10)}s  ${pct(rows.filter((r) => r.survived).length, seeds).padStart(12)}  ${mean(rows.map((r) => r.score)).toFixed(0).padStart(7)}  ${(mean(rows.map((r) => r.collected)) / (mean(times) / 60)).toFixed(2).padStart(13)}  ${(mean(rows.map((r) => r.vaults)) / (mean(times) / 60)).toFixed(2).padStart(10)}  ${mean(rows.map((r) => r.deaths)).toFixed(2).padStart(6)}  ${pct(mean(rows.map((r) => r.threat)), mean(times)).padStart(7)}`);
+  }
+}
+
+// How much fence does the mechanic need? This turned out to matter more than
+// anything in the rules. A world of sparse SHORT fence runs is one the ghost
+// walks round exactly as the skeleton does, because the end of a run is a
+// passage for BOTH of them and going round costs the ghost almost nothing. The
+// asymmetry only pays when a fence is long enough or closed enough that going
+// round is expensive, and this sweep is what says how much of that a world
+// needs before the feature exists at all.
+
+function fenceSweep(seeds) {
+  console.log(`\n--- 5c. HOW MUCH FENCE, ${seeds} runs each, careful bot, limit ${LIMIT}s ---`);
+  console.log('  scale is a multiple of the stand-in world\'s own fence density. fence/1000 is metres of');
+  console.log('  fence per thousand square units. blocked routes is the share of plans with a fence');
+  console.log('  between the ghost and where it was going, which is the denominator the vault rate needs.');
+  console.log('');
+  console.log('  scale  fence/1000  gates/1000  blocked routes  vaults/min  median life  score   fireflies');
+  for (const fs of [0, 0.5, 1, 2, 3, 5]) {
+    const rows = [];
+    let botStats = [];
+    for (let seed = 1; seed <= seeds; seed++) {
+      const r = playOne(seed, { botFactory: createBot, limit: LIMIT, fence: fs });
+      rows.push(r);
+      botStats.push(r.bot);
+    }
+    // Measure the world itself over the same seeds.
+    let len = 0;
+    let gates = 0;
+    for (let seed = 1; seed <= seeds; seed++) {
+      const w = makeWorld(seed, fs);
+      const b = { minX: -60, minZ: -60, maxX: 60, maxZ: 60 };
+      for (const bar of w.barriers(b)) len += Math.hypot(bar.x1 - bar.x0, bar.z1 - bar.z0);
+      gates += w.gates(b).length;
+    }
+    const area = (120 * 120) / 1000;
+    const times = rows.map((r) => r.time);
+    const plans = mean(botStats.map((b) => b.plans));
+    const blocked = mean(botStats.map((b) => b.fenceRoutes));
+    console.log(`  ${String(fs).padStart(5)}  ${(len / seeds / area).toFixed(1).padStart(10)}  ${(gates / seeds / area).toFixed(2).padStart(10)}  ${pct(blocked, plans).padStart(14)}  ${(mean(rows.map((r) => r.vaults)) / (mean(times) / 60)).toFixed(2).padStart(10)}  ${median(times).toFixed(0).padStart(10)}s  ${mean(rows.map((r) => r.score)).toFixed(0).padStart(6)}  ${mean(rows.map((r) => r.collected)).toFixed(1).padStart(9)}`);
   }
 }
 
@@ -625,14 +698,14 @@ function legSweep(seeds) {
   console.log('  legMax is how far a skeleton walks in a straight line before it looks at its target again.');
   console.log('  seconds is that at the walk of 2.15, which is how long the player has to juke it.');
   console.log('');
-  console.log('  legMax  seconds  median life  reached 300s  careful score  reckless life  threat%  danger%');
+  console.log('  legMax  seconds  median life  reached limit  careful score  reckless life  threat%  danger%');
   for (const leg of [0.01, 1.0, 2.0, 3.0, 4.0, 6.0, 9.0]) {
     const tuning = { chase: { ...DEFAULT_CHASE, legMax: leg } };
     const play = [];
     const wild = [];
     for (let seed = 1; seed <= seeds; seed++) {
-      play.push(playOne(seed, { botFactory: createBot, tuning, limit: 300 }));
-      wild.push(playOne(seed, { botFactory: recklessBot, tuning, limit: 300 }));
+      play.push(playOne(seed, { botFactory: createBot, tuning, limit: LIMIT }));
+      wild.push(playOne(seed, { botFactory: recklessBot, tuning, limit: LIMIT }));
     }
     const times = play.map((r) => r.time);
     console.log(`  ${leg.toFixed(2).padStart(6)}  ${(leg / 2.15).toFixed(2).padStart(7)}  ${median(times).toFixed(0).padStart(10)}s  ${pct(play.filter((r) => r.survived).length, seeds).padStart(12)}  ${mean(play.map((r) => r.score)).toFixed(0).padStart(13)}  ${median(wild.map((r) => r.time)).toFixed(0).padStart(12)}s  ${pct(mean(play.map((r) => r.threat)), mean(times)).padStart(7)}  ${pct(mean(play.map((r) => r.panic)), mean(times)).padStart(7)}`);
@@ -646,15 +719,15 @@ function legSweep(seeds) {
 function ghostSweep(seeds) {
   const walk = Number(num('--skel', 2.15));
   console.log(`\n--- 7. GHOST SPEED, skeleton held at ${walk} (cadence ${(walk / 0.629).toFixed(2)}/s), ${seeds} runs each ---`);
-  console.log('  ghost  ratio  median life  reached 300s  score   reckless life  passive 1st  threat%');
+  console.log('  ghost  ratio  median life  reached limit  score   reckless life  passive 1st  threat%');
   for (const g of [4.5, 4.0, 3.6, 3.2, 3.05, 2.9, 2.7, 2.5]) {
     const tuning = { ghostSpeed: g, speeds: { ...TUNING.speeds, walk } };
     const play = [];
     const wild = [];
     const pass = [];
     for (let seed = 1; seed <= seeds; seed++) {
-      play.push(playOne(seed, { botFactory: createBot, tuning, limit: 300 }));
-      wild.push(playOne(seed, { botFactory: recklessBot, tuning, limit: 300 }));
+      play.push(playOne(seed, { botFactory: createBot, tuning, limit: LIMIT }));
+      wild.push(playOne(seed, { botFactory: recklessBot, tuning, limit: LIMIT }));
       pass.push(playOne(seed, { botFactory: passiveBot, tuning, limit: 200 }));
     }
     const times = play.map((r) => r.time);
@@ -670,10 +743,10 @@ function schedules(seeds) {
     shipped: TUNING.waves,
   };
   console.log(`\n--- 8. THE MODE SCHEDULE, ${seeds} runs each ---`);
-  console.log('  schedule           median life  reached 300s  score   deaths  threat%  danger%');
+  console.log('  schedule           median life  reached limit  score   deaths  threat%  danger%');
   for (const [name, waves] of Object.entries(V)) {
     const play = [];
-    for (let seed = 1; seed <= seeds; seed++) play.push(playOne(seed, { botFactory: createBot, tuning: { waves }, limit: 300 }));
+    for (let seed = 1; seed <= seeds; seed++) play.push(playOne(seed, { botFactory: createBot, tuning: { waves }, limit: LIMIT }));
     const times = play.map((r) => r.time);
     console.log(`  ${name.padEnd(17)}  ${median(times).toFixed(0).padStart(10)}s  ${pct(play.filter((r) => r.survived).length, seeds).padStart(12)}  ${mean(play.map((r) => r.score)).toFixed(0).padStart(6)}  ${mean(play.map((r) => r.deaths)).toFixed(2).padStart(6)}  ${pct(mean(play.map((r) => r.threat)), mean(times)).padStart(7)}  ${pct(mean(play.map((r) => r.panic)), mean(times)).padStart(7)}`);
   }
@@ -687,7 +760,7 @@ function power(seeds) {
   console.log('  seconds  lit a run  eaten  per lantern  median life  score');
   for (const t of [6, 8, 10, 12, 16, 20]) {
     const rows = [];
-    for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, { botFactory: createBot, tuning: { powerTime: t }, limit: 300 }));
+    for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, { botFactory: createBot, tuning: { powerTime: t }, limit: LIMIT }));
     const lit = mean(rows.map((r) => r.powers));
     console.log(`  ${String(t).padStart(7)}  ${lit.toFixed(2).padStart(9)}  ${mean(rows.map((r) => r.eats)).toFixed(2).padStart(5)}  ${(mean(rows.map((r) => r.eats)) / Math.max(0.01, lit)).toFixed(2).padStart(11)}  ${median(rows.map((r) => r.time)).toFixed(0).padStart(10)}s  ${mean(rows.map((r) => r.score)).toFixed(0).padStart(5)}`);
   }
@@ -698,7 +771,7 @@ function power(seeds) {
 // two runs of the same LENGTH, which is what the streak is for.
 function scoreShape(seeds) {
   const rows = [];
-  for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, { botFactory: createBot, limit: 300 }));
+  for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, { botFactory: createBot, limit: LIMIT }));
   const sc = rows.map((r) => r.score);
   console.log(`\n--- 10. THE SCORE DISTRIBUTION, ${seeds} runs ---`);
   console.log(`  score      p10 ${quant(sc, 0.1)}  median ${median(sc)}  p90 ${quant(sc, 0.9)}  max ${Math.max(...sc)}   spread p90/p10 ${(quant(sc, 0.9) / Math.max(1, quant(sc, 0.1))).toFixed(1)}x`);
@@ -780,9 +853,13 @@ function selftest() {
     add('F4pin        (one gate, fence not vaultable)', f.includes('F4pin'), f.join(' ') || 'nothing fired');
   }
   {
+    // The spawn is checked where the WORLD puts it, by fairness() rather than
+    // by fairOne, because fairOne's sample point is snapped to open ground on
+    // purpose. So the self test has to exercise the same path fairness() uses.
     const w = fixedWorld({ spawn: { x: 0, z: 0 }, props: [{ id: 'p', x: 0, z: 0, radius: 1.2, solid: true }], graves: [{ id: 'v', x: 8, z: 0 }] });
-    const f = fairOne(w, { x: 0, z: 0 });
-    add('spawn        (spawn inside a prop)', f.includes('spawn'), f.join(' ') || 'nothing fired');
+    const nv = createNav(w);
+    nv.focus(w.spawn.x, w.spawn.z);
+    add('spawn        (spawn inside a prop)', !nv.discClear(w.spawn.x, w.spawn.z, TUNING.ghostRadius), 'the ghost does not fit where the world put it');
   }
   {
     const props = [];
@@ -808,7 +885,7 @@ function selftest() {
   }
 
   // --- the runtime checks ---------------------------------------------------
-  const liveWorld = () => createWorld({ seed: 11, spacing: SPACING });
+  const liveWorld = () => makeWorld(11);
   {
     // Substepping off, one enormous frame. The thing that stops the ghost going
     // through a fence is maxStep, so turning maxStep off must break it.
@@ -987,6 +1064,27 @@ function selftest() {
       sawHunt ? `the skeleton got to x ${worst.toFixed(2)} against a fence at 0 and never crossed it` : 'no skeleton ever hunted');
   }
 
+  {
+    // ghost-jammed: hold full stick into a fence for twelve seconds. The
+    // velocity reads full speed the whole time, which is exactly why this
+    // check exists and why nothing else catches it.
+    const world = fixedWorld({
+      spawn: { x: -2, z: 0 },
+      barriers: [{ id: 'b', x0: 0, z0: -20, x1: 0, z1: 20, half: 0.1, end0: 'free', end1: 'free' }],
+      graves: [{ id: 'v', x: -40, z: 40 }],
+    });
+    const game = createGame({ world, seed: 1 });
+    const jam = { t: 0, x: 0, z: 0, dt: 1 / 60 };
+    let fired = null;
+    let st = game.state;
+    for (let i = 0; i < 60 * 20 && !fired; i++) {
+      st = game.update(1 / 60, { x: 1, y: 0 });
+      fired = jamCheck(jam, st);
+    }
+    add('ghost-jammed  (full stick into a fence)', fired === 'ghost-jammed',
+      fired ? `caught, and the published speed was ${st.ghost.speed.toFixed(2)} throughout` : 'not caught');
+  }
+
   let missed = 0;
   for (const [what, fired, detail] of rows) {
     if (!fired) missed++;
@@ -998,14 +1096,15 @@ function selftest() {
 
 // ---------------------------------------------------------------------------
 
-const FLAGS = ['--selftest', '--fair', '--play', '--passive', '--stability', '--jump', '--players', '--leg', '--ghostsweep', '--schedule', '--power', '--score'];
+const FLAGS = ['--selftest', '--fair', '--play', '--passive', '--stability', '--jump', '--fence', '--players', '--leg', '--ghostsweep', '--schedule', '--power', '--score'];
 const only = args.some((a) => FLAGS.includes(a));
 if (!only || has('--selftest')) selftest();
 if (!only || has('--fair')) fairness(num('--fair', 300));
-if (!only || has('--play')) playMany(num('--play', 120), { botFactory: createBot, limit: 300 }, '2. SURVIVAL, the careful bot');
-if (!only || has('--passive')) playMany(num('--passive', 120), { botFactory: passiveBot, limit: 200 }, '3. LETHALITY, the player who never moves');
+if (!only || has('--play')) playMany(num('--play', 120), { botFactory: createBot, limit: LIMIT }, '2. SURVIVAL, the careful bot');
+if (!only || has('--passive')) playMany(num('--passive', 120), { botFactory: passiveBot, limit: Math.min(200, LIMIT) }, '3. LETHALITY, the player who never moves');
 if (!only || has('--stability')) stability(num('--stability', 12));
 if (has('--jump')) jumpSweep(num('--jump', 40));
+if (has('--fence')) fenceSweep(num('--fence', 20));
 if (has('--players')) players(num('--players', 40));
 if (has('--leg')) legSweep(num('--leg', 40));
 if (has('--ghostsweep')) ghostSweep(num('--ghostsweep', 40));

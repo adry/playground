@@ -36,20 +36,22 @@
 // thousandth visit as on the first, and the same object whether the player
 // arrived from the north or from the south.
 
-import { footprintOf } from '../layout/footprints.js';
 import { gap } from '../layout/geom.js';
-import { OCCLUSION, K } from '../layout/frame.js';
-import { PROP_MARGIN, OCCLUSION_MARGIN, halfAcross } from '../layout/place.js';
+import { OCCLUSION } from '../layout/frame.js';
+import { PROP_MARGIN, OCCLUSION_MARGIN } from '../layout/place.js';
 import { hash32, chunkBox, CHUNK, rngAt } from './field.js';
 import { chunkFences, FENCE_MARGIN } from './fence.js';
 import { createPlacer, OCCLUSION_REACH, OVERLAP_REACH } from './placer.js';
 import { placeGrave, furnishPlot, pathLanterns, openSites } from './sites.js';
 
-// How far a prop's centre may sit outside the chunk that owns it. A grave's
-// headstone reaches about 1.7 from the mouth of its hole and a row can lean a
-// little over a seam, so every spatial query pads by this before it decides
-// which chunks to look in.
-export const PROP_OVERHANG = 3.0;
+// How far a prop's centre may sit outside the chunk that owns it. A site sits
+// inside its chunk but a wandering row of five reaches about five units along
+// its own axis from the middle, which is three and a half on each world axis,
+// so five is the honest bound. Every spatial query pads by this before it
+// decides which chunks to look in, and world-check.mjs asserts that no prop
+// ever exceeds it, because a prop further out than the padding is a prop a
+// query can miss entirely.
+export const PROP_OVERHANG = 5.0;
 
 // The two tests that decide whether two props may both exist. Written once,
 // here, and used by the raw pass and by the seam pass, because a seam that is
@@ -99,7 +101,7 @@ export function createChunkStore(field) {
     // nothing else, which is all it can possibly need: a grave sits within 3.5
     // of the chunk centre and a neighbour's fence is at least 7.5 away.
     const placer = createPlacer({ field, chunk: { cx, cz }, barriers, gates });
-    const grave = placeGrave({ field, placer, cx, cz, rng: rngAt(seed, 'grave', cx, cz) });
+    const grave = placeGrave({ field, placer, cx, cz, rng: rngAt(seed, 'grave', cx, cz), barriers });
     got = {
       cx, cz, runs, barriers, gates, grave,
       props: placer.props.slice(),
@@ -243,6 +245,22 @@ export function createChunkStore(field) {
       hardCache.delete(k);
     },
     keys: () => [...builtCache.keys()],
+    // Building a chunk fills the hard and raw caches for its eight neighbours
+    // too, and some of those are never built themselves, so forgetting only
+    // what was BUILT leaves a growing rind of them behind. In an endless world
+    // that rind is unbounded, and an unbounded cache is a slow one however
+    // cheap its lookups are, so eviction walks all three.
+    forgetBeyond(keep) {
+      let dropped = 0;
+      for (const cache of [builtCache, rawCache, hardCache]) {
+        for (const k of cache.keys()) {
+          if (keep(k)) continue;
+          cache.delete(k);
+          if (cache === builtCache) dropped++;
+        }
+      }
+      return dropped;
+    },
     built: () => [...builtCache.values()],
     counts: () => ({ hard: hardCache.size, raw: rawCache.size, built: builtCache.size }),
   };
@@ -260,5 +278,3 @@ export function discClearOfProps(props, x, z, r, field) {
   }
   return true;
 }
-
-export { footprintOf, halfAcross, K, CHUNK, PROP_MARGIN };

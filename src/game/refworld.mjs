@@ -36,6 +36,13 @@ export const CHUNK = 24;
 // a constant because the world agent is choosing the real number.
 export const FLY_SPACING = 18;
 
+// How much fence the world has, as a multiple of the stand-in's own default.
+// It is a parameter because the answer to "does the vault-versus-gate asymmetry
+// produce play" turns out to depend on it far more than on anything in the
+// rules: a world with sparse SHORT fences is one the ghost walks round exactly
+// as the skeleton does, and the mechanic never fires. soak.mjs sweeps it.
+export const FENCE = 1;
+
 export const BARRIER_HALF = 0.10;
 export const GATE_HALF = 1.00;
 
@@ -100,7 +107,7 @@ function emitRun(out, x, z, dx, dz, panels, gaps, tag) {
 // Everything one chunk owns, before the crossing rejection. Pure in (seed, cx,
 // cz), which is what lets the rejection pass look at neighbours without
 // recursing for ever.
-function rawChunk(seed, cx, cz, spacing) {
+function rawChunk(seed, cx, cz, spacing, fence) {
   const r = mulberry32(hashInt(seed ^ 0x5bf03635, cx, cz));
   const ox = cx * CHUNK;
   const oz = cz * CHUNK;
@@ -112,7 +119,9 @@ function rawChunk(seed, cx, cz, spacing) {
   // is an occasional feature and not the structure. One run in a chunk more
   // often than not, a pen about one chunk in six.
   const roll = r();
-  if (roll < 0.16) {
+  const penP = 0.16 * fence;
+  const runP = penP + 0.56 * Math.min(1.4, fence);
+  if (roll < penP) {
     // A pen. 3 to 5 panels a side, one or two gates, and the gates are what
     // makes it fair: a gateless pen is a place no skeleton can ever reach.
     const w = 3 + ((r() * 3) | 0);
@@ -138,10 +147,10 @@ function rawChunk(seed, cx, cz, spacing) {
       emitRun(out, side.x, side.z, side.dx, side.dz, side.n, gaps, `${tag}:p${s}`);
       base += side.n;
     }
-  } else if (roll < 0.72) {
+  } else if (roll < runP) {
     // An open run. Its ENDS are passages too, and most of the interesting play
     // is at an end rather than a gate: an open run is a thing you go round.
-    const n = 3 + ((r() * 6) | 0);
+    const n = Math.max(2, Math.round((3 + r() * 6) * Math.min(1.8, fence)));
     const ang = (((r() * 8) | 0) * Math.PI) / 4;
     const dx = Math.cos(ang);
     const dz = Math.sin(ang);
@@ -205,14 +214,14 @@ function rawChunk(seed, cx, cz, spacing) {
   return out;
 }
 
-export function createWorld({ seed = 1, spacing = FLY_SPACING } = {}) {
+export function createWorld({ seed = 1, spacing = FLY_SPACING, fence = 1 } = {}) {
   const raws = new Map();
   const chunks = new Map();
 
   function raw(cx, cz) {
     const key = `${cx},${cz}`;
     let c = raws.get(key);
-    if (!c) raws.set(key, (c = rawChunk(seed, cx, cz, spacing)));
+    if (!c) raws.set(key, (c = rawChunk(seed, cx, cz, spacing, fence)));
     return c;
   }
 
@@ -355,6 +364,7 @@ export function createWorld({ seed = 1, spacing = FLY_SPACING } = {}) {
   return {
     CHUNK,
     spacing,
+    fence,
     spawn,
     barriers: (box) => collect(box, 'barriers', false),
     gates: (box) => collect(box, 'gates', true),

@@ -75,7 +75,7 @@ const SKILLS = {
   // horizon is 26 and it collects 60. One number, four times the score, and it
   // is exactly the failure mode the header warns about: the bot looked like a
   // bad player and the game looked like a hard game.
-  think: 0.125,
+  think: 0.10,
   half: 34,
   cell: 1.5,
   regrid: 8,
@@ -161,6 +161,18 @@ export function createBot(game, opts = {}) {
   let heap = null;
 
   let cool = 0;
+  // Jam detection. A planner over a raster is always coarser than the geometry
+  // it plans on, so sooner or later it aims the ghost at a gap the ghost does
+  // not fit through, and a ghost held against a headstone at full stick looks
+  // exactly like a ghost travelling at full speed to anything reading its
+  // velocity. This is the bot's own way out, and soak.mjs asserts separately
+  // that it never has to be used for long.
+  let jamTime = 0;
+  let jamX = 0;
+  let jamZ = 0;
+  let shove = 0;
+  let shoveX = 0;
+  let shoveZ = 0;
   let route = [];          // cell indices, ghost first
   let routeJump = [];      // routeJump[k] is true if the step INTO route[k] is a vault
   let goalKey = null;
@@ -359,7 +371,28 @@ export function createBot(game, opts = {}) {
       if (e.type === 'jumpRefused') stats.refused++;
     }
     // Nothing to steer with while in the air, and the stick is ignored anyway.
-    if (g.airborne) return { x: 0, y: 0, jump: false };
+    if (g.airborne) { jamTime = 0; return { x: 0, y: 0, jump: false }; }
+
+    if (Math.hypot(g.x - jamX, g.z - jamZ) > 0.4) { jamTime = 0; jamX = g.x; jamZ = g.z; }
+    else jamTime += dt;
+    if (shove > 0) {
+      shove -= dt;
+      return { x: shoveX, y: shoveZ, jump: false };
+    }
+    if (jamTime > 0.5) {
+      // Slide along whatever is in the way for a third of a second, rebuild
+      // the raster where we now are, and think again.
+      stats.stuck++;
+      jamTime = 0;
+      const a = (stats.stuck * 2.399) % (Math.PI * 2);
+      shoveX = Math.cos(a);
+      shoveZ = Math.sin(a);
+      shove = 0.33;
+      grid = null;
+      route.length = 0;
+      cool = 0;
+      return { x: shoveX, y: shoveZ, jump: false };
+    }
 
     cool -= dt;
     if (cool <= 0 || !route.length) {

@@ -169,8 +169,12 @@ export function createPlacer({ field, chunk, hard = [], blockers = [], barriers 
     return best - PATH_SLACK;
   }
 
+  // nearestPath refines to 0.04 of curve parameter, so its answer can be up to
+  // that much too large, and too large is the unsafe direction.
+  const NEAR_SLACK = 0.05;
+
   function pathClear(prop) {
-    const near = field.nearestPath(prop.u, prop.v, PATH_NEED + prop.radius + 1).dist;
+    const near = field.nearestPath(prop.u, prop.v, PATH_NEED + prop.radius + 1).dist - NEAR_SLACK;
     if (near >= PATH_NEED + prop.radius) return true;
     if (near < PATH_NEED) return false;
     if (prop.foot.shape === 'disc') return false;
@@ -278,9 +282,26 @@ export function createPlacer({ field, chunk, hard = [], blockers = [], barriers 
       return made;
     },
 
-    // Would this fit, without keeping it? The grave search asks this.
+    // Would this fit, without keeping it? The grave search asks this of the
+    // mouth of the hole before it asks for the whole grave.
     wouldFit(spec, opts) {
       return reject(makeProp(spec), opts) === null;
+    },
+
+    // Take a group back out again. Only the grave uses it, when a group placed
+    // legally still turns out to be somewhere a body could not stand.
+    drop(group) {
+      for (const p of group) {
+        const i = props.indexOf(p);
+        if (i >= 0) props.splice(i, 1);
+        const a = Math.floor(p.u / BUCKET);
+        const b = Math.floor(p.v / BUCKET);
+        const list = buckets.get(key(a, b));
+        if (list) {
+          const j = list.indexOf(p);
+          if (j >= 0) list.splice(j, 1);
+        }
+      }
     },
   };
 

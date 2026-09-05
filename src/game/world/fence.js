@@ -47,10 +47,15 @@
 //     "an endpoint no other segment shares is the end of a fence you can walk
 //     round" stays true and means what it says.
 //
-// HOW MUCH FENCE. Per chunk of 24 by 24, which is 576 square units of ground,
-// one plot at about half of chunks and one boundary run at about a third. See
-// world-check.mjs, which measures the real figure over thousands of chunks and
-// prints it beside the old maze's for comparison.
+// HOW MUCH FENCE. A plot in about half of all chunks and a boundary run in
+// about three in ten, which world-check.mjs measures over hundreds of chunks as
+// 14.5 units of fence per chunk of 576 square units: ONE UNIT OF FENCE PER 40
+// SQUARE UNITS OF GROUND. The old maze fenced every plot on a 6.0 lattice and
+// came to one unit per 6.1, so this is SIX AND A HALF TIMES LESS FENCE, and the
+// checker prints both figures side by side so the claim is measured rather than
+// asserted. In what a player sees, a screen of ground holds about one enclosure
+// and the walk from one firefly to the next crosses a fence just under half the
+// time, which is the jump-or-walk-round decision posed on nearly every journey.
 
 import { GATE } from '../layout/gate.js';
 import { F } from '../../ghost/props/fence/metrics.js';

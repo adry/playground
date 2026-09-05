@@ -38,6 +38,11 @@
 // over estimate and nothing breaks if they keep it. `height` is 0.86, the
 // fence's own post height, which is what the ghost's hop has to clear.
 //
+// A PATH is walking surface, 2.3 wide, and it is NOT a corridor: it blocks
+// nothing and neither does anything beside it. It is where the fireflies mostly
+// are and it is the only thing in open ground a player can navigate by, and the
+// only rule attached to it is that no prop stands in one.
+//
 // A GATE IS A HOLE IN THE BARRIER LIST, NOT AN EXCEPTION TO IT. The segments
 // either side of an opening stop at the opening's edges, so "does this move
 // cross a fence" is a plain segment against segment test with no gate case in
@@ -62,7 +67,7 @@
 //
 // DENSITY FLOORS, true of EVERY box anywhere and not merely on average:
 //
-//   one grave in every 32 by 32     one per chunk, within 3.5 of its centre
+//   one grave in every 32 by 32     one per chunk, within 3.8 of its centre
 //   one pellet in every 64 by 64    a 52 lattice with 5 of jitter
 //   one firefly per 20 by 20 cell   see below
 //
@@ -132,7 +137,11 @@ export function createWorld({ seed = 1 } = {}) {
   // A path is a curve you can evaluate anywhere, so it is never built, stored
   // or streamed: ask for the piece that crosses a box and it is sampled on the
   // spot. That is also why there is never a seam in one.
-  const PATH_STEP = 1.5;
+  // Fine enough that the straight chords are the curve. A 1.5 step leaves the
+  // chord up to 0.007 inside the curve it stands for, which is small until
+  // something measures a clearance against the polyline and gets a different
+  // answer from the generator, which measured it against the curve.
+  const PATH_STEP = 0.6;
   function paths(box) {
     const g = gridBoxOf(frame, padBox(box, 3));
     const out = [];
@@ -417,16 +426,13 @@ export function createWorld({ seed = 1 } = {}) {
   }
 
   function release(x, z, r) {
-    let dropped = 0;
-    for (const key of store.keys()) {
+    const dropped = store.forgetBeyond((key) => {
       const [cx, cz] = key.split(',').map(Number);
       const box = chunkBox(cx, cz);
       const dx = Math.max(box.minX - x, 0, x - box.maxX);
       const dz = Math.max(box.minZ - z, 0, z - box.maxZ);
-      if (Math.hypot(dx, dz) <= r) continue;
-      store.forget(cx, cz);
-      dropped++;
-    }
+      return Math.hypot(dx, dz) <= r;
+    });
     // The lattice layers are keyed by cell, not by chunk, and they hold nothing
     // but a point each, but an endless walk still has to be able to let them go.
     if (dropped) {

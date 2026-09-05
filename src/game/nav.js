@@ -154,6 +154,8 @@ export function createNav(world, { window: win = WINDOW } = {}) {
   let epoch = 0;
   const scratch = [];
   const scratch2 = [];
+  const scratch3 = [];
+  let hasWalls = false;
 
   function rebuild(x, z) {
     centreX = x;
@@ -162,6 +164,7 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     barriers = world.barriers(box);
     props = world.props(box).filter((p) => p.solid !== false);
     gates = world.gates(box);
+    hasWalls = barriers.some((b) => b.wall);
     barrierIx = makeIndex(barriers, (b) => ({
       minX: Math.min(b.x0, b.x1) - b.half, maxX: Math.max(b.x0, b.x1) + b.half,
       minZ: Math.min(b.z0, b.z1) - b.half, maxZ: Math.max(b.z0, b.z1) + b.half,
@@ -190,6 +193,26 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     const maxZ = Math.max(az, bz) + r + 0.2;
     barrierIx.query(minX, minZ, maxX, maxZ, scratch);
     for (const b of scratch) {
+      const lim = b.half + r;
+      if (segSegD2(ax, az, bx, bz, b.x0, b.z0, b.x1, b.z1) < lim * lim - 1e-9) return true;
+    }
+    return false;
+  }
+
+  // A barrier flagged `wall` is the arena's perimeter. It is tall on purpose and
+  // it is the one thing in the world the ghost cannot vault, which is what makes
+  // the arena an arena: without it the answer to "can I get out" is always yes
+  // and the boundary is decoration. Everything else about it is a barrier, so it
+  // is the same list with one flag rather than a second kind of object.
+  function crossesWall(ax, az, bx, bz, r = 0) {
+    if (!hasWalls) return false;
+    const minX = Math.min(ax, bx) - r - 0.6;
+    const maxX = Math.max(ax, bx) + r + 0.6;
+    const minZ = Math.min(az, bz) - r - 0.6;
+    const maxZ = Math.max(az, bz) + r + 0.6;
+    barrierIx.query(minX, minZ, maxX, maxZ, scratch3);
+    for (const b of scratch3) {
+      if (!b.wall) continue;
       const lim = b.half + r;
       if (segSegD2(ax, az, bx, bz, b.x0, b.z0, b.x1, b.z1) < lim * lim - 1e-9) return true;
     }
@@ -410,8 +433,14 @@ export function createNav(world, { window: win = WINDOW } = {}) {
         if (na < 0 || nb < 0 || na >= n || nb >= n) { wall[i * 8 + d] = 1; continue; }
         const j = nb * n + na;
         if (blocked[j]) { wall[i * 8 + d] = 1; continue; }
-        if (crossesBarrier(cx(i), cz(i), cx(j), cz(j), radius * 0.5)) { wall[i * 8 + d] = 1; fence[i * 8 + d] = 1; }
-        else if (crossesProp(cx(i), cz(i), cx(j), cz(j), radius * 0.5)) wall[i * 8 + d] = 1;
+        // THE FULL RADIUS, not half of it. The step is a swept disc and it
+        // needs the room a disc needs. An earlier version halved it to be
+        // forgiving at corners, and the forgiveness bought a planner that
+        // routed the ghost through gaps its own body does not fit through: it
+        // jammed against a headstone at full stick for a hundred and ten
+        // seconds and the run still reported itself as alive and well.
+        if (crossesBarrier(cx(i), cz(i), cx(j), cz(j), radius)) { wall[i * 8 + d] = 1; fence[i * 8 + d] = 1; }
+        else if (crossesProp(cx(i), cz(i), cx(j), cz(j), radius)) wall[i * 8 + d] = 1;
       }
     }
     // --- the jump table -------------------------------------------------
@@ -459,7 +488,8 @@ export function createNav(world, { window: win = WINDOW } = {}) {
           // First open cell along the ray. It is a landing only if a fence was
           // crossed getting here and nothing solid was.
           if (crossesBarrier(cx(i), cz(i), cx(j), cz(j), 0)
-            && !crossesProp(cx(i), cz(i), cx(j), cz(j), radius * 0.5)) jump[i * 4 + ax] = j;
+            && !crossesWall(cx(i), cz(i), cx(j), cz(j), 0)
+            && !crossesProp(cx(i), cz(i), cx(j), cz(j), radius)) jump[i * 4 + ax] = j;
           break;
         }
       }
@@ -505,8 +535,12 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     get props() { return props; },
     get gates() { return gates; },
     crossesBarrier,
+    crossesWall,
     crossesProp,
     visible,
+    // The arena's extent, when the world is bounded. Undefined means unbounded,
+    // and everything above works either way.
+    get bounds() { return world.bounds; },
     resolveDisc,
     discClear,
     passages,

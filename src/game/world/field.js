@@ -50,8 +50,11 @@ export const CHUNK = 24;
 export const PATH_SPACING = 18;
 // Half the clear width. DESIGN.md's corridor is 2.0 because the skeleton is
 // 0.95 across and the ghost 1.31, so two of them pass with 0.3 either side.
-// Nothing about that changed, so neither did the number.
-export const PATH_HALF = 1.3;
+// Nothing about that changed, so the path is not narrower than the corridor
+// was: 2.3 wide, with the extra 0.3 spent on the one place in the world where
+// clear ground is scarce, which is the seven unit window a chunk's grave has to
+// find room in when a crossroads lands in the middle of it.
+export const PATH_HALF = 1.15;
 
 // The firefly lattice. One firefly per cell, and the cell is the whole of the
 // pacing: at view 9.0 the camera shows 18 world units of screen height, so a
@@ -82,21 +85,25 @@ export const POWER_REACH = 5;
 //
 //   The FLOOR: the rules half re-homes a dead skeleton to a grave 10 to 20
 //   units from the ghost, so there has to be one in every 32 by 32 box. One
-//   grave per chunk, jittered by at most GRAVE_REACH about the chunk centre,
-//   gives that when 24 + 2 * GRAVE_REACH <= 32 and 24 <= 32 - 2 * GRAVE_REACH,
-//   which is GRAVE_REACH <= 4.
+//   grave per chunk, anywhere within GRAVE_REACH of the chunk centre, gives
+//   that when 24 + 2 * GRAVE_REACH <= 32, so that no gap between consecutive
+//   graves on an axis exceeds a box, AND 24 <= 32 - 2 * GRAVE_REACH, so that
+//   every box holds one whole window and the guarantee does not depend on how
+//   the two axes happen to correlate. Both are GRAVE_REACH <= 4.
 //
 //   The CEILING: src/ghost/ground.js can only cut the floor MAX_GROUND_HOLES
-//   times and THROWS at the next one. Grave x coordinates are 24 * cx + 12 +
-//   jitter, so two graves share a 40 wide window only when their chunks differ
-//   by at most one on that axis: 2 * 24 - 2 * GRAVE_REACH = 41 > 40. At most
-//   two columns and two rows, so AT MOST FOUR GRAVES WITHIN A DISC OF RADIUS 20
-//   of anywhere in the world, which is exactly what the floor allows.
+//   times and THROWS at the next one. A grave's x is 24 * cx + 12 + something
+//   in [-R, R], so a 40 wide window can only hold graves from chunks whose cx
+//   spans an interval of 40 + 2R; that is under two lattice steps exactly when
+//   R < 4. At most two columns and two rows, so AT MOST FOUR GRAVES WITHIN A
+//   DISC OF RADIUS 20 of anywhere in the world, which is exactly the budget.
 //
-// GRAVE_REACH = 3.5 satisfies both with a unit to spare at each end. The
+// Both want R < 4 and the placement wants R as large as it can get, because the
+// window is the only room a grave has when a crossroads lands on a chunk
+// centre. 3.8 leaves 0.4 of slack on the floor and 0.4 on the ceiling. The
 // consumer's side of the bargain is in index.js: cut holes for the nearest
 // MAX_NEAR_HOLES graves inside HOLE_RADIUS and no others.
-export const GRAVE_REACH = 3.5;
+export const GRAVE_REACH = 3.8;
 export const HOLE_RADIUS = 20;
 export const MAX_NEAR_HOLES = 4;
 export const GRAVE_BOX = 32;
@@ -242,31 +249,57 @@ export function createField(seed) {
   // by a refinement is exact to well under a centimetre, and it costs about a
   // hundred operations, which is nothing next to being able to ask the question
   // at any point in an infinite world.
-  function nearestPath(u, v, reach = 6) {
-    let best = { dist: Infinity, family: null, k: 0, u: 0, v: 0 };
-    for (const k of uPathsNear(u, reach)) {
-      let bt = v;
-      let bd = Infinity;
-      for (let step = 1.0; step >= 0.05; step /= 5) {
-        for (let t = bt - step * 4; t <= bt + step * 4 + 1e-9; t += step) {
-          const cu = uPathAt(k, t);
-          const d = Math.hypot(cu - u, t - v);
-          if (d < bd) { bd = d; bt = t; }
-        }
+  // The largest |du/dv| any curve can have, from the amplitudes above. It is
+  // what lets a single evaluation bound a curve's distance from below: the
+  // curve leaves the point at worst this steeply, so the perpendicular distance
+  // is at least the sideways distance divided by sqrt(1 + slope squared).
+  const MAX_SLOPE = 3.2 / 17 + 1.4 / 7.5;
+  const SLANT = Math.hypot(1, MAX_SLOPE);
+
+  function refine(at, other, axis, k) {
+    // `at` is the curve's own parameter, `other` the coordinate to compare.
+    let bt = at;
+    let bd = Infinity;
+    for (let step = 1.0; step >= 0.05; step /= 5) {
+      for (let t = bt - step * 4; t <= bt + step * 4 + 1e-9; t += step) {
+        const c = axis === 'u' ? uPathAt(k, t) : vPathAt(k, t);
+        const d = axis === 'u' ? Math.hypot(c - other, t - at) : Math.hypot(t - at, c - other);
+        if (d < bd) { bd = d; bt = t; }
       }
-      if (bd < best.dist) best = { dist: bd, family: 'u', k, u: uPathAt(k, bt), v: bt };
+    }
+    return { d: bd, t: bt };
+  }
+
+  function nearestPath(u, v, reach = 6) {
+    // One evaluation per curve first. A curve's true distance lies between
+    // sideways / SLANT and sideways, so the smallest upper bound over all the
+    // curves rules out every curve whose lower bound is worse than it, which in
+    // practice leaves one curve to refine instead of six. This is the single
+    // hottest function in the package, called for every candidate prop, every
+    // plot site and every step of the grave search.
+    const cand = [];
+    let cap = Infinity;
+    for (const k of uPathsNear(u, reach)) {
+      const side = Math.abs(uPathAt(k, v) - u);
+      cap = Math.min(cap, side);
+      cand.push({ family: 'u', k, lo: side / SLANT });
     }
     for (const m of vPathsNear(v, reach)) {
-      let bt = u;
-      let bd = Infinity;
-      for (let step = 1.0; step >= 0.05; step /= 5) {
-        for (let t = bt - step * 4; t <= bt + step * 4 + 1e-9; t += step) {
-          const cv = vPathAt(m, t);
-          const d = Math.hypot(t - u, cv - v);
-          if (d < bd) { bd = d; bt = t; }
-        }
+      const side = Math.abs(vPathAt(m, u) - v);
+      cap = Math.min(cap, side);
+      cand.push({ family: 'v', k: m, lo: side / SLANT });
+    }
+    let best = { dist: Infinity, family: null, k: 0, u: 0, v: 0 };
+    cand.sort((a, b) => a.lo - b.lo);
+    for (const c of cand) {
+      if (c.lo > cap && c.lo > best.dist) continue;
+      if (c.family === 'u') {
+        const r = refine(v, u, 'u', c.k);
+        if (r.d < best.dist) best = { dist: r.d, family: 'u', k: c.k, u: uPathAt(c.k, r.t), v: r.t };
+      } else {
+        const r = refine(u, v, 'v', c.k);
+        if (r.d < best.dist) best = { dist: r.d, family: 'v', k: c.k, u: r.t, v: vPathAt(c.k, r.t) };
       }
-      if (bd < best.dist) best = { dist: bd, family: 'v', k: m, u: bt, v: vPathAt(m, bt) };
     }
     return best;
   }

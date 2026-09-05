@@ -23,14 +23,13 @@
 // variant inside it. Short at the front, tall behind, no row required.
 
 import { footprintOf, STONES, UPRIGHT, LOW, PATH_LANTERNS } from '../layout/footprints.js';
-import { graveGroup, graveExtents, FACE } from '../layout/motifs.js';
+import { graveGroup, FACE } from '../layout/motifs.js';
 import { rngAt, PATH_HALF, GRAVE_REACH, CHUNK, chunkBox } from './field.js';
 
 // Every stone the world may place, with its height, sorted. The two tallest
 // lanterns are left out on purpose: the street lamp is 3.3 and reaches nine
 // units of screen depth, so one of them in open ground sterilises a strip of
 // graveyard behind it that rule 5 will not let anything stand in.
-const STONE_HEIGHTS = Object.entries(STONES).map(([name, s]) => ({ name, height: s.height }));
 const TALL = UPRIGHT.filter((n) => STONES[n]);
 const SHORT = LOW.filter((n) => STONES[n]);
 
@@ -217,7 +216,17 @@ const SITE_KINDS = [
 // spoil heap and the headstone go relative to the mouth of the hole and that
 // answer is imported, not copied.
 
-export function placeGrave({ field, placer, cx, cz, rng }) {
+// A body of radius 0.60 plus the fence's own half thickness plus a little.
+const BODY_CLEAR = 0.95;
+const segDist = (px, pz, b) => {
+  const ex = b.x1 - b.x0;
+  const ez = b.z1 - b.z0;
+  const l2 = ex * ex + ez * ez || 1;
+  const t = Math.max(0, Math.min(1, ((px - b.x0) * ex + (pz - b.z0) * ez) / l2));
+  return Math.hypot(px - (b.x0 + ex * t), pz - (b.z0 + ez * t));
+};
+
+export function placeGrave({ field, placer, cx, cz, rng, barriers = [] }) {
   const box = chunkBox(cx, cz);
   const centre = { x: box.minX + CHUNK / 2, z: box.minZ + CHUNK / 2 };
   const anchor = {
@@ -228,8 +237,8 @@ export function placeGrave({ field, placer, cx, cz, rng }) {
   // to the anchor first. The window is what the density floor is proved on, so
   // the search may wander inside it and nowhere else.
   const spots = [];
-  for (let dz = -GRAVE_REACH; dz <= GRAVE_REACH + 1e-9; dz += 0.7) {
-    for (let dx = -GRAVE_REACH; dx <= GRAVE_REACH + 1e-9; dx += 0.7) {
+  for (let dz = -GRAVE_REACH; dz <= GRAVE_REACH + 1e-9; dz += 0.5) {
+    for (let dx = -GRAVE_REACH; dx <= GRAVE_REACH + 1e-9; dx += 0.5) {
       const x = centre.x + dx;
       const z = centre.z + dz;
       spots.push({ x, z, d: Math.hypot(x - anchor.x, z - anchor.z) });
@@ -238,7 +247,6 @@ export function placeGrave({ field, placer, cx, cz, rng }) {
   spots.sort((a, b) => a.d - b.d);
 
   const variant = rng.pick(['heart', 'fred', 'celtic', 'gothic', 'wheel', 'urn', 'column']);
-  const ext = graveExtents(variant);
   const first = rng.chance(0.5) ? 1 : -1;
 
   // A grave is three and a half units long and it has to thread between a path
@@ -250,11 +258,17 @@ export function placeGrave({ field, placer, cx, cz, rng }) {
   // angle is on the list as the very last resort, because a grave the rules
   // half cannot find is worse than a headstone in profile, and it is reached
   // for in well under one chunk in a thousand.
-  const TURNS = [0, 0.35, -0.35, 0.61, -0.61, 0.95, -0.95, Math.PI / 2];
+  const TURNS = [0];
+  for (let k = 1; k <= 6; k++) { TURNS.push((k * Math.PI) / 12, -(k * Math.PI) / 12); }
 
   // The placer's tryGroup, told that this group outranks everything soft, and
   // turned about the spot. Rotating the positions by theta turns a footprint's
   // grid yaw by MINUS theta, because grid and world are a reflection apart.
+  const holeFoot = footprintOf('hole');
+  const turnAbout = (cu, cv, theta, u, v) => ({
+    u: cu + (u - cu) * Math.cos(theta) - (v - cv) * Math.sin(theta),
+    v: cv + (u - cu) * Math.sin(theta) + (v - cv) * Math.cos(theta),
+  });
   const turnedPlacer = (cu, cv, theta) => ({
     ...placer,
     tryGroup: (specs) => placer.tryGroup(specs.map((s) => {
@@ -273,8 +287,18 @@ export function placeGrave({ field, placer, cx, cz, rng }) {
     for (const headSide of [first, -first]) {
       for (const spot of spots) {
         const g = field.frame.toGrid(spot.x, spot.z);
-        const u = g.u - headSide * ext.shift;
+        // The spot IS the mouth of the hole, not the centre of the grave unit.
+        // motifs.js centres a grave on its unit so that a row of them can be
+        // pitched evenly; there is no row here, and putting the hole itself on
+        // the spot is what lets the guaranteed window be the full 3.8 rather
+        // than 3.8 less the shift.
+        const u = g.u;
         const v = g.v;
+        // The mouth of the hole alone, before the heap and the headstone are
+        // asked for. Most spots in a chunk with a crossroads through the middle
+        // of it die here, and dying here costs one test instead of three.
+        const turned = turnAbout(g.u, g.v, theta, u, v);
+        if (!placer.wouldFit({ kind: 'hole', variant: 'grave', u: turned.u, v: turned.v, gridYaw: FACE - theta, foot: holeFoot }, { asHard: true })) continue;
         // The heap goes on the long side AWAY from the nearest path, which is
         // the same rule the maze had with the corridor in the path's place.
         const near = field.nearestPath(u, v, 10);
@@ -283,6 +307,14 @@ export function placeGrave({ field, placer, cx, cz, rng }) {
           placer: turnedPlacer(g.u, g.v, theta),
           rng, u, v, pileSide: side, headSide, stoneVariant: variant,
         });
+        // A grave a body cannot stand at is a grave the rules half cannot
+        // re-home a skeleton to, so the mouth keeps a whole body's clearance
+        // from any fence rather than the 0.15 a prop needs. By construction,
+        // not by the checker noticing.
+        if (group && barriers.some((b) => segDist(group[0].x, group[0].z, b) < BODY_CLEAR)) {
+          placer.drop(group);
+          continue;
+        }
         if (group) {
           return {
             hole: group[0],
@@ -418,5 +450,3 @@ export function openSites({ field, placer, cx, cz }) {
   }
   return placed;
 }
-
-export { STONE_HEIGHTS };

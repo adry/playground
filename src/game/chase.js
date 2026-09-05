@@ -122,6 +122,24 @@ export const DEFAULT_CHASE = {
   // eaten costs the skeleton a return trip and not the rest of the run.
   penMin: 10,
   penMax: 20,
+  // THE LEASH, which only exists because the world is endless.
+  //
+  // Pac-Man's board is 28 tiles wide and a ghost cannot get lost on it. Here
+  // the ghost travels 850 units in a five minute run and a skeleton that
+  // scattered in the wrong direction, or simply lost the race, falls behind for
+  // ever: it is out of the game, it is drawn or streamed for nothing, and worse
+  // than either, it is navigating against a window of geometry that is centred
+  // on the player and no longer contains it, so it will happily walk through a
+  // fence nobody loaded. The soak caught that in 24 runs out of 24.
+  //
+  // So a skeleton this far from the ghost gives up, sinks where it stands, and
+  // comes back out of a grave in the pen band. It is the same eaten-and-return
+  // loop with no reward attached, and it reads correctly: a monster that has
+  // lost you goes back underground rather than trudging after you for ever.
+  //
+  // 38 is comfortably inside nav's WINDOW minus its SLACK, which is 54, and
+  // comfortably outside the 26 a scatter sends them, so scatter still works.
+  leash: 38,
 };
 
 function mulberry32(seed) {
@@ -260,8 +278,32 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
   function setScatter(s, ghost) {
     const [qx, qz] = QUARTER[s.name];
     const il = 1 / Math.SQRT2;
-    s.scatterX = ghost.x + qx * il * C.scatterOut;
-    s.scatterZ = ghost.z + qz * il * C.scatterOut;
+    let x = ghost.x + qx * il * C.scatterOut;
+    let z = ghost.z + qz * il * C.scatterOut;
+    // In a bounded arena a scatter target outside the wall is the CORNER of the
+    // arena, which is Pac-Man's own arrangement exactly: Blinky's corner is a
+    // point off the board, no ghost ever reaches it, and that is why scatter
+    // reads as a patrol of a quarter rather than as a queue at a destination.
+    // Clamping it to just inside the wall would make it reachable and turn the
+    // patrol into four skeletons standing still, so it is clamped OUTSIDE.
+    const b = nav.bounds;
+    if (b) {
+      const m = 4;
+      x = Math.min(Math.max(x, b.minX - m), b.maxX + m);
+      z = Math.min(Math.max(z, b.minZ - m), b.maxZ + m);
+    }
+    s.scatterX = x;
+    s.scatterZ = z;
+  }
+
+  // The leash never fires inside an arena small enough that nothing can get
+  // lost in it: giving up when the far corner is 42 units away and the leash is
+  // 38 would send a skeleton underground for crossing the board.
+  function leashOf() {
+    const b = nav.bounds;
+    if (!b) return C.leash;
+    const diag = Math.hypot(b.maxX - b.minX, b.maxZ - b.minZ);
+    return Math.max(C.leash, diag + 2);
   }
 
   // --- THE ONE DECISION ------------------------------------------------------
@@ -420,10 +462,19 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
         // The straight drop back into the hole, the only time a skeleton is
         // somewhere the chase rules do not apply.
         s.timer -= dt;
-        if (s.timer <= 0) { s.state = 'buried'; s.timer = 0.25; }
+        if (s.timer <= 0) { s.state = 'buried'; s.timer = 0.25; s.gaveUp = false; }
         return;
       default:
         break;
+    }
+
+    // The leash. Checked before anything moves, so a skeleton that has fallen
+    // behind never takes a step against geometry that was not loaded.
+    if (Math.hypot(s.x - ctx.ghost.x, s.z - ctx.ghost.z) > leashOf()) {
+      s.state = 'sinking';
+      s.timer = 0.45;
+      s.gaveUp = true;
+      return;
     }
 
     // On the ground and moving.

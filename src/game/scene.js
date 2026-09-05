@@ -161,9 +161,24 @@ export async function startGame({ canvas, params }) {
   // mean rebuilding its cloth, which is a second of settling the player would
   // watch every time they cleared a maze.
   function buildWorld(lay) {
+    const t0 = performance.now();
     const group = new THREE.Group();
     scene.add(group);
-    const built = { group, flies: null, lanterns: [], holes: [], parts: [] };
+    const built = { group, flies: null, lanterns: [], holes: [], parts: [], buildMs: 0 };
+    // Named buckets so the perf probe can attribute a draw call to a thing
+    // rather than to the scene as a whole. They cost one Group each and nothing
+    // per frame; the alternative is guessing which half of 1229 is the fence.
+    const bucket = (name) => {
+      const g = new THREE.Group();
+      g.userData.perf = name;
+      group.add(g);
+      return g;
+    };
+    const fenceBucket = bucket('fence');
+    const pathBucket = bucket('path');
+    const propBucket = bucket('prop');
+    const flyBucket = bucket('flies');
+    const lanternBucket = bucket('lantern');
 
     // Walls are whole fence runs, which is why the lattice is the panel's own
     // length: `panels` is an integer and no panel is ever cut.
@@ -177,7 +192,7 @@ export async function startGame({ canvas, params }) {
           wall.a.z + (wall.b.z - wall.a.z) * t,
         );
         panel.group.rotation.y = wall.yaw;
-        group.add(panel.group);
+        fenceBucket.add(panel.group);
         built.parts.push(panel);
       }
     }
@@ -187,7 +202,7 @@ export async function startGame({ canvas, params }) {
     for (const [i, ribbon] of (lay.paths || []).entries()) {
       if (!ribbon || ribbon.length < 2) continue;
       const path = createSandPath({ seed: 7 + i, width: 1.35, points: ribbon });
-      group.add(path.group);
+      pathBucket.add(path.group);
       built.parts.push(path);
     }
 
@@ -205,7 +220,7 @@ export async function startGame({ canvas, params }) {
       if (!made) continue;
       made.group.position.set(p.x, 0, p.z);
       made.group.rotation.y = p.yaw || 0;
-      group.add(made.group);
+      propBucket.add(made.group);
       built.parts.push(made);
       // A hole cuts the FLOOR, which outlives the wave, so its cut has to be
       // taken back on teardown or the next maze inherits four holes in the
@@ -216,7 +231,7 @@ export async function startGame({ canvas, params }) {
     // One field for the whole level: one draw call however many there are, and
     // collect(i) indexes it by the same i the rules use.
     built.flies = createFireflies({ seed: 5, points: lay.fireflies });
-    group.add(built.flies.group);
+    flyBucket.add(built.flies.group);
 
     // The power pellets. A lit jack-o'-lantern is the brightest object in the
     // scene, which is the joke and also why they read from across a level.
@@ -225,10 +240,11 @@ export async function startGame({ canvas, params }) {
       // exactly what a power pellet wants.
       const made = createPumpkin({ variant: 'classic', seed: 40 + i });
       made.group.position.set(p.x, 0, p.z);
-      group.add(made.group);
+      lanternBucket.add(made.group);
       return made;
     });
 
+    built.buildMs = performance.now() - t0;
     return built;
   }
 
@@ -541,5 +557,21 @@ export async function startGame({ canvas, params }) {
   // For the performance probe. renderer.info is the only honest source for
   // draw calls and texture count, and it cannot be reached from outside.
   window.__renderer = renderer;
+  window.__perf = {
+    scene,
+    camera,
+    // How long the last wave's props took to build, which is the number that
+    // decides whether a streamed chunk is a hitch or not.
+    buildMs: () => world?.buildMs ?? 0,
+    // Rebuild the same wave, so the build can be timed more than once without
+    // a page reload changing the level under the measurement.
+    rebuild() { startWave(run.wave); return world.buildMs; },
+    // The named buckets buildWorld parents its work under.
+    buckets() {
+      const out = {};
+      world?.group.children.forEach((c) => { if (c.userData.perf) out[c.userData.perf] = c; });
+      return out;
+    },
+  };
   window.__gameReady = true;
 }

@@ -167,6 +167,15 @@ export async function startViewer({ canvas, params }) {
   // that stutters every time you cross a chunk edge.
   function pump() {
     let n = 0;
+    // Nearest first, so what is still queued is behind you rather than in the
+    // middle of the frame. A full sort every call would be wasteful, so it only
+    // runs when there is a real backlog.
+    if (queue.length > BUILD_BUDGET) {
+      const cx = ghost.pos.x, cz = ghost.pos.z;
+      queue.sort((a, b) => (
+        ((a.x - cx) ** 2 + (a.z - cz) ** 2) - ((b.x - cx) ** 2 + (b.z - cz) ** 2)
+      ));
+    }
     while (queue.length && n < BUILD_BUDGET) {
       const job = queue.shift();
       if (live.has(job.id)) continue;
@@ -390,11 +399,26 @@ export async function startViewer({ canvas, params }) {
       + `${follow ? '' : '   FREE'}`;
   }
 
-  // Build the first neighbourhood before the first frame, or the page opens on
-  // an empty floor and fills in while you watch.
+  // Build what is in shot before the first frame, and no more.
+  //
+  // The first version drained the WHOLE queue here, which is every prop within
+  // 46 units, and that was wrong twice over. It is about 270 props at roughly
+  // 6 ms each with their texture bakes, so it blocks for a second and a half on
+  // a good machine and for many minutes on a software rasteriser, and it does
+  // it BEFORE the page reports ready, so a harness waiting on that flag times
+  // out on a page that is working perfectly and merely busy. That is exactly
+  // what happened the first time this was rendered.
+  //
+  // So the pre-build is capped by TIME rather than by count, small enough that
+  // a slow machine gives up on it rather than hanging. What is left streams in
+  // over the next second, and the queue is ordered nearest first so what
+  // streams is behind you rather than in front of you.
   want(ghost.pos.x, ghost.pos.z);
   refreshFlies(ghost.pos.x, ghost.pos.z);
-  while (queue.length) pump();
+  {
+    const until = performance.now() + 700;
+    while (queue.length && performance.now() < until) pump();
+  }
 
   let running = !testMode;
   let last = performance.now();

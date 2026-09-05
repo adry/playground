@@ -380,6 +380,12 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
       state.events.push({ type: 'jumpRefused', why: 'noLanding' });
       return false;
     }
+    // The arena's perimeter wall. Tall on purpose, and the one barrier in the
+    // game the jump does not answer.
+    if (nav.crossesWall(ghost.x, ghost.z, lx, lz, 0)) {
+      state.events.push({ type: 'jumpRefused', why: 'wall' });
+      return false;
+    }
     ghost.air = true;
     ghost.airT = airTime;
     ghost.airY = 0;

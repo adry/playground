@@ -5,14 +5,19 @@ import { createGround } from '../ghost/ground.js';
 // floor and lighting, all turning together so each one can be seen from every
 // side without anyone driving a ghost around a graveyard to find it.
 //
-// This is what /lab/ is for now. Two other things live behind flags on the
-// same page:
+// This is what /lab/ is for. One other thing lives behind a flag on the same
+// page:
 //
-//   /lab/?play=1    the free-roam graveyard, exactly as it was, nothing moved
-//   /lab/?game=1    the Pac-Man: a generated level, the rules, and a keyboard
-//   /lab/?world=1   the endless world with no game in it, for judging placement
+//   /lab/?world=1   a generated level with no game in it, for judging placement
 //
-// All three share a floor and a light rig and nothing else.
+// The two share a floor and a light rig and nothing else.
+//
+// Two flags that used to be here are gone. ?play=1 loaded the hand-placed
+// graveyard from src/ghost/main.js, which IS the /ghostly/ page and is still
+// reachable there; a second door to the same room only made this page's hint
+// line longer. ?game=1 loaded the wave-based Pac-Man, which the owner replaced
+// with a single contained level, so the page behind it is being rebuilt and a
+// link to a half-built thing is worse than no link.
 //
 // preview.html remains the single-prop turntable used by the capture scripts.
 // This page is the whole set at once, which is a different question: a prop can
@@ -22,20 +27,11 @@ import { createGround } from '../ghost/ground.js';
 const params = new URLSearchParams(location.search);
 
 if (params.get('world') === '1') {
-  // The world viewer: the endless graveyard with no game in it, for judging
-  // how things are placed. See src/game/viewer.js.
+  // The level viewer: the generated graveyard with no game in it, for judging
+  // how things are placed. Imported dynamically so a page showing the lineup
+  // never pays for the game's module graph. See src/game/viewer.js.
   const { startViewer } = await import('../game/viewer.js');
   await startViewer({ canvas: document.getElementById('view'), params });
-} else if (params.get('game') === '1') {
-  // The Pac-Man. A generated level, the rules running over it, and a keyboard.
-  // Dynamically imported for the same reason as the graveyard below: a page
-  // showing the lineup should not pay for the game's module graph.
-  const { startGame } = await import('../game/scene.js');
-  await startGame({ canvas: document.getElementById('view'), params });
-} else if (params.get('play') === '1') {
-  // The graveyard, untouched. Imported dynamically so a page showing the
-  // lineup never pays for the game's module graph and vice versa.
-  await import('../ghost/main.js');
 } else {
   await buildLineup();
 }
