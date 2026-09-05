@@ -86,33 +86,41 @@
 //   blurred wide, because a wide field is what makes a boundary wander in a
 //   natural way rather than following the paint's own staircase. But the blur
 //   is not what gets drawn. The weights are put through a contrast function
-//   (SHARP) that collapses the whole ramp into about 30 cm, and the field is
-//   sampled through a DOMAIN WARP -- the same warp for every material, so it
-//   can never open a gap -- which pushes that line off its blurred path by up
-//   to 40 cm at a two to three metre wavelength. What comes out is an edge with
-//   fingers and bays in it, the shape of a real grass verge, in a band you can
-//   put a finger on.
+//   (SHARP) that collapses the whole ramp to about 20 cm -- narrower than the
+//   25 cm between two nodes, so what is actually drawn is one node's worth of
+//   ramp whose POSITION is placed inside the cell by the interpolation. And
+//   the field is sampled through a DOMAIN WARP -- the same warp for every
+//   material, so it can never open a gap -- which pushes that line off its
+//   blurred path by up to 58 cm at a one to three metre wavelength. What comes
+//   out is an edge with fingers and bays in it, the shape of a real verge, in
+//   a band you can put a finger on. Measured off the built mesh: pure grass at
+//   x = -2.00, one blended vertex, pure earth at x = -1.50.
 //
 //   THE EDGE IS SHADED, NOT DRAWN. A line that is only a change of colour is a
 //   stain, at this camera angle above all. So each material sits at its own
-//   HEIGHT (MATERIALS[].lift): grass is 2.6 cm of thatch, a dirt road is
-//   scraped to nothing. The crossover therefore has a real 2 to 3 cm step in
-//   it, which at 30 cm wide is a five degree ramp -- a bright lip along the top
-//   of it and a dark one at the foot, both of them shading rather than outline,
-//   which is what rule 2 asks for. A narrow contact darkening is laid into the
-//   vertex colour along the crossover as well, for the same reason a prop gets
-//   a contact shadow: one directional light cannot make the junction between
-//   two surfaces dark by itself.
+//   HEIGHT (MATERIALS[].lift): grass is 2.8 cm of thatch, a dirt road is
+//   scraped down to 1. And the crossover between them is not a ramp but a
+//   SHOULDER AND A GUTTER (LIP) -- the higher ground rounds up over its own
+//   edge, the lower one is scuffed down at the foot of it -- because a ramp
+//   only shades when the light happens to cross it, and half the boundaries in
+//   a level run along the key's azimuth. Measured off the same mesh: 40 mm on
+//   the lawn, 46 mm at the crest, 8 mm in the gutter, 22 mm on the road. A
+//   narrow contact darkening is laid into the vertex colour along the line as
+//   well, for the same reason a prop gets a contact shadow: one directional
+//   light cannot make the junction between two surfaces dark by itself.
 //
 //   THE DETAIL STILL INTERLEAVES, AND ACROSS A WIDER BAND THAN THE SURFACE.
 //   This is what keeps the crisper edge from reading as a cut. The scatter --
 //   grass blades, gravel chips, sand pebbles, earth clods -- is driven by the
 //   UNSHARPENED weight, so its transition is still a metre and a half wide
-//   while the surface's is 30 cm. Grass tufts therefore stand a good half metre
-//   out into the dirt, thinning as they go, and pebbles lie back inside the
-//   grass. The surface says where the boundary is; the scatter says the two
-//   grounds have lived next to each other. That is how a churchyard path
-//   actually meets its verge.
+//   while the surface's is a quarter of a metre. Grass tufts therefore stand a
+//   good half metre out into the dirt, thinning as they go, and pebbles lie
+//   back inside the grass. The surface says where the boundary is; the scatter
+//   says the two grounds have lived next to each other. That is how a
+//   churchyard path actually meets its verge. The one exception is a kerbed
+//   boundary, where the scatter is pulled back onto the sharp weight: a row of
+//   stones is a thing plants respect, and grass seeding itself across it is
+//   the tell that the stones were dropped on a picture of grass.
 //
 // ============================================================================
 // AND THE ROW OF STONES
@@ -165,6 +173,14 @@
 //     own measurement is that a bake after the renderer has drawn costs about
 //     five times what it costs before. The only canvas in the whole pass is the
 //     one kerb.js bakes per run, which is why the runs are capped.
+//   * SUB = 3, which would halve the crossover again to 17 cm. It also puts
+//     33k vertices in the buffer and, more to the point, 2.25x the work in the
+//     node loop -- and this is rebuilt while a brush is being dragged. 25 cm is
+//     eleven pixels at the game's widest zoom, which is an edge.
+//   * Computing the surface normals with computeVertexNormals(). They come off
+//     the heightfield by central difference instead, which is both cheaper and
+//     better: the analytic normal is the smooth surface's, so the shoulder of
+//     the lip does not facet along the triangulation.
 //
 // ============================================================================
 // COST
@@ -173,10 +189,33 @@
 // One draw call for the whole surface, whatever the mix of materials, plus one
 // per material for the scatter and one per kerb run. A 30 by 30 arena painted
 // end to end is 3600 cells; at SUB = 2 that is a 121 by 121 node grid, 14.6k
-// vertices and 29k triangles in ONE static buffer, which is what the four
-// transparent surfaces cost between them before. Nothing is rebuilt per frame;
-// the whole thing is rebuilt when the paint changes, which is the editor's
-// brush going up.
+// vertices and 29k triangles in ONE static buffer, which is about what the
+// four transparent surfaces cost between them before, at four times the
+// resolution and a quarter of the draw calls.
+//
+// Nothing is rebuilt per frame. The whole thing is rebuilt when the paint
+// changes, and THAT is the number that matters, because the editor rebuilds
+// while the brush is being dragged. On public/levels/demo.json, a full 60 by
+// 60 field with all four materials, warm, in node:
+//
+//     the old four-surface build          40 ms
+//     this, first written                340 ms
+//     this, as it stands                  54 ms
+//     with 8 kerb runs on top            131 ms   (plus their texture bakes,
+//                                                  which only a browser pays)
+//
+// Getting from 340 to 54 was three things and no cleverness: typed arrays and
+// hand-written instance matrices instead of push() and Object3D; analytic
+// normals instead of computeVertexNormals; and above all the material mask,
+// which lets the middle of a lawn -- most of most levels -- skip the warp and
+// the four field samples entirely, because a node with one material near it
+// has a weight of 1 and there is nothing to compute.
+//
+// The kerbs are the expensive part and they are opt-in. Each run is a merged
+// geometry plus its own colour and normal bake off a canvas, so KERB_MAX_RUNS
+// caps what one paint field can ask for. The bakes happen at build time, never
+// after a frame, and kerb.js's height canvas already carries
+// willReadFrequently -- the flag that was worth 6.3 s to sandpath.js.
 
 import * as THREE from 'three';
 import { toyMaterial } from '../../ghost/props/style.js';
@@ -190,7 +229,7 @@ import { unpackPaint } from './format.js';
 const FEATHER = 3;
 
 // Nodes per painted cell. The surface is drawn at twice the resolution of the
-// paint so that a 30 cm crossover has vertices to happen across; at SUB = 1 the
+// paint so that a 20 cm crossover has vertices to happen across; at SUB = 1 the
 // narrowest edge the mesh can express is a whole 50 cm cell and every boundary
 // snaps to the paint grid. Costs 4x the vertices of the paint grid, which is
 // still one third of what the old four-surface build used.
@@ -228,6 +267,7 @@ const WARP = [
 // enough to swallow the staircase, short enough to read as the grass petering
 // out rather than as a soft mask.
 const FRINGE = 0.35;
+const WARP_MAX = WARP.reduce((a, o) => a + o.amp, 0);
 
 // The swell: a low, long wavelength undulation the whole cover shares, so a
 // large fill is not a billiard table. Two centimetres, over a two metre
@@ -318,6 +358,10 @@ function valueNoise(x, z, salt) {
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
+// Handed to setColorAt once per scatter, only so three allocates the instance
+// colour buffer; every entry is then written by hand.
+const WHITE = new THREE.Color(1, 1, 1);
+
 // --- the weight field ---------------------------------------------------------
 
 function boxBlur(src, w, h, r) {
@@ -379,21 +423,29 @@ export function weightField(ground) {
 
 // Bilinear sample of a cell-resolution field at a world point. Cell centres sit
 // at minX + (i + 0.5) * cell, and everything outside clamps to the edge.
+//
+// No closures in here, deliberately. This is called eight times per node and a
+// node grid is fifteen thousand nodes: two arrow functions per call was, when
+// measured, most of the cost of the whole build.
 function sampleCell(field, w, h, cell, minX, minZ, x, z) {
   const fx = (x - minX) / cell - 0.5;
   const fz = (z - minZ) / cell - 0.5;
-  const i0 = Math.floor(fx);
-  const j0 = Math.floor(fz);
+  let i0 = Math.floor(fx);
+  let j0 = Math.floor(fz);
   const tx = fx - i0;
   const tz = fz - j0;
-  const ci = (i) => (i < 0 ? 0 : i > w - 1 ? w - 1 : i);
-  const cj = (j) => (j < 0 ? 0 : j > h - 1 ? h - 1 : j);
-  const i1 = ci(i0 + 1);
-  const j1 = cj(j0 + 1);
-  const a = field[cj(j0) * w + ci(i0)];
-  const b = field[cj(j0) * w + i1];
-  const c = field[j1 * w + ci(i0)];
-  const d = field[j1 * w + i1];
+  let i1 = i0 + 1;
+  let j1 = j0 + 1;
+  if (i0 < 0) i0 = 0; else if (i0 > w - 1) i0 = w - 1;
+  if (i1 < 0) i1 = 0; else if (i1 > w - 1) i1 = w - 1;
+  if (j0 < 0) j0 = 0; else if (j0 > h - 1) j0 = h - 1;
+  if (j1 < 0) j1 = 0; else if (j1 > h - 1) j1 = h - 1;
+  const r0 = j0 * w;
+  const r1 = j1 * w;
+  const a = field[r0 + i0];
+  const b = field[r0 + i1];
+  const c = field[r1 + i0];
+  const d = field[r1 + i1];
   return (a + (b - a) * tx) * (1 - tz) + (c + (d - c) * tx) * tz;
 }
 
@@ -433,22 +485,27 @@ function outsideDistance(inside, nw, nh, step) {
   return d;
 }
 
-// Bilinear sample of a node-resolution field at a world point.
+// Bilinear sample of a node-resolution field at a world point. Same rule about
+// closures as sampleCell: this one is called once per scatter instance.
 function sampleNode(field, nw, nh, step, minX, minZ, x, z) {
   const fx = (x - minX) / step;
   const fz = (z - minZ) / step;
-  const i0 = Math.floor(fx);
-  const j0 = Math.floor(fz);
+  let i0 = Math.floor(fx);
+  let j0 = Math.floor(fz);
   const tx = fx - i0;
   const tz = fz - j0;
-  const ci = (i) => (i < 0 ? 0 : i > nw - 1 ? nw - 1 : i);
-  const cj = (j) => (j < 0 ? 0 : j > nh - 1 ? nh - 1 : j);
-  const i1 = ci(i0 + 1);
-  const j1 = cj(j0 + 1);
-  const a = field[cj(j0) * nw + ci(i0)];
-  const b = field[cj(j0) * nw + i1];
-  const c = field[j1 * nw + ci(i0)];
-  const d = field[j1 * nw + i1];
+  let i1 = i0 + 1;
+  let j1 = j0 + 1;
+  if (i0 < 0) i0 = 0; else if (i0 > nw - 1) i0 = nw - 1;
+  if (i1 < 0) i1 = 0; else if (i1 > nw - 1) i1 = nw - 1;
+  if (j0 < 0) j0 = 0; else if (j0 > nh - 1) j0 = nh - 1;
+  if (j1 < 0) j1 = 0; else if (j1 > nh - 1) j1 = nh - 1;
+  const r0 = j0 * nw;
+  const r1 = j1 * nw;
+  const a = field[r0 + i0];
+  const b = field[r0 + i1];
+  const c = field[r1 + i0];
+  const d = field[r1 + i1];
   return (a + (b - a) * tx) * (1 - tz) + (c + (d - c) * tx) * tz;
 }
 
@@ -715,25 +772,63 @@ export function createGroundCover({ ground, seed = 1, detail = true, kerbs = nul
   // set is what the rim fades over, so every painted cell is covered outright
   // however small the patch is.
   const inside = new Uint8Array(nw * nh);
-  for (let j = 0; j < nh; j++) {
-    for (let i = 0; i < nw; i++) {
-      const ci = i / SUB;
-      const cj = j / SUB;
-      const i0 = Math.floor(ci - 1e-6);
-      const i1 = Math.floor(ci + 1e-6);
-      const j0 = Math.floor(cj - 1e-6);
-      const j1 = Math.floor(cj + 1e-6);
-      let on = 0;
-      for (let jj = j0; jj <= j1 && !on; jj++) {
-        for (let ii = i0; ii <= i1 && !on; ii++) {
-          if (ii < 0 || jj < 0 || ii >= w || jj >= h) continue;
-          if (painted[jj * w + ii] > 0) on = 1;
-        }
+  for (let j = 0; j < h; j++) {
+    for (let i = 0; i < w; i++) {
+      if (!painted[j * w + i]) continue;
+      for (let b = 0; b <= SUB; b++) {
+        const row = (j * SUB + b) * nw + i * SUB;
+        for (let a = 0; a <= SUB; a++) inside[row + a] = 1;
       }
-      inside[j * nw + i] = on;
     }
   }
   const dOut = outsideDistance(inside, nw, nh, step);
+  // And the distance the other way, which exists only as an optimisation: a
+  // node this far inside the paint cannot be reached by the rim fade however
+  // the warp pulls its sample, so it is opaque without asking.
+  const notInside = new Uint8Array(nw * nh);
+  for (let i = 0; i < nw * nh; i++) notInside[i] = inside[i] ? 0 : 1;
+  const dIn = outsideDistance(notInside, nw, nh, step);
+
+  // WHICH MATERIALS CAN POSSIBLY MATTER AT A CELL, as a bit per material,
+  // widened by the furthest the warp can drag a sample. Most of a painted
+  // arena is the middle of one material, and a node whose mask holds a single
+  // bit has a known answer: that material's weight is 1 by construction,
+  // because the weights are a normalised share of what is present. Skipping
+  // the warp and the four field samples there is what keeps a brush stroke
+  // interactive on a full arena.
+  const RD = Math.ceil(WARP_MAX / cell) + 1;
+  let mask = new Uint16Array(w * h);
+  for (let c = 0; c < w * h; c++) {
+    let bits = 0;
+    for (let m = 0; m < names.length; m++) if (weight[m][c] > 1e-4) bits |= 1 << m;
+    mask[c] = bits;
+  }
+  {
+    const tmp = new Uint16Array(w * h);
+    for (let j = 0; j < h; j++) {
+      for (let i = 0; i < w; i++) {
+        let bits = 0;
+        for (let k2 = -RD; k2 <= RD; k2++) {
+          const x = i + k2 < 0 ? 0 : i + k2 > w - 1 ? w - 1 : i + k2;
+          bits |= mask[j * w + x];
+        }
+        tmp[j * w + i] = bits;
+      }
+    }
+    const out = new Uint16Array(w * h);
+    for (let j = 0; j < h; j++) {
+      for (let i = 0; i < w; i++) {
+        let bits = 0;
+        for (let k2 = -RD; k2 <= RD; k2++) {
+          const y = j + k2 < 0 ? 0 : j + k2 > h - 1 ? h - 1 : j + k2;
+          bits |= tmp[y * w + i];
+        }
+        out[j * w + i] = bits;
+      }
+    }
+    mask = out;
+  }
+
 
   // --- the weights, warped and sharpened -------------------------------------
   const M = names.length;
@@ -746,15 +841,29 @@ export function createGroundCover({ ground, seed = 1, detail = true, kerbs = nul
   // zero on the line. Taken from the RAW blurred field, not the sharpened one,
   // because the lip is a wide shape and the colour edge is a narrow one.
   const qlip = new Float32Array(nw * nh);
-  const soft = [];
-  for (let m = 0; m < M; m++) soft.push(new Float32Array(nw * nh));
-
   const raw = new Float32Array(M);
   for (let j = 0; j < nh; j++) {
     for (let i = 0; i < nw; i++) {
       const k = j * nw + i;
+      // Nothing outside the fringe can contribute a vertex, and on a sparsely
+      // painted arena that is most of the grid. WARP_MAX is how far a sample
+      // can be dragged in from beyond it.
+      if (dOut[k] > FRINGE + WARP_MAX) continue;
       const x = nodeX(i);
       const z = nodeZ(j);
+      const ci = (i / SUB) | 0;
+      const cj = (j / SUB) | 0;
+      const bits = mask[(cj > h - 1 ? h - 1 : cj) * w + (ci > w - 1 ? w - 1 : ci)];
+      const deep = dIn[k] > WARP_MAX;
+      // The single material case: one bit in the mask means nothing else is
+      // near enough to be dragged in, so the answer is known.
+      if (bits && (bits & (bits - 1)) === 0 && deep) {
+        wn[31 - Math.clz32(bits)][k] = 1;
+        qlip[k] = 1;
+        fade[k] = 1;
+        alpha[k] = 1;
+        continue;
+      }
       // One warp, shared by every field sampled at this node.
       let dx = 0;
       let dz = 0;
@@ -772,9 +881,8 @@ export function createGroundCover({ ground, seed = 1, detail = true, kerbs = nul
       let v0 = 0;
       let v1 = 0;
       for (let m = 0; m < M; m++) {
-        const v = sampleCell(weight[m], w, h, cell, minX, minZ, wx, wz);
+        const v = bits & (1 << m) ? sampleCell(weight[m], w, h, cell, minX, minZ, wx, wz) : 0;
         raw[m] = v;
-        soft[m][k] = sampleCell(weight[m], w, h, cell, minX, minZ, x, z);
         if (v > mx) mx = v;
         if (v > v0) { v1 = v0; r1 = r0; v0 = v; r0 = m; }
         else if (v > v1) { v1 = v; r1 = m; }
@@ -801,8 +909,7 @@ export function createGroundCover({ ground, seed = 1, detail = true, kerbs = nul
 
       // The rim. Warped, so the cover's outline wanders like its borders do,
       // but never inside the paint: `inside` wins wherever it is set.
-      const dw = sampleNode(dOut, nw, nh, step, minX, minZ, wx, wz);
-      const f = 1 - clamp01(dw / FRINGE);
+      const f = deep ? 1 : 1 - clamp01(sampleNode(dOut, nw, nh, step, minX, minZ, wx, wz) / FRINGE);
       fade[k] = f;
       alpha[k] = inside[k] ? 1 : f;
     }
@@ -909,18 +1016,44 @@ export function createGroundCover({ ground, seed = 1, detail = true, kerbs = nul
 
   // --- the surface ------------------------------------------------------------
   // One mesh. One draw call. The only alpha in it is the rim.
+  //
+  // Written into typed arrays sized for the worst case rather than pushed onto
+  // JS arrays and converted at the end: this is rebuilt every time the editor's
+  // brush moves, so the difference is felt by a person.
   {
     const index = new Int32Array(nw * nh).fill(-1);
-    const positions = [];
-    const colors = [];
-    const tris = [];
-    const base = names.map((n) => new THREE.Color(MATERIALS[n]?.color || '#8f949e'));
+    const maxV = nw * nh;
+    const positions = new Float32Array(maxV * 3);
+    const normals = new Float32Array(maxV * 3);
+    const colors = new Float32Array(maxV * 4);
+    const tris = new Uint32Array((nw - 1) * (nh - 1) * 6);
+    let vCount = 0;
+    let tCount = 0;
+    // A name this file does not know can only come from a hand-edited level.
+    // It falls back to earth rather than to the floor's own grey, because grey
+    // ground is indistinguishable from a hole in the cover and a hole is the
+    // one thing this pass exists to abolish.
+    const base = names.map((n) => new THREE.Color((MATERIALS[n] || MATERIALS.earth).color));
+    const at = (i, j) => height[(j < 0 ? 0 : j > nh - 1 ? nh - 1 : j) * nw + (i < 0 ? 0 : i > nw - 1 ? nw - 1 : i)];
     const nodeOf = (i, j) => {
       const k = j * nw + i;
       if (index[k] >= 0) return index[k];
       const x = nodeX(i);
       const z = nodeZ(j);
-      positions.push(x, height[k], z);
+      const v = vCount++;
+      positions[v * 3] = x;
+      positions[v * 3 + 1] = height[k];
+      positions[v * 3 + 2] = z;
+      // The normal, from the heightfield itself by central difference. This is
+      // both cheaper than computeVertexNormals over 29k triangles and better:
+      // it is the smooth surface's normal rather than an average of the
+      // triangles that happen to touch this vertex, so the lip does not facet.
+      const gx = (at(i + 1, j) - at(i - 1, j)) / (2 * step);
+      const gz = (at(i, j + 1) - at(i, j - 1)) / (2 * step);
+      const inv = 1 / Math.sqrt(gx * gx + gz * gz + 1);
+      normals[v * 3] = -gx * inv;
+      normals[v * 3 + 1] = inv;
+      normals[v * 3 + 2] = -gz * inv;
       let r = 0;
       let g = 0;
       let b = 0;
@@ -938,9 +1071,12 @@ export function createGroundCover({ ground, seed = 1, detail = true, kerbs = nul
       // The seam: a narrow darkening exactly along the crossover and nowhere
       // else. Squared, so it is a line rather than a haze.
       t *= 1 - SEAM_AO * seam[k] * seam[k];
-      colors.push(r * t, g * t, b * t, alpha[k]);
-      index[k] = positions.length / 3 - 1;
-      return index[k];
+      colors[v * 4] = r * t;
+      colors[v * 4 + 1] = g * t;
+      colors[v * 4 + 2] = b * t;
+      colors[v * 4 + 3] = alpha[k];
+      index[k] = v;
+      return v;
     };
     for (let j = 0; j < nh - 1; j++) {
       for (let i = 0; i < nw - 1; i++) {
@@ -953,15 +1089,17 @@ export function createGroundCover({ ground, seed = 1, detail = true, kerbs = nul
         const ib = nodeOf(i + 1, j);
         const ic = nodeOf(i, j + 1);
         const id = nodeOf(i + 1, j + 1);
-        tris.push(ia, ic, ib, ib, ic, id);
+        tris[tCount] = ia; tris[tCount + 1] = ic; tris[tCount + 2] = ib;
+        tris[tCount + 3] = ib; tris[tCount + 4] = ic; tris[tCount + 5] = id;
+        tCount += 6;
       }
     }
-    if (tris.length) {
+    if (tCount) {
       const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
-      geo.setIndex(tris);
-      geo.computeVertexNormals();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions.subarray(0, vCount * 3), 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(normals.subarray(0, vCount * 3), 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(colors.subarray(0, vCount * 4), 4));
+      geo.setIndex(new THREE.BufferAttribute(tris.subarray(0, tCount), 1));
       const mat = toyMaterial('#ffffff', {
         vertexColors: true,
         // Alpha 1 over every painted cell, so this is a transparent material
@@ -987,7 +1125,7 @@ export function createGroundCover({ ground, seed = 1, detail = true, kerbs = nul
       group.add(mesh);
       disposables.push(geo, mat);
       stats.surfaces = 1;
-      stats.vertices = positions.length / 3;
+      stats.vertices = vCount;
     }
   }
 
@@ -995,11 +1133,11 @@ export function createGroundCover({ ground, seed = 1, detail = true, kerbs = nul
   // Driven by the SOFT weight, so its band is four times wider than the
   // surface's and the two grounds interleave across the edge the surface draws.
   if (detail) {
-    const dummy = new THREE.Object3D();
     for (let m = 0; m < M; m++) {
       const spec = MATERIALS[names[m]];
       if (!spec || !spec.density) continue;
       const perCell = spec.density * cell * cell;
+      const wm = weight[m];
       const placed = [];
       for (let j = 0; j < h; j++) {
         for (let i = 0; i < w; i++) {
@@ -1012,7 +1150,10 @@ export function createGroundCover({ ground, seed = 1, detail = true, kerbs = nul
           // mix is what makes a kerbed boundary read as a boundary the plants
           // respect and an open one read as two grounds growing into each
           // other, off the same field and with no second code path.
-          const drive = soft[m][nk] + (wn[m][nk] - soft[m][nk]) * kerbHold[nk];
+          // The soft weight is the CELL field itself; there is no reason to
+          // resample it at a node when the scatter is walking cells anyway.
+          const sw = wm[j * w + i];
+          const drive = sw + (wn[m][nk] - sw) * kerbHold[nk];
           const a = drive * alpha[nk] * (1 - kerbMask[nk]);
           if (a < 0.03) continue;
           const want = perCell * a;
@@ -1034,27 +1175,41 @@ export function createGroundCover({ ground, seed = 1, detail = true, kerbs = nul
         side: spec.detail === 'blades' ? THREE.DoubleSide : THREE.FrontSide,
       });
       const inst = new THREE.InstancedMesh(dgeo, dmat, count);
-      // Per instance tone. A field of one colour reads as a pattern however
-      // random the placement is; this is the frequency that says every blade
-      // and every chip is its own object. Built from numbers rather than a hex
-      // string on purpose: these are multipliers in the renderer's working
-      // space, not colours to be converted.
-      const tint = new THREE.Color();
+      // The matrices are written straight into the instance buffer. Every one
+      // of these is a yaw and a uniform scale, so composing them through an
+      // Object3D costs a Quaternion, a Matrix4 and two allocations per blade
+      // for six numbers that can be written by hand. At five thousand blades
+      // that is most of the build.
+      const im = inst.instanceMatrix.array;
+      inst.setColorAt(0, WHITE);
+      const ic = inst.instanceColor.array;
       for (let q = 0; q < count; q++) {
         const x = placed[q * 4];
         const z = placed[q * 4 + 1];
+        const yaw = placed[q * 4 + 2];
+        const sc = placed[q * 4 + 3];
+        const cs = Math.cos(yaw) * sc;
+        const sn = Math.sin(yaw) * sc;
+        const o = q * 16;
+        im[o] = cs; im[o + 1] = 0; im[o + 2] = -sn; im[o + 3] = 0;
+        im[o + 4] = 0; im[o + 5] = sc; im[o + 6] = 0; im[o + 7] = 0;
+        im[o + 8] = sn; im[o + 9] = 0; im[o + 10] = cs; im[o + 11] = 0;
+        im[o + 12] = x;
         // Stand on the shared surface, not on y = 0, or the detail floats over
         // the swell on one side of it and sinks on the other.
-        dummy.position.set(x, sampleNode(height, nw, nh, step, minX, minZ, x, z), z);
-        dummy.rotation.set(0, placed[q * 4 + 2], 0);
-        dummy.scale.setScalar(placed[q * 4 + 3]);
-        dummy.updateMatrix();
-        inst.setMatrixAt(q, dummy.matrix);
+        im[o + 13] = sampleNode(height, nw, nh, step, minX, minZ, x, z);
+        im[o + 14] = z; im[o + 15] = 1;
+        // Per instance tone. A field of one colour reads as a pattern however
+        // random the placement is; this is the frequency that says every blade
+        // and every chip is its own object. Written as plain numbers because
+        // they are multipliers in the renderer's working space, not colours to
+        // be converted from sRGB.
         const tone = 0.86 + 0.28 * hash2(q, m * 31 + q, seed + 3);
-        tint.setRGB(tone, tone * (0.97 + 0.06 * hash2(q, m, seed + 4)), tone);
-        inst.setColorAt(q, tint);
+        ic[q * 3] = tone;
+        ic[q * 3 + 1] = tone * (0.97 + 0.06 * hash2(q, m, seed + 4));
+        ic[q * 3 + 2] = tone;
       }
-      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+      inst.instanceColor.needsUpdate = true;
       inst.instanceMatrix.needsUpdate = true;
       inst.frustumCulled = false;
       group.add(inst);

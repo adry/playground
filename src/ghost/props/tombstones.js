@@ -186,12 +186,18 @@ export function buildArcSweepGeometry({ outline, depth, edge: e, uv }) {
 
 export function mulberry32(seed) {
   let a = seed >>> 0;
-  return () => {
+  const f = () => {
     a = (a + 0x6d2b79f5) >>> 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    f.draws += 1;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+  // How many numbers have been taken. The texture pool needs it: see
+  // pooledTextures for why a cache hit has to advance the stone's stream by
+  // exactly what a bake would have taken from it.
+  f.draws = 0;
+  return f;
 }
 
 // ---------------------------------------------------------------------------
@@ -626,17 +632,35 @@ export const FACE_ROWS = 512;
 // bake still stand differently and carry different broken corners. Only the
 // surface grain and the wear on the letters repeat.
 //
-// TWO STREAMS, AND THIS IS THE PART THAT MATTERS. The bake used to draw from
-// the stone's own rng, which meant the stream position after it depended on
-// whether a bake happened -- so with a pool, a stone's lean would depend on
-// what had been placed before it. That is a bug, not a trade. The bake now has
-// its own stream, seeded from the pool key alone, and consumes nothing from the
-// stone. Pooling is therefore invisible by construction rather than by
-// accounting, and a stone is the same stone whatever its neighbours are.
+// THE STREAM, AND THIS IS THE PART THAT MATTERS, because the first attempt got
+// it wrong in a way a render caught and arithmetic would not have.
 //
-// It also fixes something that was already wrong: buildTextures is skipped when
-// there is no DOM, so a stone built in node had a different lean from the same
-// stone built in a browser. They agree now.
+// The bake draws from the stone's own rng, and everything after it -- the lean,
+// the sink, whatever extras() builds -- draws from what is left. So a pool that
+// simply skips the bake on a hit leaves the stream 8580 numbers earlier than it
+// should be, and the stone is a different stone depending on what was placed
+// before it.
+//
+// The obvious repair, giving the bake a stream of its own and letting the stone
+// keep all of its, is wrong too and wrong in the same direction: it moves every
+// stone in the set onto different numbers. It looks harmless in a diff and it
+// is not. Rendered, twenty-seven of the twenty-nine changed only in their
+// grain, but the BOULDER came back a teardrop instead of a found stone and the
+// cairn came back a different heap, because those two build their whole form
+// out of the stream. The set is approved; that is a regression wearing an
+// optimisation's clothes.
+//
+// So: the bake takes a stream derived from the POOL KEY, which makes the maps a
+// pure function of the key and independent of which stone missed first, and
+// then the stone's own stream is ADVANCED by exactly as many numbers as the
+// bake took. Both halves are then what they are today. The count is measured
+// rather than assumed: 8580 draws for every variant in the set and 8581 for the
+// vault, constant across seeds, checked over five seeds of all twenty-nine.
+// advance() is that many calls of integer arithmetic, which is microseconds
+// against a bake's several hundred milliseconds.
+//
+// The test that this holds is not that the bytes match, it is that the lineup
+// renders identically. Keep it that way.
 //
 // SLOTS is how many distinct bakes a variant may have. It cannot be keyed on
 // the seed alone: the editor derives a prop's seed from its POSITION, so every
@@ -655,10 +679,10 @@ function texKeyHash(str) {
   return (h >>> 0) || 1;
 }
 
-function pooledTextures(variant, seed, faceAspect) {
+function pooledTextures(variant, seed, faceAspect, bodyRng) {
   const key = `${variant}|${Math.abs(seed | 0) % TEXTURE_SLOTS}|${faceAspect.toFixed(3)}`;
   let e = texPool.get(key);
-  if (e) { e.refs += 1; e.used = ++texClock; return e; }
+  if (e) { e.refs += 1; e.used = ++texClock; advance(bodyRng, e.draws); return e; }
   // Past the ceiling, drop the least recently used bake that no stone is
   // drawing. If every entry is in use the pool grows for now and settles when
   // those stones are disposed.
@@ -670,9 +694,21 @@ function pooledTextures(variant, seed, faceAspect) {
       texPool.delete(idle.key);
     }
   }
-  e = { key, tex: buildTextures(variant, faceAspect, mulberry32(texKeyHash(key))), refs: 1, used: ++texClock };
+  // Baked from a stream of the pool key's own, so which stone happens to miss
+  // first cannot decide what the others look like.
+  const texRng = mulberry32(texKeyHash(key));
+  const tex = buildTextures(variant, faceAspect, texRng);
+  e = { key, tex, draws: texRng.draws, refs: 1, used: ++texClock };
   texPool.set(key, e);
+  advance(bodyRng, e.draws);
   return e;
+}
+
+// Move a stream on without using what it gives, so the stone's own rng ends
+// where it would have ended if this stone had baked its own maps. 8580 calls of
+// arithmetic, which is microseconds.
+function advance(rng, n) {
+  for (let i = 0; i < n; i++) rng();
 }
 
 function releaseTextures(entry) {
@@ -833,7 +869,7 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
   const edge = 0.062;
 
   const hasDOM = typeof document !== 'undefined';
-  const texEntry = hasDOM ? pooledTextures(variant, seed, (2 * W) / H) : null;
+  const texEntry = hasDOM ? pooledTextures(variant, seed, (2 * W) / H, rng) : null;
   const tex = texEntry ? texEntry.tex : null;
   const frontFrac = tex ? tex.frontFrac : 1;
   const stripFrac = tex ? tex.stripFrac : 0;
