@@ -15,6 +15,10 @@ import M from './metrics.js';
 //   ?mode=solo      the zombie alone, framed to fit
 //   ?mode=family    the zombie beside the ghost and the skeleton
 //   ?mode=game      framed exactly as the game frames it, for the size crop
+//   ?mode=sil       flat black on white, which is the only honest test of a
+//                   silhouette. Surface detail cannot rescue a shape that is
+//                   wrong as a black blob, and a figure whose arms vanish into
+//                   its body reads as a bollard however good its face is.
 //   ?pose=crouch    bend everything hard, to prove the seams hold
 //   ?pose=walk      one frame of a stride, to prove the limbs are not crossed
 
@@ -29,7 +33,8 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-const BACKDROP = new THREE.Color('#b9bec7').convertSRGBToLinear();
+const SIL = mode === 'sil';
+const BACKDROP = new THREE.Color(SIL ? '#ffffff' : '#b9bec7').convertSRGBToLinear();
 const scene = new THREE.Scene();
 scene.background = BACKDROP;
 
@@ -37,7 +42,7 @@ scene.background = BACKDROP;
 // face. It is NOT how the character is judged: the scene camera below is. It
 // exists because a feature that is in the wrong place is far easier to see
 // without a 29 degree downward projection folded on top of it.
-const CAM_DIR = mode === 'face'
+const CAM_DIR = (mode === 'face' || SIL)
   ? new THREE.Vector3(0, 0, 1)
   : new THREE.Vector3(1, 0.78, 1).normalize();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
@@ -94,7 +99,7 @@ scene.add(key);
 const rim = new THREE.DirectionalLight(0xc4d4ff, 0.55);
 rim.position.set(-4, 2.5, -3);
 scene.add(rim);
-scene.add(createGround());
+if (!SIL) scene.add(createGround());
 
 const holder = new THREE.Group();
 scene.add(holder);
@@ -174,6 +179,14 @@ async function boot() {
     parts.push(s);
   } else {
     holder.add(rig.group);
+  }
+
+  if (SIL) {
+    // One flat black material over everything, no lights, no floor. What is
+    // left is the shape and nothing else.
+    const flat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    holder.traverse((o) => { if (o.isMesh) o.material = flat; });
+    renderer.shadowMap.enabled = false;
   }
 
   if (mode === 'game') {

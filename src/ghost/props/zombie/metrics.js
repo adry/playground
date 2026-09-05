@@ -265,7 +265,7 @@ export const M = {
   grin: {
     width: f(0.180),          // 0.57 of head width
     height: f(0.052),
-    depth: f(0.026),
+    depth: f(0.038),
     // NO WOBBLE, for the same reason as the socket above: in the reference
     // the mouth is a smooth wide curve with the teeth clearly seated in it,
     // and a ragged outline made the teeth read as detached from the slot.

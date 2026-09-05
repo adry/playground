@@ -632,11 +632,18 @@ function jamCheck(track, s) {
 //
 // So what is asserted is the SHARE of time above ground that is spent going
 // nowhere, which does not care how long the run is. chase.js retires a skeleton
-// that has not moved two units in nine seconds, so a healthy run cannot spend
-// much time here at all: measured over twenty arenas at 240 s it is 1.1%, and
-// three per cent is broken.
+// that has not moved two units in nine seconds, which is what puts a ceiling on
+// it, and the two numbers are a contract: if that nine moves, this moves.
+//
+// MEASURED, thirty arenas at 300 s: mean 1.7% of time above ground, median
+// 1.4%, p90 3.4%, worst 6.3%. The self test's own broken case, a herd whose
+// walk is set to zero, reads 54%. So the threshold goes at TEN per cent, which
+// is half again clear of the worst healthy run and five times clear of a broken
+// one. A tighter threshold is tempting and wrong: three per cent would have
+// flagged one healthy arena in ten, and a check that cries wolf is a check
+// people learn to read past, which is how the last one drifted for so long.
 export const STALL_GRACE = 4.0;    // seconds inside a 1.0 circle before it counts
-export const STALL_SHARE = 0.03;   // of all time above ground
+export const STALL_SHARE = 0.10;   // of all time above ground
 export const STALL_FLOOR = 15;     // seconds of it before the share means anything
 
 function stallCheck(track, s, dt) {

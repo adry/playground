@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import M from '../metrics.js';
-import { gridSurface, ribbon, softBox, ball, limb, tube, put, v, smoothstep } from './skin.js';
+import { gridSurface, gridSurfaceSplit, softBox, ball, limb, tube, put, v, smoothstep } from './skin.js';
 
 // The head. A third of the whole figure, so it is the character: everything
 // else on this model is supporting cast.
@@ -69,6 +69,14 @@ const U_FRONT = 0.25;       // azimuth u at which the surface faces +Z
 // The surface with no feature cut into it: what the cuts and the rims measure
 // against, so they all share one coordinate frame.
 const BARE = { mouth: false, sockets: false };
+// The same again with the lumpiness switched off. Anything that has to decide
+// WHICH SIDE OF A FEATURE'S OUTLINE a point is on measures against this, never
+// against the lumpy surface: the lumps are 0.04 of a socket radius and a grid
+// cell at the boundary is 0.037 of one, so measured on the lumpy surface the
+// test flips back and forth from cell to cell and the edge comes out as a
+// comb. It is the same trap as everything else on this face, one term further
+// down, and it is the last of them.
+const BARE_FLAT = { mouth: false, sockets: false, lumps: false };
 
 // One fixed push direction per feature: the base normal at the feature's own
 // centre. Memoised because they are constants of the head, and computed lazily
@@ -318,7 +326,6 @@ function surfacePoint(u, vv, { mouth = true, sockets = true, lumps = true } = {}
   // Nothing folds, nothing drifts, and the painted region is the region that
   // is there.
   {
-    let recess = 0;
     if (sockets) {
       for (const side of [1, -1]) {
         const r = socketR(p.x, p.y, side);
@@ -333,19 +340,15 @@ function surfacePoint(u, vv, { mouth = true, sockets = true, lumps = true } = {}
         // a small dark bead in it is what this looked like for three rounds.
         const ring = Math.exp(-Math.pow((r - M.socket.rimAt) / M.socket.rimWide, 2));
         p.addScaledVector(n, M.head.browJut * M.socket.rim * ring * front);
-        recess = Math.max(recess, socketDepthAt(r));
+        p.addScaledVector(featureAxis(side > 0 ? 'sockL' : 'sockR'), -socketDepthAt(r) * front);
       }
     }
     {
       const r = noseR(p.x, p.y);
       const ring = Math.exp(-Math.pow((r - 1.40) / 0.24, 2));
       p.addScaledVector(n, M.head.browJut * 0.14 * ring * front);
-      // The flat floor runs almost to the outline. A short flat floor and a
-      // long ramp means the dark disc that sits in the aperture is over
-      // sloping ground for most of its area and pokes through in slivers.
-      recess = Math.max(recess, noseDepthAt(r));
+      p.addScaledVector(featureAxis('nose'), -noseDepthAt(r) * front);
     }
-    if (recess > 0) p.addScaledVector(n, -recess * front);
   }
 
   // --- 8. irregularity.  (switchable: see the note in dentDisc)
@@ -368,7 +371,7 @@ function surfacePoint(u, vv, { mouth = true, sockets = true, lumps = true } = {}
   // Nothing below it: the chin belongs to the cranium and stays put. See the
   // note on the jaw below for why the mandible is not a separate shell.
   if (mouth) {
-    const slot = 1 - smoothstep(0.72, 1.02, grinR(p.x, p.y));
+    const slot = 1 - smoothstep(0.88, 1.06, grinR(p.x, p.y));
     if (slot > 0) p.addScaledVector(featureAxis('grin'), -M.grin.depth * slot * front);
   }
 
@@ -577,7 +580,7 @@ function toothRow(parent, material, { count, gap, up, seed }) {
     const n = surfaceNormal(uu, vv, { mouth: true });
     const g = softBox(w, h, M.grin.depth * 1.15, { round: 0.42, uSteps: 8, vSteps: 6 });
     const m = put(parent, g, material, {
-      pos: floor.clone().addScaledVector(n, M.grin.depth * 0.40),
+      pos: floor.clone().addScaledVector(n, M.grin.depth * 0.30),
     });
     m.quaternion.setFromUnitVectors(v(0, 0, 1), n);
     m.rotateZ((rnd() - 0.5) * 0.22);                // uneven
@@ -689,50 +692,60 @@ export function buildHead({ materials }) {
   const DENSITY = 3;
 
   const SKIN = 0, DARK = 1, DEEP = 2;
-  // Which of the three a quad belongs to. Decided on the surface AS BUILT:
-  // each recess is now a push along one FIXED axis per feature rather than
-  // along the local normal, so the map from parameter to built position is
-  // well behaved and the boundary comes out clean. Under the old
-  // normal-aligned recess it was compressed against the dent wall, the
-  // predicate flipped back and forth across it, and the boundary came out as
-  // a comb of teeth a dozen deep.
+  // Which of the three a quad belongs to. Decided on the BARE surface.
+  //
+  // The built surface is the wrong one to ask, and this is the last of the
+  // traps in this feature. The recess varies with r, so the map from
+  // parameter to BUILT position is compressed against the dent's wall, which
+  // is exactly where the boundary sits: the predicate flips back and forth
+  // across a band of cells and the edge comes out as a comb of teeth, finer
+  // but no cleaner as the grid gets denser. The map to the BARE position is
+  // smooth and monotonic, so the boundary is one clean step per cell.
+  //
+  // Placing it on the bare surface is also CORRECT rather than merely
+  // convenient. The thresholds sit at r = 1, which is where each recess has
+  // already fallen to nothing, so the boundary does not move between the bare
+  // surface and the built one. Only the interior is displaced, and the
+  // interior is one flat colour.
   const zoneOf = (u, vv) => {
-    const p = surfacePoint(u, vv);
+    const p = surfacePoint(u, vv, BARE_FLAT);
     if (p.z <= 0) return SKIN;
+    // The boundaries sit at 0.94, not at 1.00. At 1.00 they land exactly on the
+    // crease at the top of each dent wall, which is where the shading changes
+    // fastest and therefore where a one-cell staircase is most visible. Six
+    // per cent inside, the boundary is a little way down a wall that has
+    // already turned away from the key light, and the step disappears into
+    // the shadow it is standing in.
     for (const side of [1, -1]) {
       const r = socketR(p.x, p.y, side);
       if (r <= 0.58) return DEEP;
-      if (r <= 1.00) return DARK;
+      if (r <= 0.94) return DARK;
     }
-    if (grinR(p.x, p.y) <= 1.00) return DEEP;
-    if (noseR(p.x, p.y) <= 1.00) return DARK;
+    if (grinR(p.x, p.y) <= 0.84) return DEEP;
+    if (noseR(p.x, p.y) <= 0.94) return DARK;
     return SKIN;
   };
 
-  const zones = [[SKIN, materials.skin], [DARK, materials.socket], [DEEP, materials.socketDeep]];
+  const mats = [materials.skin, materials.socket, materials.socketDeep];
 
   // the coarse shell, with the face rectangle left out
-  for (const [zone, material] of zones) {
-    put(group, gridSurface({
-      uSteps: U, vSteps: V, closedU: true, uAt, vAt,
-      point: (u, vv) => surfacePoint(u, vv),
-      keepIndex: (i, j) => !(i >= I0 && i < I1 && j >= J0 && j < J1),
-      keepQuad: (u, vv) => zoneOf(u, vv) === zone,
-    }).geometry, material);
-  }
+  gridSurfaceSplit({
+    uSteps: U, vSteps: V, closedU: true, uAt, vAt,
+    point: (u, vv) => surfacePoint(u, vv),
+    keepIndex: (i, j) => !(i >= I0 && i < I1 && j >= J0 && j < J1),
+    zoneOf, zoneCount: 3,
+  }).forEach((g, z) => put(group, g, mats[z]));
 
   // the face, at DENSITY times the sampling in both directions
-  for (const [zone, material] of zones) {
-    put(group, gridSurface({
-      uSteps: (I1 - I0) * DENSITY,
-      vSteps: (J1 - J0) * DENSITY,
-      closedU: false,
-      uAt: (k) => uAt(I0 + k / DENSITY),
-      vAt: (k) => vAt(J0 + k / DENSITY),
-      point: (u, vv) => surfacePoint(u, vv),
-      keepQuad: (u, vv) => zoneOf(u, vv) === zone,
-    }).geometry, material);
-  }
+  gridSurfaceSplit({
+    uSteps: (I1 - I0) * DENSITY,
+    vSteps: (J1 - J0) * DENSITY,
+    closedU: false,
+    uAt: (k) => uAt(I0 + k / DENSITY),
+    vAt: (k) => vAt(J0 + k / DENSITY),
+    point: (u, vv) => surfacePoint(u, vv),
+    zoneOf, zoneCount: 3,
+  }).forEach((g, z) => put(group, g, mats[z]));
 
   // Upper teeth ride on the cranium.
   toothRow(group, materials.tooth, { count: M.grin.teeth.upper, gap: M.grin.teeth.gapUpper, up: true, seed: 7 });

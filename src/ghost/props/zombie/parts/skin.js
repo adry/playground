@@ -149,6 +149,57 @@ export function gridSurface({
   return { geometry: mesh(flat(pts), idx), pts, at, uN, vN };
 }
 
+// A parametric surface split into several meshes by zone, SHARING ONE VERTEX
+// BUFFER between them.
+//
+// The sharing is the whole point and it is not an optimisation. Build the
+// zones as independent meshes and each one runs computeVertexNormals over its
+// own faces only, so along the boundary the two disagree about the normal:
+// every step of the staircase between them gets a bright or dark fleck, and a
+// one-cell edge that would read as a clean step reads instead as a fine comb.
+// It is the difference between a jagged edge and a corrupted one, and on the
+// zombie's eye sockets it was the loudest artifact on the model.
+//
+// So: positions and normals are computed once from the COMPLETE grid, and each
+// zone gets its own index buffer over the same attributes. The shading is then
+// continuous across the boundary and only the colour changes, which is exactly
+// what is wanted.
+export function gridSurfaceSplit({
+  uSteps, vSteps, closedU = true, point, keepIndex = null, uAt = null, vAt = null,
+  zoneOf, zoneCount,
+}) {
+  const uN = closedU ? uSteps : uSteps + 1;
+  const vN = vSteps + 1;
+  const uOf = uAt || ((i) => i / uSteps);
+  const vOf = vAt || ((j) => j / vSteps);
+  const pts = [];
+  for (let i = 0; i < uN; i++) for (let j = 0; j < vN; j++) pts.push(point(uOf(i), vOf(j)));
+  const at = (i, j) => ((i % uN) + uN) % uN * vN + j;
+
+  const all = [];
+  const perZone = Array.from({ length: zoneCount }, () => []);
+  for (let i = 0; i < uSteps; i++) {
+    for (let j = 0; j < vSteps; j++) {
+      if (keepIndex && !keepIndex(i, j)) continue;
+      const uc = (uOf(i) + uOf(i + 1 === uN ? uSteps : i + 1)) / 2;
+      const vc = (vOf(j) + vOf(j + 1)) / 2;
+      const a = at(i, j), b = at(i + 1, j), c = at(i + 1, j + 1), d = at(i, j + 1);
+      const tri = [a, c, b, a, d, c];
+      all.push(...tri);
+      perZone[zoneOf(uc, vc)].push(...tri);
+    }
+  }
+  // Normals from the complete surface, then handed to every zone unchanged.
+  const base = mesh(flat(pts), all);
+  return perZone.map((idx) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', base.attributes.position);
+    g.setAttribute('normal', base.attributes.normal);
+    g.setIndex(idx);
+    return g;
+  });
+}
+
 // A ribbon swept along a closed run of frames. Each frame is a point with an
 // outward in-surface direction `t` and an outward normal `n`; the profile is a
 // list of (t, n) offsets from that point.

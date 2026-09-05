@@ -143,12 +143,14 @@ const PLAN_SKIP = 0.75;
 // to zero. The skeleton walks its full 2.49 a second, back and forth, for as
 // long as you leave it there.
 //
-// Measured over twenty arenas at 240 s: a hunting skeleton spends 4.6% of its
+// Measured over twenty arenas at 240 s: a hunting skeleton spent 4.6% of its
 // time above ground inside a one unit circle, and every instance the probe
-// caught was against a barrier with `wedged` at exactly 0.0. It is an eighth of
-// a skeleton permanently out of the game, and it is invisible to every check
-// that asks whether the mover is being blocked rather than whether it is going
-// anywhere.
+// caught was against a barrier with `wedged` at exactly 0.0. It was an eighth
+// of a skeleton permanently out of the game, invisible to every check that asks
+// whether the mover is being blocked rather than whether it is going anywhere.
+// With this in it is 1.7%, and the reckless and passive players both got
+// measurably worse off, which is the right sign: the skeletons that are up are
+// all actually chasing now.
 //
 // So this measures the honest thing: net displacement over time. Four and a
 // half seconds at the walk is eleven units of travel, so failing to get two
