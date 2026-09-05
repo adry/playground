@@ -202,6 +202,27 @@ function segRectHits(au, av, bu, bv, hu, hv) {
   return true;
 }
 
+// DOES THIS PROP BLOCK A BODY OF RADIUS r STANDING AT (x, z)?
+//
+// The one implementation of "a prop's footprint against a body", exported
+// because it is reproduced elsewhere and reproductions drift. world/repair.js
+// carries its own four-line copy of the circle version and says so in a
+// comment; until it imports this instead, the repair pass and the audit are
+// judging levels against a fatter prop than the game collides with, which is
+// safe in the direction of removing props that did not need removing and NOT
+// safe in the other: a pocket that only exists once the props are their real
+// size is a pocket the audit cannot see. See rules.js tryJump, which is what
+// currently stops one of those costing a run.
+export function propBlocks(p, x, z, r, slack = 1e-6) {
+  const f = boxFoot(p);
+  if (f) {
+    intoProp(p, x, z);
+    return pointRectD2(locU, locV, f.halfU, f.halfV) < r * r - slack;
+  }
+  const lim = p.radius + r;
+  return (x - p.x) ** 2 + (z - p.z) ** 2 < lim * lim - slack;
+}
+
 // Squared distance from a segment to a prop's box. Exact: for two disjoint
 // convex sets the closest pair always has a vertex at one end, so it is the
 // smallest of the two endpoints against the rectangle and the four corners
@@ -616,14 +637,7 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     }
     propIx.query(x - r - 1.2, z - r - 1.2, x + r + 1.2, z + r + 1.2, scratch2);
     for (const p of scratch2) {
-      const f = boxFoot(p);
-      if (f) {
-        intoProp(p, x, z);
-        if (pointRectD2(locU, locV, f.halfU, f.halfV) < r * r - 1e-6) return false;
-        continue;
-      }
-      const lim = p.radius + r;
-      if ((x - p.x) ** 2 + (z - p.z) ** 2 < lim * lim - 1e-6) return false;
+      if (propBlocks(p, x, z, r)) return false;
     }
     return true;
   }

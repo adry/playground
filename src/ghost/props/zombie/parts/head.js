@@ -631,6 +631,7 @@ export function buildHead({ materials }) {
       const p = surfacePoint(u, vv);
       if (p.z <= 0) return true;
       for (const side of [1, -1]) if (socketR(p.x, p.y, side) <= 0.92) return false;
+      if (grinR(p.x, p.y) <= 0.86) return false;
       return true;
     },
   });
@@ -662,14 +663,19 @@ export function buildHead({ materials }) {
       const [u, vv] = frontUV(x, y);
       return { p: surfacePoint(u, vv), n: baseNormal(u, vv) };
     };
+    // The outward direction is checked against the socket's ACTUAL centre, not
+    // against the antipodal point on the outline. With a wobbly outline the
+    // antipode is not the centre, the dot product comes out the wrong way for
+    // a few frames, and those frames sweep their profile inward instead of
+    // outward: the rim then sprouts bright spokes across the face.
+    const [ucc, vcc] = frontUV(side * SOCK_X, BROW_Y);
+    const hub = surfacePoint(ucc, vcc);
     for (let i = 0; i < N; i++) {
       const th = (i / N) * Math.PI * 2;
       const a = at(th), b = at(th + 0.02);
       const tangent = new THREE.Vector3().subVectors(b.p, a.p).normalize();
       const out = new THREE.Vector3().crossVectors(tangent, a.n).normalize();
-      // point it AWAY from the socket's centre
-      const centre = at(th + Math.PI).p;
-      if (out.dot(new THREE.Vector3().subVectors(a.p, centre)) < 0) out.negate();
+      if (out.dot(new THREE.Vector3().subVectors(a.p, hub)) < 0) out.negate();
       frames.push({ p: a.p, t: out, n: a.n });
     }
     const w = SOCK_HW * 0.34;
@@ -687,14 +693,17 @@ export function buildHead({ materials }) {
     // sees is the hole, filled.
     const [uc, vc] = frontUV(side * SOCK_X, BROW_Y);
     const axis = baseNormal(uc, vc);
+    // Set back nearly two socket depths. At 1.30 its front pole was only a
+    // fifth of a depth behind the skin and it came through the shell's cut in
+    // spokes wherever the rim's crest ran thin.
     const floor = surfacePoint(uc, vc, { sockets: false, mouth: false })
-      .addScaledVector(axis, -d * 1.30);
-    put(group, ball(SOCK_HW * 1.45, SOCK_HH * 1.45, d * 1.10, 20), materials.socket,
+      .addScaledVector(axis, -d * 1.95);
+    put(group, ball(SOCK_HW * 1.30, SOCK_HH * 1.30, d * 1.15, 20), materials.socket,
       { pos: floor });
     put(group, ball(SOCK_HW * 0.72, SOCK_HH * 0.70, d * 0.85, 14), materials.socketDeep, {
       pos: floor.clone()
         .add(v(-side * SOCK_HW * 0.10, -SOCK_HH * 0.10, 0))
-        .addScaledVector(axis, d * 0.28),
+        .addScaledVector(axis, d * 0.34),
     });
   }
 
@@ -708,24 +717,48 @@ export function buildHead({ materials }) {
     sectors: 26, rings: 6,
   }), materials.socket);
 
-  // The dark inside the mouth.
-  //
-  // Not a ball. A ball seated at the middle of the grin is only flush there:
-  // an ellipsoid falls away from its own pole faster than the face does, so
-  // the corners and the bottom of the trough came out green and the dark read
-  // as a moustache floating above the teeth. This is a PATCH OF THE FACE
-  // ITSELF, the mouth trough's own floor pushed a further grin.depth back
-  // along its own normal, so it is exactly parallel to the trough everywhere
-  // and the whole slot is dark from every angle.
+  // The mouth, built the same way as the sockets and for the same reason: a
+  // real hole, a lip swept along the true outline, and the dark set well back
+  // behind it. A slot with a sheet laid in it kept rendering as a thin dark
+  // curve with teeth balanced on it, because the sheet has to sit shallow to
+  // avoid the shell and shallow means lit.
   {
-    put(group, dentDisc({
-      cx: 0, cy: GRIN_Y,
-      hw: GRIN_HW, hh: GRIN_HH,
-      depth: M.grin.depth, proud: 0.14, scale: 1.08,
-      lift: (x) => M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(x) / GRIN_HW), 2),
-      wobble: M.grin.wobble, phase: 0.4,
-      sectors: 26, rings: 5,
-    }), materials.socketDeep);
+    const frames = [];
+    const N = 44;
+    const at = (th) => {
+      const k = lobes(th, M.grin.wobble, 0.4);
+      const x = GRIN_HW * k * Math.cos(th);
+      const lift = M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(x) / GRIN_HW), 2);
+      const y = GRIN_Y + lift + GRIN_HH * k * Math.sin(th);
+      const [u, vv] = frontUV(x, y);
+      return { p: surfacePoint(u, vv), n: baseNormal(u, vv) };
+    };
+    const [uch, vch] = frontUV(0, GRIN_Y);
+    const hub = surfacePoint(uch, vch);
+    for (let i = 0; i < N; i++) {
+      const th = (i / N) * Math.PI * 2;
+      const a = at(th), b = at(th + 0.02);
+      const tangent = new THREE.Vector3().subVectors(b.p, a.p).normalize();
+      const out = new THREE.Vector3().crossVectors(tangent, a.n).normalize();
+      if (out.dot(new THREE.Vector3().subVectors(a.p, hub)) < 0) out.negate();
+      frames.push({ p: a.p, t: out, n: a.n });
+    }
+    const w = GRIN_HH * 0.42;
+    const d = M.grin.depth;
+    put(group, ribbon(frames, [
+      { t: w * 1.5, n: -d * 0.10 },
+      { t: w * 0.50, n: d * 0.22 },        // the lip, such as it is
+      { t: -w * 0.10, n: -d * 0.30 },
+      { t: -w * 0.50, n: -d * 1.00 },
+      { t: -w * 0.85, n: -d * 1.60 },
+    ]), materials.skin);
+
+    const [uc, vc] = frontUV(0, GRIN_Y);
+    const axis = baseNormal(uc, vc);
+    put(group, ball(GRIN_HW * 1.20, GRIN_HH * 1.55, d * 1.45, 22), materials.socketDeep, {
+      pos: surfacePoint(uc, vc, { sockets: false, mouth: false })
+        .addScaledVector(axis, -d * 2.30),
+    });
   }
 
   // Upper teeth ride on the cranium.

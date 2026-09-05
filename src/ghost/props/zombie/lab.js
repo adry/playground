@@ -111,7 +111,7 @@ function pose(r) {
     j.jaw.rotation.x = 0.55;
     for (const s of ['L', 'R']) {
       j[`shoulder${s}`].rotation.set(-1.10, 0, s === 'L' ? 0.35 : -0.35);
-      j[`elbow${s}`].rotation.x = 1.60;
+      j[`elbow${s}`].rotation.x = -1.60;   // negative folds an elbow FORWARD
       j[`hip${s}`].rotation.x = -1.20;
       j[`knee${s}`].rotation.x = 1.70;
       j[`ankle${s}`].rotation.x = 0.40;
@@ -125,14 +125,14 @@ function pose(r) {
     j.hipR.rotation.x = 0.35; j.kneeR.rotation.x = 0.55;
     j.ankleR.rotation.x = -0.30;
     j.shoulderL.rotation.x = 0.45; j.shoulderR.rotation.x = -0.85;
-    j.elbowL.rotation.x = 0.55; j.elbowR.rotation.x = 1.05;
+    j.elbowL.rotation.x = -0.55; j.elbowR.rotation.x = -1.05;
     j.spineUpper.rotation.set(-0.18, 0.10, 0);
     j.head.rotation.x = -0.18;
     j.jaw.rotation.x = 0.28;
   } else if (params.get('pose') === 'reach') {
     for (const s of ['L', 'R']) {
       j[`shoulder${s}`].rotation.set(-1.45, 0, s === 'L' ? 0.10 : -0.10);
-      j[`elbow${s}`].rotation.x = 0.35;
+      j[`elbow${s}`].rotation.x = -0.35;
     }
     j.jaw.rotation.x = 0.5;
     j.spineUpper.rotation.x = -0.15;

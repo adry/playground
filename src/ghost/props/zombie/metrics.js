@@ -542,6 +542,27 @@ export const REST = {
 // exceed them knowingly; they exist so nobody discovers the jaw clipping the
 // sternum at frame 300 of a recording.
 //
+// EVERY NUMBER IS A SIGNED EULER TARGET on the joint's own axes, not a
+// magnitude. The joints are identity at rest with world-aligned axes and the
+// figure faces +Z, so on any limb hanging downward a POSITIVE rotation.x
+// swings the lower segment BACKWARD and a negative one swings it forward.
+// That makes the two hinges read opposite:
+//
+//     knee    [0, 2.20]     positive: the heel comes back. A knee folds back.
+//     elbow   [-2.30, 0.10] negative: the hand comes forward. An elbow folds
+//                           forward, and this entry was published as
+//                           [0, 2.30] in the first pass, which is a knee. The
+//                           animation half caught it by taking the fold
+//                           direction off the rig's own rest pose instead of
+//                           believing the table, so nothing shipped broken,
+//                           but the table was lying.
+//
+// The rest, checked at the same time and correct as published: `hip` and
+// `shoulder` are negative-forward, which is why their forward range is the
+// larger one; `ankle` positive is toes down; `jaw` positive opens, which is
+// also published on the node as userData.openSign; `wrist`, `neck`, `head`
+// and the two spine joints are near-symmetric and carry no sign trap.
+//
 // The tight ones are all consequences of the head being a third of the figure:
 // there is no neck to bend, the shoulders are narrower than the skull, and the
 // arms are short enough that a full forward reach brings the hands to the chin.
@@ -552,10 +573,10 @@ export const LIMITS = {
   spineLower: { x: [-0.45, 0.75], y: [-0.40, 0.40], z: [-0.30, 0.30] },
   spineUpper: { x: [-0.50, 0.60], y: [-0.45, 0.45], z: [-0.30, 0.30] },
   shoulder:   { x: [-2.60, 1.10], y: [-0.90, 0.90], z: [-0.35, 1.45] },
-  elbow:      { x: [0.00, 2.30] },
+  elbow:      { x: [-2.30, 0.10] },
   wrist:      { x: [-0.80, 0.80], y: [-0.50, 0.50], z: [-0.45, 0.45] },
   hip:        { x: [-1.70, 0.90], y: [-0.40, 0.40], z: [-0.35, 0.60] },
-  knee:       { x: [0.00, 2.20] },
+  knee:       { x: [0.00, 2.20] },   // positive: heel back. See the note above.
   ankle:      { x: [-0.60, 0.75], y: [-0.25, 0.25], z: [-0.25, 0.25] },
 };
 
