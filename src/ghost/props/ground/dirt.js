@@ -141,7 +141,12 @@ const MOUND = {
   outer: 0.68,
   peak: 0.40,        // radius the crest sits at
   height: 0.085,     // crest height above the local ground
-  rise: 0.20,
+  // How far below the floor a mound clod starts, over and above its own
+  // half-height. Each clod is buried by exactly enough to hide it and no more,
+  // rather than by one shared depth: a shared depth is set by the tallest clod
+  // in the ring, and then the whole mound spends the first two thirds of the
+  // beat travelling through solid ground where nobody can see it.
+  hide: 0.015,
   tilt: 0.55,        // radians a clod tips over as it comes up
   // How fast the mound is allowed to come up, in units of stir per second.
   //
@@ -678,7 +683,7 @@ export function createDirtField({
           mound.push({
             slot: i,
             top: ground + MOUND.height * t * (0.55 + 0.75 * rand()),
-            sunk: ground - MOUND.rise,
+            sunk: ground - (sy[i] + MOUND.hide),
             tilt: (rand() * 2 - 1) * MOUND.tilt,
             axis: a,
             r,
@@ -725,7 +730,10 @@ export function createDirtField({
           // down the slope it was sitting on. This is the half of beat one that
           // reads at game framing: a mound 15 cm across is a smudge, and a clod
           // coming off it and rolling is a thing that moved.
-          const owed = Math.floor(stirred * 3.2);
+          // Nothing tips until the mound is proud enough to tip off: a clod
+          // released while its slot is still under the floor arrives by being
+          // shoved up through it, which reads as a bug and not as a break.
+          const owed = Math.floor(clamp01((stirred - 0.40) / 0.60) * 3.4);
           while (tipped < owed && mound.length) {
             const m = mound[mound.length - 1 - tipped];
             tipped += 1;
