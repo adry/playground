@@ -1,0 +1,335 @@
+// The fields the world is made of: everything here is a PURE FUNCTION of the
+// seed and a position, with no state, no chunk and no build order.
+//
+// This is the layer that makes an endless world possible at all. A chunk can
+// only be built without reference to its non-neighbours if the things that
+// span chunks are not built at all but EVALUATED: the paths are curves you can
+// sample at any point, the ground density is a scalar you can read at any
+// point, and the lattice that decides where an open grave or a firefly may
+// exist is arithmetic on the coordinate rather than a list somebody has to
+// keep. Only the things that are LOCAL (a fenced plot, a row of stones) are
+// generated per chunk, and those are the only things a neighbour has to be
+// consulted about.
+//
+// Coordinates. The world works in the same two frames the layout package does.
+// GRID (u, v) is the camera's own plane: u runs across the screen, v runs up
+// it, and screen depth is x + z = -sqrt(2) v. WORLD (x, z) is that plane turned
+// 45 degrees, and frame.js owns the isometry. Every field below is defined in
+// GRID, because rule 5 is a fact about the camera and a path that wanders in v
+// is a path that wanders up the screen rather than diagonally across it.
+// Chunks, by contrast, are squares on the WORLD axes, because a chunk is a
+// streaming unit that the renderer and the navigation half both address in
+// world coordinates. The two are one isometry apart and gridBoxOf() below is
+// that conversion.
+
+import { createRng } from '../layout/rng.js';
+import { makeFrame } from '../layout/frame.js';
+
+export const TAU = Math.PI * 2;
+
+// --- the numbers ------------------------------------------------------------
+
+// One chunk, in world units. Chosen from the interaction radius: the tallest
+// prop the world places is the obelisk at 1.85, which loses 0.39 of apparent
+// height per unit of screen depth, so it can reach 1.85 / 0.39 = 4.7 units of
+// depth, which is 3.4 units of v. Add the widest footprint and rule 1's own
+// margin and nothing a prop does reaches more than about 5 units. A chunk
+// larger than that reach means the 3 by 3 neighbourhood of a chunk always
+// contains everything that could argue with it, which is what makes a chunk
+// buildable from its neighbours alone. 24 is that with a factor of four to
+// spare, it is twelve whole 2.0 fence panels, and it holds one family plot and
+// a dozen sites of open ground without being so big that streaming it in is a
+// visible event.
+export const CHUNK = 24;
+
+// The paths. Two families of wandering curves, one running up the screen and
+// one across it. 18 apart is three times the old maze's 6.0 corridor pitch and
+// it is the number that stops the ground reading as corridors: at 18 the player
+// is in open ground and a path is somewhere to walk rather than the only place
+// they can be.
+export const PATH_SPACING = 18;
+// Half the clear width. DESIGN.md's corridor is 2.0 because the skeleton is
+// 0.95 across and the ghost 1.31, so two of them pass with 0.3 either side.
+// Nothing about that changed, so neither did the number.
+export const PATH_HALF = 1.3;
+
+// The firefly lattice. One firefly per cell, and the cell is the whole of the
+// pacing: at view 9.0 the camera shows 18 world units of screen height, so a
+// cell of 18 is one firefly per screen and the player has to choose a direction
+// and commit rather than graze. See index.js for the measured spacing this
+// actually produces.
+export const FLY_CELL = 18;
+// How far a firefly may be pulled off its cell centre to reach something worth
+// walking to. Bounds the spacing: two neighbours can be as close as
+// FLY_CELL - 2 * FLY_REACH and as far as FLY_CELL + 2 * FLY_REACH.
+export const FLY_REACH = 4.0;
+
+// The power pellet lattice, in world units. One jack-o'-lantern per 96, which
+// is one per about twenty eight fireflies.
+export const POWER_CELL = 96;
+
+// Open graves. src/ghost/ground.js can only cut the floor MAX_GROUND_HOLES
+// times and throws at the next one, so in an endless world the budget has to be
+// a property of the GEOMETRY rather than of a level: at most one open grave per
+// region of this size, placed within HOLE_REACH of the region's centre. Two
+// graves are then never closer than HOLE_REGION - 2 * HOLE_REACH = 24, and a
+// disc of radius 20 spans less than HOLE_REGION on each axis so it can touch at
+// most two regions each way, which is at most four graves. That is exactly the
+// floor's limit, and it holds everywhere, forever, with no bookkeeping.
+export const HOLE_REGION = 48;
+export const HOLE_REACH = 12;
+export const HOLE_RADIUS = 20;
+export const MAX_NEAR_HOLES = 4;
+
+// The entrance. The player starts at the origin and the owner asked for the
+// start to be spacious, so nothing is built inside this radius and the site
+// density is faded back in over the next eight units.
+export const START_CLEAR = 11;
+export const START_FADE = 8;
+
+// --- hashing ----------------------------------------------------------------
+//
+// Every random decision in the world is drawn from a stream named by the thing
+// it decides, exactly as rng.js argues: a generator that pulls everything off
+// one sequence is one where changing the fences changes every stone. Here the
+// name is a coordinate, so the stream for chunk (3, -2) is the same stream
+// whatever order the world was walked in.
+
+export function hash32(seed, ...vals) {
+  let h = (seed >>> 0) ^ 0x9e3779b9;
+  for (const v of vals) {
+    h = Math.imul(h ^ ((v | 0) + 0x7ed55d16), 0x85ebca6b);
+    h ^= h >>> 13;
+    h = Math.imul(h, 0xc2b2ae35);
+    h ^= h >>> 16;
+  }
+  return h >>> 0;
+}
+
+export function hashText(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  }
+  return h >>> 0;
+}
+
+// A named stream at a coordinate. rngAt(seed, 'chunk', 3, -2) is stable forever.
+export function rngAt(seed, tag, ...vals) {
+  return createRng(hash32(seed, hashText(tag), ...vals));
+}
+
+// A single number in [0, 1) at a coordinate, for the yes-or-no decisions that
+// do not deserve a whole stream.
+export function chanceAt(seed, tag, ...vals) {
+  return rngAt(seed, tag, ...vals).next();
+}
+
+// --- the field --------------------------------------------------------------
+
+function makeWaves(rng, count, minLen, maxLen) {
+  return Array.from({ length: count }, () => {
+    const angle = rng.float(0, TAU);
+    const len = rng.float(minLen, maxLen);
+    return { ku: Math.cos(angle) / len, kv: Math.sin(angle) / len, phase: rng.float(0, TAU) };
+  });
+}
+
+function sampleWaves(waves, u, v) {
+  let sum = 0;
+  for (const w of waves) sum += Math.sin(TAU * (w.ku * u + w.kv * v) + w.phase);
+  return sum / waves.length;
+}
+
+export function createField(seed) {
+  const frame = makeFrame('screen');
+
+  // --- the paths ------------------------------------------------------------
+  //
+  // A path is a curve, not a corridor. Family 'u' runs up the screen: curve k
+  // is u = 18k + wander(v), so it is single valued in v and can be sampled at
+  // any v without solving anything. Family 'v' runs across the screen the same
+  // way. Where a u curve meets a v curve there is a crossroads, and that is the
+  // only structure the world has that a player can navigate by, which is
+  // exactly what a junction was for in the maze.
+  //
+  // The wander is two sines with hashed phases rather than a noise table,
+  // because a sine can be evaluated at any coordinate at any time with no
+  // lattice, no interpolation and no cache, which is what "infinite" means
+  // here. The amplitudes are capped so a curve never wanders more than 5.2 off
+  // its nominal line: half the spacing is 9, so two parallel paths can never
+  // touch and the world can never accidentally close a route.
+  const waveCache = new Map();
+  function pathWaves(family, k) {
+    const key = family + ':' + k;
+    let w = waveCache.get(key);
+    if (!w) {
+      const rng = rngAt(seed, 'path/' + family, k);
+      w = [
+        { amp: rng.float(2.2, 3.6), len: rng.float(17, 26), phase: rng.float(0, TAU) },
+        { amp: rng.float(0.9, 1.6), len: rng.float(7.5, 11.5), phase: rng.float(0, TAU) },
+      ];
+      waveCache.set(key, w);
+    }
+    return w;
+  }
+  const PATH_SWING = 5.2;
+
+  function pathOffset(family, k, t) {
+    const w = pathWaves(family, k);
+    return w[0].amp * Math.sin(t / w[0].len + w[0].phase) + w[1].amp * Math.sin(t / w[1].len + w[1].phase);
+  }
+  // The curve's slope, which the boundary fences use to stand square to a path.
+  function pathSlope(family, k, t) {
+    const w = pathWaves(family, k);
+    return (w[0].amp / w[0].len) * Math.cos(t / w[0].len + w[0].phase)
+      + (w[1].amp / w[1].len) * Math.cos(t / w[1].len + w[1].phase);
+  }
+
+  // Curve k of family 'u' at height v: the u it passes through.
+  const uPathAt = (k, v) => PATH_SPACING * k + pathOffset('u', k, v);
+  // Curve m of family 'v' at across u: the v it passes through.
+  const vPathAt = (m, u) => PATH_SPACING * m + pathOffset('v', m, u);
+
+  // Which curves could come within `reach` of a point.
+  function uPathsNear(u, reach) {
+    const lo = Math.ceil((u - reach - PATH_SWING) / PATH_SPACING);
+    const hi = Math.floor((u + reach + PATH_SWING) / PATH_SPACING);
+    const out = [];
+    for (let k = lo; k <= hi; k++) out.push(k);
+    return out;
+  }
+  function vPathsNear(v, reach) {
+    const lo = Math.ceil((v - reach - PATH_SWING) / PATH_SPACING);
+    const hi = Math.floor((v + reach + PATH_SPACING * 0 + PATH_SWING) / PATH_SPACING);
+    const out = [];
+    for (let m = lo; m <= hi; m++) out.push(m);
+    return out;
+  }
+
+  // The nearest point of any path, and how far it is. Sampled rather than
+  // solved: the curves are gentle (slope under 0.45) so a coarse walk followed
+  // by a refinement is exact to well under a centimetre, and it costs about a
+  // hundred operations, which is nothing next to being able to ask the question
+  // at any point in an infinite world.
+  function nearestPath(u, v, reach = 6) {
+    let best = { dist: Infinity, family: null, k: 0, u: 0, v: 0 };
+    for (const k of uPathsNear(u, reach)) {
+      let bt = v;
+      let bd = Infinity;
+      for (let step = 1.0; step >= 0.05; step /= 5) {
+        for (let t = bt - step * 4; t <= bt + step * 4 + 1e-9; t += step) {
+          const cu = uPathAt(k, t);
+          const d = Math.hypot(cu - u, t - v);
+          if (d < bd) { bd = d; bt = t; }
+        }
+      }
+      if (bd < best.dist) best = { dist: bd, family: 'u', k, u: uPathAt(k, bt), v: bt };
+    }
+    for (const m of vPathsNear(v, reach)) {
+      let bt = u;
+      let bd = Infinity;
+      for (let step = 1.0; step >= 0.05; step /= 5) {
+        for (let t = bt - step * 4; t <= bt + step * 4 + 1e-9; t += step) {
+          const cv = vPathAt(m, t);
+          const d = Math.hypot(t - u, cv - v);
+          if (d < bd) { bd = d; bt = t; }
+        }
+      }
+      if (bd < best.dist) best = { dist: bd, family: 'v', k: m, u: bt, v: vPathAt(m, bt) };
+    }
+    return best;
+  }
+
+  // Where curve k of one family meets curve m of the other. Both curves are
+  // shallow, so substituting one into the other contracts by about 0.2 a step
+  // and eight steps is machine precision.
+  function crossing(k, m) {
+    let v = PATH_SPACING * m;
+    let u = uPathAt(k, v);
+    for (let i = 0; i < 8; i++) {
+      v = vPathAt(m, u);
+      u = uPathAt(k, v);
+    }
+    return { u, v };
+  }
+
+  // --- how full the ground is ------------------------------------------------
+  //
+  // A graveyard that is evenly full everywhere is a lawn with stones on it. The
+  // density field is what gives it old dense quarters and empty meadows, and it
+  // is the large scale organic that the owner's "less squarish" asks for as
+  // much as the small scale jitter is.
+  const densityWaves = makeWaves(rngAt(seed, 'density'), 4, 26, 70);
+  function density(u, v) {
+    return 0.5 + 0.5 * sampleWaves(densityWaves, u, v);
+  }
+
+  // How much of the world exists at a point. Zero inside the entrance clearing,
+  // one outside the fade, so the start reads as a space someone cleared.
+  function openness(x, z) {
+    const d = Math.hypot(x, z);
+    if (d <= START_CLEAR) return 0;
+    if (d >= START_CLEAR + START_FADE) return 1;
+    const t = (d - START_CLEAR) / START_FADE;
+    return t * t * (3 - 2 * t);
+  }
+
+  return {
+    seed,
+    frame,
+    uPathAt,
+    vPathAt,
+    uPathsNear,
+    vPathsNear,
+    pathSlope,
+    nearestPath,
+    crossing,
+    density,
+    openness,
+    PATH_SWING,
+  };
+}
+
+// --- boxes ------------------------------------------------------------------
+
+export const chunkBox = (cx, cz) => ({
+  minX: cx * CHUNK, maxX: cx * CHUNK + CHUNK,
+  minZ: cz * CHUNK, maxZ: cz * CHUNK + CHUNK,
+});
+
+export const chunkOf = (x, z) => ({ cx: Math.floor(x / CHUNK), cz: Math.floor(z / CHUNK) });
+
+// The grid-space bounding box of a world-space box. The two frames are 45
+// degrees apart, so a square in one is a diamond in the other and its bounding
+// box is sqrt(2) larger. Four corners is exact and it is the only conversion
+// anything in this package needs.
+export function gridBoxOf(frame, box) {
+  const corners = [
+    frame.toGrid(box.minX, box.minZ), frame.toGrid(box.maxX, box.minZ),
+    frame.toGrid(box.minX, box.maxZ), frame.toGrid(box.maxX, box.maxZ),
+  ];
+  return {
+    minU: Math.min(...corners.map((c) => c.u)), maxU: Math.max(...corners.map((c) => c.u)),
+    minV: Math.min(...corners.map((c) => c.v)), maxV: Math.max(...corners.map((c) => c.v)),
+  };
+}
+
+export function worldBoxOf(frame, gbox) {
+  const corners = [
+    frame.toWorld(gbox.minU, gbox.minV), frame.toWorld(gbox.maxU, gbox.minV),
+    frame.toWorld(gbox.minU, gbox.maxV), frame.toWorld(gbox.maxU, gbox.maxV),
+  ];
+  return {
+    minX: Math.min(...corners.map((c) => c.x)), maxX: Math.max(...corners.map((c) => c.x)),
+    minZ: Math.min(...corners.map((c) => c.z)), maxZ: Math.max(...corners.map((c) => c.z)),
+  };
+}
+
+export const boxesOverlap = (a, b) => a.minX <= b.maxX && a.maxX >= b.minX && a.minZ <= b.maxZ && a.maxZ >= b.minZ;
+
+export const padBox = (box, pad) => ({
+  minX: box.minX - pad, maxX: box.maxX + pad, minZ: box.minZ - pad, maxZ: box.maxZ + pad,
+});
+
+export default createField;

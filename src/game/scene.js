@@ -538,5 +538,8 @@ export async function startGame({ canvas, params }) {
     share: () => shareUrl({ ...run, remaining: game.state.fireflies.remaining }, ''),
     get layout() { return layout; },
   };
+  // For the performance probe. renderer.info is the only honest source for
+  // draw calls and texture count, and it cannot be reached from outside.
+  window.__renderer = renderer;
   window.__gameReady = true;
 }
