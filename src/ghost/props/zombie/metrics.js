@@ -138,42 +138,59 @@ export const M = {
   //
   // A third of the figure, which is the single loudest thing about a chibi.
   //
-  // It is NOT a sphere, and this is the constraint that shapes the modelling.
-  // The camera is fixed and orthographic and there is no environment map in
-  // this scene, so a ball has one broad terminator across it and reads as a
-  // flat disc at 34 px. The head therefore carries real form: a brow shelf
-  // over the sockets, a cheek plane under them, a flattened occiput, and a
-  // jaw that narrows below the ears. Those four planes are what give the
-  // three-quarter view a silhouette break; smoothness alone gives none.
+  // IT IS CLOSE TO A SPHERE. The third pass argued the opposite -- that a ball
+  // has one broad terminator and reads as a flat disc at 34 px -- and built
+  // real planes into it: a brow shelf, a cheek plane, a hard jaw taper, a
+  // converging crown. What came back was a TEARDROP, narrowing to a soft point
+  // at the top, and the owner rejected it on the silhouette before anyone got
+  // as far as the shading. See POSTMORTEM 2.5.
   //
-  // width < depth for the same reason the skeleton's cranial index is 0.75: a
-  // head as wide as it is deep has a circular horizontal section and turns to
-  // camera with no change of silhouette at all. 0.943 here is far rounder than
-  // a real skull because it is a toy, but it is not 1.0.
+  // The argument was not wrong about shading; it was wrong about where the
+  // shading has to come from. Form on the head now comes from SEPARATE
+  // VOLUMES set into a plain ball -- two orbital rims, a nasal aperture, a
+  // mouth trough, two ears -- every one of which throws a real shadow and a
+  // real silhouette break without touching the ball's own outline. The ball
+  // stays a ball.
+  //
+  // So: 0.316 wide, 0.326 deep, 0.330 tall. Those are within 4 per cent of
+  // each other and the deviations do useful work -- depth beats width so the
+  // horizontal section is not a circle and the head changes silhouette as it
+  // turns, which is the one thing a true sphere cannot do. `crownFull` widens
+  // the upper cranium so an ellipsoid's natural convergence toward its pole
+  // does not creep back in, and it is tapered to vanish exactly at the pole so
+  // the crown lands on its landmark height. `jawTaper` narrows the SIDES of
+  // the jaw and vanishes at the chin point, for the same reason.
   head: {
     height: f(0.330),         // chin to crown
-    // ROUNDER than the first build, which had these at 0.300 and 0.318 and
-    // came out egg-shaped: taller than wide, converging toward the crown, and
-    // the whole character read as an alien rather than a corpse. A chibi head
-    // is nearer a ball with a flat back. `crownFull` finishes the job by
-    // widening the upper cranium, which an ellipsoid alone never does.
+    // Within 4 per cent of the height and of each other: this is a ball.
+    // Depth beats width on purpose, so the horizontal section is an ellipse
+    // and the head changes silhouette as the walk turns it.
     width: f(0.316),
     depth: f(0.326),
-    crownFull: 0.10,
-    // How far the brow shelf stands proud of the ball. This is small in
-    // absolute terms and does most of the shading work on the upper face.
+    // Widens the upper cranium so the ellipsoid's convergence toward its pole
+    // never reads as a point. Applied as a smooth hump that is zero at the
+    // equator AND zero at the crown pole, so the head's height is still
+    // exactly chin-to-crown and `M.y.crown` is honoured to the millimetre.
+    crownFull: 0.055,
+    // The orbital rim's crest height above the ball, at the top of the socket
+    // where the brow ridge is. This is the raised ring of the eye grommet, not
+    // a shelf carved into the cranium: the third pass's brow shelf pressed the
+    // top of each orbit down and turned two round sockets into two almonds.
     browJut: f(0.026),
     // How far behind the head's centre plane the jaw condyle sits.
     jawHingeZ: f(-0.026),
-    // A forward swell over the whole lower face, so the mouth is a hole cut
-    // INTO something rather than a seam where two shapes meet.
-    muzzle: f(0.020),
-    // How much narrower the head is at the chin than at the cheekbones, as a
-    // fraction of width. A chibi jaw is barely tapered; 1.0 would be a ball.
-    // A FULLER jaw than the first build's 0.80. There has to be a face below
-    // the mouth or the grin reads as a strip of teeth clipped under a skull,
-    // and 0.80 left barely three pixels of chin.
-    jawTaper: 0.88,
+    // A gentle forward swell over the lower face, so the mouth is a hole cut
+    // INTO something. Half what the third pass used: the mouth is now a real
+    // sunken trough with its own walls, so the swell no longer has to do the
+    // work of making the opening read as an opening.
+    muzzle: f(0.010),
+    // How much narrower the head is at the SIDES of the jaw than at the
+    // cheekbones. Applied as a hump that vanishes at the chin point, so the
+    // chin lands on `M.y.chin` exactly and the lower face keeps its mass.
+    // There has to be a broad band of green below the mouth or the grin reads
+    // as a strip of teeth clipped under a skull, which is fault three of the
+    // three that killed the last pass.
+    jawTaper: 0.93,
     // Flatten the back of the cranium slightly. Stops the three-quarter
     // silhouette being a perfect circle, which is what makes a big head read
     // as a balloon.
@@ -313,17 +330,50 @@ export const M = {
   neck: { length: f(0.030), radius: f(0.056) },
 
   // --- torso ---------------------------------------------------------------
+  //
+  // NARROW, and this is the single most important number on the body.
+  //
+  // Fault two of the three that killed the third pass: "the arms disappear
+  // into the body. Shoulder to hip is one continuous mass with only fingers
+  // emerging near the hem. A figure with no visible arms reads as a bollard."
+  // The reference has clear daylight between each arm and the torso, and the
+  // stripped forearm -- one of the character's two defining features -- is
+  // only visible at all if that gap exists.
+  //
+  // The gap cannot be bought by moving the arms out. `REST` fixes the shoulder
+  // at 0.0925, the elbow at 0.2130 and the wrist at 0.2552, and the animation
+  // half is built against those. So the trunk moves IN instead, and these
+  // widths are derived from the arm rather than chosen:
+  //
+  //   at the elbow  (y = 0.847) the arm's inner edge is at x = 0.155
+  //   at the waist  (y = 0.765) it is at x = 0.176
+  //   at the wrist  (y = 0.639) it is at x = 0.208
+  //
+  // Half a trunk width plus 0.040 of clearance has to stay under those. 0.040
+  // is 2.3 px at game scale, which is the narrowest gap that still reads as a
+  // gap rather than as a seam. The waist is therefore 0.124 -- against the
+  // third pass's 0.196, which overlapped the arm by 21 mm and produced the
+  // bollard. A chibi trunk SHOULD be this narrow under a head a third of the
+  // figure tall; the old numbers were a realistic torso on a toy.
+  //
+  // Depth is barely reduced, so the body does not become a plank: the trunk is
+  // now deeper than it is wide at the waist, which is also what keeps the
+  // three-quarter silhouette from collapsing.
   torso: {
-    chestWidth: f(0.230),
-    chestDepth: f(0.160),
-    waistWidth: f(0.196),
-    waistDepth: f(0.138),
-    pelvisWidth: f(0.212),
-    pelvisDepth: f(0.150),
+    chestWidth: f(0.200),
+    chestDepth: f(0.158),
+    waistWidth: f(0.124),
+    waistDepth: f(0.132),
+    pelvisWidth: f(0.158),
+    pelvisDepth: f(0.146),
     // Shell thickness at the rim of the cavity. This is what you see edge-on
-    // when you look into the chest, and it is the thing that makes the
-    // opening read as a hole through a solid body rather than as a decal.
+    // looking into the chest, and it is what makes the opening read as a hole
+    // through a solid body rather than as a decal.
     shellThickness: f(0.020),
+    // How far the deltoid mass stands out past the trunk at the shoulder. The
+    // arm has to be ATTACHED at the top even though it is clear below, and
+    // this is the piece that does it.
+    shoulderPad: f(0.030),
   },
 
   // --- the exposed ribcage -------------------------------------------------
