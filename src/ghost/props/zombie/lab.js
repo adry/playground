@@ -147,13 +147,16 @@ async function boot() {
   if (mode === 'family') {
     const { Ghost } = await import('../../ghost.js');
     const g = new Ghost({ seed: 5 });
-    g.update(0.016, { move: new THREE.Vector2(), jump: false });
-    g.mesh.position.set(0, 0, 0);
+    // The cloth needs settling before it has a finite bounding box at all: one
+    // frame in, half the sheet is still NaN and anything that measures the
+    // scene comes back empty.
+    const idle = { move: new THREE.Vector2(), jump: false };
+    for (let i = 0; i < 180; i++) g.update(1 / 60, idle);
     const ghostHolder = new THREE.Group();
     ghostHolder.add(g.mesh);
-    ghostHolder.position.set(-1.35, 0, 0);
+    ghostHolder.position.set(-1.45, 0, 0);
     holder.add(ghostHolder);
-    parts.push({ dispose: () => {} });
+    parts.push({ update: (dt) => g.update(dt, idle), dispose: () => {} });
 
     rig.group.position.set(0, 0, 0);
     holder.add(rig.group);
@@ -171,6 +174,12 @@ async function boot() {
     // Exactly the game's own framing: half height 6.2, target y 0.75.
     view = 6.2;
     target.set(0, 0.75, 0);
+  } else if (mode === 'family') {
+    // Fixed, not fitted. The ghost is simulated cloth and its bounds move
+    // every frame, so a fitted camera would breathe between takes and the
+    // three figures could not be compared across edits.
+    view = 1.62;
+    target.set(0.10, 1.20, 0);
   } else {
     frame(holder);
   }
@@ -192,7 +201,7 @@ window.__preview = {
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
     aspectNow = w / h;
-    if (mode !== 'game' && !FIXED_VIEW) frame(holder);
+    if (mode !== 'game' && mode !== 'family' && !FIXED_VIEW) frame(holder);
     resize(w, h);
   },
   step(dt = 1 / 60, spin = 0) {
