@@ -37,6 +37,32 @@
 // So: a spike here is evidence only if it reproduces on the SAME frame across
 // runs, or if a bucket accounts for it. An unattributed spike on a machine you
 // do not own is not a finding.
+//
+// ===========================================================================
+// TWO MORE WAYS A PROBE ON THIS PROJECT HAS LIED, BOTH WORTH KNOWING
+// ===========================================================================
+//
+// A PROBE THAT BUILDS ITS SUBJECT THE PLAIN WAY IS MEASURING A DIFFERENT
+// PRODUCT. Chasing why the game's ghost billowed and /ghostly/'s did not, a
+// probe constructed a Ghost the obvious way, `new Ghost({ seed })`, and found
+// its top speed of 4.5 fighting the rules' 3.66 on every frame: 85% of cloth
+// substeps jittering against /ghostly/'s 0.9%. The number was real, the
+// mechanism was plausible, and the disagreement does not exist, because
+// scene.js sets ghost.opts.maxSpeed to the rules' own value and has since the
+// game was first playable. The probe had invented the fault it then found. The
+// real cause was a tenth the size and somewhere else entirely.
+//
+// This is the most dangerous shape of instrument failure here so far, because
+// nothing about the output looks wrong. The only defence is to read the file
+// that constructs the thing rather than to trust your model of it, and to
+// write the probe so it constructs its subject the way the product does.
+//
+// AND A PIXEL HEURISTIC IS A PROXY, NOT A MEASUREMENT. Measuring the ghost's
+// hop by finding the brightest pixels in the frame reported an apex of zero and
+// a lift of minus 612 pixels: the threshold was catching the HUD text and the
+// perimeter wall, not the sheet. The fix was not a better threshold, it was to
+// stop using a proxy: state.ghost.airY is the number itself and the page will
+// hand it over. Reach for the quantity before reaching for the picture of it.
 
 const HISTORY = 240;      // four seconds at 60fps
 const HITCH_MS = 33;      // a dropped frame at 60fps
