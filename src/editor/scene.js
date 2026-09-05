@@ -34,9 +34,28 @@ const OVER_Y = 0.035;
 
 const sig = (v) => JSON.stringify(v);
 
+// --- how many pixels, and how smooth ------------------------------------------
+//
+// The owner's display reports devicePixelRatio 2, so an uncapped editor fills
+// FOUR TIMES the window's pixels and multisamples all of them. That is the one
+// straight quality-for-speed trade in the tool, so it is a setting rather than
+// a constant, and quality() reports it so a readout can show what is in force.
+//
+//   ?dpr=<n>   cap the pixel ratio. Default DPR_CAP.
+//   ?aa=0      turn multisampling off.
+//
+// setQuality() moves the cap at run time without rebuilding the renderer, which
+// is what a slider in the editor's own settings would call. Antialiasing cannot
+// be changed after a context is made, so that one is load-time only.
+const DPR_CAP = 1.5;
+
 export function createEditorScene({ canvas }) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  const q = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
+  const antialias = q.get('aa') !== '0';
+  let dprCap = Number(q.get('dpr')) > 0 ? Number(q.get('dpr')) : DPR_CAP;
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias, preserveDrawingBuffer: true });
+  const applyPixelRatio = () => renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
+  applyPixelRatio();
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.shadowMap.enabled = true;
@@ -674,6 +693,19 @@ export function createEditorScene({ canvas }) {
     pan(dx, dz) { target.x += dx; target.z += dz; placeCamera(); },
     lookAt(x, z) { target.set(x, 0, z); placeCamera(); },
     get target() { return target; },
+    // The pixel-ratio cap, live. Anything from 0.5 (soft and fast) upward; the
+    // display's own ratio is the ceiling, so raising this past it does nothing.
+    setQuality({ dpr }) {
+      if (dpr > 0) { dprCap = dpr; applyPixelRatio(); resize(); }
+    },
+    quality() {
+      return {
+        dprCap,
+        devicePixelRatio: window.devicePixelRatio || 1,
+        pixelRatio: renderer.getPixelRatio(),
+        antialias,
+      };
+    },
     setOverlayFlags({ footprints, facing }) {
       if (footprints !== undefined) showFootprints = footprints;
       if (facing !== undefined) showFacing = facing;
