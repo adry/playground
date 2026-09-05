@@ -41,7 +41,41 @@ export function createEditorScene({ canvas }) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // The shadow map is re-rendered ONLY when asked. It is a 2048 by 2048 pass
+  // over every caster in the level and it cannot change unless the geometry or
+  // the light moves, so re-rendering it sixty times a second was doubling the
+  // draw calls of a picture that was already on screen. invalidate(true) is how
+  // anything says the shadows are stale.
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true;
   renderer.localClippingEnabled = true;
+
+  // --- when to draw ------------------------------------------------------------
+  //
+  // AN EDITOR IS NOT A GAME. Nothing in this scene moves on its own: a level
+  // sits there until somebody drags something. Drawing it sixty times a second
+  // was a full colour pass and a full shadow pass, for an identical picture,
+  // for as long as the page was open.
+  //
+  // So the loop still runs -- main.js hangs its paint flush and its palette
+  // thumbnail pump off onFrame and both must keep ticking -- but it only calls
+  // renderer.render when something has actually changed. Every entry point that
+  // can change the picture calls invalidate(); if one is ever missed the
+  // symptom is a stale canvas, so the list below is the whole contract:
+  //
+  //   sync, overlayOnly     the level or the overlay changed
+  //   placeCamera, resize   the view changed, which also moves the light
+  //   setView, setMode      likewise
+  //   pause(false)          the loop was handed back
+  //
+  // `shadows` says the change was geometric. A camera move needs a redraw and,
+  // because the light follows the target, a shadow pass too; an overlay change
+  // needs neither the shadow pass nor anything else re-lit.
+  let dirty = true;
+  function invalidate(shadows = false) {
+    dirty = true;
+    if (shadows) renderer.shadowMap.needsUpdate = true;
+  }
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#b9bec7').convertSRGBToLinear();
@@ -84,6 +118,8 @@ export function createEditorScene({ canvas }) {
     key.position.copy(key.target.position).add(LIGHT_OFFSET);
     key.target.updateMatrixWorld();
     ground.userData.uniforms?.uFocus.value.copy(target);
+    // The light hangs off the target, so moving the camera moves every shadow.
+    invalidate(true);
   }
 
   function resize() {
@@ -99,6 +135,7 @@ export function createEditorScene({ canvas }) {
     key.shadow.camera.top = reach; key.shadow.camera.bottom = -reach;
     key.shadow.camera.updateProjectionMatrix();
     placeCamera();
+    invalidate(true);
   }
 
   // --- picking -----------------------------------------------------------------
@@ -567,6 +604,8 @@ export function createEditorScene({ canvas }) {
     syncFlies(world);
     syncOverlay(world, doc, opts);
     syncBadges(world);
+    // A sync is the geometric change, so the shadow map goes with it.
+    invalidate(true);
   }
 
   let time = 0;
@@ -577,14 +616,24 @@ export function createEditorScene({ canvas }) {
   // redrawing sixty times a second on a software rasteriser never presents a
   // stable frame, and a screenshot of it waits for ever.
   let running = true;
+  // The firefly field is the one thing here that animates, and in an editor it
+  // is decoration: holding it still costs nothing anyone is authoring and is
+  // the difference between a page that draws sixty times a second and one that
+  // draws when you touch it. setAnimating(true) turns it back on for anyone who
+  // wants a moving picture, and the loop draws every frame again while it is.
+  let animating = false;
   function frame(now) {
     requestAnimationFrame(frame);
     const dt = Math.min((now - last) / 1000, 1 / 20);
     last = now;
     if (!running) return;
     time += dt;
+    // ALWAYS, even on a frame that draws nothing: main.js flushes its ground
+    // paint and pumps one palette thumbnail from here, and both would stop.
     onFrame?.(dt);
-    flies?.update(time, dt);
+    if (animating && flies) { flies.update(time, dt); dirty = true; }
+    if (!dirty) return;
+    dirty = false;
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
@@ -595,10 +644,13 @@ export function createEditorScene({ canvas }) {
   return {
     renderer, scene, camera, level, overlay, ground,
     sync,
+    // For main.js, or anyone who changes something this file cannot see.
+    invalidate,
+    setAnimating(on) { animating = !!on; if (on) invalidate(); },
     // The overlay alone. Moving the pointer with the ground brush up has to
     // redraw the brush ring and nothing else, and a full sync would rebuild
     // the world and revalidate it sixty times a second to move a circle.
-    overlayOnly(w, d, opts) { syncOverlay(w, d, opts); },
+    overlayOnly(w, d, opts) { syncOverlay(w, d, opts); invalidate(); },
     syncBadges,
     groundAt,
     pickAt,
@@ -606,7 +658,8 @@ export function createEditorScene({ canvas }) {
     set onFrame(fn) { onFrame = fn; },
     pause(on = true) {
       running = !on;
-      if (on) { placeCamera(); renderer.render(scene, camera); }
+      if (on) { placeCamera(); renderer.shadowMap.needsUpdate = true; renderer.render(scene, camera); dirty = false; }
+      else invalidate(true);
     },
     get view() { return view; },
     // HOW FAR OUT. `view` is the half height of the frame in world units, so
@@ -624,6 +677,7 @@ export function createEditorScene({ canvas }) {
     setOverlayFlags({ footprints, facing }) {
       if (footprints !== undefined) showFootprints = footprints;
       if (facing !== undefined) showFacing = facing;
+      invalidate();
     },
     stats() {
       return {
