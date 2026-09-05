@@ -164,9 +164,49 @@ export function createPropCache({ build, limit = 48 }) {
 // placements are grouped into square tiles first and a chunk behind the camera
 // still drops out. Nothing else about it matters -- a tile is a culling unit,
 // not a world concept.
+// A clone of a prop's un-instanceable half, with its LIGHTS STILL WIRED UP.
+//
+// Object3D.clone() is not enough, and the way it is not enough is silent. A
+// SpotLight's aim is a second object, and three's SpotLight.copy() does
+// `this.target = source.target.clone()`: the cloned light points at a fresh
+// detached copy of the aim rather than at the copy of the aim that is sitting
+// beside it in the very group being cloned. A detached object is in no scene,
+// so nothing ever updates its world matrix, and it keeps whatever world matrix
+// the template's aim had -- which for a template that was built at the origin
+// and never added to anything is the aim's own local position. Every placement
+// of that template then aims its cone at that ONE point in world space, so a
+// yard of jack-o'-lanterns all throw their light at the same patch of ground
+// near the middle of the level and none of them lights what it is facing.
+//
+// Walking the two trees together is the fix: a target that lives inside the
+// subtree is re-pointed at ITS clone, and a target that lives outside it (a
+// light aimed at something the scene owns) is left pointing at the original,
+// which is what sharing it meant in the first place.
+function cloneRig(src) {
+  const dst = src.clone();
+  const pairs = [];
+  const walk = (a, b) => {
+    pairs.push([a, b]);
+    for (let i = 0; i < a.children.length && i < b.children.length; i++) walk(a.children[i], b.children[i]);
+  };
+  walk(src, dst);
+  const map = new Map(pairs);
+  for (const [a, b] of pairs) {
+    if (!a.isLight || !a.target?.isObject3D) continue;
+    b.target = map.get(a.target) || a.target;
+  }
+  return dst;
+}
+
 export function createPropField({ placements = [], cache, tile = 16, spread = true }) {
   const group = new THREE.Group();
   const held = new Set();
+  // One per placement of a prop that carries something alive -- a flame, a
+  // flicker. See update(): the template's own update() drives the TEMPLATE's
+  // objects, which are in no scene, so a placement that wants to move has to be
+  // handed its own clone to move. A prop that publishes no attach() is static
+  // once placed and costs nothing here.
+  const animated = [];
 
   // Templates this field needs and the cache does not have yet.
   //
@@ -198,11 +238,13 @@ export function createPropField({ placements = [], cache, tile = 16, spread = tr
     // Whatever could not be instanced gets a clone. Rare on purpose: if this is
     // running for most props, the props want fixing, not the field.
     if (t.extra) {
-      const c = t.extra.clone();
+      const c = cloneRig(t.extra);
       c.position.set(p.x, p.y || 0, p.z);
       c.rotation.y = p.yaw || 0;
       if (p.scale) c.scale.multiplyScalar(p.scale);
       group.add(c);
+      const live = t.prop?.attach?.(c);
+      if (live) animated.push(live);
     }
   };
 
@@ -276,13 +318,26 @@ export function createPropField({ placements = [], cache, tile = 16, spread = tr
       cache.trim?.();
       return done;
     },
-    update() {},
+    // Everything in the field that is alive. A field of stones has nothing in
+    // here and this is a loop over an empty array; a field with a lit
+    // jack-o'-lantern in it has one entry per pumpkin, and each one steps its
+    // OWN spotlight and point light off the template's flame. Call it with the
+    // scene clock, once a frame, exactly as an authored prop's update() is
+    // called: the pumpkin only re-evaluates its noise when `time` changes, so
+    // several placements of one template cost one flame between them.
+    update(time = 0) {
+      for (const a of animated) a.update(time);
+    },
+    // How many placements in this field have something alive in them, so a
+    // caller can see at a glance whether update() is worth calling.
+    get animated() { return animated.length; },
     // The geometries and materials belong to the cache and are NOT freed here.
     // Only the instanced meshes are this field's own. Releasing is what makes
     // this chunk's templates evictable again.
     dispose() {
       for (const c of group.children) c.dispose?.();
       group.clear();
+      animated.length = 0;
       for (const t of held) cache.release?.(t);
       held.clear();
     },

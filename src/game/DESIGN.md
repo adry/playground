@@ -340,6 +340,51 @@ count as the raster refines and the rule tightens roughly sixfold between step
 a diverging one.
 
 
+## Where a firefly may not go
+
+Two exclusions, and only one of them is geometry.
+
+**The two near walls hide a band each.** The camera is orthographic down
+(1, 0.78, 1), so it stands at +x, +y, +z and the walls between it and the ground
+are `x = +15` and `z = +15`, which are the lower right and lower left edges of
+the screen. A point at height h projects `h / 0.78` further from the camera in
+BOTH x and z, so each of those walls hides a band that deep along the inside of
+itself. The wall's coping is at 2.0 and its piers stand 0.34 above that every
+5.0, so the tallest thing is 2.34 and the band is **3.25** including the wall's
+own half thickness. The pier crown is used rather than the coping deliberately:
+a pier is 0.86 wide and hides the extra 0.44 for about a sixth of the wall's
+length, and a rule that is right five times in six is a rule that gets reported
+as a bug the sixth time.
+
+**And three of the four corners.** Screen right is `(x - z) / sqrt(2)` and
+screen up is `-(x + z) / sqrt(2)`, so `(-15, +15)` is hard left, `(+15, +15)` is
+the bottom, `(+15, -15)` is hard right and only `(-15, -15)` is the top. The
+three that are low or to the side are where a firefly cannot be picked out, and
+nothing collectible goes within 7.0 of them. That radius is a judgement and not
+a measurement, and what it costs is in the table below.
+
+`field.js`'s `inView` is the only definition and every placer asks it: the
+generator's own lattice, `level/fireflies.js` for a hand-made level, and
+`rules.js`'s runtime refill, so the five that appear when one is left obey the
+same rule as the first six. `audit.js` fails a level whose fireflies are not all
+in view, which is how the last placer fallback that ignored it was found.
+
+**What it costs, and this is the trade to take back to the owner.**
+
+| available | six fireflies, best nearest neighbour |
+|---|---|
+| the whole arena | 15.9 |
+| less the two blind bands | 12.3 |
+| less the three dim corners as well | 11.5 |
+| and once they also dodge props and fences | 11.9 mean, 9.0 worst, measured over 100 arenas |
+
+The original requirement was 15 to 25, "have to cross the screen for the next
+one". **Six fireflies in the visible arena cannot meet it.** Five in the same
+region reach about 13 and still miss it. This is the same shrinking-arena
+problem the table below records, arriving a second time from a different
+direction, and the choice is the owner's: six and 11.5, or five and 13, or the
+corners back and 12.3.
+
 ## Firefly spacing: what a 30 by 30 arena can actually hold
 
 The owner asked to have to cross the screen for the next firefly, which put the

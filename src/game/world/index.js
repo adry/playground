@@ -138,7 +138,7 @@
 // off the props themselves rather than being written down twice.
 
 import {
-  levelBox, gridBoxOf, worldBoxOf, padBox, boxesOverlap, inBox, rngAt,
+  levelBox, gridBoxOf, worldBoxOf, padBox, boxesOverlap, inBox, rngAt, inView, BLIND_BAND,
   LEVEL_SIZE, PATH_HALF, FLY_REACH, FLY_GAP, SPAWN_CLEAR, WALL_HEIGHT, WALL_HALF,
 } from './field.js';
 import { buildLevel, BODY } from './level.js';
@@ -229,6 +229,10 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
       // skeleton cannot enter is a firefly the player collects for free, and
       // one behind a row of headstones is a firefly nobody can collect at all.
       if (!bad && !walk.walkable(w.x, w.z, 1.0)) bad = true;
+      // AND SOMEWHERE THE PLAYER CAN SEE. See field.js's inView: the two walls
+      // the camera stands behind each hide a band of ground, and three of the
+      // four corners are where a firefly is hardest to pick out.
+      if (!bad && !inView(box, w.x, w.z)) bad = true;
       if (!bad) return { u, v };
     }
     return pick;
@@ -293,6 +297,7 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
     const ok = (s) => {
       const w = frame.toWorld(s.u, s.v);
       return walk.walkable(w.x, w.z, 1.0)
+        && inView(box, w.x, w.z)
         && !apart.some((o) => Math.hypot(w.x - o.x, w.z - o.z) < FLY_GAP);
     };
     let spot = nudge(pick, centre, wide, clear, apart);
@@ -307,10 +312,44 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
         || walk.nearestReachable(w.x, w.z, 10);
       if (c) w = c;
     }
+    // The last resort can land somewhere the camera cannot see, since
+    // walk.nearestReachable knows about bodies and not about the camera. Ring
+    // outward for the nearest spot that is both, rather than stepping in one
+    // direction: the first version walked back along the camera's own diagonal,
+    // which is right for the two blind bands and pushes straight into the far
+    // wall when the problem is a dim CORNER instead. That put one firefly in
+    // sixty arenas inside the right-hand corner and it took an audit rule to
+    // find it.
+    if (!inView(box, w.x, w.z)) {
+      let fixed = null;
+      for (let r = 1.0; r <= 14 && !fixed; r += 0.75) {
+        const steps = Math.max(8, Math.round((2 * Math.PI * r) / 0.75));
+        for (let k = 0; k < steps; k++) {
+          const a = (k / steps) * Math.PI * 2;
+          const x = w.x + Math.cos(a) * r;
+          const z = w.z + Math.sin(a) * r;
+          if (!inView(box, x, z)) continue;
+          if (!walk.walkable(x, z, 1.0)) continue;
+          fixed = { x, z };
+          break;
+        }
+      }
+      if (fixed) w = fixed;
+    }
     return { x: w.x, z: w.z, why: pick.why };
   }
 
-  // SIX fireflies: the quincunx, plus one.
+  // SIX fireflies, and where the lattice starts from.
+  //
+  // The corners of the inset square used to be the four corners of the arena
+  // pulled in by EDGE, and three of those four are exactly where the owner says
+  // a firefly cannot be seen. `collectible` will now refuse them and the nudge
+  // will walk them somewhere legal, but starting a search at a point that is
+  // certainly illegal wastes the search, so the lattice is BIASED toward the
+  // camera's far side: the inset square is pulled toward (minX, minZ), which is
+  // the top of the screen and the only corner that reads well.
+  //
+  // The quincunx, plus one.
   //
   // The quincunx -- four corners of the inset square and one in the middle --
   // is the shape the spacing argument below arrived at, and it is unchanged.
@@ -337,7 +376,9 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
   // spanned 22. Corner to corner, always.
   const flyList = (() => {
     const lo = EDGE;
-    const hi = size - EDGE;
+    // The far edge is pulled in by the blind band as well as by EDGE, so the
+    // lattice lives entirely in ground the camera can see.
+    const hi = size - Math.max(EDGE, BLIND_BAND + 1.5);
     const at = (fx, fz) => ({ x: box.minX + lo + fx * (hi - lo), z: box.minZ + lo + fz * (hi - lo) });
     const spots = [at(0, 0), at(1, 0), at(0, 1), at(1, 1), at(0.5, 0.5), at(0.25, 0.75)];
     const out = [];

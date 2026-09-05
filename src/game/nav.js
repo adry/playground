@@ -270,56 +270,141 @@ export function createNav(world, { window: win = WINDOW } = {}) {
 
   // --- the ghost's collision ------------------------------------------------
   //
-  // A disc against capsules and circles, pushed out of everything it overlaps,
-  // three passes. Sliding falls out of it exactly as it did against the old
-  // lattice: the component of the move along a surface survives the push.
+  // A disc against capsules and circles, pushed out of whatever it overlaps.
+  // Sliding falls out of it exactly as it did against the old lattice: the
+  // component of the move along a surface survives the push.
   //
   // `air` is the whole jump: an airborne ghost is resolved against props and
   // not against fences.
-  function resolveDisc(x, z, r, air = false) {
-    for (let iter = 0; iter < 3; iter++) {
-      let moved = false;
-      if (!air) {
-        barrierIx.query(x - r - 0.2, z - r - 0.2, x + r + 0.2, z + r + 0.2, scratch);
-        for (const b of scratch) {
-          const lim = b.half + r;
-          const dx = b.x1 - b.x0;
-          const dz = b.z1 - b.z0;
-          const ll = dx * dx + dz * dz;
-          let t = ll > 1e-12 ? ((x - b.x0) * dx + (z - b.z0) * dz) / ll : 0;
-          t = t < 0 ? 0 : t > 1 ? 1 : t;
-          const qx = b.x0 + dx * t;
-          const qz = b.z0 + dz * t;
-          let nx = x - qx;
-          let nz = z - qz;
-          let d = Math.hypot(nx, nz);
-          if (d >= lim - 1e-9) continue;
-          if (d < 1e-9) {
-            // Dead on the centreline after a pathological step. Leave by the
-            // fence's own normal, which is always defined.
-            const il = 1 / Math.max(1e-9, Math.hypot(dx, dz));
-            nx = -dz * il; nz = dx * il; d = 1;
-          } else { nx /= d; nz /= d; }
-          x = qx + nx * lim;
-          z = qz + nz * lim;
-          moved = true;
-        }
-      }
-      propIx.query(x - r - 1.2, z - r - 1.2, x + r + 1.2, z + r + 1.2, scratch2);
-      for (const p of scratch2) {
-        const lim = p.radius + r;
-        let nx = x - p.x;
-        let nz = z - p.z;
+  //
+  // ONE CONTACT AT A TIME, DEEPEST FIRST, and that is a change from the three
+  // passes over every contact in list order this used to make. Sequential
+  // projection does not converge when the keep-out regions of two colliders
+  // OVERLAP: out of A is into B, out of B is into A, and each pass hands the
+  // body back to the other one. The order the two happen to come out of the
+  // index then decides where it lands, and where it lands can be a fixed point
+  // of the whole step -- integrate, resolve, arrive back at exactly the same
+  // coordinates -- for every direction the stick can be pushed. That is a lost
+  // run: the ghost stands there and nothing the player does moves it.
+  //
+  // Taking the deepest contact first is the standard cure and it costs nothing.
+  // It converges wherever a free point exists nearby, because each step is the
+  // largest single correction available and cannot be undone by a smaller one.
+  // The common cases are cheaper than they were, too: one contact resolves in
+  // two iterations rather than three passes, and no contact in one.
+  //
+  // Where no free point exists at all -- a genuine WEDGE, which is what two
+  // props closer together than a body makes, and which the bushes are about to
+  // make many more of -- no amount of iterating can succeed, and the fallback
+  // below is what guarantees the ghost is never held.
+  const CONTACT_PASSES = 12;
+
+  // The deepest overlap at (x, z), as the place the centre has to move to.
+  // Returns the depth, or 0 when the body is clear.
+  let pushX = 0;
+  let pushZ = 0;
+  function deepestPush(x, z, r, air) {
+    let depth = 0;
+    if (!air) {
+      barrierIx.query(x - r - 0.2, z - r - 0.2, x + r + 0.2, z + r + 0.2, scratch);
+      for (const b of scratch) {
+        const lim = b.half + r;
+        const dx = b.x1 - b.x0;
+        const dz = b.z1 - b.z0;
+        const ll = dx * dx + dz * dz;
+        let t = ll > 1e-12 ? ((x - b.x0) * dx + (z - b.z0) * dz) / ll : 0;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const qx = b.x0 + dx * t;
+        const qz = b.z0 + dz * t;
+        let nx = x - qx;
+        let nz = z - qz;
         let d = Math.hypot(nx, nz);
-        if (d >= lim - 1e-9) continue;
-        if (d < 1e-9) { nx = 1; nz = 0; d = 1; } else { nx /= d; nz /= d; }
-        x = p.x + nx * lim;
-        z = p.z + nz * lim;
-        moved = true;
+        if (!(d < lim - 1e-9)) continue;
+        if (lim - d <= depth) continue;
+        if (d < 1e-9) {
+          // Dead on the centreline after a pathological step, or a barrier of
+          // zero length. Leave by the fence's own normal where there is one and
+          // by a fixed direction where there is not: a degenerate segment has
+          // no normal, and the alternative is a division by zero that puts NaN
+          // into the position and never comes out of it.
+          const len = Math.hypot(dx, dz);
+          if (len > 1e-9) { nx = -dz / len; nz = dx / len; } else { nx = 1; nz = 0; }
+          d = 1;
+        } else { nx /= d; nz /= d; }
+        depth = lim - d;
+        pushX = qx + nx * lim;
+        pushZ = qz + nz * lim;
       }
-      if (!moved) break;
     }
-    return { x, z };
+    propIx.query(x - r - 1.2, z - r - 1.2, x + r + 1.2, z + r + 1.2, scratch2);
+    for (const p of scratch2) {
+      const lim = p.radius + r;
+      if (!(lim > 0)) continue;   // a prop with no footprint, or a NaN one
+      let nx = x - p.x;
+      let nz = z - p.z;
+      let d = Math.hypot(nx, nz);
+      if (!(d < lim - 1e-9)) continue;
+      if (lim - d <= depth) continue;
+      if (d < 1e-9) { nx = 1; nz = 0; d = 1; } else { nx /= d; nz /= d; }
+      depth = lim - d;
+      pushX = p.x + nx * lim;
+      pushZ = p.z + nz * lim;
+    }
+    return depth;
+  }
+
+  // NOWHERE LEFT TO STAND, so find the nearest place there is.
+  //
+  // Reached only when the passes above have run out with the body still inside
+  // something, which means the keep-out regions around it cover every point it
+  // could be pushed to. Rings outward from where it is, nearest first, and the
+  // first free point wins.
+  //
+  // TWO THINGS IT MAY NOT DO, and they are why this is not simply "the nearest
+  // clear point". It may not put the body somewhere it could not have walked
+  // to: a straight line from here to there that crosses a fence would hand the
+  // player a vault they did not earn, and one that crosses the perimeter wall
+  // would put them outside the arena, which is the one place the resolver can
+  // never get them back from. And it may not cross a prop, because coming out
+  // of the far side of a headstone is a teleport.
+  //
+  // Bounded at a body's width. A wedge a body deep is a hole in the level and
+  // wants finding by world/repair.js, not papering over here; what this has to
+  // fix is the centimetre or two of penetration one frame of movement can
+  // produce.
+  const WEDGE_RINGS = 6;
+  const WEDGE_SPOKES = 24;
+  function nearestFree(x, z, r, air) {
+    const reach = r * 1.6;
+    for (let k = 1; k <= WEDGE_RINGS; k++) {
+      const d = (k / WEDGE_RINGS) * reach;
+      for (let s = 0; s < WEDGE_SPOKES; s++) {
+        const a = (s / WEDGE_SPOKES) * Math.PI * 2;
+        const px = x + Math.cos(a) * d;
+        const pz = z + Math.sin(a) * d;
+        if (!discClear(px, pz, r, air)) continue;
+        if (!air && crossesBarrier(x, z, px, pz, 0)) continue;
+        if (crossesProp(x, z, px, pz, 0)) continue;
+        return { x: px, z: pz };
+      }
+    }
+    return null;
+  }
+
+  function resolveDisc(x, z, r, air = false) {
+    // A position that has already gone bad cannot be resolved into a good one,
+    // and returning it unchanged propagates the NaN into everything downstream.
+    // The window's centre is the last place anything is known to have been.
+    if (!Number.isFinite(x) || !Number.isFinite(z)) {
+      return { x: Number.isFinite(centreX) ? centreX : 0, z: Number.isFinite(centreZ) ? centreZ : 0 };
+    }
+    for (let iter = 0; iter < CONTACT_PASSES; iter++) {
+      if (!deepestPush(x, z, r, air)) return { x, z };
+      x = pushX;
+      z = pushZ;
+    }
+    const out = nearestFree(x, z, r, air);
+    return out || { x, z };
   }
 
   // Push a walker out of anything it has ended up inside. The ghost has always

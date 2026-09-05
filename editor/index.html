@@ -267,6 +267,19 @@
     font-weight: 600;
   }
 
+  /* A segmented control with a picture in each cell, for the wall's seam. The
+     three words meant nothing; the three pictures need no words at all. */
+  .seg.tall { flex-wrap: nowrap; }
+  .seg.tall button { display: grid; gap: 2px; justify-items: center; padding: 4px 2px; }
+  .seg.tall .seam {
+    display: block;
+    width: 100%;
+    background: linear-gradient(#cdd2da, #b6bcc6);
+    border-radius: 3px;
+    padding: 2px;
+  }
+  .seg.tall .seam svg { display: block; width: 100%; height: auto; }
+
   /* A SWATCH ROW for the ground materials: the colour IS the label, so the
      name goes underneath at label size and the sample does the work. */
   .swatchrow { display: flex; gap: 4px; }

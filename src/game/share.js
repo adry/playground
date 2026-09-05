@@ -474,12 +474,22 @@ export function attach({ pick, anchor, run, best = false }) {
 
   // The player should see the picture they are about to post. Inserted now,
   // empty, at the right aspect, so the card does not jump when it fills in.
+  //
+  // CAPPED IN VIEWPORT HEIGHT as well as in width. The end card is centred and
+  // fixed and has no scroll of its own; a 16:9 picture across a 380 px card is
+  // another 214 px of it, and on a short phone in landscape that is the
+  // difference between a card that fits and a card whose buttons are off the
+  // bottom of the screen with no way to reach them.
   const preview = document.createElement('img');
   preview.alt = '';
   preview.style.cssText = 'display:block;width:100%;aspect-ratio:16/9;object-fit:cover;'
-    + 'border-radius:10px;margin:0 0 14px;background:#dfe3ea;'
+    + 'max-height:26vh;border-radius:10px;margin:0 0 14px;background:#dfe3ea;'
     + 'box-shadow:0 6px 18px rgba(30,35,48,0.18);opacity:0;transition:opacity 180ms ease;';
   card.insertBefore(preview, anchor);
+  // And the belt to that pair of braces: whatever else the card is carrying, it
+  // stays inside the screen now that this file has made it taller.
+  card.style.maxHeight = '90vh';
+  card.style.overflowY = 'auto';
 
   const note = document.createElement('p');
   note.style.cssText = 'margin:12px 0 0;font:400 11.5px/1.5 inherit;color:#7b8494;';

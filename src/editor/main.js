@@ -83,12 +83,17 @@ import {
 import { checkFairness, FAIR_MESSAGES } from '../game/level/fairness.js';
 import { PALETTE, levelFootprint } from '../game/level/catalogue.js';
 import { LEVEL_SIZE } from '../game/world/field.js';
-// PUBLISHING. Everything about it lives in src/net/publish.js: the request, the
-// panel with the URL in it, and every way it can fail. What is here is the
-// button and the three things the action needs from this file, because a level
-// going out over the network has to answer to the same guard as one going out
-// as a file.
-import { createPublishAction } from '../net/publish.js';
+// THE ONLINE HALF: an account, the levels in it, and the choice to make one
+// public. All of it lives in src/net/online.js, which owns the requests, the
+// panel and every way each of them can fail. What is here is two buttons and
+// the four things that panel needs from this file, because a level going out
+// over the network has to answer to the same guard as one going out as a file,
+// and because opening one from the account is the same act as opening a file.
+//
+// NONE OF IT IS ON THE PATH OF THE EDITOR WORKING. Signed out, offline, or with
+// the whole database turned off, everything above this line behaves exactly as
+// it did before it existed.
+import { createOnlinePanel } from '../net/online.js';
 
 const AUTOSAVE = 'graveyard-editor/doc/v1';
 // Props were authored to face the camera and the camera looks along
@@ -262,7 +267,11 @@ function overlayOpts(extra = {}) {
     flagged: report ? report.flagged : new Set(),
     hover,
     brush: tool === 'paint' && hover ? { ...hover, r: brush.radius } : null,
-    ghost: hover ? previewAt(snapped(hover.x), snapped(hover.z)) : null,
+    // The green or red footprint: of the thing about to be dropped, or of the
+    // thing currently being dragged, which are the same question.
+    ghost: drag && (drag.type === 'move' || drag.type === 'turn')
+      ? dragCheck()
+      : (hover ? previewAt(snapped(hover.x), snapped(hover.z)) : null),
     // WHICH SECTION OF WALL THE NEXT CLICK PAINTS. Without it an author is
     // clicking a hundred and twenty units of wall and guessing where the five
     // unit boundaries fall.
@@ -471,6 +480,27 @@ function previewAt(x, z) {
     return { ...placementCheck(world, cands), foots: cands };
   }
   return null;
+}
+
+// IS WHERE THIS HAS BEEN DRAGGED TO ALLOWED? The same question the drop asks,
+// about a prop that is already in the level, so that moving something into a
+// fence is refused the same way putting it there would have been. Turning
+// counts too: a footprint is a turned box, and a headstone's keep-clear ground
+// turns with it.
+//
+// The props being dragged are left out of their own overlap test, or a thing
+// collides with itself as soon as it has moved less than its own width.
+function dragCheck() {
+  if (!world || !drag || !drag.start.length) return null;
+  const ids = new Set(drag.start.map((d) => d.id));
+  const cands = [];
+  for (const id of ids) {
+    if (kindOf(id) !== 'prop') continue;
+    const r = recordOf(id);
+    if (r) cands.push(...placementProps({ kind: r.kind, variant: r.variant, x: r.x, z: r.z, yaw: r.yaw || 0 }));
+  }
+  if (!cands.length) return null;
+  return { ...placementCheck(world, cands, { ignore: ids }), foots: cands };
 }
 
 // THE HANDLES ON A SELECTED THING. A disc at the middle to move it and a ring
@@ -832,7 +862,29 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
 
-  if (tool === 'place') { commitIf(() => placeAt(snapped(at.x), snapped(at.z))); return; }
+  // A CLICK ON A THING SELECTS IT, whatever tool is up. If the drop would have
+  // been refused anyway -- and standing on top of something is exactly the case
+  // that is refused -- then what the author meant by clicking a headstone is
+  // the headstone. This is the way back to selecting without going to find the
+  // select button, and it is why "click a thing, it is selected" is true in
+  // this tool without qualification.
+  if (tool === 'place') {
+    const look = previewAt(snapped(at.x), snapped(at.z));
+    if (look && !look.ok) {
+      const hit = scene.pickAt(e.clientX, e.clientY);
+      const id = hit ? ownerOf(hit.id) : null;
+      if (id && kindOf(id)) {
+        setTool('select');
+        selection.clear();
+        selection.add(id);
+        say(`selected the ${kindOf(id)}. Drag the middle to move it, the ring to turn it.`);
+        refresh();
+        return;
+      }
+    }
+    commitIf(() => placeAt(snapped(at.x), snapped(at.z)));
+    return;
+  }
   
   if (tool === 'gate') { commitIf(() => toggleGate(at.x, at.z)); return; }
   if (tool === 'wall') { commitIf(() => paintWallSection(at.x, at.z)); return; }
@@ -951,13 +1003,31 @@ function beginTransform(type, at, about) {
     type,
     anchor: at,
     about: { x: about.x, z: about.z },
-    start: [...selection].map((sid) => ({ id: sid, centre: centreOf(sid) })),
+    start: [...selection].map((sid) => ({
+      id: sid, centre: centreOf(sid), yaw: recordOf(sid)?.yaw,
+    })),
     yaw0: Math.atan2(at.x - about.x, at.z - about.z),
     moved: false,
   };
 }
 
 function endDrag() {
+  // A MOVE OR A TURN THAT ENDED SOMEWHERE IT CANNOT BE goes back where it came
+  // from. Refusing at the release rather than during the drag is deliberate:
+  // dragging THROUGH a fence to somewhere clear on the other side is a normal
+  // gesture, and a tool that snatched the prop back mid-drag would fight it.
+  if (drag && (drag.type === 'move' || drag.type === 'turn') && drag.moved) {
+    const check = dragCheck();
+    if (check && !check.ok) {
+      for (const st of drag.start) {
+        const c = centreOf(st.id);
+        if (c) moveRecord(st.id, st.centre.x - c.x, st.centre.z - c.z);
+        const r = recordOf(st.id);
+        if (r && st.yaw !== undefined && r.yaw !== undefined) r.yaw = st.yaw;
+      }
+      say(`put back: ${check.why}`);
+    }
+  }
   if (drag?.type === 'paint') { flushPaint(true); }
   drag = null;
   delete stage.dataset.pan;
@@ -1165,17 +1235,30 @@ function guardPasses(verb) {
   return true;
 }
 
-// PUBLISH, beside save. A file is how a level is KEPT: it is committed, it
-// ships, it survives the database being turned off, and none of that changes.
-// This is how a level is SENT: it goes to the levels table and comes back as a
-// short URL somebody else can play. Same guard, same document, different door.
-const publishLevel = createPublishAction({
+// SAVE ONLINE AND MY LEVELS, beside save. A file is how a level is KEPT: it is
+// committed, it ships, it survives the database being turned off, and none of
+// that changes. An account is where a level LIVES while it is being made, and
+// where a link to send somebody comes from. Same guard, same document.
+const online = createOnlinePanel({
   getDoc: () => doc,
+  setDoc: (raw, label) => openDoc(raw, label),
   guard: guardPasses,
   say,
 });
 
-function saveFile({ anyway = false } = {}) {
+// WHERE A LEVEL GOES WHEN IT IS SAVED, and the one function that decides.
+//
+// Today that is a file the browser downloads, because a file is the only place
+// there is. A database is being built and when it lands this is where it plugs
+// in: the button says "save", the author's levels are the author's, and the
+// download becomes what it already is here, a copy for getting a level out of
+// the browser and into the site. Nothing else in this file knows where a level
+// goes, which is the point of routing it all through here.
+function saveLevel() {
+  saveFile();
+}
+
+function saveFile({ anyway = false, copy = false } = {}) {
   // NOT A QUIET SAVE. The generator used to be the last thing between a broken
   // level and a player and it is gone, so a level that fails a fairness
   // property or carries a geometry error has to be refused out loud. The owner
@@ -1193,22 +1276,40 @@ function saveFile({ anyway = false } = {}) {
   // the URL it will have is knowable too, and printing `<url>` for the reader
   // to work out was the tool being coy about the one fact it had.
   const link = `/lab/?game=1&level=/levels/${a.download}`;
-  say(`saved ${a.download}. Play needs none of this; a saved file is how a level is kept, and once it is in public/levels/ it plays at ${link}`);
+  say(copy
+    ? `downloaded ${a.download}. Put it in public/levels/ and it plays at ${link}`
+    : `saved as ${a.download}. Play needs none of this; once the file is in public/levels/ it plays at ${link}`);
 }
 
-async function openFile(file) {
+// PUTTING A DOCUMENT IN THE EDITOR, from wherever it came. A file off disk and
+// a level out of the account are the same act once the json is in hand, and
+// they were two copies of this for about an hour.
+function openDoc(raw, label) {
   try {
-    doc = normalizeLevel(JSON.parse(await file.text()));
+    doc = normalizeLevel(raw);
     undoStack.length = 0;
     redoStack.length = 0;
     selection.clear();
     pending = null;
     refresh();
     autosave();
-    say(`loaded ${file.name}`);
+    say(`loaded ${label}`);
+    return true;
+  } catch (err) {
+    say(`could not read ${label}: ${err.message}`);
+    return false;
+  }
+}
+
+async function openFile(file) {
+  let raw;
+  try {
+    raw = JSON.parse(await file.text());
   } catch (err) {
     say(`could not read that file: ${err.message}`);
+    return;
   }
+  openDoc(raw, file.name);
 }
 
 stage.addEventListener('dragover', (e) => { e.preventDefault(); stage.dataset.drop = '1'; });
@@ -1423,9 +1524,9 @@ function drawLeft() {
       el('button', {
         class: 'grow',
         'aria-pressed': String(tool === 'select'),
-        title: 'Pick things up. Drag the middle of a selected thing to move it and the ring round it to turn it.',
-        onclick: () => setTool('select'),
-      }, [el('span', { text: 'select and move' }), el('kbd', { text: 'V' })]),
+        title: 'Click a thing to select it. Then drag the middle of the ring to move it, drag the ring to turn it, and press delete to take it out.',
+        onclick: () => { setTool('select'); },
+      }, [el('span', { text: 'select' }), el('kbd', { text: 'V' })]),
     ]),
     ...placeGroups().map(placeGroup),
   );
@@ -1611,6 +1712,36 @@ const WALL_SVG = `<svg viewBox="0 0 48 48" aria-hidden="true">
   <path d="M21 31.5l6-1.7V12.3l-6 1.7z" fill="${STONE}" stroke="${LINE}" stroke-width="1" stroke-linejoin="round" />
 </svg>`;
 
+// The three seams, drawn small: a pier standing on the join, the new stone
+// toothed into the old course by course, and a straight step with the new build
+// standing slightly proud. Two stones, light and dark, so which is which reads
+// at this size.
+const JOINT_WORDS = {
+  pier: 'A pillar of stone stands on the join, wide enough to take any change of thickness. The workhorse.',
+  tooth: 'The two stones bite into each other course by course, with no pillar and no vertical line.',
+  step: 'A straight vertical break, with the new build standing a little proud of the old.',
+};
+const JOINT_SVGS = {
+  pier: `<svg viewBox="0 0 40 22" aria-hidden="true">
+    <path d="M1 6h15v12H1z" fill="${STONE}" stroke="${LINE}" stroke-width="0.9" />
+    <path d="M24 6h15v12H24z" fill="${SHADE}" stroke="${LINE}" stroke-width="0.9" />
+    <path d="M1 12h15M24 10h15M24 14h15" stroke="${LINE}" stroke-width="0.6" opacity="0.5" />
+    <path d="M16 3h8v16h-8z" fill="${STONE}" stroke="${LINE}" stroke-width="0.9" />
+  </svg>`,
+  tooth: `<svg viewBox="0 0 40 22" aria-hidden="true">
+    <path d="M1 6h19v12H1z" fill="${STONE}" stroke="${LINE}" stroke-width="0.9" />
+    <path d="M20 6h19v12H20z" fill="${SHADE}" stroke="${LINE}" stroke-width="0.9" />
+    <path d="M14 6h6v4h-6zM20 10h6v4h-6zM14 14h6v4h-6z" fill="${STONE}" stroke="${LINE}" stroke-width="0.9" />
+    <path d="M1 10h13M1 14h13M26 10h13M26 14h13" stroke="${LINE}" stroke-width="0.6" opacity="0.5" />
+  </svg>`,
+  step: `<svg viewBox="0 0 40 22" aria-hidden="true">
+    <path d="M1 7h18v11H1z" fill="${STONE}" stroke="${LINE}" stroke-width="0.9" />
+    <path d="M21 4h18v14H21z" fill="${SHADE}" stroke="${LINE}" stroke-width="0.9" />
+    <path d="M19 7v11M21 4v14" stroke="${LINE}" stroke-width="0.9" />
+    <path d="M1 12h18M21 9h18M21 13h18" stroke="${LINE}" stroke-width="0.6" opacity="0.5" />
+  </svg>`,
+};
+
 function glyphFor(e) {
   if (e.tool === 'fence') return FENCE_SVG;
   if (e.tool === 'gate') return GATE_SVG;
@@ -1740,7 +1871,8 @@ function toggle(label, value, onchange, title = null) {
 function drawRight() {
   const sel = [...selection];
   const stones = [...wallStones()];
-  right.replaceChildren(
+  // A card that has nothing to act on returns null and simply is not there.
+  rightCards(
     card('level', 'level', [
       el('div', { class: 'row' }, [
         el('label', { text: 'name' }),
@@ -1770,16 +1902,35 @@ function drawRight() {
           onclick: playLevel,
         }),
       ]),
+      // SAVE, AND A COPY. "save json" named the file format, which is a fact
+      // about how the tool works rather than about what the button does. Save
+      // is the primary act; the download is how a level leaves this browser and
+      // is secondary. THE SEAM: saveLevel is the one function that decides where
+      // a level goes, so when the database lands it changes there and the button
+      // does not move.
       el('div', { class: 'row' }, [
-        el('button', { class: 'grow', text: 'save json', onclick: saveFile }),
-        el('button', { class: 'grow', text: 'open', onclick: pickFile }),
+        el('button', { class: 'grow', text: 'save', title: 'Keep this level.', onclick: saveLevel }),
+        el('button', { class: 'grow', text: 'open', title: 'Read a level file back in.', onclick: pickFile }),
+      ]),
+      el('div', { class: 'row' }, [
+        el('button', {
+          class: 'grow', text: 'download a copy',
+          title: 'Write the level out as a file, which is how it gets into the site.',
+          onclick: () => saveFile({ copy: true }),
+        }),
       ]),
       el('div', { class: 'row' }, [
         el('button', {
           class: 'grow',
-          text: 'publish',
-          title: 'Put this level online and get a short link for it. The file on disk is still how a level is kept; this is how it gets sent to somebody.',
-          onclick: publishLevel,
+          text: 'save online',
+          title: 'Keep this level in your account. Private until you make it public. The file on disk is still how a level is kept; this is how it follows you between machines.',
+          onclick: () => online.save(),
+        }),
+        el('button', {
+          class: 'grow',
+          text: 'my levels',
+          title: 'Your account: the levels in it, which of them are public, and the link to send somebody.',
+          onclick: () => online.open(),
         }),
       ]),
       el('div', { class: 'row' }, [
@@ -1803,7 +1954,13 @@ function drawRight() {
       help: `The arena is ${doc.size} by ${doc.size} and every level is. Variation shuffles the things you do not place by hand: how each headstone leans, how its stone is grained, where the fireflies land. The same number always draws the same level, so change it only if you want a different shuffle. Play opens the game on exactly what is on screen. Save writes a file, which is how a level is kept.`,
     }),
 
-    card('wall', 'wall', [
+    // THE WALL'S CONTROLS ONLY WHILE THE WALL IS WHAT YOU ARE EDITING. A stone
+    // and a joint on screen while somebody is planting a headstone are two
+    // things to read past. The rule goes for the whole panel: a card that
+    // cannot act on anything right now is not taking space. The two exceptions
+    // are the checkers, whose whole job is to tell you about something you are
+    // NOT currently looking at.
+    tool === 'wall' ? card('wall', 'wall', [
       // ONE STONE PICKER, not two. There used to be a "starts in" and a "stamp"
       // side by side and no way to tell which was which; with sections there is
       // only one question, which is what the next click paints.
@@ -1826,19 +1983,27 @@ function drawRight() {
           });
         })),
       ]),
-      el('div', { class: 'row' }, [
-        el('label', { text: 'joined by' }),
-        segment(WALL_JOINTS, wallPick.joint, (v) => commit(() => {
-          wallPick.joint = v;
+      // THE SEAM, DRAWN. "Joined by: pier, tooth, step" was three words the
+      // owner asked the meaning of, and the answer is a picture: it is what the
+      // wall looks like where one stone becomes another.
+      el('p', { class: 'note', text: 'where one stone meets another' }),
+      el('div', { class: 'seg tall' }, WALL_JOINTS.map((j) => el('button', {
+        title: JOINT_WORDS[j],
+        'aria-pressed': String(wallPick.joint === j),
+        onclick: () => commit(() => {
+          wallPick.joint = j;
           // Every boundary at once, because with sections a boundary either has
           // a joint or it is not a boundary, and one wall wants one answer.
-          setWallSections(doc.wall, wallSections(doc.wall), v);
-        })),
-      ]),
+          setWallSections(doc.wall, wallSections(doc.wall), j);
+        }),
+      }, [
+        el('span', { class: 'seam', html: JOINT_SVGS[j] }),
+        el('span', { text: j }),
+      ]))),
     ], {
       count: `${stones.length} of ${MAX_STYLES} stones`,
-      help: `The wall is built in sections, and a section is one large square of the floor: five across, six to a side, ${wallSectionCount(doc.wall.points)} round the whole arena. Click one and it is made of the stone you picked. The joint is how two different stones meet where they touch: a pier standing on the join, the new stone toothed into the old course by course, or a straight step. Four stones at once is all the wall can carry.`,
-    }),
+      help: `The wall is built in sections, and a section is one large square of the floor: five across, six to a side, ${wallSectionCount(doc.wall.points)} round the whole arena. Click one and it is made of the stone you picked. Four stones at once is all the wall can carry.`,
+    }) : null,
 
     card('view', 'view', [
       el('div', { class: 'row' }, [
@@ -1846,25 +2011,30 @@ function drawRight() {
       ]),
       el('div', { class: 'row' }, [
         toggle('grid snap', snapOn, (v) => { snapOn = v; drawRight(); }, 'Half a unit. Shift inverts it while you drag.'),
-        toggle('footprints', showFootprints, (v) => {
+        // NAMED BY WHAT THEY SHOW. "Footprints" and "facing" are what the code
+        // calls the data; the owner asked what both meant, which is the answer
+        // to whether they were good names.
+        toggle('space needed', showFootprints, (v) => {
           showFootprints = v;
           scene.setOverlayFlags({ footprints: v });
           refresh();
-        }, 'The box or disc each prop actually takes up.'),
+        }, 'Draw the ground each thing takes up and needs kept clear.'),
       ]),
       el('div', { class: 'row' }, [
-        toggle('facing', showFacing, (v) => {
+        toggle('which way it faces', showFacing, (v) => {
           showFacing = v;
           scene.setOverlayFlags({ facing: v });
           refresh();
-        }, 'Which way each prop looks. Several were authored to face the camera and read wrong from behind.'),
+        }, 'Draw an arrow out of the front of each thing. Several of them were made to face the camera and look wrong from behind.'),
         el('span', { class: 'grow' }),
       ]),
     ]),
 
-    card('selection', 'selection',
-      sel.length === 1 ? inspector(sel[0])
-        : el('p', { class: 'note', text: sel.length ? `${sel.length} selected` : 'nothing selected. Drag the ring under a selected thing to turn it.' })),
+    sel.length ? card('selection', sel.length === 1 ? 'selected' : `${sel.length} selected`,
+      sel.length === 1 ? inspector(sel[0]) : el('div', { class: 'stack' }, [
+        el('p', { class: 'note', text: 'drag the middle of the ring to move them together, the ring to turn them' }),
+        el('button', { class: 'grow danger', text: 'delete these', onclick: () => commit(deleteSelection) }),
+      ])) : null,
 
     card('audit', 'audit', auditList(), {
       count: review.stale ? '...' : review.errors.length,
@@ -1888,6 +2058,10 @@ function drawRight() {
   );
 }
 
+function rightCards(...cards) {
+  right.replaceChildren(...cards.filter(Boolean));
+}
+
 // Which cards have their explanation open. A person reads it once.
 const openHelp = new Set();
 
@@ -1895,14 +2069,40 @@ let showFootprints = true;
 let showFacing = true;
 
 
+// WHAT YOU CAN DO TO THE THING YOU HAVE SELECTED, with the two the owner asked
+// for three times at the top of it rather than under a line of text: TURN IT
+// and DELETE IT. The ring on the floor and the delete key both still work; a
+// control that exists and cannot be found is worth what no control is worth,
+// and that has now been the answer three times running.
 function inspector(id) {
   const r = recordOf(id);
   const k = kindOf(id);
   if (!r) return el('p', { class: 'note', text: 'nothing selected' });
-  const rows = [el('div', { class: 'row' }, [
+  const rows = [];
+  if (r.yaw !== undefined) {
+    rows.push(el('div', { class: 'row' }, [
+      el('label', { text: 'turn it' }),
+      el('input', {
+        class: 'grow dial', type: 'range', min: '-180', max: '180', step: '0.5',
+        value: String(round((r.yaw * 180) / Math.PI)),
+        oninput: (e) => { beginEdit(); r.yaw = (Number(e.target.value) * Math.PI) / 180; refresh(); },
+        onchange: endEdit,
+      }),
+      el('span', { class: 'value', text: `${Math.round((r.yaw * 180) / Math.PI)}°` }),
+    ]));
+    rows.push(el('div', { class: 'row' }, [
+      el('button', { class: 'grow', text: 'face the camera', onclick: () => commit(() => { r.yaw = FACE_YAW; }) }),
+      el('button', { class: 'grow danger', text: 'delete', title: 'or press delete', onclick: () => commit(deleteSelection) }),
+    ]));
+  } else {
+    rows.push(el('div', { class: 'row' }, [
+      el('button', { class: 'grow danger', text: 'delete', title: 'or press delete', onclick: () => commit(deleteSelection) }),
+    ]));
+  }
+  rows.push(el('div', { class: 'row' }, [
     el('label', { text: 'this is' }),
     el('span', { class: 'grow value', text: k === 'prop' ? `${r.variant || ''} ${r.kind}`.trim() : k }),
-  ])];
+  ]));
   if (k === 'prop') {
     const group = PALETTE.find((gp) => gp.kind === r.kind);
     if (group) {
@@ -1918,21 +2118,6 @@ function inspector(id) {
     rows.push(el('div', { class: 'row' }, [
       el('label', { text: 'x' }), number(round(r.x), -30, 30, 0.1, (v) => commit(() => { r.x = v; })),
       el('label', { text: 'z' }), number(round(r.z), -30, 30, 0.1, (v) => commit(() => { r.z = v; })),
-    ]));
-  }
-  if (r.yaw !== undefined) {
-    rows.push(el('div', { class: 'row' }, [
-      el('label', { text: 'yaw' }),
-      el('input', {
-        class: 'grow dial', type: 'range', min: '-180', max: '180', step: '0.5',
-        value: String(round((r.yaw * 180) / Math.PI)),
-        oninput: (e) => { beginEdit(); r.yaw = (Number(e.target.value) * Math.PI) / 180; refresh(); },
-        onchange: endEdit,
-      }),
-      el('span', { class: 'value', text: `${Math.round((r.yaw * 180) / Math.PI)}°` }),
-    ]));
-    rows.push(el('div', { class: 'row' }, [
-      el('button', { class: 'grow', text: 'face the camera', onclick: () => commit(() => { r.yaw = FACE_YAW; }) }),
     ]));
   }
   // A GRAVE FROM AN OLDER FILE. Nothing places one any more -- a skeleton
@@ -2151,6 +2336,7 @@ window.__editor = {
   // How many palette pictures exist, and whether a batch is running. A harness
   // waits on these rather than on a timer.
   fencePreview: (x, z, free) => fencePreview(x, z, free),
+  wallSections: () => wallSections(doc.wall),
   thumbsDrawn: () => thumbs.size,
   thumbsBusy: () => drawing.size,
   scene,

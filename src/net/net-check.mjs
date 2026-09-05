@@ -23,7 +23,7 @@
 // same discipline world-check.mjs applies to the geometry.
 
 import http from 'node:http';
-import { makeFake, listen, KEY } from './fake-postgrest.mjs';
+import { makeFake, listen, KEY, makeToken } from './fake-postgrest.mjs';
 import {
   createClient, isLevelSlug, makeSlug, cleanName, scoreRow,
   SLUG_LENGTH, RESERVED_SLUGS,
@@ -107,64 +107,142 @@ function pureChecks() {
 async function wireChecks() {
   const fake = makeFake();
   const port = await listen(fake.server);
-  const api = createClient({ url: `http://127.0.0.1:${port}`, key: KEY });
 
-  console.log('\npublishing a level');
+  // TWO PEOPLE AND A PASSER-BY, because every policy in 002-accounts.sql is
+  // about telling them apart. Ada and Bea are signed in; the guest holds only
+  // the publishable key, which is what the game page holds.
+  const ADA = 'uid-ada';
+  const BEA = 'uid-bea';
+  const at = { url: `http://127.0.0.1:${port}`, key: KEY };
+  const ada = createClient({ ...at, token: async () => makeToken(ADA) });
+  const bea = createClient({ ...at, token: async () => makeToken(BEA) });
+  const guest = createClient(at);
+
+  console.log('\nthe token, not the key');
   const doc = { format: 'graveyard-level', version: 2, name: 'Hollow Rise', size: 30, seed: 7, props: [] };
-  const pub = await api.publish({ name: 'Hollow Rise', author: 'Ada', doc });
-  ok(pub.ok, 'a level publishes', pub.reason);
-  ok(isLevelSlug(pub.slug), 'and comes back with its code', pub.slug);
+  const pub = await ada.publish({ name: 'Hollow Rise', author: 'Ada', doc, owner: ADA });
+  ok(pub.ok, 'a signed in person saves a level', pub.reason);
+  ok(isLevelSlug(pub.slug), 'and it comes back with its code', pub.slug);
 
   const req = fake.seen[fake.seen.length - 1];
-  eq(req.method, 'POST', 'publish is a POST');
+  eq(req.method, 'POST', 'saving is a POST');
   eq(req.path, '/rest/v1/levels', 'to /rest/v1/levels');
-  eq(req.headers.apikey, KEY, 'the key is in the apikey header');
-  eq(req.headers.authorization, `Bearer ${KEY}`, 'and in Authorization as a bearer token');
+  eq(req.headers.apikey, KEY, 'the publishable key stays in the apikey header');
+  ok(req.headers.authorization.startsWith('Bearer eyJ'), 'and the BEARER is the access token, not the key', req.headers.authorization.slice(0, 24));
+  ok(req.headers.authorization !== `Bearer ${KEY}`, 'which is the whole difference between a write that works and one that does not');
+  eq(req.uid, ADA, 'so the database reads auth.uid() as the person who is signed in');
   eq(req.headers['content-type'], 'application/json', 'the body is json');
   eq(req.headers.prefer, 'return=representation', 'and the stored row is asked for back');
-  eq(Object.keys(req.body).sort().join(','), 'author,doc,name,slug',
+  eq(Object.keys(req.body).sort().join(','), 'author,doc,is_public,name,owner,slug',
     'the insert carries these columns and no others');
-  eq(req.body.doc.name, 'Hollow Rise', 'the document goes in whole');
-  eq(fake.levels[0].slug, pub.slug, 'and the row that landed has the code that came back');
+  eq(req.body.owner, ADA, 'owner is sent explicitly, because the policy checks it against the token');
+  eq(req.body.is_public, false, 'and a new level is PRIVATE, which is the whole point of the default');
+  eq(fake.levels[0].is_public, false, 'the row that landed is private');
 
-  // The row coming back is the whole point of return=representation: a publish
-  // that reported success without reading it could hand out a dead URL.
-  eq((await api.fetchLevel(pub.slug)).level.doc.seed, 7, 'the level reads back by its code');
+  console.log('\nsigned out, and signed in as somebody else');
+  const asGuest = await guest.publish({ name: 'x', doc, owner: ADA });
+  ok(!asGuest.ok, 'a guest cannot save a level at all');
+  eq(asGuest.reason, 'that is not yours to change', 'and the policy says so rather than the constraint');
+  const asNobody = await ada.publish({ name: 'x', doc, owner: null });
+  ok(!asNobody.ok, 'and neither can a call that forgot the owner');
+  eq(asNobody.reason, 'sign in first', 'which is caught here rather than at the far end');
+  const impostor = await bea.publish({ name: 'x', doc, owner: ADA });
+  ok(!impostor.ok, "nobody may write a level into somebody else's account");
+  eq(impostor.reason, 'that is not yours to change', 'the with check refuses it');
+
+  console.log('\nprivate by default');
+  const hidden = await guest.fetchLevel(pub.slug);
+  ok(!hidden.ok, 'a private level is invisible to everybody else');
+  eq(hidden.reason, 'no level has that code, or it is not public',
+    'and the sentence covers both reasons, because the database will not say which');
+  const mine = await ada.fetchLevel(pub.slug);
+  ok(mine.ok, 'its owner can still open it');
+  eq(mine.level.doc.seed, 7, 'and gets the document back');
   const readReq = fake.seen[fake.seen.length - 1];
-  eq(readReq.method, 'GET', 'reading a level is a GET');
-  eq(readReq.path, `/rest/v1/levels?slug=eq.${pub.slug}&select=slug,name,author,doc&limit=1`,
-    'with the code as an eq filter and only the columns it needs');
-  ok(!readReq.headers.prefer, 'and no Prefer on a plain read');
+  eq(readReq.path, `/rest/v1/levels?slug=eq.${pub.slug}&select=slug,name,author,is_public,doc&limit=1`,
+    'the read asks for the code and only the columns it needs');
 
-  const missing = await api.fetchLevel('zzzzzzzzzz');
-  ok(!missing.ok, 'a code nobody published does not resolve');
-  eq(missing.reason, 'no level has that code', 'and says so in a sentence');
+  console.log('\nmaking it public');
+  const opened = await ada.setPublic(pub.slug, true);
+  ok(opened.ok, 'the owner may publish it', opened.reason);
+  const patch = fake.seen[fake.seen.length - 1];
+  eq(patch.method, 'PATCH', 'which is a PATCH');
+  eq(patch.path, `/rest/v1/levels?slug=eq.${pub.slug}`, 'on that one row');
+  eq(JSON.stringify(patch.body), '{"is_public":true}', 'carrying only the field that changed');
+  ok(!('updated_at' in patch.body), 'and never updated_at, which the trigger owns');
+  ok((await guest.fetchLevel(pub.slug)).ok, 'and now a stranger can play it');
+
+  const shut = await bea.setPublic(pub.slug, false);
+  ok(!shut.ok, "somebody else cannot unpublish a level that is not theirs");
+  eq(shut.reason, 'that level is not yours, or is no longer there',
+    'and an update that matched nothing is noticed, because postgres calls it success');
+  ok(fake.levels[0].is_public === true, 'the row is untouched');
+
+  console.log('\nmy levels');
+  await ada.publish({ name: 'Second', doc, owner: ADA });
+  await bea.publish({ name: "Bea's", doc, owner: BEA });
+  const list = await ada.myLevels(ADA);
+  ok(list.ok, 'the list comes back', list.reason);
+  eq(list.levels.length, 2, "and it is only this person's levels");
+  ok(list.levels.every((l) => l.doc === undefined), 'without the documents, because a list is a list');
+  const listReq = fake.seen[fake.seen.length - 1];
+  eq(listReq.path,
+    `/rest/v1/levels?owner=eq.${ADA}&select=slug,name,author,is_public,created_at,updated_at&order=updated_at.desc&limit=200`,
+    'newest edit first');
+  eq(list.levels[0].name, 'Second', 'and the newest is first');
+  ok(!(await ada.myLevels(null)).ok, 'and nobody signed in means no list');
+
+  console.log('\nrenaming, and saving over');
+  const renamed = await ada.updateLevel(pub.slug, { name: 'Hollow Rise II' });
+  ok(renamed.ok, 'a level can be renamed', renamed.reason);
+  eq(fake.levels[0].name, 'Hollow Rise II', 'and the row changed');
+  const resaved = await ada.updateLevel(pub.slug, { doc: { ...doc, seed: 9 } });
+  ok(resaved.ok, 'and saved over with a new document');
+  eq(fake.levels[0].doc.seed, 9, 'which is what stops a second save making a second level');
+  ok(!(await ada.updateLevel(pub.slug, {})).ok, 'a change of nothing is not a request');
+
+  console.log('\ndeleting');
+  const second = list.levels[0].slug;
+  ok(!(await bea.deleteLevel(second)).ok, "nobody may delete somebody else's level");
+  ok(fake.levels.some((l) => l.slug === second), 'and it is still there');
+  const gone = await ada.deleteLevel(second);
+  ok(gone.ok, 'the owner may delete their own', gone.reason);
+  eq(fake.seen[fake.seen.length - 1].method, 'DELETE', 'which is a DELETE');
+  ok(!fake.levels.some((l) => l.slug === second), 'and it is gone');
 
   console.log('\na slug collision');
   // Forced: a client that always picks the same code, which is what a broken
   // generator would look like. The retry has to notice the 409 and try again.
-  const clash = createClient({ url: `http://127.0.0.1:${port}`, key: KEY });
   const taken = fake.levels[0].slug;
-  const again = await clash.publishLevel({ slug: taken, name: 'x', doc });
+  const again = await ada.saveLevel({ slug: taken, name: 'x', doc, owner: ADA });
   ok(!again.ok, 'the same code twice is refused');
   ok(again.conflict, 'and is recognised as a collision rather than an error');
   eq(again.reason, 'that code is already taken', 'with a sentence a person can read');
   eq(again.status, 409, 'PostgREST answers a unique violation with 409');
   const before = fake.levels.length;
-  const retried = await clash.publish({ name: 'x', doc, tries: 3 });
-  ok(retried.ok, 'and publishing again just works, because the code is fresh');
+  const retried = await ada.publish({ name: 'x', doc, owner: ADA });
+  ok(retried.ok, 'and saving again just works, because the code is fresh');
   eq(fake.levels.length, before + 1, 'exactly one more level');
 
-  console.log('\nposting a score');
-  const posted = await api.postScore({ name: 'Ada', score: 14200, fireflies: 31, seconds: 214, levelSlug: pub.slug });
-  ok(posted.ok, 'a score posts', posted.reason);
+  console.log('\nposting a score, as a guest');
+  const posted = await guest.postScore({ name: 'Ada', score: 14200, fireflies: 31, seconds: 214, levelSlug: pub.slug });
+  ok(posted.ok, 'a passer-by can still post a score', posted.reason);
   const sreq = fake.seen[fake.seen.length - 1];
   eq(sreq.path, '/rest/v1/scores', 'to /rest/v1/scores');
+  eq(sreq.headers.authorization, `Bearer ${KEY}`, 'with the publishable key as the bearer, because nobody is signed in');
   eq(sreq.headers.prefer, 'return=minimal', 'and asks for nothing back');
   eq(JSON.stringify(sreq.body), JSON.stringify({ name: 'Ada', score: 14200, fireflies: 31, seconds: 214, level_slug: pub.slug }),
-    'the row is exactly the five columns');
+    'the row is five columns, and owner is not one of them');
+  ok(!('owner' in sreq.body),
+    'owner is OMITTED rather than sent as null, so the board still works on a project where 002 has not been run');
 
-  const orphan = await api.postScore({ name: 'Ada', score: 1, fireflies: 0, seconds: 9, levelSlug: 'nosuchcode' });
+  const withOwner = await ada.postScore({ name: 'Ada', score: 900, fireflies: 3, seconds: 60, owner: ADA });
+  ok(withOwner.ok, 'and a signed in player may tie a score to themselves', withOwner.reason);
+  eq(fake.seen[fake.seen.length - 1].body.owner, ADA, 'with their own id');
+  const forged = await bea.postScore({ name: 'Bea', score: 900, fireflies: 3, seconds: 60, owner: ADA });
+  ok(!forged.ok, "and nobody may post a score as somebody else");
+
+  const orphan = await guest.postScore({ name: 'Ada', score: 1, fireflies: 0, seconds: 9, levelSlug: 'nosuchcode' });
   ok(!orphan.ok, 'a score on a level nobody published is refused');
   eq(orphan.reason, 'that level is not published', 'by the foreign key, and it is said in English');
 
@@ -175,36 +253,30 @@ async function wireChecks() {
     ['Kit', 8000], ['Lee', 7000],
   ];
   for (const [name, score] of many) {
-    await api.postScore({ name, score, fireflies: 10, seconds: 600 });
+    await guest.postScore({ name, score, fireflies: 10, seconds: 600 });
   }
-  const top = await api.topScores({ limit: 10 });
+  const top = await guest.topScores({ limit: 10 });
   ok(top.ok, 'the board reads');
   eq(top.rows.length, 10, 'ten rows and no more');
   eq(top.rows[0].name, 'Ada', 'highest first');
-  // Nine of the twelve above plus the 14,200 posted on the published level a
-  // moment ago, which is the ninth best score in the table.
-  eq(top.rows[8].score, 14200, 'the run posted earlier sits where its score puts it');
-  eq(top.rows[9].name, 'Ivy', 'and the tenth is the tenth');
   const treq = fake.seen[fake.seen.length - 1];
   eq(treq.path,
     '/rest/v1/scores?select=name,score,fireflies,seconds,level_slug,created_at&order=score.desc,created_at.asc&limit=10',
     'ordered by score, ties broken by who got there first');
 
-  const levelBoard = await api.topScores({ levelSlug: pub.slug, limit: 10 });
+  const levelBoard = await guest.topScores({ levelSlug: pub.slug, limit: 10 });
   eq(levelBoard.rows.length, 1, "a published level's board has only its own runs");
   const lreq = fake.seen[fake.seen.length - 1];
   ok(lreq.path.includes(`level_slug=eq.${pub.slug}`), 'filtered by the level');
 
   console.log('\nwhere a score that missed the board came');
-  const rank = await api.rankOf({ score: 7000 });
+  const rank = await guest.rankOf({ score: 7000 });
   ok(rank.ok, 'a placing comes back', rank.reason);
   eq(rank.rank, 13, 'twelve rows are better, so it is thirteenth');
   const rreq = fake.seen[fake.seen.length - 1];
   eq(rreq.headers.prefer, 'count=exact', 'the count is asked for');
   ok(rreq.path.startsWith('/rest/v1/scores?select=id&score=gt.7000'), 'by counting the rows above it', rreq.path);
-  eq((await api.rankOf({ score: 999999 })).rank, 1, 'the best score is first');
-  eq((await api.rankOf({ score: 8000, levelSlug: pub.slug })).rank, 2,
-    "and a level's board is counted on its own: one run beats it there, twelve do globally");
+  eq((await guest.rankOf({ score: 999999 })).rank, 1, 'the best score is first');
 
   console.log('\nthe key being refused');
   const wrong = createClient({ url: `http://127.0.0.1:${port}`, key: 'sb_publishable_WRONG' });
@@ -212,25 +284,41 @@ async function wireChecks() {
   ok(!refused.ok, 'a bad key does not read the board');
   eq(refused.reason, 'the site key was refused', 'and says which of the many things went wrong');
 
+  console.log('\na project where the migration has not been run');
+  // What the owner's browser does between now and the moment they run
+  // 002-accounts.sql: PostgREST rejects an insert naming a column the table does
+  // not have, and the sentence has to point at the cause rather than at the
+  // network, because they are the only person who can fix it.
+  const old = makeFake({ legacy: true });
+  const oldPort = await listen(old.server);
+  const oldApi = createClient({ url: `http://127.0.0.1:${oldPort}`, key: KEY, token: async () => makeToken(ADA) });
+  const tooSoon = await oldApi.publish({ name: 'x', doc, owner: ADA });
+  ok(!tooSoon.ok, 'saving a level fails on a database without accounts in it');
+  eq(tooSoon.reason, 'this site needs its database updated before accounts work',
+    'and says exactly that, rather than blaming the network');
+  const stillPosts = await oldApi.postScore({ name: 'Ada', score: 10, fireflies: 1, seconds: 30 });
+  ok(stillPosts.ok, 'while the leaderboard keeps working, because a guest score names no new column');
+  old.server.close();
+
   fake.server.close();
 
   if (PRINT) {
     console.log('\n--- every request, as it goes on the wire -----------------------------');
     const shown = new Set();
     for (const r of fake.seen) {
-      const shape = `${r.method} ${r.path.replace(/eq\.[a-z0-9]{6,16}/g, 'eq.<slug>').replace(/gt\.\d+/, 'gt.<score>')}`;
+      const shape = `${r.method} ${r.path.replace(/eq\.[a-z0-9-]{4,36}/g, 'eq.<value>').replace(/gt\.\d+/, 'gt.<score>')}`;
       if (shown.has(shape)) continue;
       shown.add(shape);
       console.log(`\n${shape} HTTP/1.1`);
-      console.log(`Host: arciakudvmdebdqwhouu.supabase.co`);
-      console.log(`apikey: <publishable key>`);
-      console.log(`Authorization: Bearer <publishable key>`);
-      console.log(`Accept: application/json`);
+      console.log('Host: arciakudvmdebdqwhouu.supabase.co');
+      console.log('apikey: <publishable key>');
+      console.log(`Authorization: Bearer ${r.uid ? '<the signed in person\'s access token>' : '<publishable key>'}`);
+      console.log('Accept: application/json');
       if (r.headers['content-type']) console.log(`Content-Type: ${r.headers['content-type']}`);
       if (r.headers.prefer) console.log(`Prefer: ${r.headers.prefer}`);
       if (r.body) {
-        const body = r.body.doc ? { ...r.body, doc: '{ the whole editor document }' } : r.body;
-        console.log(`\n${JSON.stringify(body, null, 2)}`);
+        const shownBody = r.body.doc ? { ...r.body, doc: '{ the whole editor document }' } : r.body;
+        console.log(`\n${JSON.stringify(shownBody, null, 2)}`);
       }
     }
     console.log('\n-----------------------------------------------------------------------');

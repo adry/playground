@@ -634,11 +634,17 @@ export function segmentCheck(world, a, b, { ignore = null } = {}) {
   return { ok: true, why: '' };
 }
 
-export function placementCheck(world, cands) {
+export function placementCheck(world, cands, { ignore = null } = {}) {
   const box = world.bounds;
   const barriers = world.barriers();
   const gates = world.gates();
-  const others = world.props();
+  // A THING BEING MOVED IS NOT IN ITS OWN WAY. Dragging an existing prop asks
+  // this same question about its new position, and the level it is being asked
+  // about still contains it where it was; without this it collides with itself
+  // the moment it has moved less than its own width.
+  const others = ignore
+    ? world.props().filter((q) => !ignore.has(q.id) && !ignore.has(String(q.id).split('/')[0]))
+    : world.props();
 
   for (const p of cands) {
     const S = auditShape(p);

@@ -53,6 +53,8 @@
 // The editor reports the shortfall, which is the honest thing to do: five asked
 // for and four placed means the arena has no fifth place to stand.
 
+import { inView } from '../world/field.js';
+
 export const DEFAULT_FLY_RULE = {
   count: 6,        // the owner's number: six on the board, refilled for ever
   // A FLOOR, NOT A TARGET. The sampler maximises the spacing on its own; this
@@ -60,7 +62,13 @@ export const DEFAULT_FLY_RULE = {
   // nowhere left to stand. Set it at the target of 20 and the fifth is vetoed
   // in almost every level, because the ghost's own clearing sits in the middle
   // of the square and the middle is exactly where the fifth point wants to be.
-  gap: 12,
+  // NINE, down from twelve, and the reason is a ceiling rather than a taste.
+  // Once the two blind bands and the three dim corners are excluded, six points
+  // placed in what is left for distance ALONE reach 11.5 apart (field.js's
+  // fireflyRoom note). A floor of twelve is therefore above the ceiling and
+  // vetoes the sixth firefly in every level: the shipped demo came out with
+  // five and the audit failed it for having five.
+  gap: 9,
   // 1.5, not 4. The measured 19.8 mean came from points placed across
   // essentially the whole arena: 0.7071 is the optimal five-point spacing in a
   // unit square, so 28 units of usable width is 19.8 and 22 is 15.6. The hard
@@ -99,6 +107,12 @@ function makeTest({ box, barriers, gates, props, spawn, rule }) {
   return (x, z) => {
     if (x < box.minX + margin || x > box.maxX - margin) return false;
     if (z < box.minZ + margin || z > box.maxZ - margin) return false;
+    // THE CAMERA'S OWN TEST, and it is the cheapest of the lot after the box.
+    // The two walls the camera stands behind each hide a band of ground, and
+    // three of the four corners are where a firefly cannot be picked out. See
+    // field.js's inView; the same call is what the generator and the runtime
+    // refill use, so a firefly cannot be legal in one and not the others.
+    if (!inView(box, x, z)) return false;
     if (Math.hypot(x - spawn.x, z - spawn.z) < rule.spawnClear) return false;
     for (const p of solid) {
       // A BODY's clearance, not the firefly's own. A firefly the player cannot

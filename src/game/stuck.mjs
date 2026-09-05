@@ -47,11 +47,17 @@
 // loop lands in the same place to a millimetre.
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { createNav } from './nav.js';
+import { createNav as defaultNav } from './nav.js';
 import { TUNING, createGame } from './rules.js';
 import { createLevelWorld, normalizeLevel } from './level/format.js';
 
 const T = TUNING;
+
+// The resolver under test. `--nav <path>` swaps it, which is how a before and
+// after are measured with the same instrument rather than with the same numbers
+// typed out twice: keep a copy of the old nav.js somewhere and point at it.
+let createNav = defaultNav;
+export function useNav(fn) { createNav = fn || defaultNav; }
 
 // A second and a half of full stick, which at 3.66 units a second is 5.2 units
 // of intent. Long enough that a ghost merely rounding a headstone is not
@@ -229,6 +235,7 @@ export function sweepWalk(world, { cell = 0.25, dirs = 8, seconds = HOLD } = {})
   const hits = [];
   let probed = 0;
   let stalls = 0;
+  let standing = 0;
   for (let iz = 0; iz < nz; iz++) {
     for (let ix = 0; ix < nx; ix++) {
       const x = box.minX + ix * cell;
@@ -237,6 +244,17 @@ export function sweepWalk(world, { cell = 0.25, dirs = 8, seconds = HOLD } = {})
       if (!nav.discClear(x, z, T.ghostRadius)) continue;
       probed++;
       grid[iz * nx + ix] = 0;
+      // THE HEADLINE NUMBER. A cell that is CLEAR is a cell the game is
+      // entitled to put the ghost in -- walking into it, landing a jump on it
+      // (tryJump refuses any landing that is not clear), or being seated on it
+      // by the resolver -- so a clear cell nobody can move off is a lost run
+      // however it was arrived at. This has to be zero.
+      const out = escape(nav, x, z, dir);
+      if (out.best < FREE || out.nan) {
+        standing++;
+        grid[iz * nx + ix] = 2;
+        hits.push({ x, z, nan: out.nan, best: out.best, from: { x, z }, dir: [0, 0], after: 0, standing: true });
+      }
       for (const [dx, dz] of dir) {
         const end = walk(nav, x, z, dx, dz, { seconds });
         if (!end.stalled) continue;
@@ -253,7 +271,7 @@ export function sweepWalk(world, { cell = 0.25, dirs = 8, seconds = HOLD } = {})
       }
     }
   }
-  return { kind: 'walk', nx, nz, cell, box, grid, hits, probed, stalls };
+  return { kind: 'walk', nx, nz, cell, box, grid, hits, probed, stalls, standing };
 }
 
 export function sweepSeats(world, { cell = 0.25, dirs = 8 } = {}) {
@@ -290,6 +308,110 @@ export function sweepSeats(world, { cell = 0.25, dirs = 8 } = {}) {
     }
   }
   return { kind: 'seats', nx, nz, cell, box, grid, hits, probed, stalls: 0 };
+}
+
+// --- the ground the ghost can stand on ----------------------------------------
+//
+// Open cells joined to the spawn, flooded on the probe's own grid. Diagonal
+// steps only where both orthogonal neighbours are open, so the flood cannot
+// squeeze a body through a corner it would not fit through.
+export function openSpace(world, { cell = 0.25 } = {}) {
+  const nav = createNav(world);
+  const box = world.bounds;
+  const nx = Math.floor((box.maxX - box.minX) / cell) + 1;
+  const nz = Math.floor((box.maxZ - box.minZ) / cell) + 1;
+  const clear = new Uint8Array(nx * nz);
+  for (let iz = 0; iz < nz; iz++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const x = box.minX + ix * cell;
+      const z = box.minZ + iz * cell;
+      nav.focus(x, z);
+      clear[iz * nx + ix] = nav.discClear(x, z, T.ghostRadius) ? 1 : 0;
+    }
+  }
+  const seen = new Uint8Array(nx * nz);
+  const sx = Math.round((world.spawn.x - box.minX) / cell);
+  const sz = Math.round((world.spawn.z - box.minZ) / cell);
+  const stack = [];
+  if (clear[sz * nx + sx]) { stack.push(sz * nx + sx); seen[sz * nx + sx] = 1; }
+  while (stack.length) {
+    const i = stack.pop();
+    const ix = i % nx;
+    const iz = (i - ix) / nx;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const jx = ix + dx;
+      const jz = iz + dz;
+      if (jx < 0 || jz < 0 || jx >= nx || jz >= nz) continue;
+      const j = jz * nx + jx;
+      if (seen[j] || !clear[j]) continue;
+      if (dx && dz && !(clear[iz * nx + jx] && clear[jz * nx + ix])) continue;
+      seen[j] = 1;
+      stack.push(j);
+    }
+  }
+  return (x, z) => {
+    const ix = Math.round((x - box.minX) / cell);
+    const iz = Math.round((z - box.minZ) / cell);
+    if (ix < 0 || iz < 0 || ix >= nx || iz >= nz) return false;
+    return !!seen[iz * nx + ix];
+  };
+}
+
+// --- can a player actually GET there ------------------------------------------
+//
+// A sealed pocket only costs somebody a run if the ghost can be driven into it,
+// and one press cannot do it: the sweep above walks every open cell in every
+// direction and never lands in one. So this asks the harder question, which is
+// the one a player asks without meaning to. Press into the corner until the
+// ghost stops, then press something else -- which is exactly what a person does
+// when they are stuck -- and see whether the second press pushes the body
+// THROUGH the wall of contact and into the pocket behind it.
+//
+// Two presses is the whole search. If two cannot reach it, a report of "I got
+// stuck here" is not about this pocket.
+export function reachable(world, target, { radius = 4, cell = 0.25, dirs = 16, hold = HOLD, open = null } = {}) {
+  const nav = createNav(world);
+  const dir = dirsOf(dirs);
+  const near = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+  const free = open || openSpace(world, { cell });
+  const seats = [];
+  // On the probe's own lattice, which is what `free` is indexed by.
+  const snap = (v) => Math.round((v - world.bounds.minX) / cell) * cell + world.bounds.minX;
+  const snapZ = (v) => Math.round((v - world.bounds.minZ) / cell) * cell + world.bounds.minZ;
+  for (let x = snap(target.x - radius); x <= target.x + radius; x += cell) {
+    for (let z = snapZ(target.z - radius); z <= target.z + radius; z += cell) {
+      // Only from ground the ghost can actually be standing on: open, and
+      // joined to its own spawn. Starting anywhere else proves nothing, and in
+      // the first version of this check it proved something false -- it started
+      // the search INSIDE the pocket and reported the pocket as reachable from
+      // itself.
+      if (!free(x, z)) continue;
+      nav.focus(x, z);
+      for (const [dx, dz] of dir) {
+        const end = walk(nav, x, z, dx, dz, { seconds: hold });
+        if (!end.stalled) continue;
+        if (seats.some((s) => near(s, end) < 0.02)) continue;
+        seats.push({ x: end.x, z: end.z, from: { x, z }, dir: [dx, dz] });
+      }
+    }
+  }
+  for (const s of seats) {
+    for (const [dx, dz] of dir) {
+      const end = walk(nav, s.x, s.z, dx, dz, { seconds: hold });
+      if (near(end, target) > Math.max(radius / 4, 1.0)) continue;
+      nav.focus(end.x, end.z);
+      const out = escape(nav, end.x, end.z, dir);
+      if (out.best >= FREE && !out.nan) continue;
+      return {
+        got: true,
+        at: { x: +end.x.toFixed(3), z: +end.z.toFixed(3) },
+        recipe: `from (${s.from.x.toFixed(2)}, ${s.from.z.toFixed(2)}) hold `
+          + `(${s.dir[0].toFixed(2)}, ${s.dir[1].toFixed(2)}) until it stops, then hold `
+          + `(${dx.toFixed(2)}, ${dz.toFixed(2)})`,
+      };
+    }
+  }
+  return { got: false, seats: seats.length };
 }
 
 export function report(world, res, { dirs = 8, verbose = true } = {}) {
@@ -359,14 +481,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const world = await loadWorld(args);
   const dirs = Number(args.dirs) || 8;
   const cell = Number(args.cell) || 0.25;
-  const st = selftest(world);
-  console.log(`mirror against rules.js: err ${st.err.toExponential(2)} ${st.ok ? 'ok' : 'DRIFTED'}`);
+  if (typeof args.nav === 'string') {
+    const mod = await import(path.resolve(args.nav));
+    useNav(mod.createNav || mod.default);
+    console.log(`resolver: ${args.nav}`);
+  } else {
+    const st = selftest(world);
+    console.log(`mirror against rules.js: err ${st.err.toExponential(2)} ${st.ok ? 'ok' : 'DRIFTED'}`);
+  }
   console.log(`${args.seed ? `seed ${args.seed}` : (args.level || 'public/levels/demo.json')}`
     + `  cell ${cell}, ${dirs} directions, a clear second is ${freeRun().toFixed(2)} units`);
   const res = args.seats ? sweepSeats(world, { cell, dirs }) : sweepWalk(world, { cell, dirs });
   if (res.kind === 'walk') {
-    console.log(`walked from ${res.probed} open cells x ${dirs}: ${res.stalls} stalls, `
-      + `${res.hits.length} of them with no way out`);
+    console.log(`${res.probed} open cells: ${res.standing} of them are places the ghost can `
+      + `STAND and not get out of  <- this is the one that has to be zero`);
+    console.log(`walked from each of them x ${dirs}: ${res.stalls} stalls, `
+      + `${res.hits.length - res.standing} of those with no way out`);
   } else {
     console.log(`seated ${res.probed} cells: ${res.hits.length} with no way out`);
   }
@@ -376,6 +506,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log(`      blame: ${f.culprits.length ? f.culprits.join(' + ') : 'no single collider or pair frees it'}`);
     console.log(`      near:  ${f.near.join(', ')}`);
     console.log(`      repro: ${f.repro}`);
+    if (res.kind === 'seats') {
+      const r = reachable(world, f, { dirs });
+      console.log(`      reach: ${r.got ? `YES -- ${r.recipe}` : `no, off ${r.seats} contact points and two presses`}`);
+    }
   }
   if (!found.length) console.log('  none');
   if (args.map) {

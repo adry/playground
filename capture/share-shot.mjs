@@ -75,9 +75,10 @@ while (t < maxSeconds && !over) {
         const dx = foe.x - st.ghost.x;
         const dz = foe.z - st.ghost.z;
         const L = Math.hypot(dx, dz) || 1;
-        // Straight at it while there are lives to spend; on the last one, 70
-        // degrees off, which closes slowly and photographs.
-        const turn = st.lives <= 1 ? 1.22 : 0;
+        // Straight at it while there are lives to spend; on the last one, 34
+        // degrees off, so it closes at an angle and the frames the ring keeps
+        // are a chase across the picture rather than a head-on collision.
+        const turn = st.lives <= 1 ? 0.6 : 0;
         const c = Math.cos(turn);
         const s = Math.sin(turn);
         axis = { x: (dx * c - dz * s) / L, y: (dx * s + dz * c) / L };

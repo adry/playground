@@ -25,6 +25,7 @@
 
 import { createRng } from '../layout/rng.js';
 import { makeFrame } from '../layout/frame.js';
+import { WALL } from '../../ghost/props/fence/wall.js';
 
 export const TAU = Math.PI * 2;
 
@@ -38,10 +39,87 @@ export const LEVEL_SIZE = 30;
 
 // The perimeter. It is not the 0.86 fence: it is a wall you cannot see over and
 // cannot hop, with darkness beyond it, and it is the only closed loop of
-// barrier in the level. The height is what the wall asset will publish; until
-// it does this is the number the rest of the world assumes.
-export const WALL_HEIGHT = 3.2;
+// barrier in the level.
+//
+// THE HEIGHT COMES OFF THE WALL ITSELF NOW. It was 3.2 here with a comment
+// saying "the height is what the wall asset will publish; until it does this is
+// the number the rest of the world assumes", and the wall asset has published
+// 2.0 for some time: wall.js argues the number at length and its whole argument
+// is that no variant may change it. So the placeholder was 60% too tall, which
+// mattered to nothing until the blind band below, which is computed from it.
+export const WALL_HEIGHT = WALL.height;
 export const WALL_HALF = 0.25;
+
+// --- WHAT THE CAMERA CANNOT SEE -----------------------------------------------
+//
+// The camera is orthographic down (1, 0.78, 1), so it stands at +x, +y, +z and
+// the two walls BETWEEN IT AND THE GROUND are x = +15 and z = +15, which are
+// the lower right and lower left edges of the screen. A point at height h
+// projects h / CAM_RISE further from the camera in both x and z, so each of
+// those two walls hides a band that deep along the inside of itself. wall.js's
+// own table has the same arithmetic and the same numbers; this is the only
+// place that turns it into a test.
+//
+// AND THREE OF THE FOUR CORNERS, which is the owner's own observation and not
+// something geometry produces. Screen right is (x - z) / sqrt(2) and screen up
+// is -(x + z) / sqrt(2), so (-15, +15) is hard left, (+15, +15) is the bottom,
+// (+15, -15) is hard right and only (-15, -15) is the top. The three that are
+// low or to the side are where a firefly is hardest to pick out, so nothing
+// collectible goes near them.
+//
+// CORNER_KEEP is 7.0 and is a judgement rather than a measurement, so here is
+// what it costs: with the two bands it leaves 65% of the arena usable, against
+// 68% for the bands alone, and it takes the best spacing six fireflies can
+// reach from 12.3 down to 11.5. See the note under `fireflyRoom` for what that does
+// to the spacing, which is the real price.
+export const CAM_RISE = 0.78;
+// THE PIER CROWN AND NOT THE COPING, which is 0.44 more of band and is worth
+// the extra. wall.js's own table computes the band from WALL.height 2.0, which
+// is the crown of the COPING; a pier stands WALL.pier.rise 0.34 above that
+// every 5.0 along the run, so the tallest thing on the wall is 2.34 and the
+// deepest band it throws is 3.0 rather than 2.56. A pier is only 0.86 wide, so
+// the extra 0.44 of band is hidden behind something for about a sixth of the
+// wall's length and clear for the rest -- but a firefly does not get to choose
+// which sixth it lands in, and a rule that is right five times in six is a rule
+// the owner reports as a bug for the sixth time.
+export const BLIND_BAND = (WALL.height + WALL.pier.rise) / CAM_RISE + WALL_HALF;
+export const CORNER_KEEP = 7.0;
+
+// The three corners of `box` a collectible keeps away from: the two on the
+// camera's side and the one hard left.
+export function dimCorners(box) {
+  return [
+    { x: box.minX, z: box.maxZ },     // hard left on screen
+    { x: box.maxX, z: box.maxZ },     // the bottom
+    { x: box.maxX, z: box.minZ },     // hard right
+  ];
+}
+
+// Can the player actually SEE something standing here? False inside either near
+// wall's blind band and false near any of the three dim corners. Everything
+// that places a firefly asks this, and nothing else has an opinion about it.
+export function inView(box, x, z) {
+  if (x > box.maxX - BLIND_BAND || z > box.maxZ - BLIND_BAND) return false;
+  for (const c of dimCorners(box)) if (Math.hypot(x - c.x, z - c.z) < CORNER_KEEP) return false;
+  return true;
+}
+
+// WHAT IS LEFT TO PUT SIX FIREFLIES IN, and it is the number to argue with
+// rather than the rule above.
+//
+// Measured on a 30 by 30 arena with nothing in it: the two bands and the three
+// corners leave 65% of the floor, and six points placed in what remains for
+// distance alone reach a nearest neighbour of 11.5. The same six over the whole
+// arena reach 15.9 (see DESIGN.md's table) and five reach 19.8, and the owner's
+// original requirement was 15 to 25, "cross the screen for the next one".
+//
+// So the visible arena cannot hold six fireflies at the spacing that was asked
+// for, and this is the trade rather than a bug: six and 11.5, or five and about
+// 13, or the corners back and 12.5. Six is the owner's newer decision and the
+// visibility is their newest, so both are honoured and the spacing is what
+// gives. Once the fireflies also dodge props and fences it comes out lower
+// again.
+export const FLY_ROOM_NOTE = 11.5;
 
 // --- the paths ------------------------------------------------------------------
 //
@@ -87,7 +165,10 @@ export const FLY_REACH = 2.2;       // how far one may be pulled toward a gate o
 // was the binding constraint and at five it is slack, since the quincunx puts
 // them 19.1 apart before anything moves. It is now a floor that catches a pair
 // shoved together by two nudges, not the thing setting the spacing.
-export const FLY_GAP = 12.0;
+// NINE, down from twelve. The two blind bands and the three dim corners put
+// the CEILING for six points at 11.5 apart with nothing else in the arena, so a
+// floor of twelve is above the ceiling and refuses the sixth firefly outright.
+export const FLY_GAP = 9.0;
 // NO POWERUPS. There were four, one per quadrant, and they were Pac-Man's
 // power pellet as a lit jack-o'-lantern. The owner has taken the pellet out of
 // the game; see rules.js for what the game loses with it and for the four

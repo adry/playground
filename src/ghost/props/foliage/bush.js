@@ -336,10 +336,8 @@ const CLIPPED = {
 //   0.10  a crate. The two side faces meet in a line, and the only thing
 //         softening it is the leaf layer, which is the crease the house style
 //         exists to avoid with a texture thrown over it.
-//   0.18  a box with a tight arris. Good, but the roll from the top face to
-//         the side happens within a single leaf cluster, so what draws the
-//         edge is the nap and not the form under it.
-//   0.26  a clipped box. The roll takes two or three clusters, which is about
+//   0.18  a box with a tight arris. Good, and the closest rival.
+//   0.26  a clipped box. The roll takes about three leaf clusters, which is
 //         what a shear leaves, and better than half of each face is still
 //         flat, so the three faces hold three clearly distinct values at the
 //         game camera.

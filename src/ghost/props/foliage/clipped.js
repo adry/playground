@@ -4,15 +4,15 @@ import { icosphere, makeLobes, lumpPositions } from './wind.js';
 // The machinery for CLIPPED foliage: a ball, a cone and a box, cut by a
 // gardener rather than grown by nobody.
 //
-// bush.js's overgrown shrub is a wandering lobe field with a hundred and fifty
-// tufts standing proud of it, and both of those decisions are what make it read
-// as overgrown: the lobes take the outline off any recognisable form, and the
-// tufts scallop whatever outline is left. Trimmed is the inverse of each. The
-// silhouette has to read as a deliberate geometric shape, and the surface still
-// has to read as leaves, so:
+// bush.js's overgrown shrub is a wandering lobe field with a hundred and
+// sixty-eight tufts standing well proud of it, and both of those decisions are
+// what make it read as overgrown: the lobes take the outline off any
+// recognisable form, and the tufts scallop whatever outline is left. Trimmed
+// is the inverse of each. The silhouette has to read as a deliberate geometric
+// shape, and the surface still has to read as leaves, so:
 //
 //   1. an EXACT form, built as a surface with analytic normals, then
-//   2. inset by the depth of one leaf cluster, and
+//   2. inset by the depth of the leaf layer, and
 //   3. covered in a NAP of small clusters whose tips are placed so they land
 //      back on the exact form.
 //

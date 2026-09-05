@@ -40,7 +40,7 @@
 // size aliases it in both directions; that lives in repair.js as findWedges,
 // and is rule 11 here.
 
-import { LEVEL_SIZE, PATH_HALF, GRAVES, WALL_HEIGHT } from './field.js';
+import { LEVEL_SIZE, PATH_HALF, GRAVES, WALL_HEIGHT, inView } from './field.js';
 import { BODY } from './level.js';
 import { findWedges } from './repair.js';
 import { spawnZones, spawnFault, SPAWN_FLOOR } from './spawn.js';
@@ -517,6 +517,17 @@ export function auditLevel(world, fail) {
   // they took five and the spacing rather than nine and the density. Anything
   // below five is not that decision, it is a level with nothing to collect.
   if (world.fireflies().length < 6) fail('floor', `only ${world.fireflies().length} firefly spots, the board holds six`);
+  // AND EVERY ONE OF THEM HAS TO BE VISIBLE. The camera stands behind the
+  // x = +15 and z = +15 walls and each of them hides a band of ground; three of
+  // the four corners read badly for the same reason. field.js's inView is the
+  // one definition and every placer asks it, so a firefly failing here is a
+  // placer that has fallen through to a fallback rather than an author's
+  // mistake -- which is exactly what it caught the first time it ran.
+  for (const f of world.fireflies()) {
+    if (!inView(box, f.x, f.z)) {
+      fail('floor', `${f.id} at ${f.x.toFixed(1)}, ${f.z.toFixed(1)} is where the camera cannot see it`);
+    }
+  }
   // Four of these are the graves' own headstones, so six is two free standing
   // stones and is the point below which the arena stops reading as a graveyard
   // at all rather than merely reading as a thin one.

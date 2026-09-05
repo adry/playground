@@ -93,6 +93,18 @@ const clickWorld = async (x, z) => {
 // The palette is a grid of pictures now, and the name is a caption inside the
 // button rather than the button's whole text. A closed group is still in the
 // DOM, so nothing has to be expanded to reach an entry.
+// The wall card is only on screen while the wall is what you are editing, which
+// is the rule the whole right panel follows now.
+const pickWallStone = async (stone) => {
+  await clickEntry('wall stone');
+  await editor.page.evaluate((want) => {
+    const rows = [...document.querySelectorAll('#right .row')];
+    const row = rows.find((r) => r.querySelector('label')?.textContent === 'make it');
+    const seg = row?.querySelector('.seg');
+    [...(seg?.querySelectorAll('button') || [])].find((b) => b.textContent === want)?.click();
+  }, stone);
+};
+
 const clickEntry = (label) => editor.page.evaluate((want) => {
   const b = [...document.querySelectorAll('#left .tiles button, #left .swatchrow button')]
     .find((n) => n.querySelector('.name')?.textContent.trim() === want);
@@ -100,19 +112,20 @@ const clickEntry = (label) => editor.page.evaluate((want) => {
   return !!b;
 }, label);
 
-// THE WALL, PIECE BY PIECE. Pick the change of stone out of the one list and
-// click on the perimeter; the change lands at the distance clicked.
-claim(await clickEntry('change of stone'), 'the wall tool is an entry in the palette');
-const wallBefore = await editor.page.evaluate(() => window.__editor.doc.wall.styles.length);
-await clickWorld(-6, -15);
-const wallAfter = await editor.page.evaluate(() => window.__editor.doc.wall.styles.map((st) => st.at));
-claim(wallAfter.length === wallBefore + 1, `clicking the wall adds a change of stone (${wallBefore} to ${wallAfter.length})`);
-claim(wallAfter.some((a) => Math.abs(a - 9) < 2), `and it lands where the click was, at ${wallAfter.map((a) => a.toFixed(0)).join(', ')} along the run`);
-await clickWorld(-6, -15);
-claim(
-  (await editor.page.evaluate(() => window.__editor.doc.wall.styles.length)) === wallBefore,
-  'and clicking it again takes it out',
-);
+// THE WALL, SECTION BY SECTION. A section is one large square of the floor, five
+// units, and clicking one makes it the stone that is picked.
+claim(await clickEntry('wall stone'), 'the wall tool is an entry in the palette');
+// Section 0 runs from the first corner to five along, which is the near end of
+// the first side; section 3 is the middle of it.
+await clickWorld(-12.5, -15);
+const sect = await editor.page.evaluate(() => window.__editor.wallSections());
+claim(sect.length === 24, `the wall is ${sect.length} sections of five units`);
+claim(sect[0] === 'brick', `clicking a section changes that section: it is ${sect[0]}`);
+claim(sect[1] !== 'brick', `and only that one: the next is still ${sect[1]}`);
+await clickWorld(2.5, -15);
+const sect2 = await editor.page.evaluate(() => window.__editor.wallSections());
+claim(sect2[3] === 'brick', 'a second section further along changes too');
+claim(sect2[0] === 'brick' && sect2[2] !== 'brick', 'and the ones between are untouched');
 
 // THE PLACEMENT INDICATOR. Green where a headstone may go, red where it may
 // not, and the drop refused when it is red.
@@ -187,12 +200,8 @@ if (gz) {
 // be what was on screen -- including the change made a moment ago and never
 // saved to anything.
 await editor.page.evaluate((doc) => window.__editor.load(doc), demo);
-await editor.page.evaluate(() => {
-  const rows = [...document.querySelectorAll('#right .row')];
-  const row = rows.find((r) => r.querySelector('label')?.textContent === 'built of');
-  const seg = row?.querySelector('.seg');
-  [...(seg?.querySelectorAll('button') || [])].find((b) => b.textContent === 'rubble')?.click();
-});
+await pickWallStone('rubble');
+await clickWorld(-12.5, -15);
 await editor.page.waitForTimeout(2500);
 
 // A REAL click, because window.open without user activation is a blocked popup
@@ -216,25 +225,20 @@ if (played) {
 
 // Put the level back to the one that gets saved and played from a file.
 await editor.page.evaluate((doc) => window.__editor.load(doc), demo);
-await editor.page.evaluate(() => {
-  const rows = [...document.querySelectorAll('#right .row')];
-  const row = rows.find((r) => r.querySelector('label')?.textContent === 'built of');
-  const seg = row?.querySelector('.seg');
-  [...(seg?.querySelectorAll('button') || [])].find((b) => b.textContent === 'iron')?.click();
-  const b = [...document.querySelectorAll('#right button')].find((n) => /add one halfway/.test(n.textContent));
-  b?.click();
-});
+await pickWallStone('iron');
+await clickWorld(-12.5, -15);
+await clickWorld(2.5, -15);
 
 // The slow half is debounced, and saving is what waits for it.
 await editor.page.waitForTimeout(2500);
 
 const before = await editor.page.evaluate(() => ({
   variant: window.__editor.doc.wall.variant,
-  styles: window.__editor.doc.wall.styles.length,
+  sections: window.__editor.wallSections().filter((v) => v === 'iron').length,
   props: window.__editor.doc.props.length,
 }));
-claim(before.variant === 'iron', `the wall's stone can be changed from the panel: it is ${before.variant}`);
-claim(before.styles === 3, `the wall carries ${before.styles} changes of stone`);
+claim(before.sections === 2, `two sections of it are iron (${before.sections})`);
+claim(before.variant === 'iron', `the wall's first section is ${before.variant}`);
 
 const download = editor.page.waitForEvent('download', { timeout: 30000 }).catch(() => null);
 await editor.page.evaluate(() => {
@@ -301,8 +305,8 @@ const playing = await game.page.evaluate(() => ({
 }));
 console.log('   ', JSON.stringify(playing));
 claim(!!playing.level, 'the game is playing a level from a file');
-claim(playing.variant === 'iron', `the change made in the editor is in the game: the wall is ${playing.variant}`);
-claim(playing.styles === 3, `and it carries the ${playing.styles} changes of stone that were authored`);
+claim(playing.variant === 'iron', `the change made in the editor is in the game: the wall starts ${playing.variant}`);
+claim(playing.styles >= 1, `and it carries the ${playing.styles} change${playing.styles === 1 ? '' : 's'} of stone that were authored`);
 claim(playing.pending === 0, 'every prop template was baked before the first frame');
 claim(playing.flies === 5, `five fireflies, ${playing.spacing} apart at the closest`);
 

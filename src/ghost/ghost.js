@@ -420,6 +420,20 @@ export class Ghost {
     // the sheet coming apart, not a wobble. Afterwards the error no longer
     // depends on the frame rate at all, which is the point.
     //
+    // AND WHAT THAT IS ON SCREEN, because that is the only test that counts.
+    // The ghost is about 47 by 70 pixels at the shipped 900x700 framing, which
+    // is 38.9 px per world unit. Worst edge overstretch, in pixels, over the
+    // first twenty frames:
+    //
+    //   60fps, any input                     0 to  2 px    unchanged
+    //   20fps, walking a straight line       3 px  ->  1 px
+    //   20fps, changing direction fast      17 px  ->  4 px
+    //
+    // So the fault needed BOTH a long frame and a player working the stick,
+    // which is exactly the first second of a run: the level is still baking and
+    // the player is trying to move. A gentle walk at 20fps was never the
+    // problem and this does not pretend to fix one.
+    //
     // A steady 60fps frame is bit-identical to what shipped: round(2) is 2 and
     // (1/60)/2 is exactly 1/120, so nothing that was running well changes, and
     // the 60fps captures reproduce.
@@ -428,7 +442,7 @@ export class Ghost {
     // ghost simply runs a little slow for that frame, which is invisible next
     // to the stall that caused it. Four bounds the cost at twice a 60fps
     // frame while still holding h to 12.5 ms at the clamp.
-    const sub = 2;
+    const sub = Math.min(MAX_SUBSTEPS, Math.max(1, Math.round(dt / SUBSTEP)));
     const h = dt / sub;
     for (let s = 0; s < sub; s++) {
       this.time += h;

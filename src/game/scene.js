@@ -779,7 +779,7 @@ export async function startGame({ canvas, params }) {
     // first: ghost.matrix still describes the PREVIOUS spawn at this point, and
     // resetting against it was pinning the sheet there and dragging it across
     // the arena over the next six frames.
-    ghost.cloth.reset(ghost.matrix);
+    ghost.resetCloth();
     camTarget.set(layout.spawn.x, 0.75, layout.spawn.z);
     placeCamera();
   }

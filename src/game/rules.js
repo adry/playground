@@ -182,6 +182,7 @@
 // removed it reverses cleanly.
 
 import { createNav } from './nav.js';
+import { inView } from './world/field.js';
 import { createHerd, DEFAULT_SPEEDS, DEFAULT_CHASE, EMERGE_TIME, PERSONALITIES, SKEL_RADIUS } from './chase.js';
 
 export const TUNING = {
@@ -462,7 +463,12 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
   // proof that every place a body fits in a passing level is a place a body
   // could have walked to, which is exactly the question and is why that rule
   // exists.
-  const canStand = (x, z) => nav.discClear(x, z, T.ghostRadius + 0.05);
+  // ...and somewhere the player can SEE it. field.js's inView is the same test
+  // the generator and the level format use, so a firefly the refill invents is
+  // legal exactly where an authored one is: out of the two blind bands the near
+  // walls throw and away from the three corners that read badly.
+  const canStand = (x, z) => (bounds ? inView(bounds, x, z) : true)
+    && nav.discClear(x, z, T.ghostRadius + 0.05);
 
   function inventSpot(avoid) {
     const b = bounds || {
