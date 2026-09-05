@@ -470,7 +470,7 @@ const WAVE_SEG = 0.62;         // how long one segment's own bump lasts, in beat
 // The turn's four steps are the rest stance rotated about the body's centre, so
 // the figure turns on its feet: `pivot` below builds them rather than having
 // four rotated pairs of coordinates written out by hand and drifting.
-const STANCE_Z = 0.02;
+const STANCE_Z = 0.26;
 // How far the bar 2 shuffle carries the troupe sideways, in metres. Published
 // so a caller framing a shot knows how much room the line needs beside it.
 export const SHUFFLE_SPAN = 0.54;

@@ -11,6 +11,7 @@ out/
 # measure one thing off a render and then throwing it away; they are named so
 # they are easy to spot and never worth committing.
 /.*.mjs
+/.*.sh
 /capture/_*.mjs
 
 # Scratch harnesses. Playwright resolves node_modules from the repo root, so a
