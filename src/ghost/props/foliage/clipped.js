@@ -351,6 +351,7 @@ export function napSites(geo, {
   sizeAt = null,        // where the clusters are smaller, so is the spacing
   limit = 400,
   candidates = 10,      // how many are generated for each site kept
+  jitter = 0.25,        // tangential nudge after the choice, in spacings
   yMin = 0.02,          // nothing below this: it is underground
   faceDown = -0.45,     // nor nothing pointing further down than this
 }) {
@@ -390,14 +391,63 @@ export function napSites(geo, {
   const na = new THREE.Vector3(), nb = new THREE.Vector3(), nc = new THREE.Vector3();
   const bestP = new THREE.Vector3();
   const bestN = new THREE.Vector3();
-  // Spacing is per site wherever the clusters are, because the two have to
-  // shrink together. The cone tapers its clusters to a third over the top of
-  // its height, and holding the spacing constant there scattered small
+  const tan = new THREE.Vector3();
+  const bit = new THREE.Vector3();
+
+  // Spacing is per site wherever the clusters are, because size and spacing
+  // have to shrink together. The cone tapers its clusters to a third over the
+  // top of its height, and holding the spacing constant there scattered small
   // clusters at wide intervals over the tip, which showed the dark mass
   // between them and read as a bud on the end of the cone rather than as its
   // point. The test between two sites uses the mean of their spacings, the
   // same way the overgrown bush's two clump sizes share a gap.
-  const sp = (p) => spacing * (sizeAt ? sizeAt(p) : 1);
+  const sp = (q) => spacing * (sizeAt ? sizeAt(q) : 1);
+
+  // A uniform grid over the sites already placed, so the nearest-neighbour
+  // query does not walk the whole list. It is the difference between a bush
+  // and a stall: the leaf is small enough now that a box carries a thousand
+  // clusters, and the naive query is a thousand candidates times ten tries
+  // times a thousand neighbours.
+  //
+  // Cells are TWO spacings across and the search is the twenty-seven cells
+  // around the candidate. That is the smallest neighbourhood that is certainly
+  // wide enough: wherever in its own cell the candidate sits, the ring of
+  // cells round it reaches at least two spacings past it in every direction.
+  // Anything further away than that scores over 2 on the normalised metric
+  // below, already past the 1 that decides acceptance, so the only thing the
+  // cap costs is that a candidate in genuinely open ground cannot say HOW
+  // open: it says "at least 2" and ties with every other such candidate. Early
+  // on that makes the first few sites arbitrary, which they are anyway.
+  //
+  // The key is an integer rather than a string. At a thousand sites and ten
+  // candidates each this query runs a quarter of a million times per bush, and
+  // building a string for every cell of every one of them cost more than the
+  // distance tests it was there to avoid.
+  const CELL = spacing * 2;
+  const cells = new Map();
+  const key = (x, y, z) => (((Math.floor(x / CELL) + 512) << 20)
+    | ((Math.floor(y / CELL) + 512) << 10)
+    | (Math.floor(z / CELL) + 512));
+  const FAR2 = 4;   // (2 spacings)^2, in the normalised metric
+  const nearest = (q, mine) => {
+    const gx = Math.floor(q.x / CELL), gy = Math.floor(q.y / CELL), gz = Math.floor(q.z / CELL);
+    let near = FAR2;
+    for (let ix = gx - 1; ix <= gx + 1; ix++) {
+      for (let iy = gy - 1; iy <= gy + 1; iy++) {
+        for (let iz = gz - 1; iz <= gz + 1; iz++) {
+          const bucket = cells.get(((ix + 512) << 20) | ((iy + 512) << 10) | (iz + 512));
+          if (!bucket) continue;
+          for (let i = 0; i < bucket.length; i++) {
+            const o = bucket[i];
+            const mean = 0.5 * (mine + o.sp);
+            const d = q.distanceToSquared(o.p) / (mean * mean);
+            if (d < near) near = d;
+          }
+        }
+      }
+    }
+    return Math.sqrt(near);
+  };
 
   // One candidate: a point drawn uniformly over the surface, left in p and nv.
   // False if it landed somewhere no cluster may go.
@@ -439,18 +489,36 @@ export function napSites(geo, {
     let far = -1;
     for (let k = 0; k < candidates; k++) {
       if (!draw()) continue;
-      const mine = sp(p);
-      let near = Infinity;
-      for (let j = 0; j < out.length; j++) {
-        const d = p.distanceTo(out[j].p) / (0.5 * (mine + out[j].sp));
-        if (d < near) near = d;
-        if (d < 1) break;   // already too close to beat anything
-      }
+      const near = nearest(p, sp(p));
       if (near > far) { far = near; bestP.copy(p); bestN.copy(nv); }
     }
     if (far < 1) { idle++; continue; }
     idle = 0;
-    out.push({ p: bestP.clone(), n: bestN.clone(), sp: sp(bestP) });
+
+    // AND THEN IT IS NUDGED OFF ITS OWN BEST SPOT. Best-candidate packs a
+    // surface evenly, and on a surface of revolution "evenly" means rings: the
+    // emptiest place on a cone is always an annulus, so the clusters land in
+    // bands at constant height and the finished cone reads as a pinecone
+    // rather than as a clipped yew. A tangential nudge of a quarter of the
+    // spacing is small enough that the coverage the search just bought
+    // survives it, and large enough that no two neighbouring clusters share a
+    // height. Along the surface, not through it, so the cluster still sits on
+    // the mass afterwards.
+    if (jitter > 0) {
+      tan.set(bestN.z, 0, -bestN.x);
+      if (tan.lengthSq() < 1e-6) tan.set(1, 0, 0);
+      tan.normalize();
+      bit.crossVectors(bestN, tan);
+      const ang = rand() * TAU;
+      const mag = jitter * sp(bestP) * Math.sqrt(rand());
+      bestP.addScaledVector(tan, Math.cos(ang) * mag).addScaledVector(bit, Math.sin(ang) * mag);
+    }
+
+    const site = { p: bestP.clone(), n: bestN.clone(), sp: sp(bestP) };
+    out.push(site);
+    const k = key(site.p.x, site.p.y, site.p.z);
+    const bucket = cells.get(k);
+    if (bucket) bucket.push(site); else cells.set(k, [site]);
   }
   return out;
 }

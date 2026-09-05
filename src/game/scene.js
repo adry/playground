@@ -18,8 +18,8 @@
 // sentence -- so the rules half, the navigation and the audit cannot tell the
 // difference and none of them has a branch in it. What DOES differ is what is
 // drawn: a file carries painted ground cover, a wall variant with style
-// changes along it, paths of three materials and props of every kind in the
-// palette, and the generator carries none of those. Those differences are
+// changes along it and props of every kind in the palette, and the generator
+// carries none of those. Those differences are
 // marked `authored` below and nowhere else.
 //
 // It is still the only door between the editor and a page that ships: the URL
@@ -59,7 +59,6 @@ import { createFireflies } from '../ghost/props/fireflies.js';
 import { createSkeletonRig } from '../ghost/props/skeleton/model.js';
 import { createSkeletonPerformance } from '../ghost/props/skeleton/perform.js';
 import { createGraveHole } from '../ghost/props/ground/hole.js';
-import { createSandPath } from '../ghost/props/ground/sandpath.js';
 import { createPropCache, createPropField } from '../ghost/props/instancing.js';
 
 const D = Math.PI / 180;
@@ -145,7 +144,6 @@ export async function startGame({ canvas, params }) {
       pending: first,
       createLevelWorld: format.createLevelWorld,
       buildLevelProp: build.buildLevelProp,
-      buildLevelPath: build.buildLevelPath,
       createGroundCover: cover.createGroundCover,
       createGate: gate.createGate,
     };
@@ -437,16 +435,15 @@ export async function startGame({ canvas, params }) {
       return g;
     };
     const fenceBucket = bucket('fence');
-    const pathBucket = bucket('path');
     const propBucket = bucket('prop');
     const flyBucket = bucket('flies');
     built.buckets = {
-      fence: fenceBucket, path: pathBucket, prop: propBucket, flies: flyBucket,
+      fence: fenceBucket, prop: propBucket, flies: flyBucket,
     };
     // Per-bucket build cost. A chunk that streams in mid-run is a hitch or it
     // is not, and knowing which of these five is the hitch is the difference
     // between fixing it and rewriting all of it.
-    const spent = { fence: 0, path: 0, prop: 0, flies: 0 };
+    const spent = { fence: 0, prop: 0, flies: 0 };
     let mark = performance.now();
     const charge = (name) => { const t = performance.now(); spent[name] += t - mark; mark = t; };
     built.spent = spent;
@@ -550,24 +547,6 @@ export async function startGame({ canvas, params }) {
     }
 
     charge('fence');
-
-    // Paths, which are what make a corridor legible as a corridor rather than
-    // as the gap between two fences.
-    //
-    // A file's path carries a MATERIAL, which is the one field the generator's
-    // paths() does not have: sand, gravel or a kerb run. buildLevelPath is the
-    // same switch the editor draws with, and a record with no material is sand,
-    // so a generated path comes out of it exactly as createSandPath left it.
-    for (const [i, ribbon] of lay.paths(lay.bounds).entries()) {
-      if (!ribbon?.points || ribbon.points.length < 2) continue;
-      const path = authored
-        ? authored.buildLevelPath({ ...ribbon, width: ribbon.width || 1.35 }, { seed: 7 + i })
-        : createSandPath({ seed: 7 + i, width: ribbon.width || 1.35, points: ribbon.points });
-      pathBucket.add(path.group);
-      built.parts.push(path);
-    }
-
-    charge('path');
 
     // Stones and pumpkins go through the cache and come out as instances; a
     // grave hole does not, because it cuts the floor and the floor outlives the

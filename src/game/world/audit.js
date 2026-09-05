@@ -50,6 +50,33 @@ export { LEVEL_SIZE, WALL_HEIGHT, BODY, GRAVES, PATH_HALF, MAX_GROUND_HOLES, SPA
 
 // --- the rules, and their numbers -------------------------------------------
 export const MARGIN = 0.15;          // rule 1, nothing overlaps
+// ...EXCEPT TWO BUSHES, which is what a hedge is.
+//
+// The owner asked for "fences of greens": a row of bushes touching or
+// overlapping so it reads as one continuous green wall, which is what the
+// clipped box variant was cut for. Rule 1's 0.15 makes that impossible, so
+// bush against bush is the one pair it does not judge.
+//
+// It is not a free-for-all. Two bushes may overlap as much as they like right
+// up until one of them is INSIDE the other, which is not a hedge, it is two
+// props in the same place: an author cannot see the second one, it costs a
+// draw call and it z-fights. The floor is half the summed bounding radii
+// between centres, which for two box bushes is 0.639 apart against a 0.918
+// wide footprint, so they overlap by nearly a third and the row is solid.
+//
+// WHAT A HEDGE IS, once it is allowed, is stated here because it is a rule and
+// not a decoration. A bush is a SOLID prop and always has been, and every
+// walkable raster in the project -- nav.js's discClear, repair.js's navGrid,
+// validate.js's reachability and now walkGrid below -- treats a solid prop as a
+// circle of its bounding radius. So a row of touching bushes is a WALL, to the
+// skeletons and to the player, and the fairness checks see it as one.
+//
+// It is a stronger wall than a fence. The jump ignores barriers and nothing
+// else (rules.js, jump rule 5), so the ghost vaults a fence and cannot vault a
+// hedge. That is the opposite of a fairness problem: a hedge cannot make the
+// safe spot F3 is about, because whatever the ghost cannot get out of, it could
+// not get into.
+export const HEDGE_OVERLAP = 0.5;    // of the summed bounding radii, centre to centre
 export const PATH_MARGIN = 0.05;     // rule 2, nothing stands in a path
 export const OCCLUSION = 0.39;       // rule 5, off main.js's CAM_DIR
 export const FENCE_MARGIN = 0.15;    // nothing leans on a fence
@@ -174,14 +201,43 @@ export function pathPoints(world, step = 0.2) {
 //
 // One raster per level, used by the fairness rule AND by the measurement. A
 // cell is open when a disc of the rules half's own radius fits in it clear of
-// every barrier, the wall included. Rasterised at a fifth of a unit, which is
-// fine enough that the narrowest legal passage survives it: a 2.0 gate opening
-// leaves the centre of a body 0.32 either side of the centreline, and a half
-// unit grid can miss that entirely and call a good gate sealed.
+// every barrier, the wall included, and of every SOLID PROP. Rasterised at a
+// fifth of a unit, which is fine enough that the narrowest legal passage
+// survives it: a 2.0 gate opening leaves the centre of a body 0.32 either side
+// of the centreline, and a half unit grid can miss that entirely and call a
+// good gate sealed.
+//
+// THE PROPS ARE NEW HERE and they were the hedge's doing. This raster used to
+// hold barriers alone, which was defensible while the only thing that could
+// seal a region was a fence: rule 11 floods over barriers AND props and catches
+// a region walled off by a row of headstones, so rule 9 was allowed to be the
+// coarse fence-only question and rule 11 the fine one. A hedge makes that
+// division indefensible. It is a wall an author DRAWS as a wall, it is made
+// entirely of props, and a rule named `sealed` that cannot see the most
+// wall-like thing in the palette is a rule that will be believed and should not
+// be. It is the same model everything else in the project already uses: a solid
+// prop is a circle of its bounding radius. Measured over two hundred generated
+// arenas and the shipped demo, adding it changes no verdict.
 export function walkGrid(world) {
   const box = world.bounds;
   const n = Math.round((box.maxX - box.minX) / CELL);
   const open = new Uint8Array(n * n).fill(1);
+  for (const p of world.props()) {
+    if (!p.solid) continue;
+    const reach = BODY + p.radius;
+    const a0 = Math.max(0, Math.floor((p.x - reach - box.minX) / CELL));
+    const a1 = Math.min(n - 1, Math.ceil((p.x + reach - box.minX) / CELL));
+    const b0 = Math.max(0, Math.floor((p.z - reach - box.minZ) / CELL));
+    const b1 = Math.min(n - 1, Math.ceil((p.z + reach - box.minZ) / CELL));
+    for (let b = b0; b <= b1; b++) {
+      for (let a = a0; a <= a1; a++) {
+        if (!open[b * n + a]) continue;
+        const dx = box.minX + (a + 0.5) * CELL - p.x;
+        const dz = box.minZ + (b + 0.5) * CELL - p.z;
+        if (dx * dx + dz * dz < reach * reach) open[b * n + a] = 0;
+      }
+    }
+  }
   for (const s of world.barriers()) {
     const reach = BODY + s.half;
     const a0 = Math.max(0, Math.floor((Math.min(s.x0, s.x1) - reach - box.minX) / CELL));
@@ -278,10 +334,18 @@ export function auditLevel(world, fail) {
   const pts = pathPoints(world);
   const box = world.bounds;
 
-  // 1: nothing overlaps.
+  // 1: nothing overlaps, except two bushes, which is a hedge. See HEDGE_OVERLAP.
   for (let i = 0; i < props.length; i++) {
     for (let k = i + 1; k < props.length; k++) {
-      if (Math.hypot(props[i].x - props[k].x, props[i].z - props[k].z) > props[i].radius + props[k].radius + MARGIN) continue;
+      const d = Math.hypot(props[i].x - props[k].x, props[i].z - props[k].z);
+      if (props[i].kind === 'bush' && props[k].kind === 'bush') {
+        const floor = (props[i].radius + props[k].radius) * HEDGE_OVERLAP;
+        if (d < floor - 1e-6) {
+          fail('overlap', `two bushes ${d.toFixed(2)} apart: one is inside the other rather than beside it`);
+        }
+        continue;
+      }
+      if (d > props[i].radius + props[k].radius + MARGIN) continue;
       const g = gapBetween(shapes[i], shapes[k]);
       if (g < MARGIN - 1e-6) fail('overlap', `${props[i].kind}/${props[i].variant} and ${props[k].kind}/${props[k].variant} gap ${g.toFixed(3)}`);
     }

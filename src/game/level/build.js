@@ -35,9 +35,6 @@ import { createGrassPatch, createGrassTuft } from '../../ghost/props/ground/gras
 import { createFlowerClump } from '../../ghost/props/ground/flowers.js';
 import { createFountain } from '../../ghost/props/fountain/index.js';
 import { createShed } from '../../ghost/props/shed/index.js';
-import { createSandPath } from '../../ghost/props/ground/sandpath.js';
-import { createGravelPath } from '../../ghost/props/ground/gravelpath.js';
-import { createKerbRun } from '../../ghost/props/ground/kerb.js';
 
 // Every wobble in a prop hangs off this, so it has to be the same number every
 // time the same prop is built and a different one for its neighbour.
@@ -86,15 +83,12 @@ export function buildLevelProp(p, { allowCut = true } = {}) {
   }
 }
 
-// The lines: a path is a polyline and not a point, so it does not go through
-// the switch above. `material` is the level file's extra field; a record
-// without one is sand, which is what the generator's paths have always been.
-export function buildLevelPath(p, { seed = 3 } = {}) {
-  const points = p.points;
-  const width = p.width || 1.3;
-  if (p.material === 'gravel') return createGravelPath({ seed, width, points });
-  if (p.material === 'kerb') return createKerbRun({ seed, points });
-  return createSandPath({ seed, width, points });
-}
+// THERE ARE NO PATHS ANY MORE. A path used to be a drawn ribbon -- a polyline
+// with a material, built here by createSandPath and its siblings -- and the
+// owner has taken the whole idea out. Since the ground cover rewrite a road is
+// something you PAINT, with a real edge and a kerb along the boundary where two
+// materials meet, and a ribbon drawn on top of that was a second way to do the
+// same thing badly. props/ground/sandpath.js and gravelpath.js are still on
+// disk and are still good work; nothing in the project imports them.
 
 export default buildLevelProp;

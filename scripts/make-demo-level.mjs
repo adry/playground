@@ -46,19 +46,16 @@ doc.fences.push({
   points: [[-14.6, 4.0], [3.0, 4.0]],
 });
 
-// --- the paths ----------------------------------------------------------------
-doc.paths.push({
-  id: 'path-main', material: 'sand', width: 1.4,
-  points: [[-13.5, -13.0], [-6.0, -7.5], [-1.5, -1.0], [1.0, 6.5], [4.5, 13.5]],
-});
-doc.paths.push({
-  id: 'path-cross', material: 'gravel', width: 1.1,
-  points: [[-13.0, 8.0], [-5.0, 6.0], [1.2, 6.7], [9.0, 9.5]],
-});
-doc.paths.push({
-  id: 'kerb-plot', material: 'kerb', width: 1.0,
-  points: [[-10.5, -2.4], [-6.2, -2.4]],
-});
+// --- the roads, which are PAINTED ---------------------------------------------
+// There is no path array any more. A road used to be a drawn ribbon laid over
+// the ground; it is now the ground itself, painted in sand or gravel with its
+// own crossover, and a kerb wherever two named materials meet. The paint is
+// laid out at the bottom of this file and the lines the roads used to follow
+// are kept here as the shape to paint along.
+const ROADS = [
+  { material: 'sand', width: 2.2, points: [[-13.5, -13.0], [-6.0, -7.5], [-1.5, -1.0], [1.0, 6.5], [4.5, 13.5]] },
+  { material: 'gravel', width: 1.9, points: [[-13.0, 8.0], [-5.0, 6.0], [1.2, 6.7], [9.0, 9.5]] },
+];
 
 // --- the machinery: a candidate is kept only if it costs nothing ---------------
 
@@ -102,7 +99,7 @@ function pileSideFor(g) {
     return { x: dx * c - dz * s, z: dx * s + dz * c };
   };
   let near = null;
-  for (const p of doc.paths) {
+  for (const p of ROADS) {
     for (let i = 0; i + 1 < p.points.length; i++) {
       const [ax, az] = p.points[i];
       const [bx, bz] = p.points[i + 1];
@@ -248,8 +245,8 @@ for (let j = 0; j < g.h; j++) {
     const x = g.minX + (i + 0.5) * g.cell;
     const z = g.minZ + (j + 0.5) * g.cell;
     let v = idx('grass');
-    if (nearPoly(x, z, doc.paths[0].points, 2.2)) v = idx('sand');
-    if (nearPoly(x, z, doc.paths[1].points, 1.9)) v = idx('gravel');
+    if (nearPoly(x, z, ROADS[0].points, ROADS[0].width)) v = idx('sand');
+    if (nearPoly(x, z, ROADS[1].points, ROADS[1].width)) v = idx('gravel');
     if (x > 3.2 && x < 10.3 && z > -10.3 && z < -3.7) v = idx('gravel');
     if (Math.hypot(x - 4.6, z - 0.6) < 3.0) v = idx('gravel');
     for (const s of doc.graves) if (Math.hypot(x - s.x, z - s.z) < 2.6) v = idx('earth');
@@ -257,6 +254,9 @@ for (let j = 0; j < g.h; j++) {
   }
 }
 g.paint = packPaint(cells);
+// And a row of stones where the grass gives way to the sand road, which is what
+// a kerb is now: a pair of materials rather than a line anybody draws.
+g.kerbs = [['grass', 'sand']];
 
 // --- write it out ------------------------------------------------------------------
 const out = normalizeLevel(doc);

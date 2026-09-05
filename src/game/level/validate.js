@@ -55,8 +55,9 @@
 // whole rule set and it never was: src/game/world/audit.js is, and it is a
 // SECOND IMPLEMENTATION of the geometry on purpose, corner based where this is
 // axis based, so the two disagreeing is information. It also carries three
-// rules this cannot: nothing standing in a path, nothing tall hiding something
-// short from the camera, and WEDGES.
+// rules this cannot: nothing tall hiding something short from the camera, and
+// WEDGES. It used to carry a third, nothing standing in a path, and paths are
+// gone from the format.
 //
 // A WEDGE is a place a body fits that nothing can walk to, and it is the
 // failure that ends the game: the ghost vaults in, no skeleton can follow, and
@@ -76,8 +77,8 @@ import { BODY, propRecord, graveProps } from './format.js';
 import { spawnZones, spawnFault, SPAWN_FLOOR } from '../world/spawn.js';
 import { isSolid } from './catalogue.js';
 import {
-  auditFindings, shapeOf as auditShape, gapBetween, barrierPoly, pointPoly, pathPoints,
-  MARGIN, PATH_MARGIN, FENCE_MARGIN, GATE_BODY,
+  auditFindings, shapeOf as auditShape, gapBetween, barrierPoly, pointPoly,
+  MARGIN, FENCE_MARGIN, GATE_BODY, HEDGE_OVERLAP,
 } from '../world/audit.js';
 import { findWedges } from '../world/repair.js';
 
@@ -369,6 +370,15 @@ export function validateLevel(doc, world, { deep = true } = {}) {
       for (let j = i + 1; j < props.length; j++) {
         const q = props[j];
         if (!q.solid) continue;
+        // TWO BUSHES ARE A HEDGE and may overlap; see audit.js's HEDGE_OVERLAP
+        // for what a hedge is and what it does to a level. The only thing left
+        // to catch is one bush hidden inside another.
+        if (p.kind === 'bush' && q.kind === 'bush') {
+          if (Math.hypot(p.x - q.x, p.z - q.z) < (p.radius + q.radius) * HEDGE_OVERLAP - 1e-6) {
+            add('error', 'overlap', 'one bush is inside another rather than beside it', { x: (p.x + q.x) / 2, z: (p.z + q.z) / 2 }, [p.id, q.id]);
+          }
+          continue;
+        }
         if (Math.abs(p.x - q.x) > p.radius + q.radius || Math.abs(p.z - q.z) > p.radius + q.radius) continue;
         if (shapesOverlap(p, q)) {
           add('error', 'overlap', `${p.kind} and ${q.kind} overlap`, { x: (p.x + q.x) / 2, z: (p.z + q.z) / 2 }, [p.id, q.id]);
@@ -528,15 +538,16 @@ export function reviewLevel(world) {
 //
 // The second is why this calls AUDIT.JS'S OWN geometry -- shapeOf, gapBetween,
 // barrierPoly, pointPoly -- with audit.js's own margins, rather than a second
-// opinion written here. Five of the audit's thirteen rules are decidable for
-// one prop at one position and all five are below:
+// opinion written here. Four of the audit's rules are decidable for one prop at
+// one position and all four are below:
 //
 //   bounds      rule 7,  inside the wall, footprint included
-//   overlap     rule 1,  MARGIN clear of every other prop
+//   overlap     rule 1,  MARGIN clear of every other prop -- except bush
+//                        against bush, which is a hedge and may overlap. See
+//                        audit.js's HEDGE_OVERLAP.
 //   fence       rule 3,  FENCE_MARGIN clear of every barrier and the wall
 //   gate        rule 4,  out of the leaf's sweep, out of the approach capsule,
 //                        and, if it is solid, GATE_BODY from the middle
-//   path        rule 2,  PATH_MARGIN clear of every path
 //
 // WHAT IS NOT HERE, and why each one cannot be:
 //
@@ -579,10 +590,6 @@ export function placementCheck(world, cands) {
   const barriers = world.barriers();
   const gates = world.gates();
   const others = world.props();
-  const half = world.PATH_HALF;
-  // Sampled once per call rather than once per candidate; a level has a
-  // handful of paths and this is the only part of the test that is not O(1).
-  const path = pathPoints(world);
 
   for (const p of cands) {
     const S = auditShape(p);
@@ -593,6 +600,16 @@ export function placementCheck(world, cands) {
       return { ok: false, why: 'outside the wall' };
     }
     for (const q of others) {
+      // A HEDGE, and this is the one line in the indicator that had to move
+      // when the audit stopped judging bush against bush. If it does not, the
+      // preview refuses in red a row the audit accepts, which is worse than no
+      // preview: the author learns to place things the tool says are wrong.
+      if (p.kind === 'bush' && q.kind === 'bush') {
+        if (Math.hypot(p.x - q.x, p.z - q.z) < (p.radius + q.radius) * HEDGE_OVERLAP - 1e-6) {
+          return { ok: false, why: 'inside the bush already there rather than beside it' };
+        }
+        continue;
+      }
       if (Math.hypot(p.x - q.x, p.z - q.z) > p.radius + q.radius + MARGIN) continue;
       if (gapBetween(S, auditShape(q)) < MARGIN - 1e-6) {
         return { ok: false, why: `too close to the ${q.kind}${q.variant ? `/${q.variant}` : ''} already there` };
@@ -617,10 +634,6 @@ export function placementCheck(world, cands) {
         ));
       }
       if (near < g.clear.r - 0.06) return { ok: false, why: 'blocking the way to a gate' };
-    }
-    for (const [x, z] of path) {
-      if (Math.abs(x - p.x) > p.radius + half + 0.4 || Math.abs(z - p.z) > p.radius + half + 0.4) continue;
-      if (distTo(x, z) < half + PATH_MARGIN - 1e-6) return { ok: false, why: 'standing in a path' };
     }
   }
   return { ok: true, why: '' };

@@ -116,9 +116,10 @@ function makeTest({ box, barriers, gates, props, spawn, rule }) {
 }
 
 // The places worth standing, before any of them are chosen. A one unit lattice
-// covers the arena, and the two the generator's own ranking preferred are added
-// on top so that a spot beside a gate wins a tie against open ground.
-function candidates({ box, gates, paths, rule, ok }) {
+// covers the arena, and a spot beside a gate is added on top so that it wins a
+// tie against open ground. There used to be a second bonus, for a spot on a
+// path; paths are gone from the format and so is it.
+function candidates({ box, gates, rule, ok }) {
   const out = [];
   const push = (x, z, bonus) => { if (ok(x, z)) out.push({ x, z, bonus }); };
   for (let z = box.minZ + rule.edge; z <= box.maxZ - rule.edge + 1e-9; z += 1.0) {
@@ -127,23 +128,16 @@ function candidates({ box, gates, paths, rule, ok }) {
   for (const g of gates) {
     for (const side of [1, -1]) push(g.x + g.nx * 3.0 * side, g.z + g.nz * 3.0 * side, 1.5);
   }
-  for (const p of paths) {
-    for (let i = 0; i + 1 < p.points.length; i++) {
-      const [x0, z0] = p.points[i];
-      const [x1, z1] = p.points[i + 1];
-      for (const t of [0.25, 0.5, 0.75]) push(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t, 0.8);
-    }
-  }
   return out;
 }
 
 export function placeFireflies({
-  box, barriers = [], gates = [], props = [], paths = [], spawn = { x: 0, z: 0 }, rule = {},
+  box, barriers = [], gates = [], props = [], spawn = { x: 0, z: 0 }, rule = {},
 }) {
   const r = { ...DEFAULT_FLY_RULE, ...rule };
   const want = Math.max(1, Math.round(r.count));
   const ok = makeTest({ box, barriers, gates, props, spawn, rule: r });
-  const pool = candidates({ box, gates, paths, rule: r, ok });
+  const pool = candidates({ box, gates, rule: r, ok });
   const out = [];
   if (!pool.length) return { points: out, cells: want, missed: want, spacing: 0 };
 
@@ -159,8 +153,8 @@ export function placeFireflies({
   const score = (c) => {
     let near = out.length ? Infinity : Math.hypot(c.x - spawn.x, c.z - spawn.z);
     for (const o of out) near = Math.min(near, Math.hypot(c.x - o.x, c.z - o.z));
-    // The bonus breaks ties toward a gate or a path without ever overruling
-    // distance: it is worth a unit and a half against a twenty unit spacing.
+    // The bonus breaks ties toward a gate without ever overruling distance: it
+    // is worth a unit and a half against a twenty unit spacing.
     return near + c.bonus + hash(r.seed, Math.round(c.x * 4), Math.round(c.z * 4)) * 0.2;
   };
   for (let i = 0; i < want; i++) {

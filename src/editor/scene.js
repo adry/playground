@@ -24,7 +24,7 @@ import { createWall, createVoid, WALL } from '../ghost/props/fence/wall.js';
 import { createFencePanel } from '../ghost/props/fence/panel.js';
 import { createGate } from '../ghost/props/fence/gate.js';
 import { createFireflies } from '../ghost/props/fireflies.js';
-import { buildLevelProp, buildLevelPath } from '../game/level/build.js';
+import { buildLevelProp } from '../game/level/build.js';
 import { wallPointAt } from '../game/level/format.js';
 import { createGroundCover } from '../game/level/groundcover.js';
 import { PERSONALITIES } from '../game/level/catalogue.js';
@@ -123,9 +123,13 @@ export function createEditorScene({ canvas }) {
   //
   //   view      what is on screen this frame
   //   viewWant  what the wheel has asked for; view chases it
-  //   maxView   the view at which the arena exactly fills the frame, computed
-  //             rather than guessed, and the hard ceiling. An author should
-  //             never see void around their level.
+  //   maxView   the view at which the whole arena is on screen, computed
+  //             rather than guessed, and the hard ceiling. CONTAIN, not cover:
+  //             the ask was to see the entire 30 by 30 and no more, so the
+  //             arena touches the frame on its binding axis and there is
+  //             background on the other unless the window happens to match its
+  //             shape. Covering instead would crop the level, which is worse.
+  //             Measured 22.3 at 1400x900, and it moves with the window.
   //
   // The wheel handler lives in main.js and is not mine, but it goes through
   // setView, so all of this works without that file changing: setView moves the
@@ -137,6 +141,8 @@ export function createEditorScene({ canvas }) {
   // standing 30 by 30.
   let arenaHalfX = 15;
   let arenaHalfZ = 15;
+  let arenaCx = 0;
+  let arenaCz = 0;
 
   // How fast the view catches its target and the pan glide dies, per second.
   // 14 settles a wheel notch in about four frames: fast enough not to feel
@@ -168,7 +174,8 @@ export function createEditorScene({ canvas }) {
     const probe = new THREE.Object3D();
     if (mode === 'plan') { probe.position.set(0, 200, 0.001); probe.up.set(0, 0, -1); }
     else { probe.position.copy(CAM_DIR).multiplyScalar(120); probe.up.set(0, 1, 0); }
-    probe.lookAt(0, 0, 0);
+    probe.position.add(new THREE.Vector3(arenaCx, 0, arenaCz));
+    probe.lookAt(arenaCx, 0, arenaCz);
     probe.updateMatrixWorld();
     const inv = probe.matrixWorld.clone().invert();
     const p = new THREE.Vector3();
@@ -177,7 +184,7 @@ export function createEditorScene({ canvas }) {
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
         for (const y of [0, WALL.height]) {
-          p.set(sx * arenaHalfX, y, sz * arenaHalfZ).applyMatrix4(inv);
+          p.set(arenaCx + sx * arenaHalfX, y, arenaCz + sz * arenaHalfZ).applyMatrix4(inv);
           mx = Math.max(mx, Math.abs(p.x));
           my = Math.max(my, Math.abs(p.y));
         }
@@ -189,8 +196,23 @@ export function createEditorScene({ canvas }) {
   // The target cannot leave the arena either. Zooming out is capped at the
   // whole level; panning is capped at its edges, for the same reason.
   function clampTarget() {
-    target.x = Math.max(-arenaHalfX, Math.min(arenaHalfX, target.x));
-    target.z = Math.max(-arenaHalfZ, Math.min(arenaHalfZ, target.z));
+    target.x = Math.max(arenaCx - arenaHalfX, Math.min(arenaCx + arenaHalfX, target.x));
+    target.z = Math.max(arenaCz - arenaHalfZ, Math.min(arenaCz + arenaHalfZ, target.z));
+  }
+
+  // The level decides the ceiling, so it has to be read off the level rather
+  // than assumed to be the standing 30 by 30.
+  function setArena(bounds) {
+    if (!bounds) return;
+    const hx = Math.max(1, (bounds.maxX - bounds.minX) / 2);
+    const hz = Math.max(1, (bounds.maxZ - bounds.minZ) / 2);
+    const cx = (bounds.minX + bounds.maxX) / 2;
+    const cz = (bounds.minZ + bounds.maxZ) / 2;
+    if (hx === arenaHalfX && hz === arenaHalfZ && cx === arenaCx && cz === arenaCz) return;
+    arenaHalfX = hx; arenaHalfZ = hz; arenaCx = cx; arenaCz = cz;
+    applyView();
+    clampTarget();
+    placeCamera();
   }
 
   const ground = createGround({ fadeStart: 60, fadeEnd: 400 });
@@ -214,8 +236,57 @@ export function createEditorScene({ canvas }) {
     key.position.copy(key.target.position).add(LIGHT_OFFSET);
     key.target.updateMatrixWorld();
     ground.userData.uniforms?.uFocus.value.copy(target);
+    // groundAt is asked questions between renders -- the pointer-anchored zoom
+    // below reads the ground twice in one frame -- and a raycast off a stale
+    // matrixWorld answers about where the camera used to be.
+    camera.updateMatrixWorld();
     // The light hangs off the target, so moving the camera moves every shadow.
     invalidate(true);
+  }
+
+  // One frame of camera easing. Both halves are no-ops once they have settled,
+  // and neither invalidates when it is a no-op, which is what lets the editor
+  // go quiet again after a gesture.
+  function stepCamera(dt, now) {
+    if (Math.abs(viewWant - view) > 1e-4) {
+      // ANCHORED ON THE POINTER. Zooming towards the middle of the screen is
+      // most of what makes a zoom feel abrupt even after it has been smoothed:
+      // the thing you were looking at slides away while you scroll. Read the
+      // ground under the cursor, change the view, read it again, and shift the
+      // target by the difference.
+      const before = pointer ? groundAt(pointer.x, pointer.y) : null;
+      view += (viewWant - view) * (1 - Math.exp(-dt * ZOOM_RATE));
+      if (Math.abs(viewWant - view) < Math.max(0.002, view * 0.0015)) view = viewWant;
+      applyView();
+      placeCamera();
+      if (before) {
+        const after = groundAt(pointer.x, pointer.y);
+        if (after) {
+          target.x += before.x - after.x;
+          target.z += before.z - after.z;
+          clampTarget();
+          placeCamera();
+        }
+      }
+    }
+    // The glide may only start once the drag has actually stopped, and "has
+    // stopped" cannot be a fixed number of milliseconds: on a slow frame the
+    // gap between two pointer moves is the frame, and a glide that fires in
+    // that gap adds drift while the author is still dragging. So it is a frame
+    // and a half, or 120 ms, whichever is longer.
+    const quietFor = Math.max(120, dt * 1500);
+    if (now - lastPanAt > quietFor && (panVel.x || panVel.y)) {
+      const decay = Math.exp(-dt * PAN_DECAY);
+      if (Math.abs(panVel.x) > PAN_STOP || Math.abs(panVel.y) > PAN_STOP) {
+        target.x += panVel.x * dt;
+        target.z += panVel.y * dt;
+        clampTarget();
+        placeCamera();
+        panVel.multiplyScalar(decay);
+      } else {
+        panVel.set(0, 0);
+      }
+    }
   }
 
   // The projection alone, for a zoom step. resize() also resizes the drawing
@@ -315,7 +386,6 @@ export function createEditorScene({ canvas }) {
   let coverMs = 0;
   let flySig = '';
   let flies = null;
-  const pathBuilt = new Map();
   let holeCuts = 0;
 
   function drop(id) {
@@ -430,28 +500,6 @@ export function createEditorScene({ canvas }) {
     }
     level.add(group);
     fenceBuilt = { group, dispose() { for (const m of made) m.dispose?.(); } };
-  }
-
-  function syncPaths(world) {
-    const seen = new Set();
-    for (const p of world.paths()) {
-      seen.add(p.id);
-      const s = sig([p.material, p.width, p.points]);
-      const e = pathBuilt.get(p.id);
-      if (e && e.sig === s) continue;
-      if (e) { level.remove(e.made.group); e.made.dispose?.(); }
-      const made = buildLevelPath(p, { seed: 3 });
-      made.group.userData.pickId = p.id;
-      made.group.userData.pickKind = 'path';
-      level.add(made.group);
-      pathBuilt.set(p.id, { sig: s, made });
-    }
-    for (const [id, e] of pathBuilt) {
-      if (seen.has(id)) continue;
-      level.remove(e.made.group);
-      e.made.dispose?.();
-      pathBuilt.delete(id);
-    }
   }
 
   function syncGround(doc) {
@@ -712,10 +760,10 @@ export function createEditorScene({ canvas }) {
   // --- the public face --------------------------------------------------------
 
   function sync(world, doc, opts) {
+    setArena(world?.bounds);
     syncWall(doc);
     syncGround(doc);
     syncFences(world, doc);
-    syncPaths(world);
     syncProps(world);
     syncFlies(world);
     syncOverlay(world, doc, opts);
@@ -880,6 +928,7 @@ export function createEditorScene({ canvas }) {
     // ALWAYS, even on a frame that draws nothing: main.js flushes its ground
     // paint and pumps one palette thumbnail from here, and both would stop.
     onFrame?.(dt);
+    stepCamera(dt, now);
     readout.tick(now, dt * 1000);
     if (animating && flies) { flies.update(time, dt); dirty = true; }
     if (!dirty) return;

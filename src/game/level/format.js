@@ -14,7 +14,7 @@
 // That is the whole design constraint. A caller that holds `world` and asks
 // `world.barriers(box)`, `world.gates(box)`, `world.props(box)`,
 // `world.fireflies(box)`, `world.spawns(box)`,
-// `world.paths(box)` or `world.blocks(...)` cannot tell whether it was handed a
+// `world.blocks(...)` cannot tell whether it was handed a
 // seed or a file. Where the generator publishes an extra field, this publishes
 // it too: `kind` and `jumpable` on every barrier, the CAPSULE `clear` on every
 // gate, `foot`, `radius`, `height` and `solid` on every prop.
@@ -88,14 +88,12 @@
 //                                 stored, so a re-measure lands everywhere.
 //   ],
 //
-//   "paths": [
-//     { "id": "path0", "material": "sand" | "gravel" | "kerb",
-//       "width": 1.3, "points": [[x,z], ...] }
-//                                 `material` is the one field the generator's
-//                                 paths() does not carry. Adding a field is
-//                                 compatible; a caller that ignores it gets
-//                                 the generator's own record.
-//   ],
+//   NO "paths". A path was a drawn ribbon with a material, and the owner has
+//   taken the idea out of the tool: since the ground cover rewrite a road is
+//   PAINTED, with its own crossover and a kerb along the boundary between two
+//   materials, and a ribbon laid over that was a second way of doing the same
+//   thing. A version 1 file that carries a paths array still opens; the array
+//   is dropped on load, which is what removing a feature means.
 //
 //   "graves": [
 //     { "id": "g0", "x": 3, "z": -2, "yaw": 0.78, "order": 0,
@@ -184,7 +182,7 @@ import {
   PANEL, FENCE_HALF, BARRIER_HEIGHT, GATE_HALF, GATE_APPROACH, GATE_CLEAR_R,
 } from '../world/fence.js';
 import { GATE } from '../layout/gate.js';
-import { LEVEL_SIZE, WALL_HALF, WALL_HEIGHT, PATH_HALF } from '../world/field.js';
+import { LEVEL_SIZE, WALL_HALF, WALL_HEIGHT } from '../world/field.js';
 import { WALL, MAX_STYLES } from '../../ghost/props/fence/wall.js';
 import { levelFootprint, boundingRadius, isSolid, MAX_SPAWNS, PERSONALITIES } from './catalogue.js';
 import { spawnPoints } from '../world/spawn.js';
@@ -320,7 +318,6 @@ export function emptyLevel({ size = LEVEL_SIZE, seed = 1, name = 'untitled' } = 
     wall: { points: wallLoop(size), closed: true, variant: WALL_VARIANTS[0], styles: [] },
     fences: [],
     props: [],
-    paths: [],
     graves: [],
     powerups: [],
     ground: {
@@ -392,13 +389,6 @@ export function normalizeLevel(raw) {
     variant: p.variant == null ? null : String(p.variant),
     x: num(p.x, 0), z: num(p.z, 0), yaw: num(p.yaw, 0),
   }));
-
-  doc.paths = (raw.paths || []).map((p, i) => ({
-    id: p.id || `path${i}`,
-    material: ['sand', 'gravel', 'kerb'].includes(p.material) ? p.material : 'sand',
-    width: Math.max(0.4, num(p.width, PATH_HALF * 2)),
-    points: (p.points || []).map((q) => [num(q[0], 0), num(q[1], 0)]),
-  })).filter((p) => p.points.length >= 2);
 
   // At most four, and the order is a permutation of 0..n-1 whatever the file
   // said. A file with two graves both marked "order 3" is a file somebody
@@ -710,9 +700,6 @@ export function deriveLevel(doc) {
   const gates = runs.flatMap((r) => r.gates);
   // The graves, each one three props. See graveProps above.
   const props = [...doc.props.map(propRecord), ...doc.graves.flatMap(graveProps)];
-  const paths = doc.paths.map((p) => ({
-    id: p.id, material: p.material, width: p.width, points: p.points.map((q) => [q[0], q[1]]),
-  }));
   const graves = doc.graves.map((g) => ({
     id: g.id, x: g.x, z: g.z, yaw: g.yaw, order: g.order, personality: g.personality,
     pile: g.pile, head: g.head, headstone: g.headstone,
@@ -722,13 +709,13 @@ export function deriveLevel(doc) {
     radius: levelFootprint('pumpkin', 'classic').r,
   }));
   const flies = placeFireflies({
-    box, barriers, gates, props, paths, spawn: doc.spawn, rule: doc.fireflies,
+    box, barriers, gates, props, spawn: doc.spawn, rule: doc.fireflies,
   });
   // Every headstone with a face and a clear plot in front of it. Worked out
   // here rather than stored, for the reason the fireflies are: a spawn point in
   // a file is a spawn point that goes stale the moment a bench moves.
   const spawns = spawnPoints({ props, barriers, gates, box });
-  return { box, wall, runs, barriers, gates, props, paths, graves, powerups, spawns, flies };
+  return { box, wall, runs, barriers, gates, props, graves, powerups, spawns, flies };
 }
 
 // The world, shaped exactly as createWorld() shapes one.
@@ -751,7 +738,6 @@ export function createLevelWorld(input) {
     BARRIER_HALF: FENCE_HALF,
     GATE_HALF,
     PANEL,
-    PATH_HALF,
 
     wall: d.wall.segments,
     runs: d.runs,
@@ -771,11 +757,13 @@ export function createLevelWorld(input) {
     },
     fireflies: (q) => clip(d.flies.points, q),
     spawns: (q) => clip(d.spawns, q),
-    paths(q) {
-      if (!q) return d.paths;
-      const pad = padBox(q, PROP_REACH);
-      return d.paths.filter((p) => p.points.some(([x, z]) => inBox(pad, x, z)));
-    },
+    // NO PATHS. A drawn ribbon was the old way to make a road and the owner
+    // has taken it out: a road is painted ground now, with its own edge and a
+    // kerb where two materials meet. The query stays and answers with nothing,
+    // because audit.js asks every world for its paths and a level that simply
+    // has none is a truthful answer to that; a missing method would be a
+    // different shape of world.
+    paths: () => [],
 
     blocks(x0, z0, x1, z1) {
       for (const s of d.barriers) {

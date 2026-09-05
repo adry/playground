@@ -197,10 +197,11 @@ export function createBush({ seed = 1, scale = 1, variant = DEFAULT_VARIANT } = 
 // full radius, so the scallops overlap and the crevice shading still draws
 // every one of them, while the outline wobbles by under two per cent of the
 // prop's width and the form is what the eye reads first.
-const LEAF = 0.072;
-const SPACING = 0.076;
-const NAP = 0.016;
+const LEAF = 0.034;
+const SPACING = 0.036;
+const NAP = 0.008;
 const FLAT = 0.34;
+const LEAF_DETAIL = 0;
 
 // How finely the mass is tessellated, as three's PolyhedronGeometry `detail`,
 // which gives 20 * (detail + 1)^2 triangles. It is per form because the three
@@ -345,7 +346,7 @@ function clippedBush(kind, rand) {
     rand,
     spacing: SPACING,
     sizeAt: spec.napSize || null,
-    limit: 520,
+    limit: 1600,
     yMin: 0.015,
   });
   const napGeo = mergeLumps(buildNap(sites, {
@@ -353,6 +354,7 @@ function clippedBush(kind, rand) {
     radius: LEAF,
     flat: FLAT,
     nap: NAP,
+    detail: LEAF_DETAIL,
     flutterTop: top * 0.85,
     sizeAt: spec.napSize || null,
     napAt: spec.napAt || null,

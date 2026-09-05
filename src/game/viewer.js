@@ -49,7 +49,7 @@ import { createGate } from '../ghost/props/fence/gate.js';
 import { createFireflies } from '../ghost/props/fireflies.js';
 // The prop switch this file used to carry lives here now, so the editor at
 // /editor/ builds a level the same way this page does. See level/build.js.
-import { buildLevelProp, buildLevelPath } from './level/build.js';
+import { buildLevelProp } from './level/build.js';
 import { loadLevelFrom } from './level/format.js';
 import { createGroundCover } from './level/groundcover.js';
 
@@ -286,14 +286,6 @@ export async function startViewer({ canvas, params }) {
           made.hinge.rotation.y = -0.5;
           return made;
         },
-      });
-    }
-    for (const p of (world.paths ? world.paths(box) : [])) {
-      seen.add(p.id);
-      if (live.has(p.id) || queue.some((q) => q.id === p.id)) continue;
-      queue.push({
-        id: p.id, x: 0, z: 0, yaw: 0,
-        make: () => buildLevelPath(p, { seed: 3 }),
       });
     }
 
