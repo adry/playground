@@ -6,7 +6,7 @@ import { buildHead } from './parts/head.js';
 import { buildTorso } from './parts/torso.js';
 import { buildArm } from './parts/arms.js';
 import { buildLower } from './parts/legs.js';
-import { buildJacket, buildShortsTrunk, buildShortsCuff } from './parts/clothes.js';
+import { buildJacket } from './parts/clothes.js';
 
 // The assembler. It owns no geometry of its own: the part modules build the
 // shapes and this file parents them together, publishes the flat joint map,
@@ -40,22 +40,10 @@ export function createZombieRig({ scale = 1 } = {}) {
   const torso = track(buildTorso({ materials }));
   root.add(torso.group);
 
-  // The waistband rides the hips; the jacket hangs from the shoulders. Both
-  // are authored in world heights, so each goes into a frame that undoes its
-  // owner's offset.
-  const shorts = track(buildShortsTrunk({ materials }));
-  torso.frames.inRoot.add(shorts.group);
+  // The coat hangs from the shoulders and is authored in world heights, so it
+  // goes into a frame that undoes spineUpper's offset.
   const jacket = track(buildJacket({ materials }));
   torso.frames.inUpper.add(jacket.group);
-
-  // The shorts' cuffs hang off the HIP JOINTS, not off the pelvis. A cuff on
-  // the pelvis stays put while the thigh swings straight through it; on the
-  // hip it swings with the leg, which is the whole difference between cloth
-  // and a painted band.
-  for (const side of ['L', 'R']) {
-    const cuff = track(buildShortsCuff({ materials, side }));
-    lower.joints[`hip${side}`].add(cuff.group);
-  }
 
   // `head` is the animator's node above the skull, so a nod does not have to
   // fight whatever origin the head part chose for itself.

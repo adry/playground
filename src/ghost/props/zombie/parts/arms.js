@@ -71,7 +71,7 @@ export function buildArm({ materials, side = 'L' }) {
   const foreB = wrist.position.clone().add(outW);      // in the elbow's frame
 
   // --- deltoid ---------------------------------------------------------------
-  const delt = track(ovoid(A.upperRadius * 1.02, A.upperRadius * 1.12, A.upperRadius * 0.98, { uSteps: 14, vSteps: 10 }));
+  const delt = track(ovoid(A.upperRadius * 1.02, A.upperRadius * 1.12, A.upperRadius * 0.98, { uSteps: 12, vSteps: 8 }));
   assertOutward(delt, v3(0, 0, 0), 'deltoid');
   put(shoulder, delt, materials.skin, { pos: v3(s * A.upperRadius * 0.18, -A.upperRadius * 0.22, 0).add(outS), name: 'deltoid' });
 
@@ -83,69 +83,22 @@ export function buildArm({ materials, side = 'L' }) {
   const upper = track(limb(
     outS.clone(), elbow.position.clone().add(outE),
     A.upperRadius, A.elbowRadius,
-    { radial: 12, segments: 8, waist: M.limbWaist, bow: upperBow, capA: false }));
+    { radial: 10, segments: 6, waist: M.limbWaist, bow: upperBow, capA: false }));
   put(shoulder, upper, materials.skin, { name: 'upper-arm' });
 
-  const elbowBall = track(ovoid(A.elbowRadius * M.jointBallScale, A.elbowRadius * M.jointBallScale * 0.94, A.elbowRadius * M.jointBallScale, { uSteps: 12, vSteps: 9 }));
+  const elbowBall = track(ovoid(A.elbowRadius * M.jointBallScale, A.elbowRadius * M.jointBallScale * 0.94, A.elbowRadius * M.jointBallScale, { uSteps: 10, vSteps: 7 }));
 
-  const stripped = side === A.strippedSide;
-  if (!stripped) {
-    put(elbow, elbowBall, materials.skin, { pos: outE.clone(), name: 'elbow' });
-    const foreBow = v3(s * A.elbowRadius * 0.50, 0, A.elbowRadius * 0.16);
-    const fore = track(limb(
-      foreA.clone(), foreB.clone(),
-      A.elbowRadius * 0.94, A.wristRadius,
-      { radial: 12, segments: 8, waist: M.limbWaist, bow: foreBow, capA: false }));
-    put(elbow, fore, materials.skin, { name: 'forearm' });
-  } else {
-    // --- the stripped forearm -------------------------------------------------
-    //
-    // Flesh gone: one bone shaft, a strap of dark red muscle beside it, and
-    // the skin ending in a torn cuff just below the elbow. Three separate
-    // volumes rather than one shell with a section removed, for the same
-    // reason as everything else here -- a cuff cut out of a tube's own
-    // parameterisation staircases, and a cuff built as its own short ring
-    // does not.
-    put(elbow, elbowBall, materials.skin, { pos: outE.clone(), name: 'elbow' });
-    const foreEnd = foreB.clone();
-    const cuffTo = foreA.clone().lerp(foreEnd, 0.22);
-    const cuff = track(limb(
-      foreA.clone(), cuffTo,
-      A.elbowRadius * 0.98, A.elbowRadius * 0.80,
-      { radial: 12, segments: 4, waist: 1.0, capA: false, capB: false }));
-    put(elbow, cuff, materials.skin, { name: 'fore-cuff' });
-    // A torn ring at the end of the skin, so the cut edge has thickness.
-    const ring = track(ovoid(A.elbowRadius * 0.86, A.elbowRadius * 0.20, A.elbowRadius * 0.86, { uSteps: 14, vSteps: 6 }));
-    const rm = put(elbow, ring, materials.muscle, { pos: cuffTo, name: 'fore-tear' });
-    rm.lookAt(foreEnd);
-    rm.rotateX(Math.PI / 2);
-    // Two bones and a strap of muscle between them, not one stick.
-    //
-    // Built as a single thin shaft with a single thin red rod beside it, the
-    // stripped forearm read at the game camera as a red pen: two lines of
-    // saturated colour with a gap of background between them, which is thinner
-    // than the sleeved arm on the other side and reads as damage to the MODEL
-    // rather than to the character. A forearm with the flesh off is still a
-    // forearm-shaped bundle; it is just a bundle you can see the parts of.
-    const bundle = (t) => foreA.clone().lerp(foreEnd, t);
-    for (const [lat, r0, r1, mat, name] of [
-      [+0.95, A.boneRadius, A.boneRadius * 0.84, materials.bone, 'radius'],
-      [-0.95, A.boneRadius * 0.88, A.boneRadius * 0.74, materials.bone, 'ulna'],
-    ]) {
-      const off = v3(s * A.boneRadius * lat, 0, -A.boneRadius * 0.25);
-      const b = track(limb(bundle(0.06).add(off), bundle(1.0).add(off), r0, r1,
-        { radial: 9, segments: 6, waist: 0.92 }));
-      put(elbow, b, materials.bone, { name });
-    }
-    // The muscle: a fuller strap lying in front of and between the two bones,
-    // so what shows between them is dark red rather than background.
-    const off = v3(s * A.boneRadius * 0.10, 0, A.boneRadius * 0.62);
-    const musc = track(limb(
-      bundle(0.04).add(off), bundle(0.90).add(off),
-      A.boneRadius * 1.30, A.boneRadius * 0.80,
-      { radial: 10, segments: 6, waist: 0.80 }));
-    put(elbow, musc, materials.muscle, { name: 'flexor' });
-  }
+  // BOTH ARMS ARE THE SAME. The stripped forearm is gone: it was a torn skin
+  // cuff, a muscle ring, two bone shafts and a flexor strap, five volumes to
+  // say one thing, and at 105 px it said it as a thin pale line. The figure
+  // has ONE wound now and it is on the chest where the open coat frames it.
+  put(elbow, elbowBall, materials.skin, { pos: outE.clone(), name: 'elbow' });
+  const foreBow = v3(s * A.elbowRadius * 0.50, 0, A.elbowRadius * 0.16);
+  const fore = track(limb(
+    foreA.clone(), foreB.clone(),
+    A.elbowRadius * 0.94, A.wristRadius,
+    { radial: 10, segments: 6, waist: M.limbWaist, bow: foreBow, capA: false }));
+  put(elbow, fore, materials.skin, { name: 'forearm' });
 
   // --- the hand ---------------------------------------------------------------
   //
@@ -165,7 +118,7 @@ export function buildArm({ materials, side = 'L' }) {
   const handOut = v3(s * A.outboard[2], 0, 0);   // exactly where the forearm ends
   hand.position.copy(handOut);
 
-  const palm = track(roundBox(HAND.palmWidth / 2, HAND.palmLength / 2, HAND.palmDepth / 2, { n: 3.0, uSteps: 14, vSteps: 10 }));
+  const palm = track(roundBox(HAND.palmWidth / 2, HAND.palmLength / 2, HAND.palmDepth / 2, { n: 3.0, uSteps: 12, vSteps: 8 }));
   const pm = put(hand, palm, materials.skin, { pos: down.clone().multiplyScalar(HAND.palmLength * 0.52), name: 'palm' });
   pm.lookAt(pm.position.clone().add(down));
   pm.rotateX(Math.PI / 2);
@@ -180,12 +133,12 @@ export function buildArm({ materials, side = 'L' }) {
     const a = fingerRoot.clone().add(lat);
     const len = HAND.fingerLength * mix(0.82, 1.0, 1 - Math.abs(across) * 1.2);
     const b = a.clone().addScaledVector(down, len).add(curl);
-    const f = track(limb(a, b, HAND.fingerRadius, HAND.fingerRadius * 0.82, { radial: 7, segments: 4, waist: 0.94 }));
+    const f = track(limb(a, b, HAND.fingerRadius, HAND.fingerRadius * 0.82, { radial: 6, segments: 3, waist: 0.94 }));
     put(node, f, materials.skin, { name: 'finger' });
     const tip = b.clone();
     const nailDir = b.clone().sub(a).normalize();
     const nail = track(limb(tip, tip.clone().addScaledVector(nailDir, HAND.nailLength).add(v3(0, 0, HAND.nailLength * 0.5)),
-      HAND.nailRadius, HAND.nailRadius * 0.18, { radial: 6, segments: 3 }));
+      HAND.nailRadius, HAND.nailRadius * 0.18, { radial: 5, segments: 2 }));
     put(node, nail, materials.nail, { name: 'claw' });
     // Shed by the skeleton's names, so one shed plan drives either figure.
     // Recentred first, so a shed finger tumbles about itself rather than about
@@ -200,10 +153,10 @@ export function buildArm({ materials, side = 'L' }) {
     const a = down.clone().multiplyScalar(HAND.palmLength * 0.42)
       .addScaledVector(v3(s * Math.cos(A.flare), Math.sin(A.flare), 0), HAND.palmWidth * 0.44);
     const b = a.clone().addScaledVector(down, HAND.thumbLength * 0.75).add(v3(0, 0, HAND.thumbLength * 0.62));
-    const th = track(limb(a, b, HAND.fingerRadius * 1.08, HAND.fingerRadius * 0.86, { radial: 7, segments: 4 }));
+    const th = track(limb(a, b, HAND.fingerRadius * 1.08, HAND.fingerRadius * 0.86, { radial: 6, segments: 3 }));
     put(hand, th, materials.skin, { name: 'thumb' });
     const nd = b.clone().sub(a).normalize();
-    const nail = track(limb(b, b.clone().addScaledVector(nd, HAND.nailLength * 0.9), HAND.nailRadius, HAND.nailRadius * 0.2, { radial: 6, segments: 3 }));
+    const nail = track(limb(b, b.clone().addScaledVector(nd, HAND.nailLength * 0.9), HAND.nailRadius, HAND.nailRadius * 0.2, { radial: 5, segments: 2 }));
     put(hand, nail, materials.nail, { name: 'claw' });
   }
 

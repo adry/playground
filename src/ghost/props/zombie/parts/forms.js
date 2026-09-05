@@ -69,35 +69,50 @@ import * as THREE from 'three';
 // NO ALPHA ANYWHERE. There is no environment map in this scene, so a card has
 // nothing to reflect. Every torn edge and every hole is geometry.
 
+// VALUE FIRST, HUE SECOND.
+//
+// The ghost is white and the skeleton is bone, and both are loved because you
+// can read them as a shape from across the room. At 105 px hue does almost
+// nothing; what the eye resolves is a light mass, a dark mass and where the
+// boundary between them is.
+//
+// So this figure is three values and that is all: a LIGHT head, a DARK coat,
+// DARK boots, with light green limbs between them. The head is the brightest
+// thing on it, because the head is the character. Every earlier pass had the
+// cloth within a few per cent of the skin's value and the torso came out as
+// one mottled area, which is what "muddy" meant.
+//
+// Nine colours, down from sixteen. Everything the deletions took with them --
+// the muscle, the jacket lining, the shorts, the ear shadow -- is gone from
+// here too, because a palette entry nobody uses is a suggestion to use it.
 export const PALETTE = {
-  // Pale sick green. Desaturated enough to sit beside the ghost's white,
-  // light enough that the sunken sockets read as holes in it.
-  skin: '#9db983',
-  skinDeep: '#7c9668',      // inside the mouth trough's throat and under rags
-  flesh: '#71332e',
-  muscle: '#7d403a',
-  bone: '#ddd2b8',
-  tooth: '#efe8d2',
+  // Pale sick green, and lighter than it was. It has to hold its own beside a
+  // white sheet without going grey, and it has to be light enough that two
+  // sunken sockets read as holes in it at 105 px.
+  skin: '#a6c47f',
+  // The coat and the boots are the other two rungs of a THREE-STEP LADDER, and
+  // the steps have to be even. Relative luminance against the skin:
+  //
+  //     skin  1.00     coat  0.59     boot  0.22
+  //
+  // The coat spent one round at 0.36, which is nearly the boots, and the
+  // effect was not a dark mass but a VOID: the garment lost all its own form,
+  // every fold and edge in it went to the same black, and the figure read as a
+  // head and two legs with a hole between them. A mass needs to be dark enough
+  // to separate and light enough to still be shaded.
+  jacket: '#6b7060',
+  boot: '#2b2825',
+  bootSole: '#1d1b19',
   // NOT BLACK. Flat black in a big round socket is a Roswell grey, not a
   // corpse. Dark red-purple is what is in an empty orbit, it takes the key
-  // light as a colour rather than as a value, and it ties the face to the red
-  // in the open chest.
-  socket: '#4a2432',
-  socketDeep: '#28131d',
-  // The clothes are DARKER THAN THE SKIN, and by enough to matter.
-  //
-  // At true game scale the figure is 105 px and the eye is reading three
-  // masses, not a costume: a bright head, a dark body, dark feet. The third
-  // pass's jacket and shorts sat within a few per cent of the skin's value, so
-  // the whole torso came out as one mottled area and the head lost the
-  // contrast that makes it read. Hue does almost nothing at this size; value
-  // does all of it.
-  jacket: '#7e7660',
-  jacketDark: '#575044',
-  shorts: '#5f664c',
-  boot: '#4c4038',
-  bootSole: '#332c26',
-  nail: '#33291f',
+  // light as a colour rather than as a value, and it ties the sockets to the
+  // wound.
+  socket: '#48222f',
+  socketDeep: '#24111a',
+  flesh: '#6e2f2b',
+  bone: '#ddd2b8',
+  tooth: '#efe8d2',
+  nail: '#2e251d',
 };
 
 export function zombieMaterials() {
@@ -105,19 +120,15 @@ export function zombieMaterials() {
     color: new THREE.Color(color), roughness, metalness: 0.0,
   });
   return {
-    skin: mk(PALETTE.skin, 0.88),
-    skinDeep: mk(PALETTE.skinDeep, 0.90),
-    flesh: mk(PALETTE.flesh, 0.72),
-    muscle: mk(PALETTE.muscle, 0.70),
-    bone: mk(PALETTE.bone, 0.74),
-    tooth: mk(PALETTE.tooth, 0.55),
+    skin: mk(PALETTE.skin, 0.90),
+    jacket: mk(PALETTE.jacket, 0.95),   // cloth, the roughest thing on the model
+    boot: mk(PALETTE.boot, 0.82),
+    bootSole: mk(PALETTE.bootSole, 0.90),
     socket: mk(PALETTE.socket, 1.0),
     socketDeep: mk(PALETTE.socketDeep, 1.0),
-    jacket: mk(PALETTE.jacket, 0.94),
-    jacketDark: mk(PALETTE.jacketDark, 0.94),
-    shorts: mk(PALETTE.shorts, 0.94),
-    boot: mk(PALETTE.boot, 0.80),
-    bootSole: mk(PALETTE.bootSole, 0.88),
+    flesh: mk(PALETTE.flesh, 0.74),
+    bone: mk(PALETTE.bone, 0.74),
+    tooth: mk(PALETTE.tooth, 0.58),
     nail: mk(PALETTE.nail, 0.66),
   };
 }

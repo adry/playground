@@ -1,77 +1,106 @@
 import * as THREE from 'three';
 import M from '../metrics.js';
-import { trunkRadius } from './torso.js';
-import { sheet2, tatterAt, ovoid, put, v3, mix, smoothstep } from './forms.js';
+import { sheet2, tatterAt, put, v3, mix, smoothstep } from './forms.js';
 
-// The clothes. A torn jacket hanging OPEN over the exposed ribcage, and ragged
-// shorts with holes in them.
+// ONE COAT. That is the whole file.
 //
-// EVERY EDGE IS GEOMETRY. There is no alpha in this scene and no environment
-// map for a card to reflect, so a torn hem is a real sawtooth in the mesh and
-// a hole is a real opening. `sheet2` builds each garment as a closed solid --
-// an outer face, an inner face and a wall round every open edge -- which is
-// POSTMORTEM 2.6's "two sheets and a rim on every cut edge": a single sheet is
-// invisible edge-on and its torn hem has no thickness, so it reads as a decal.
+// The pass before this had a jacket body, two lapels, a collar roll, two
+// sleeves, three worn-through holes, a scalloped hem, a shorts waistband with
+// a hole in it and two shorts cuffs with two more holes, wrinkles and rolled
+// lips. Eleven meshes and a paragraph each, and at 105 px the whole lower half
+// of the figure was one mottled brown-green area.
 //
-// WHAT THE HEM HAS TO CLEAR, and it is not what it looks like.
+// The standard is the ghost: a white sheet with two black eyes. So the coat is
+// one shell, open at the front, with a torn hem and two short sleeves, and
+// nothing else. No holes, no wrinkles, no lapels. What makes it read is not
+// detail, it is:
 //
-// The arms only just clear the trunk, so the first instinct is to keep cloth
-// out of the gap beside the forearm. Measured at the game camera, no hem can:
-// the near arm competes with cloth at azimuth 42 to 109 degrees and the far
-// arm at 161 to 289, and the union is everything except the front opening.
-// Cropping the jacket to satisfy that turned the character into a green figure
-// in a scrap, and the coat is most of what the reference IS.
+//   VALUE. The coat is dark and the skin is light. At game scale the figure is
+//   three masses -- a pale head, a dark body, dark boots -- and hue does
+//   almost nothing at that size. The previous pass had the cloth within a few
+//   per cent of the skin's value and it disappeared into the body.
 //
-// The constraint was the wrong one. AN ARM READS WHEN ITS OUTER EDGE STANDS
-// AGAINST THE BACKGROUND. What is behind the inner edge does not matter, which
-// is why the reference's arms overlap its own jacket and stay legible. The
-// jacket therefore hangs to the hip and the test is the outer contour: at the
-// front camera and at both three-quarter cameras, every arm's outer edge must
-// stand clear of the jacket's outline everywhere below the deltoid.
+//   SHAPE. It flares from the shoulders to a hem well down the thigh, so the
+//   torso is a bell rather than a tube, and the front opens in a V wide enough
+//   to frame the wound from any angle the game camera can reach.
 //
-// The hem still varies, but now for character rather than for clearance: two
-// longer tails at the front edges and a longer tail down the back, which is
-// what a coat that has been through this does.
+//   A BOLD HEM. Five big torn points, not thirty small ones. A fine sawtooth
+//   at this size is a fuzzy edge; five points is a shape.
+//
+// THE ARM RULE still holds and is still measured: an arm reads when its OUTER
+// edge stands against the background, so the coat may pass behind the arms
+// freely, and the test is the outer contour rather than the gap.
+//
+// The shorts are gone with the rest. The coat's hem is below the point where
+// they showed, and bare green shin between a dark coat and dark boots is a
+// cleaner rhythm than a third band of cloth in between.
 
 const J = M.jacket;
-const S = M.shorts;
 
-// --- the jacket ---------------------------------------------------------------
+// THE COAT IS CLOSED. u runs the whole way round.
+//
+// It spent two rounds hanging open with a V at the front, which is what the
+// reference had, and it never read as a garment: at 0.80 rad the opening is 92
+// degrees and the coat is two black strips at the sides, and closing it to
+// 0.46 only made them two narrower strips with a light stripe between. A dark
+// mass split down the middle by a light one is not one mass, it is three.
+//
+// Closed, it is a single dark bell from the shoulders to mid-thigh, and the
+// figure becomes what it should have been from the start: a big pale head, one
+// dark body, two dark boots. It also puts the zombie's silhouette where it
+// belongs relative to the other two -- the skeleton is open and airy and made
+// of gaps, the ghost is a closed dome, and this is a closed squat block.
+//
+// The wound is not lost with the opening. The coat has ONE TEAR over it, and
+// because `sheet2` is a closed solid every open edge it leaves is walled for
+// free, so the tear has real thickness and the dark red shows through it.
+const azOf = (u) => 2 * Math.PI * u;
 
-// Where the cloth is, as an azimuth from the front. u = 0 is the figure's LEFT
-// lapel edge and u = 1 the right one, going round the back.
-const azOf = (u) => mix(J.openHalfAngle, 2 * Math.PI - J.openHalfAngle, u);
-
-// The hem, in world height, as a function of u. Long, with three tails.
-function hemAt(u) {
-  const a = azOf(u);
-  const side = Math.min(a, 2 * Math.PI - a) / Math.PI;   // 0.235 at a lapel, 1 at the back
-  const front = Math.exp(-Math.pow((side - 0.255) / 0.075, 2));
-  const back = Math.exp(-Math.pow((side - 1.0) / 0.16, 2));
-  // a shallow lift under the arm, so the cloth does not bunch on the forearm
-  const armpit = Math.exp(-Math.pow((side - 0.55) / 0.16, 2));
-  return mix(J.hem, J.hem, 0) + mix(0, 0.052, armpit) - mix(0, 0.048, Math.max(front, back * 0.8));
-}
-
-function jacketSection(y) {
-  // Hangs off the body with a standoff, and swings out a little at the hem so
-  // it reads as cloth rather than paint. The standoff is DELIBERATELY mean:
-  // measured at the three-quarter camera, every millimetre the jacket stands
-  // off the trunk comes straight out of the daylight beside the forearm.
-  const flare = 1 + 0.17 * smoothstep(J.top, J.hem, y);
-  return (a) => (trunkRadius(y, a) || M.torso.waistWidth / 2) * flare + J.thickness * 1.9;
-}
-
-// The jacket's TOP edge, as a world height per azimuth. Level, it gives the
-// figure square shoulders -- a horizontal cut across a round body reads as a
-// sandwich board, and that is exactly what the first clothed silhouette came
-// back as. It rides highest over the deltoids and drops at the front and the
-// back, which is where a real shoulder line goes.
+// The coat's top edge, per azimuth. Level, it gives the figure square
+// shoulders: a horizontal cut across a round body reads as a sandwich board.
 function topAt(u) {
   const a = azOf(u);
   const side = Math.min(a, 2 * Math.PI - a) / Math.PI;
   const overShoulder = Math.exp(-Math.pow((side - 0.50) / 0.30, 2));
-  return mix(J.top - M.arm.upperRadius * 0.62, J.top, overShoulder);
+  return mix(J.top - M.arm.upperRadius * 0.20, J.top, overShoulder);
+}
+
+// The cross-section, as an EXPLICIT PROFILE rather than as an offset from the
+// trunk.
+//
+// Reading it off `trunkRadius` is the obvious thing and it is wrong here: the
+// trunk's blocks stop at the pelvis, so below 0.554 the lookup returns nothing
+// and the coat collapses onto a constant fallback. What that produced was a
+// garment that narrowed from the chest to a pinched skirt exactly where it was
+// supposed to be widest, which is most of why the first version of it read as
+// a shrivelled rag rather than as a coat.
+//
+// Four stations, interpolated: shoulder, chest, waist, hem. It pulls in a
+// little at the waist and swings out at the hem, which is the whole shape of a
+// coat and the only reason the torso has a silhouette of its own.
+// Shoulder, deltoid, chest, waist, hem. The deltoid station is not optional:
+// the drawn arm's bulb reaches x = 0.172 and a coat cut at 0.176 there has the
+// shoulder poking through it in pale blotches, which is what the first closed
+// version did.
+const STATIONS = [
+  [J.top, 0.180, 0.146],
+  [1.062, 0.208, 0.162],
+  [0.900, 0.182, 0.150],
+  [0.720, 0.164, 0.140],
+  [J.hem, 0.205, 0.176],
+];
+function coatSection(y) {
+  let i = 0;
+  while (i < STATIONS.length - 2 && y < STATIONS[i + 1][0]) i++;
+  const [y0, w0, d0] = STATIONS[i];
+  const [y1, w1, d1] = STATIONS[i + 1];
+  const t = smoothstep(y0, y1, y);
+  return [mix(w0, w1, t), mix(d0, d1, t)];
+}
+function coatRadius(y, a) {
+  const [hw, hd] = coatSection(y);
+  const sa = Math.sin(a), ca = Math.cos(a);
+  return 1 / Math.hypot(sa / hw, ca / hd);
 }
 
 export function buildJacket({ materials }) {
@@ -79,232 +108,54 @@ export function buildJacket({ materials }) {
   const geos = [];
   const track = (g) => { geos.push(g); return g; };
 
-  const U = 42, V = 14;
+  const U = 52, V = 18;
   const point = (u, v) => {
     const a = azOf(u);
-    const hem = hemAt(u);
-    // the sawtooth is measured UP from the hem, so it never crosses the top
-    const y = mix(topAt(u), hem + tatterAt(u, 11, J.tatter, 3.1), v);
-    const r = jacketSection(y)(a);
+    // Five big torn points. The sawtooth is measured UP from the hem so it
+    // never crosses the top edge.
+    const y = mix(topAt(u), J.hem + tatterAt(u, 5, J.tatter, 3.1), v);
+    const r = coatRadius(y, a);
     return v3(Math.sin(a) * r, y, Math.cos(a) * r);
   };
-  const normalAt = (u, v) => {
+  const normalAt = (u) => {
     const a = azOf(u);
     return v3(Math.sin(a), 0, Math.cos(a));
   };
-  // Two holes worn through the back and one shoulder, each with a rim for
-  // free because the sheet is closed.
+  // The one tear, over the wound. Its centre is the wound's own azimuth and
+  // height, so the two are aligned by construction rather than by eye.
+  const tearU = J.tearAt / (2 * Math.PI);
+  const tearV = (J.top - J.woundY) / (J.top - J.hem);
+  // The tear's outline is IRREGULAR, and this is not the disguise the
+  // postmortem warns about. There, a wobble was added to an eye socket to hide
+  // a staircase on a feature whose reference has clean smooth edges, and it
+  // read as corruption. A tear in cloth is genuinely irregular, and the
+  // problem here is the opposite one: a smooth ellipse cut out of a quad grid
+  // produces AXIS-ALIGNED steps, and a rectilinear edge on a rag reads as
+  // pixellation. Three lobes break the steps out of alignment and the edge
+  // reads as torn. The grid is also finer than it needs to be for the cloth,
+  // for the same reason.
   const keep = (u, v) => {
-    const holes = [[0.50, 0.58, 0.070, 0.13], [0.185, 0.46, 0.030, 0.09], [0.79, 0.74, 0.048, 0.10]];
-    for (const [cu, cv, ru, rv] of holes) {
-      if (Math.hypot((u - cu) / ru, (v - cv) / rv) < 1) return false;
-    }
-    return true;
+    const du = u - tearU;
+    const wrapped = du - Math.round(du);
+    const dv = v - tearV;
+    const th = Math.atan2(dv / J.tearTall, wrapped / J.tearWide);
+    const edge = 1 + 0.22 * Math.sin(3 * th + 1.1) + 0.10 * Math.sin(5 * th);
+    return Math.hypot(wrapped / J.tearWide, dv / J.tearTall) > edge;
   };
-  const body = track(sheet2({ uSteps: U, vSteps: V, point, normalAt, thickness: J.thickness, keep }));
-  put(group, body, materials.jacket, { name: 'jacket' });
+  put(group, track(sheet2({ uSteps: U, vSteps: V, point, normalAt, thickness: J.thickness, keep, closedU: true })),
+    materials.jacket, { name: 'jacket' });
 
-  // --- the lapels -------------------------------------------------------------
+  // NO SLEEVES. They were two more meshes and they bought nothing.
   //
-  // Without them the garment reads as a collar and a belt with nothing between
-  // them. They fold OUTWARD from the front edge, so the opening has a rolled
-  // lip that catches the key light and frames the ribcage instead of ending in
-  // a flat cut.
-  for (const side of [+1, -1]) {
-    const a0 = side > 0 ? J.openHalfAngle : 2 * Math.PI - J.openHalfAngle;
-    const lp = track(sheet2({
-      uSteps: 7, vSteps: 10,
-      point: (u, v) => {
-        // The lapel stops at the bottom of the ribcage window. Carried to the
-        // hem it becomes a waistcoat front and closes over the one feature the
-        // opening exists to show; a lapel is a collar feature and a coat's
-        // front edge below the chest is just an edge.
-        const y = mix(topAt(side > 0 ? 0 : 1), M.y.cavityBottom - 0.012, v);
-        // Rolls OUTWARD, away from the opening, widest at the chest. Rolled
-        // inward -- which is what it did first -- the two lapels close across
-        // the ribcage window and cover the one feature the opening exists to
-        // show. A lapel folds back onto the chest, not over it.
-        const roll = u * mix(0.20, 0.40, Math.sin(Math.PI * Math.min(1, v * 1.6)));
-        const a = a0 + side * roll * 0.55;
-        const r = jacketSection(y)(a) * (1 + 0.09 * u);
-        return v3(Math.sin(a) * r, y, Math.cos(a) * r + u * J.thickness * 1.4);
-      },
-      normalAt: (u) => {
-        const a = a0 + side * u * 0.28;
-        return v3(Math.sin(a), 0, Math.cos(a));
-      },
-      thickness: J.thickness * 0.9,
-    }));
-    put(group, lp, materials.jacketDark, { name: 'lapel' });
-  }
-
-  // --- the sleeves ------------------------------------------------------------
+  // The coat is a bell 0.18 to 0.21 wide at the shoulder and the upper arm
+  // hangs at x = 0.12 to 0.20, so a sleeve on it is INSIDE the coat's own
+  // silhouette from every angle: invisible when it fits, and when it did not
+  // fit it poked through in pale mottled patches, which is what two
+  // same-coloured surfaces two tenths of a millimetre apart look like.
   //
-  // Torn off just above the elbow, and built as ONE short piece each rather
-  // than a tube down the arm: they hang from the shoulder, and a sleeve that
-  // reached past the elbow would have to be split at the joint or it drags.
-  // At this length the elbow is bare, which is also what the reference has.
-  for (const side of [+1, -1]) {
-    const sx = side * M.arm.shoulderSeparation / 2;
-    const top = M.y.shoulder + M.arm.upperRadius * 1.05;
-    const drop = J.sleeveTo;
-    const sl = track(sheet2({
-      uSteps: 16, vSteps: 6, closedU: true,
-      point: (u, v) => {
-        const a = 2 * Math.PI * u;
-        const y = mix(top, drop + tatterAt(u, 7, J.tatter * 0.8, side * 5.7), v);
-        const t = (top - y) / Math.max(1e-6, top - drop);
-        // The cap is DOMED. A tube with a flat top disc puts a hard square
-        // corner on each shoulder, which is most of what made the first
-        // clothed silhouette read as a sandwich board.
-        const dome = Math.sin(Math.min(1, t * 3.4) * Math.PI / 2);
-        const r = mix(M.arm.upperRadius * 1.12, M.arm.elbowRadius * 1.18, t) * mix(0.40, 1.0, dome);
-        const cx = sx + side * (M.arm.outboard[0] + t * (M.arm.upperRadius * 0.62));
-        return v3(cx + Math.cos(a) * r * side, y, Math.sin(a) * r);
-      },
-      normalAt: (u) => {
-        const a = 2 * Math.PI * u;
-        return v3(Math.cos(a) * side, 0, Math.sin(a));
-      },
-      thickness: J.thickness,
-    }));
-    put(group, sl, materials.jacket, { name: 'sleeve' });
-  }
-
-  // The collar: a low roll round the back of the neck. It is what stops the
-  // jacket's top edge being a clean circle, which is the one thing that would
-  // say "moulded" on a garment that is meant to be rag.
-  {
-    const pts = [];
-    const N = 18;
-    for (let i = 0; i <= N; i++) {
-      const a = mix(J.openHalfAngle * 1.15, 2 * Math.PI - J.openHalfAngle * 1.15, i / N);
-      const y = J.top + M.jacket.thickness * 1.2 + 0.016 * Math.sin(Math.PI * (i / N));
-      const r = jacketSection(y)(a) * 1.02;
-      pts.push(v3(Math.sin(a) * r, y, Math.cos(a) * r));
-    }
-    put(group, track(makeRoll(pts, J.thickness * 1.5)), materials.jacketDark, { name: 'collar' });
-  }
-
-  return { group, dispose() { for (const g of geos) g.dispose(); } };
-}
-
-// A tube swept along a polyline. Small enough to live here rather than in the
-// vocabulary, and used only by the collar and the waistband.
-function makeRoll(pts, r) {
-  const out = [];
-  const idx = [];
-  const radial = 6;
-  for (let j = 0; j < pts.length; j++) {
-    const a = pts[Math.max(0, j - 1)], b = pts[Math.min(pts.length - 1, j + 1)];
-    const t = b.clone().sub(a).normalize();
-    let s = new THREE.Vector3(0, 1, 0);
-    if (Math.abs(t.dot(s)) > 0.9) s.set(1, 0, 0);
-    const nx = new THREE.Vector3().crossVectors(t, s).normalize();
-    const ny = new THREE.Vector3().crossVectors(t, nx).normalize();
-    for (let i = 0; i < radial; i++) {
-      const ang = 2 * Math.PI * (i / radial);
-      out.push(pts[j].clone().addScaledVector(nx, Math.cos(ang) * r).addScaledVector(ny, Math.sin(ang) * r));
-    }
-  }
-  const at = (i, j) => j * radial + ((i % radial) + radial) % radial;
-  for (let j = 0; j < pts.length - 1; j++) {
-    for (let i = 0; i < radial; i++) {
-      idx.push(at(i, j), at(i + 1, j + 1), at(i + 1, j), at(i, j), at(i, j + 1), at(i + 1, j + 1));
-    }
-  }
-  const g = new THREE.BufferGeometry();
-  const arr = new Float32Array(out.length * 3);
-  out.forEach((p, k) => { arr[k * 3] = p.x; arr[k * 3 + 1] = p.y; arr[k * 3 + 2] = p.z; });
-  g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  return g;
-}
-
-// --- the shorts ---------------------------------------------------------------
-
-export function buildShortsTrunk({ materials }) {
-  const group = new THREE.Group();       // lives in `frames.inRoot`: world heights
-  const geos = [];
-  const track = (g) => { geos.push(g); return g; };
-
-  // The waistband and seat, on the hips. It stops above the crotch and the
-  // two cuffs below it hang from the hip joints, so a swinging thigh takes its
-  // own cloth with it instead of passing through a skirt.
-  const bottom = M.y.hip - 0.020;
-  const band = track(sheet2({
-    uSteps: 30, vSteps: 8, closedU: true,
-    point: (u, v) => {
-      const a = 2 * Math.PI * u;
-      const y = mix(S.top, bottom, v);
-      const r = (trunkRadius(y, a) || M.torso.pelvisWidth / 2) + S.thickness * 0.75;
-      return v3(Math.sin(a) * r, y, Math.cos(a) * r);
-    },
-    normalAt: (u) => { const a = 2 * Math.PI * u; return v3(Math.sin(a), 0, Math.cos(a)); },
-    thickness: S.thickness,
-    // One hole worn through the seat. POSTMORTEM: a hole in a rag with more rag
-    // behind it is not a wound, so every hole has to have something to show --
-    // this one shows the body.
-    keep: (u, v) => Math.hypot((u - 0.52) / 0.055, (v - 0.55) / 0.22) > 1,
-  }));
-  put(group, band, materials.shorts, { name: 'shorts-band' });
-
-  return { group, dispose() { for (const g of geos) g.dispose(); } };
-}
-
-// The cuff that hangs from one hip joint. Called by model.js so it can be
-// parented to `hipL` / `hipR` rather than to the pelvis.
-export function buildShortsCuff({ materials, side }) {
-  const s = side === 'L' ? +1 : -1;
-  const group = new THREE.Group();       // sits AT the hip joint
-  const geos = [];
-  const track = (g) => { geos.push(g); return g; };
-  const top = M.y.hip + 0.012 - M.y.hip;
-  const hem = S.hem - M.y.hip;
-
-  const cuff = track(sheet2({
-    uSteps: 24, vSteps: 10, closedU: true,
-    point: (u, v) => {
-      const a = 2 * Math.PI * u;
-      const y = mix(top, hem + tatterAt(u, 5, S.tatter, s * 2.3), v);
-      const t = (top - y) / Math.max(1e-6, top - hem);
-      // Rounded at both ends. A straight-sided tube with flat ends puts two
-      // sharp corners on the hip in silhouette, and two rectangles at the hips
-      // is what the first clothed pass came back as.
-      const round = Math.min(1, Math.sin(Math.min(1, t * 5.0) * Math.PI / 2), Math.sin(Math.min(1, (1 - t) * 4.0) * Math.PI / 2) * 0.16 + 0.84);
-      // A slow wrinkle round the cuff and a roll at the hem. Between the
-      // jacket's hem and the bare knee the shorts get an 11 px band to say
-      // "cloth" in, and a smooth tube in that space reads as a painted stripe
-      // on the leg however dark it is. Two low-frequency undulations and a
-      // thickened lip are what turn it into rag.
-      const wrinkle = 1 + 0.055 * Math.sin(a * 3 + s * 1.7) * Math.sin(Math.PI * t);
-      const roll = 1 + 0.10 * Math.exp(-Math.pow((t - 0.90) / 0.10, 2));
-      const r = mix(M.leg.thighRadius * 1.14, M.leg.thighRadius * 1.06, t) * round * wrinkle * roll;
-      // follows the thigh's own outward bow
-      const cx = s * M.leg.thighRadius * M.leg.bow * 3.2 * Math.sin(Math.PI * t * 0.5);
-      return v3(cx + Math.cos(a) * r, y, Math.sin(a) * r);
-    },
-    normalAt: (u) => { const a = 2 * Math.PI * u; return v3(Math.cos(a), 0, Math.sin(a)); },
-    thickness: S.thickness,
-    // A hole on the LEFT thigh only, with a shard of bone put behind it below.
-    // Two holes on the left cuff, one on the right. Every one has something
-    // behind it -- a hole in a rag with more rag behind it is not a wound.
-    keep: (u, v) => (side === 'L'
-      ? Math.hypot((u - 0.10) / 0.075, (v - 0.60) / 0.20) > 1 && Math.hypot((u - 0.62) / 0.045, (v - 0.34) / 0.13) > 1
-      : Math.hypot((u - 0.46) / 0.055, (v - 0.52) / 0.15) > 1),
-  }));
-  put(group, cuff, materials.shorts, { name: 'shorts-cuff' });
-
-  if (side === 'L') {
-    // The something-to-show behind the hole: a shard of bone just under the
-    // skin, so the opening reads as damage rather than as a missing polygon.
-    const shard = track(ovoid(M.leg.thighRadius * 0.20, M.leg.thighRadius * 0.42, M.leg.thighRadius * 0.16, { uSteps: 8, vSteps: 6 }));
-    const a = 2 * Math.PI * 0.10;
-    const y = mix(top, hem, 0.62);
-    const r = M.leg.thighRadius * 1.10;
-    put(group, shard, materials.bone, { pos: v3(Math.cos(a) * r, y, Math.sin(a) * r), name: 'thigh-bone' });
-  }
+  // Without them each arm is one clean green shape from the shoulder to the
+  // claw, standing against the dark body along its whole length, which is
+  // worth more than a sleeve nobody can see.
 
   return { group, dispose() { for (const g of geos) g.dispose(); } };
 }

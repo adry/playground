@@ -128,6 +128,9 @@ export const M = {
     // High and small, because that is where a skull's is and because the only
     // room for it is between the sockets: put it any lower and it merges with
     // the grin into one dark smear at game scale.
+    // Kept in the table because the landmark heights are protected and the
+    // animation half is entitled to believe them, but NOTHING READS IT any
+    // more: the nasal aperture was deleted in the fourth pass.
     nose: f(0.796),
     brow: f(0.874),           // centre line of the eye sockets
     ear: f(0.858),
@@ -253,27 +256,11 @@ export const M = {
     separation: f(0.152),
   },
 
-  // The nasal aperture. A skull's is a pear or teardrop: a narrow point at the
-  // top between the orbits, widening to two lobes at the bottom. It is a third
-  // of what says "the flesh has gone off this face", and the first build did
-  // not have one at all, which is most of why the face read as smooth and
-  // alien. Small, because there is only the gap between the sockets to put it
-  // in, and dark inside for the same reason the sockets are.
-  nose: {
-    // SMALLER than the third pass, and the constraint is not the reference,
-    // it is `M.y`. The aperture's centre is fixed at 0.796 and the mouth's at
-    // 0.740, and both are landmarks. At 0.062 tall the aperture's own opening
-    // ended 1 mm above the mouth's and its RIM hung down over the dark, which
-    // reads as a flap of skin in the mouth. Shrunk to 0.046 there is a clear
-    // strip of green between the two, which is what a skull has.
-    width: f(0.058),
-    height: f(0.042),
-    depth: f(0.026),
-    // Where the widest part of the pear sits, as a fraction of the aperture's
-    // height measured from the bottom. Below the middle: that is what makes it
-    // a teardrop rather than a lens.
-    bulge: 0.34,
-  },
+  // NO NASAL APERTURE. See the note in parts/head.js: it was six degrees
+  // across, which is smaller than the head's own grid cells, so it forced the
+  // face grid up by 8,600 triangles purely so a rim could cover its ragged
+  // cut, and at 105 px it was two pixels of grey between two features that are
+  // both doing more work than it was.
 
   // Lipless: the mouth is a slot cut into the face, not lips laid on it, so
   // the teeth sit in a dark trough and read as bright blocks on black. That
@@ -304,17 +291,18 @@ export const M = {
     // face that is supposed to be lipless. The corners still turn up; they
     // just no longer take the middle of the mouth down with them.
     curve: 0.32,
-    // Fewer teeth, BIGGER teeth, and real gaps. Ten at this size is a grey
-    // dither. Five upper positions with one missing and four lower with one
-    // missing gives seven teeth in a 0.353 grin, which is a tooth every 5.8 px
-    // at game scale: wide enough to be a block rather than a line, with dark
-    // between every pair.
+    // FIVE teeth. Three above, two below, one gap in each row.
     //
-    // The unevenness is the other half. Every tooth takes its own width,
-    // length and lean from a hash of its index, over a range wide enough to
-    // read (0.74 to 1.30 of nominal), and one upper tooth is a long fang. A
-    // row of identical blocks reads as dentures.
-    teeth: { upper: 5, lower: 4, gapUpper: 3, gapLower: 1, fang: 1 },
+    // Seven was already a reduction from ten and it was still a texture. At
+    // 105 px a tooth is read as a block of light against a block of dark, and
+    // five blocks in a 0.353 grin are 6 px each with 4 px of dark between
+    // them. That is a grin you can count the teeth in at arm's length and see
+    // as a jagged line at game scale, which is what the pumpkins do and what
+    // the skeleton's skull does.
+    //
+    // One upper tooth is a long fang. Every tooth takes its width, length and
+    // lean from a hash of its index, over a range wide enough to read.
+    teeth: { upper: 4, lower: 3, gapUpper: 1, gapLower: 1, fang: 2 },
   },
 
   // Small round ears, and they matter far more than their size suggests: they
@@ -423,119 +411,65 @@ export const M = {
     shellThickness: f(0.020),
   },
 
-  // --- the exposed ribcage -------------------------------------------------
+  // --- the one wound -------------------------------------------------------
   //
-  // The hardest thing in the model. It is an opening you see OTHER GEOMETRY
-  // through, and it has to work with no alpha anywhere.
+  // The third and fourth passes built an exposed ribcage here: a window in the
+  // chest with a funnel lip, an anisotropic flesh column behind it, three rib
+  // pairs, a sternum and five spine knobs. It was the most expensive feature
+  // on the figure and at 105 px it was a dim smudge.
   //
-  // It is built as a real cavity, in four layers, front to back:
-  //   1. the torso shell, with a window of quads genuinely omitted;
-  //   2. a rim wall funnelling from the outer skin down to the cavity floor,
-  //      `torso.shellThickness` deep, same skin material, so the opening has
-  //      an honest edge;
-  //   3. the flesh: a dark red inner shell at `cavity.floor` of the local
-  //      radius, which is what you actually see through the gaps between ribs;
-  //   4. the ribs and the spine, standing proud of that floor.
-  //
-  // `halfAngle` is the azimuthal half-width of the window about +Z. 0.70 rad
-  // is 80 degrees of the body's circumference, which at the game's fixed
-  // three-quarter camera keeps the cavity open and readable when the figure is
-  // turned up to 40 degrees away from the lens. Narrower and the cavity closes
-  // to a slot the moment it walks off-axis, which is the failure mode: the
-  // feature that defines this character must not be a front-view-only feature.
+  // One hole instead. Dark red inside, one bone splinter across it, nothing
+  // else. Sizes are ANGULAR because the wound is a grommet on the chest block
+  // and the chest is not a sphere; these are half-extents about the wound's
+  // own axis, in radians.
   cavity: {
-    // WIDENED from 0.58 to 0.66 -- 76 degrees of the body's circumference.
-    // The trunk had to lose width for the arms to read, and the window's
-    // horizontal extent goes with it; opening the angle buys most of it back
-    // and costs nothing, because a window that wraps further round the front
-    // is exactly what the game's three-quarter camera wants. Narrower and the
-    // cavity closes to a slot the moment the figure walks off-axis, which is
-    // the failure mode: the feature that defines this character must not be a
-    // front-view-only feature.
-    halfAngle: 0.66,
-    // The cavity floor, as a fraction of the shell's own section. It is
-    // ANISOTROPIC and that is the whole trick.
-    //
-    // Built as one scale, 0.34 both ways, the flesh was a narrow column down
-    // the middle of the chest: it was correctly deep, but only two thirds as
-    // wide as the window, so looking into the opening you saw dark red in the
-    // middle and straight past it at the edges. Widening it uniformly instead
-    // filled the window and destroyed the depth, because the floor came
-    // forward to meet the skin and the ribs had nowhere to stand.
-    //
-    // So: wide enough to close the window (floorX), shallow enough to leave
-    // the ribs a real gap to stand in (floorZ).
-    floorX: 0.88,
-    floorZ: 0.34,
-    ribFront: 0.62,           // where the ribs sit, between floor and shell
-    // THREE pairs, not the reference's full cage, and this is the biggest
-    // single concession to size on the model. The window is 0.205 units tall,
-    // which is TWELVE PIXELS in a shipped frame. Four ribs in it is a 3 px
-    // pitch and dithers into a grey bar; three at a 4.4 px pitch is three
-    // separate pale lines with dark between them, which is what a ribcage is
-    // at this size. The count is set by the pixel pitch, not by anatomy.
-    ribPairs: 3,
-    ribRadius: f(0.0086),
-    ribSpacing: f(0.040),
-    ribTop: f(0.572),
-    // The spine runs down the middle of the cavity BEHIND the ribs, so its
-    // top knobs show through the rib gaps and its bottom ones are exposed
-    // below the lowest rib. That is what sells the cavity as an opening with
-    // a back to it rather than as a patch painted on the chest: you are
-    // looking past one piece of geometry at another.
-    spineKnobs: 5,
-    spineTop: f(0.548),
-    spineSpacing: f(0.020),
-    spineRadius: f(0.013),
+    // A vertical SLASH, not an oval. An oval wound with a lip on a torso reads
+    // as a second mouth, which is a joke this character does not need; a tall
+    // narrow tear reads as damage.
+    woundWide: 0.70,
+    woundTall: 0.88,
+    woundDepth: f(0.030),
+    splinterRadius: f(0.0075),
   },
 
   // --- clothing -------------------------------------------------------------
   //
   // All of it geometry. The torn edges are a real sawtooth in the mesh outline
   // and the holes are real openings, for the same no-alpha reason as above.
+  // ONE COAT, and the numbers that make it read are the hem, the flare and the
+  // value of its material. Everything else about it was deleted.
   jacket: {
-    top: f(0.616),            // sits on the deltoid
-    // The hem hangs BELOW the shorts' waistband (0.400), not level with it,
-    // so the two read as a jacket worn over shorts rather than as three
-    // stacked bands of cloth round the hips.
+    // UP TO THE JAW. This character has no neck -- the chin is 4.4 px above
+    // the top of the shoulder mass -- and a coat that stops at the deltoid
+    // leaves a green column between the head and the body that reads as one.
+    // Brought up to 0.648 the head sits straight on the coat, which is the
+    // chibi silhouette and what the contract has said all along.
+    top: f(0.656),
+    // WELL DOWN THE THIGH. The coat is the figure's middle mass and it has to
+    // be big enough to be one: at the old 0.352 it stopped at the hip and the
+    // figure read as a head, a scrap and two legs.
+    hem: f(0.268),
+    // NO OPENING. See the note at the top of parts/clothes.js: a dark mass
+    // with a light stripe down the middle of it is not one mass, and the coat
+    // is the figure's middle mass or it is nothing.
     //
-    // It was cropped to 0.452 for one round, on a measurement that turned out
-    // to be answering the wrong question. The measurement was right: there is
-    // no azimuth where a long hem leaves DAYLIGHT between the arm and the
-    // trunk, because the near arm competes with the cloth at 42 to 109 degrees
-    // and the far arm with 161 to 289, and the union is everything but the
-    // front opening.
-    //
-    // But daylight is not what makes an arm read. AN ARM READS WHEN ITS OUTER
-    // EDGE STANDS AGAINST THE BACKGROUND; what is behind the inner edge, cloth
-    // or body, does not matter. The reference's arms overlap its jacket freely
-    // and are perfectly legible. The test in `outer` (see the note in
-    // parts/clothes.js) measures the outer contour instead, and a full-length
-    // hem passes it with room to spare, so the coat comes back.
-    hem: f(0.352),
-    openHalfAngle: 0.80,
-    thickness: f(0.010),
-    tatter: f(0.022),         // depth of the sawtooth at the hem and cuffs
-    sleeveTo: f(0.500),       // the sleeves are torn off just above the elbow
+    // The single tear takes its place. It is aligned to the wound by sharing
+    // the wound's azimuth and height rather than by being positioned by eye.
+    tearAt: 0.20,             // radians of azimuth, matching the wound's axis
+    woundY: 0.966,            // world height of the wound's centre
+    tearWide: 0.072,          // half-extent in u, i.e. fraction of the way round
+    tearTall: 0.140,          // half-extent in v, i.e. fraction of the coat's drop
+    thickness: f(0.013),
+    // FIVE big torn points. A fine sawtooth at this size is a fuzzy edge and a
+    // shape is what is wanted, but 0.055 was a fifth of the coat's own length
+    // and it shredded the garment instead of tearing it.
+    tatter: f(0.030),
   },
 
-  shorts: {
-    top: f(0.400),
-    hem: f(0.245),
-    // Thicker and more ragged than the third pass. The jacket now covers the
-    // waistband, so all the shorts have to say "cloth" with is the 11 px band
-    // of cuff between the jacket's hem and the bare knee. A thin sheet with a
-    // shallow sawtooth in that space reads as a painted band the same colour
-    // as the leg; a thick one with a deep torn hem reads as rag.
-    thickness: f(0.019),
-    tatter: f(0.042),
-    // Two, not the reference's three. One worn through the seat, on the
-    // waistband piece, and one on the LEFT thigh cuff with a shard of bone
-    // behind it. A hole in a rag with more rag behind it is not a wound, so
-    // every hole here has to have something to show, and there are only two
-    // places on a pair of shorts where that is true.
-    holes: 2,
-  },
+  // NO SHORTS. The coat's hem is below where they showed, and bare green shin
+  // between a dark coat and dark boots is a cleaner rhythm than a third band
+  // of cloth. They were a waistband, two cuffs, four holes, two wrinkles and a
+  // rolled lip, and none of it was visible at 105 px.
 
   // --- arms ----------------------------------------------------------------
   //
@@ -579,9 +513,6 @@ export const M = {
     // arm's own flare: it costs no pivot accuracy, because there is no joint
     // below the wrist for it to displace.
     handSplay: 0.44,
-    // The stripped forearm. `strippedSide` is which arm it is.
-    strippedSide: 'R',
-    boneRadius: f(0.017),
   },
 
   hand: {
@@ -634,7 +565,6 @@ export const M = {
     height: f(0.090),         // sole to the top of the shaft
     heel: f(0.020),
     toeOut: 0.13,             // radians each foot splays off the walking line
-    toesOutSide: 'L',
   },
 
   // --- shared surface vocabulary -------------------------------------------

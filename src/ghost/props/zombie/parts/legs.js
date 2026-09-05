@@ -42,23 +42,23 @@ export function buildLower({ materials }) {
     joints[`ankle${side}`] = ankle;
 
     // The hip ball, which is what joins the thigh to the pelvis mass.
-    const hipBall = track(ovoid(L.thighRadius * 0.98, L.thighRadius * 1.02, L.thighRadius * 1.04, { uSteps: 12, vSteps: 9 }));
+    const hipBall = track(ovoid(L.thighRadius * 0.98, L.thighRadius * 1.02, L.thighRadius * 1.04, { uSteps: 10, vSteps: 7 }));
     put(hip, hipBall, materials.skin, { name: 'hip' });
 
     const thigh = track(limb(
       v3(0, 0, 0), v3(0, knee.position.y, 0),
       L.thighRadius, L.kneeRadius,
-      { radial: 12, segments: 7, waist: M.limbWaist,
+      { radial: 10, segments: 5, waist: M.limbWaist,
         bow: v3(s * L.thighRadius * L.bow * 3.2, 0, 0), capA: false }));
     put(hip, thigh, materials.skin, { name: 'thigh' });
 
-    const kneeBall = track(ovoid(L.kneeRadius * M.jointBallScale, L.kneeRadius * M.jointBallScale * 0.92, L.kneeRadius * M.jointBallScale * 1.04, { uSteps: 12, vSteps: 9 }));
+    const kneeBall = track(ovoid(L.kneeRadius * M.jointBallScale, L.kneeRadius * M.jointBallScale * 0.92, L.kneeRadius * M.jointBallScale * 1.04, { uSteps: 10, vSteps: 7 }));
     put(knee, kneeBall, materials.skin, { name: 'knee' });
 
     const shin = track(limb(
       v3(0, 0, 0), v3(0, ankle.position.y, 0),
       L.shinRadius, L.ankleRadius,
-      { radial: 12, segments: 6, waist: 0.94,
+      { radial: 10, segments: 5, waist: 0.94,
         bow: v3(-s * L.shinRadius * L.bow * 1.4, 0, L.shinRadius * 0.18), capA: false }));
     put(knee, shin, materials.skin, { name: 'shin' });
 
@@ -76,7 +76,7 @@ export function buildLower({ materials }) {
       // the toe box swells and the heel tucks in
       * (1 + 0.16 * smoothstep(0.30, 0.95, d.z) * smoothstep(0.35, -0.55, d.y))
       * (1 - 0.20 * smoothstep(0.20, 0.90, -d.z) * smoothstep(-0.10, 0.85, d.y));
-    const shell = track(closedRadial({ uSteps: 22, vSteps: 14, R: bootR }));
+    const shell = track(closedRadial({ uSteps: 18, vSteps: 12, R: bootR }));
     // The ankle sits above the middle of the boot and behind its centre.
     //
     // SOLES AT y = 0 IS A CONTRACT TERM, not a nicety, so the boot is seated
@@ -95,31 +95,17 @@ export function buildLower({ materials }) {
     // meets the ground rather than a smooth curve fading into the floor. This
     // is the piece that actually touches y = 0.
     const soleH = BOOT.heel / 2;
-    const sole = track(roundBox(BOOT.width / 2 * 1.04, soleH, BOOT.length / 2 * 1.02, { n: 4.2, uSteps: 18, vSteps: 10 }));
+    const sole = track(roundBox(BOOT.width / 2 * 1.04, soleH, BOOT.length / 2 * 1.02, { n: 4.2, uSteps: 14, vSteps: 8 }));
     put(boot, sole, materials.bootSole, {
       pos: v3(bootCentre.x, -M.y.ankle + soleH, bootCentre.z), name: 'sole',
     });
 
-    // The shaft cuff, a scuffed roll at the top of the boot.
-    const cuff = track(ovoid(BOOT.width / 2 * 0.86, BOOT.heel * 0.62, BOOT.width / 2 * 0.86, { uSteps: 14, vSteps: 8 }));
-    put(boot, cuff, materials.bootSole, {
-      pos: v3(0, -M.y.ankle + BOOT.height * 0.90, BOOT.length * 0.04), name: 'boot-cuff',
-    });
-
-    // Toes through the front of one boot. Real volumes poking out of a real
-    // hole would need the boot's grid cut; at 3 px of toe that is not worth a
-    // cavity, so they are three small bulbs sitting proud of the toe box,
-    // which reads identically and cannot staircase.
-    if (side === BOOT.toesOutSide) {
-      for (let k = 0; k < 3; k++) {
-        const t = track(ovoid(BOOT.width * 0.11, BOOT.width * 0.10, BOOT.width * 0.13, { uSteps: 10, vSteps: 7 }));
-        put(boot, t, materials.skin, {
-          pos: v3((k - 1) * BOOT.width * 0.24, -M.y.ankle + BOOT.heel + BOOT.width * 0.16, bootCentre.z + BOOT.length * 0.44),
-          name: 'toe',
-        });
-      }
-    }
+    // No cuff roll and no toes poking through. Both were three-pixel details
+    // on a boot that is read as a dark block, and a dark block is what a boot
+    // should be at this size: it is the figure's contact with the ground and
+    // its heaviest mass.
   }
+
 
   return { group, joints, dispose() { for (const g of geos) g.dispose(); } };
 }

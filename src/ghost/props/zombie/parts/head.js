@@ -68,8 +68,8 @@ const H = M.head;
 
 // The ball's grid, and the worst cell size on the face, which every feature's
 // cut is checked against.
-const BALL_U = 116, BALL_V = 78;
-const U_K = 0.66, V_K = 0.60;
+const BALL_U = 92, BALL_V = 62;
+const U_K = 0.58, V_K = 0.52;
 const CELL = Math.max(
   (2 * Math.PI / BALL_U) * (1 - U_K),
   (Math.PI / BALL_V) * (1 - V_K));
@@ -165,7 +165,6 @@ export function buildHead({ materials }) {
   // Every feature's cut predicate, collected before the ball is built, because
   // the ball has to omit their quads.
   const feats = [];
-  let NOSE_CUT = 1.1;
 
   // --- the eye sockets --------------------------------------------------------
   //
@@ -203,76 +202,25 @@ export function buildHead({ materials }) {
       // the sides it is half a pixel there and still a full brow above.
       jutMax: (phi) => M.head.browJut * mix(0.20, 1.0, smoothstep(-0.05, 0.92, Math.sin(phi))),
       rhoIn: SOCK_IN, rhoOut: 1.30,
-      phiSteps: 56, dishSteps: 9, rimSteps: 7,
+      phiSteps: 40, dishSteps: 7, rimSteps: 5,
       floorFlat: 0.70,
     });
   };
   const socketL = socket(+1), socketR = socket(-1);
   feats.push(socketL.cut(1.11, CELL), socketR.cut(1.11, CELL));
 
-  // --- the nasal aperture -----------------------------------------------------
+  // THE NOSE IS GONE, and that is the largest single deletion in this pass.
   //
-  // A skull's is a teardrop: narrow and pointed between the orbits, opening
-  // downward to two lobes. POSTMORTEM records two wrong shapes before that one
-  // -- a flat-topped diamond from a hard max(), and a cardioid, which is
-  // widest a third of the way down and closes to a point at the BOTTOM, so it
-  // read as a beak. The outline here is an explicit half-width profile with
-  // its widest point BELOW centre and a notch riding up into the bottom edge
-  // for the nasal spine, which is what turns one dark drop into two lobes.
-  // `rhoIn` is 1.0, so the numbers in metrics.js are the VISIBLE aperture, and
-  // `rhoCut`/`rhoOut` are DERIVED from the head's own cell size rather than
-  // guessed: half a cell in units of this feature's outline, plus a margin,
-  // twice over.
+  // It cost the most and bought the least. A nasal aperture is six degrees
+  // across on this head, which is smaller than the ball's own grid cells, so
+  // it forced the face grid up from 84x56 to 116x78 -- 8,600 triangles, a
+  // fifth of the whole figure -- purely so a rim could cover its ragged cut.
+  // At 105 px it is two pixels of grey between the sockets and the grin.
   //
-  // The aperture spent one round as a SUNKEN collar instead, on the argument
-  // that a band lying under the skin can be as wide as it likes because none
-  // of it shows. It does show. The ragged cut stops being a colour boundary
-  // and becomes a 2 mm SHADING step instead, still ragged, and at close range
-  // that is just as ugly. A rim that stands proud covers the cut outright,
-  // which is the whole point of it; the reason the nose could not have one was
-  // that on a 6 degree feature it had to be so wide it reached over the grin,
-  // and the answer to that is smaller cells, not a cleverer rim.
-  const NOSE_IN = 1.0;
-  const nose = (() => {
-    const A = noseAxis;
-    const ax = angFor(M.nose.width / 2, A, NOSE_IN);
-    const ay = angFor(M.nose.height / 2, A, NOSE_IN);
-    // phi = +pi/2 is up. The profile is a function of how far down we are.
-    const outline = (phi) => {
-      const s = Math.sin(phi), c = Math.cos(phi);
-      const down = (1 - s) / 2;                       // 0 at the top, 1 at the bottom
-      // widest at `bulge` below centre, pinched to a point at the top
-      const w = Math.pow(Math.sin(Math.PI * 0.5 * Math.min(1, down / (0.42 + M.nose.bulge * 0.5))), 0.80);
-      const wx = ax * mix(0.22, 1.0, w);
-      // The nasal spine, and it is doing double duty. It turns one dark drop
-      // into two lobes, which is what says skull; and by lifting the bottom
-      // edge it keeps the aperture off the top of the grin. `M.y.nose` and
-      // `M.y.grin` are landmarks 0.056 apart and both features want to grow
-      // toward each other, so the strip of green between them is bought here.
-      const spine = 1 - 0.34 * Math.pow(Math.max(0, -s), 3.4) * (1 - Math.min(1, Math.abs(c) * 3.0));
-      const wy = ay * spine;
-      return 1 / Math.hypot(c / wx, s / wy);
-    };
-    let minOut = Infinity;
-    for (let i = 0; i < 128; i++) minOut = Math.min(minOut, outline(2 * Math.PI * i / 128));
-    // Half a cell in units of this feature's own outline, plus a margin, twice
-    // over: once to get the cut clear of the dark's edge and once to get the
-    // collar clear of the cut.
-    const step = 0.5 * CELL / minOut + 0.028;
-    NOSE_CUT = NOSE_IN + step;
-    return grommet({
-      R: headR, axis: A, up: v3(0, 1, 0), outline,
-      depth: M.nose.depth,
-      seat: M.nose.depth * 0.42,
-      // Almost flush. What this rim is for is covering the cut, not for being
-      // a ridge: a raised lip round a nasal aperture reads as a snout.
-      jutMax: () => M.head.browJut * 0.10,
-      rhoIn: NOSE_IN, rhoOut: NOSE_CUT + step,
-      phiSteps: 56, dishSteps: 7, rimSteps: 6,
-      floorFlat: 0.55,
-    });
-  })();
-  feats.push(nose.cut(NOSE_CUT, CELL));
+  // The ghost is a white sheet with two black eyes and it is the best-loved
+  // thing in this project. Two big sockets and a wide grin is that level of
+  // simplicity, and the head reads harder without a third small dark mark
+  // competing with them. The grid came back down with it.
 
   // --- the mouth --------------------------------------------------------------
   //
@@ -328,8 +276,8 @@ export function buildHead({ materials }) {
       depth: M.grin.depth,
       seat: M.grin.depth * 0.16,
       jutMax: () => M.head.browJut * 0.10,
-      rhoIn: GRIN_IN, rhoOut: 1.14,
-      phiSteps: 64, dishSteps: 7, rimSteps: 6,
+      rhoIn: GRIN_IN, rhoOut: 1.18,
+      phiSteps: 48, dishSteps: 6, rimSteps: 5,
       floorFlat: 0.52,
     });
   })();
@@ -376,28 +324,7 @@ export function buildHead({ materials }) {
   };
   setFeature(socketL, materials.socket, 'socketL');
   setFeature(socketR, materials.socket, 'socketR');
-  setFeature(nose, materials.socketDeep, 'nose');
   setFeature(mouth, materials.socketDeep, 'mouth');
-
-  // A second, smaller and darker dish deep inside each orbit. Two values in
-  // one hole is what makes it look like a hole rather than a disc of paint;
-  // it is fully inside the socket dish, so it inherits the same guarantee.
-  for (const side of [+1, -1]) {
-    const A = socketAxis(side);
-    const ax = angFor(M.socket.width / 2, A, SOCK_IN) * 0.52;
-    const ay = angFor(M.socket.height / 2, A, SOCK_IN) * 0.52;
-    const inner = grommet({
-      R: headR, axis: A, up: v3(0, 1, 0), outline: ellipseOutline(ax, ay),
-      depth: M.socket.depth * 1.30, seat: M.socket.depth * 1.02,
-      jutMax: () => 0, rhoIn: 1.0, rhoOut: 1.02,
-      phiSteps: 40, dishSteps: 5, rimSteps: 1, floorFlat: 0.55,
-    });
-    inner.dish.translate(0, BALL.cy, 0);
-    track(inner.dish);
-    assertInsideRadial(inner.dish, centre, headR, `socket${side > 0 ? 'L' : 'R'} pit`, 1e-6);
-    put(group, inner.dish, materials.socketDeep, { name: 'socket-pit' });
-    inner.rim.dispose();
-  }
 
   // --- ears -------------------------------------------------------------------
   //
@@ -431,13 +358,6 @@ export function buildHead({ materials }) {
     const lobe = track(ovoid(earR, earR * 0.88, EAR_SINK + M.ear.stand, { uSteps: 14, vSteps: 10 }));
     const m = put(group, lobe, materials.skin, { pos: seat, name: 'ear' });
     m.lookAt(seat.clone().add(d));
-    // The concha: a small dark dimple on the outer face, as its own volume, so
-    // there is no dent in the ear's own parameterisation to fight.
-    const cup = track(ovoid(earR * 0.46, earR * 0.42, M.ear.stand * 0.62, { uSteps: 12, vSteps: 8 }));
-    const cm = put(group, cup, materials.skinDeep, {
-      pos: seat.clone().addScaledVector(d, EAR_SINK + M.ear.stand * 0.52), name: 'ear-cup',
-    });
-    cm.lookAt(cm.position.clone().add(d));
   }
 
   // --- the jaw ----------------------------------------------------------------
@@ -469,7 +389,7 @@ export function buildHead({ materials }) {
   // floating outside the jaw because the head tapers hard down there and the
   // surface no longer reaches that x. Placing by direction cannot make that
   // mistake: there is no x to solve for.
-  const toothGeo = (w, h, t) => roundBox(w / 2, h / 2, t / 2, { n: 3.6, uSteps: 10, vSteps: 8 });
+  const toothGeo = (w, h, t) => roundBox(w / 2, h / 2, t / 2, { n: 3.6, uSteps: 8, vSteps: 6 });
   const rowFor = (count, gapAt, up) => {
     const out = [];
     const span = 0.86;                      // fraction of the outline used
