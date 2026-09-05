@@ -73,6 +73,10 @@
 import {
   spawnZones, propsInZone, barrierInZone, gateInZone, zoneInBounds, SPAWN_FLOOR,
 } from './spawn.js';
+// THE ONE IMPLEMENTATION OF "a prop's footprint against a body", imported
+// rather than copied. See the note over discClear below for why the copy that
+// used to be here was not merely redundant but unsafe.
+import { propBlocks } from '../nav.js';
 
 export const NAV_CELL = 0.25;
 // THE BODY, PLUS A MARGIN, AND THE MARGIN IS THE POINT.
@@ -172,6 +176,29 @@ const pointSegD2 = (px, pz, ax, az, bx, bz) => {
   return (px - (ax + dx * t)) ** 2 + (pz - (az + dz * t)) ** 2;
 };
 
+// IT ASKS NAV.JS RATHER THAN REPRODUCING IT, and the four lines that used to be
+// here are the reason this comment is long.
+//
+// They were a copy of nav's circle model, and the file said so and defended it:
+// what was reproduced was "four lines, a circle against a capsule for a barrier
+// and a circle against a circle for a solid prop", which was nav's model
+// exactly. Then nav stopped colliding props as circles and started colliding
+// them as the oriented BOXES they publish, because a circumscribed circle was
+// stopping the ghost with 38.6 square units of keep-out against 23.4 of actual
+// prop, and the copy here did not move with it.
+//
+// THE DRIFT DOES NOT FAIL SAFE, which is why it matters more than a stale
+// comment. Every other aliasing problem this file was built against errs the
+// same way: a coarse raster INVENTS a failure, and the answer is generous then
+// exact. This one is the other direction. Shrinking a collider OPENS ground,
+// and ground that opens can be a new island standing on its own, so a pass
+// judging against fat props sees a solid block where the game has a pocket. It
+// misses rather than over-reports, and a missed pocket is a place the player
+// can be safe for ever that the audit signs off.
+//
+// So the rule for this file is now the rule it always meant: the geometry comes
+// from nav.js, whatever shape nav decides that is. Barriers stay here because
+// they are capsules in both and nav has no exported point test for one.
 export function discClear(barriers, props, x, z, r) {
   for (const b of barriers) {
     const lim = b.half + r;
@@ -179,8 +206,11 @@ export function discClear(barriers, props, x, z, r) {
   }
   for (const p of props) {
     if (!p.solid) continue;
+    // The circumscribed circle is a free and EXACT reject, since the box is
+    // inside it, and it kills all but a handful of calls before the trig.
     const lim = p.radius + r;
-    if ((x - p.x) ** 2 + (z - p.z) ** 2 < lim * lim - 1e-6) return false;
+    if ((x - p.x) ** 2 + (z - p.z) ** 2 >= lim * lim) continue;
+    if (propBlocks(p, x, z, r)) return false;
   }
   return true;
 }
@@ -202,13 +232,17 @@ function bodyFits(barriers, props, cx, cz, cell) {
   return false;
 }
 
-// Which solid props are the reason a point is blocked.
+// Which solid props are the reason a point is blocked. Same model as
+// discClear, and for the same reason: a prop named here is one this pass may
+// take out of the level, and naming a prop whose real footprint is nowhere near
+// the point removes something for nothing.
 function blockers(props, x, z, r) {
   const out = [];
   for (const p of props) {
     if (!p.solid || p.keep) continue;
     const lim = p.radius + r;
-    if ((x - p.x) ** 2 + (z - p.z) ** 2 < lim * lim) out.push(p);
+    if ((x - p.x) ** 2 + (z - p.z) ** 2 >= lim * lim) continue;
+    if (propBlocks(p, x, z, r)) out.push(p);
   }
   return out;
 }
@@ -225,9 +259,10 @@ function blockers(props, x, z, r) {
 // blocked ground either side of every fence, so no pair of open cells is ever
 // adjacent across one and there is nothing for an edge mask to catch.
 //
-// What is reproduced is discClear, which is four lines: a circle against a
-// capsule for a barrier, a circle against a circle for a solid prop. That is
-// nav.js's model exactly, and world-check.mjs asserts the radii agree.
+// What is NOT reproduced any more is the prop test: this calls nav.js's own
+// propBlocks, so the two cannot drift again. See discClear below for the
+// version that did drift and what it cost. A barrier is still a capsule here,
+// which is a capsule there too.
 function navGrid(box, barriers, gates, props, spawn, cell = NAV_CELL) {
   const pad = 1.5;
   const x0 = box.minX - pad;
@@ -266,10 +301,17 @@ function navGrid(box, barriers, gates, props, spawn, cell = NAV_CELL) {
     }
     if (!(nofit && big)) {
       for (const p of solid) {
+        // The circumscribed circle at the WIDEST of the three radii, as an
+        // exact reject: a prop that cannot reach the cell at UNIFORM_R cannot
+        // reach it at any of them, and the box is inside the circle. All but a
+        // handful of props leave here, which is what keeps the box test
+        // affordable on a seventeen thousand cell raster.
         const d2 = (x - p.x) ** 2 + (z - p.z) ** 2;
-        if (!narrow && d2 < (p.radius + NAV_R) ** 2) narrow = 1;
-        if (!nofit && d2 < (p.radius + fitR) ** 2) nofit = 1;
-        if (!big && d2 < (p.radius + UNIFORM_R) ** 2) big = 1;
+        const reach = p.radius + UNIFORM_R;
+        if (d2 >= reach * reach) continue;
+        if (!narrow && propBlocks(p, x, z, NAV_R)) narrow = 1;
+        if (!nofit && propBlocks(p, x, z, fitR)) nofit = 1;
+        if (!big && propBlocks(p, x, z, UNIFORM_R)) big = 1;
         if (nofit && big) break;
       }
     }

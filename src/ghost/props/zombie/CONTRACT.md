@@ -96,6 +96,16 @@ absolute Euler targets can be written without first reading the bind pose. The
 rest-pose arm flare is baked into geometry, never into a tilt node above a
 joint.
 
+**Signs.** `LIMITS` holds signed Euler targets, not magnitudes. The figure
+faces +Z, so on any limb hanging downward a positive `rotation.x` swings the
+lower segment BACKWARD. The two hinges therefore read opposite: `knee` is
+`[0, 2.20]` (positive, heel back) and `elbow` is `[-2.30, 0.10]` (negative,
+hand forward). `elbow` was published as `[0, 2.30]` in the first pass, which
+is a knee; the animation half caught it by taking the fold direction off the
+rig's own rest pose rather than believing the table. `hip` and `shoulder` are
+negative-forward, `ankle` positive is toes down, `jaw` positive opens, and the
+rest are near-symmetric.
+
 The jaw's sign is also published on the node, so it can be asserted rather than
 trusted:
 

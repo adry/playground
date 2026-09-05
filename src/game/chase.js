@@ -130,6 +130,34 @@ const MOVE_CLEAR = SKEL_RADIUS;
 // against a wall reads as blocked in every direction. See nav.js's trimStart.
 const PLAN_SKIP = 0.75;
 
+// GETTING NOWHERE, AND WHY THE EXISTING LAST RESORT COULD NOT SEE IT.
+//
+// `stallGuard` below accumulates when the resolver eats most of a step, and
+// past 0.6 it forces a fresh decision; past five units of that a skeleton gives
+// up and sinks. That catches a skeleton pressed INTO something, where the
+// resolver is fighting the mover every frame.
+//
+// It cannot catch the other shape, which is the common one: a skeleton SLIDING
+// along a wall. The component of the move along the surface survives, so `got`
+// is nearly the whole step, `stallGuard` resets every frame and `wedged` decays
+// to zero. The skeleton walks its full 2.49 a second, back and forth, for as
+// long as you leave it there.
+//
+// Measured over twenty arenas at 240 s: a hunting skeleton spends 4.6% of its
+// time above ground inside a one unit circle, and every instance the probe
+// caught was against a barrier with `wedged` at exactly 0.0. It is an eighth of
+// a skeleton permanently out of the game, and it is invisible to every check
+// that asks whether the mover is being blocked rather than whether it is going
+// anywhere.
+//
+// So this measures the honest thing: net displacement over time. Seven seconds
+// at the walk is seventeen units of travel, so failing to get two units from
+// where you were is not a near miss, it is pacing. The first strike is the same
+// free re-decision `stallGuard` asks for; the second gives up, which is what
+// the wedge escape does and reads the same way in fiction.
+const NOWHERE_R = 2.0;
+const NOWHERE_T = 7.0;
+
 // Pac-Man's own corner assignment, as compass directions rather than corners:
 // Blinky top right, Pinky top left, Inky bottom right, Clyde bottom left.
 const QUARTER = {
@@ -322,6 +350,8 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       hx: 0, hz: -1,             // heading, unit
       stallGuard: 0,
       wedged: 0,
+      // GETTING NOWHERE, measured on displacement. See the note by NOWHERE_R.
+      anchorX: 0, anchorZ: 0, anchorT: 0, strikes: 0,
       aimX: 0, aimZ: 0,          // the end of the current leg
       legLeft: 0,                // units of leg not yet walked
       committed: null,           // the passage id it is aiming at, or null
@@ -466,6 +496,10 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
     s.speed = 0;
     s.wantReverse = false;
     s.gaveUp = false;
+    s.anchorX = s.x;
+    s.anchorZ = s.z;
+    s.anchorT = 0;
+    s.strikes = 0;
     return s;
   }
 
@@ -691,6 +725,27 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
     if (Math.hypot(s.x - ctx.ghost.x, s.z - ctx.ghost.z) > leashOf()) {
       retire(s, true);
       return;
+    }
+
+    // And the one the leash cannot catch, because inside a bounded arena the
+    // leash never fires at all: leashOf() is the arena's own diagonal plus two,
+    // on purpose, so that crossing the board is not treated as getting lost.
+    // See NOWHERE_R.
+    s.anchorT += dt;
+    if (Math.hypot(s.x - s.anchorX, s.z - s.anchorZ) > NOWHERE_R) {
+      s.anchorX = s.x;
+      s.anchorZ = s.z;
+      s.anchorT = 0;
+      s.strikes = 0;
+    } else if (s.anchorT > NOWHERE_T) {
+      s.anchorX = s.x;
+      s.anchorZ = s.z;
+      s.anchorT = 0;
+      s.strikes++;
+      if (s.strikes >= 2) { retire(s, true); return; }
+      s.wantReverse = true;
+      s.legLeft = 0;
+      decide(s, ctx);
     }
 
     // MOVEMENT IS MOVE THEN RESOLVE, the same model the ghost uses, and the

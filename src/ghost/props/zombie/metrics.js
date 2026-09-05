@@ -193,7 +193,7 @@ export const M = {
     // colour inside that is not black.
     width: f(0.092),
     height: f(0.092),
-    depth: f(0.044),
+    depth: f(0.030),
     // The orbital rim: a raised ring around the socket, as a fraction of
     // browJut. This is what gives the eye a lid and a brow that overhangs it
     // rather than a hole punched in a smooth ball.
@@ -205,10 +205,18 @@ export const M = {
     // the opening it reads as a rim.
     rimAt: 1.18,
     rimWide: 0.14,
-    // The outline is not a clean ellipse. A small three-lobed wobble is the
-    // difference between a moulded eyepiece and a hole where something rotted
-    // away, and it costs nothing.
-    wobble: 0.050,
+    // The outline is not a clean ellipse. A three- and five-lobed wobble is
+    // the difference between a moulded eyepiece and a hole where something
+    // rotted away, and it costs nothing.
+    //
+    // It is also doing a second job. The socket's dark is PAINTED on the head
+    // rather than cut into it (see parts/head.js), so its edge is a staircase
+    // at grid resolution: half a pixel in a shipped frame, but scalloped on a
+    // close crop. At 0.05 that scalloping read as an artifact on a clean
+    // ellipse. At 0.14 the outline is visibly irregular by intent and the
+    // staircase disappears into it, which is the same trade the torn hems and
+    // the chest tear are making.
+    wobble: 0.075,
     // Centre to centre. f(0.115) was the first pass and the two sockets came
     // within 0.02 of touching over the bridge, which read as one wide dark
     // band rather than two eyes. Pushed out until there is a clear strip of
@@ -230,7 +238,7 @@ export const M = {
   nose: {
     width: f(0.060),
     height: f(0.062),
-    depth: f(0.038),
+    depth: f(0.026),
     // Where the widest part of the pear sits, as a fraction of the aperture's
     // height measured from the bottom. Below the middle: that is what makes it
     // a teardrop rather than a lens.
@@ -243,7 +251,7 @@ export const M = {
   grin: {
     width: f(0.180),          // 0.57 of head width
     height: f(0.052),
-    depth: f(0.032),
+    depth: f(0.026),
     // The mouth's own irregularity. A perfectly smooth lens reads as a slot
     // milled into the face; this is a torn one.
     wobble: 0.10,

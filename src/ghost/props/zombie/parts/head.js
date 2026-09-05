@@ -69,6 +69,23 @@ const U_FRONT = 0.25;       // azimuth u at which the surface faces +Z
 // The surface with no feature cut into it: what the cuts and the rims measure
 // against, so they all share one coordinate frame.
 const BARE = { mouth: false, sockets: false };
+
+// One fixed push direction per feature: the base normal at the feature's own
+// centre. Memoised because they are constants of the head, and computed lazily
+// because they are needed inside surfacePoint, which is defined first.
+const AXES = {};
+function featureAxis(key) {
+  if (AXES[key]) return AXES[key];
+  const at = {
+    sockL: [M.socket.separation / 2, M.y.brow - M.y.atlas],
+    sockR: [-M.socket.separation / 2, M.y.brow - M.y.atlas],
+    nose: [0, M.y.nose - M.y.atlas],
+    grin: [0, M.y.grin - M.y.atlas],
+  }[key];
+  const [u, vv] = frontUV(at[0], at[1]);
+  AXES[key] = baseNormal(u, vv);
+  return AXES[key];
+}
 // Where the extra v samples land, chosen so that after the pinning above the
 // dense band comes out at v = 0.42, between the sockets and the grin.
 const V_FACE = 0.445;
@@ -284,6 +301,22 @@ function surfacePoint(u, vv, { mouth = true, sockets = true, lumps = true } = {}
   //
   // The rims are still added, because two rims meeting SHOULD build up: that
   // ridge between the orbit and the aperture is a real piece of bone.
+  //
+  // EACH RECESS IS PUSHED ALONG ITS OWN FIXED AXIS, not along the local
+  // surface normal, and that is the fix that finally made the face stable.
+  //
+  // A normal-aligned recess as deep as a socket is wide does not push the
+  // surface straight back: at an orbit the normal is raked twenty-five degrees
+  // off the view, so the surface slides sideways as it goes in, by nearly half
+  // a socket radius at the middle and by nothing at the rim. The dent folds
+  // over itself, and every consequence of that folding was blamed on
+  // something else for four rounds: a patch laid in it drifts, a cup drifts
+  // further, a cut boundary lands somewhere other than where it was measured,
+  // and the region painted dark comes out as a sunburst.
+  //
+  // A fixed axis per feature is a pure translation of that patch of surface.
+  // Nothing folds, nothing drifts, and the painted region is the region that
+  // is there.
   {
     let recess = 0;
     if (sockets) {
@@ -336,7 +369,7 @@ function surfacePoint(u, vv, { mouth = true, sockets = true, lumps = true } = {}
   // note on the jaw below for why the mandible is not a separate shell.
   if (mouth) {
     const slot = 1 - smoothstep(0.72, 1.02, grinR(p.x, p.y));
-    if (slot > 0) p.addScaledVector(n, -M.grin.depth * slot * front);
+    if (slot > 0) p.addScaledVector(featureAxis('grin'), -M.grin.depth * slot * front);
   }
 
   return p;
@@ -599,11 +632,6 @@ export function buildHead({ materials }) {
   const group = new THREE.Group();
   group.userData.outwardX = 1;
 
-  // 104 x 64. The socket wall is the steepest thing on the model and at 88 x
-  // 56 its u samples showed as a fan of facets round the rim.
-  const U = 104;
-  const V = 64;
-
   // THE SHELL, AND WHY THE DARK IS PAINTED ON IT RATHER THAN PUT BEHIND IT.
   //
   // The sockets, the nasal aperture and the mouth are all drawn from THE SAME
@@ -639,24 +667,42 @@ export function buildHead({ materials }) {
   // it: the boundary sits on the steep wall of the dent, in its own shadow,
   // and at 104 samples across the face one step is about half a pixel in a
   // shipped frame.
-  const U = 104;
-  const V = 64;
+  // 128 x 88. The boundary between the painted zones is a staircase at grid
+  // resolution, and this is the only lever on it: at 104 x 64 one step is
+  // about a tenth of a socket radius, which is half a pixel in a shipped frame
+  // and invisible there, but scalloped enough to be distracting on a close
+  // crop. Doubling the v samples halves it. The head is the character and it
+  // is worth the triangles; nothing else on the model is sampled this finely.
+  const U = 128;
+  const V = 88;
   const uAt = (i) => concentrate(i / U, U_FRONT, 0.55);
   const vAt = (j) => vWarp(j / V, V_FACE, 0.45);
 
-  // Which of the three a quad belongs to, decided on the BARE surface so the
-  // painted region is the same region the dent is cut into.
+  // Which of the three a quad belongs to, decided on the BARE surface.
+  //
+  // This has to be the bare one and the reason is worth stating, because the
+  // built one looks like the obvious choice and produces the single worst
+  // artifact on the model. The recess varies with r, so the map from (u, v) to
+  // the BUILT position is compressed against the socket's wall: many grid
+  // cells land in a narrow band of r there, the predicate flips back and forth
+  // across them, and the boundary comes out as a comb of teeth a dozen deep.
+  // The map to the BARE position is smooth and monotonic, so the boundary is
+  // a clean staircase one cell deep.
+  //
+  // The thresholds are then set larger than the features' own outlines,
+  // because the recess pushes the painted patch inward and it has to be cut
+  // oversize to land in the right place.
   const SKIN = 0, DARK = 1, DEEP = 2;
   const zoneOf = (u, vv) => {
     const p = surfacePoint(u, vv, BARE);
     if (p.z <= 0) return SKIN;
     for (const side of [1, -1]) {
       const r = socketR(p.x, p.y, side);
-      if (r <= 0.52) return DEEP;
-      if (r <= 1.00) return DARK;
+      if (r <= 0.62) return DEEP;
+      if (r <= 1.16) return DARK;
     }
-    if (grinR(p.x, p.y) <= 1.00) return DEEP;
-    if (noseR(p.x, p.y) <= 1.00) return DARK;
+    if (grinR(p.x, p.y) <= 1.08) return DEEP;
+    if (noseR(p.x, p.y) <= 1.10) return DARK;
     return SKIN;
   };
 
