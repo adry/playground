@@ -139,6 +139,26 @@ function commit(fn) {
   autosave();
 }
 
+// A CHANGE THAT MAY DECLINE TO HAPPEN. Placing a headstone somewhere it does
+// not fit, or clicking the gate tool on open ground, is a click that changes
+// nothing, and it must not cost an undo step: pressing ctrl+z afterwards has to
+// take back the last thing that actually happened rather than a refusal.
+//
+// The rule the tool is built on is unchanged. The before-image is still taken
+// before the mutation runs -- that is what makes undo exact -- it is simply not
+// kept when the mutation reports that it did nothing.
+function commitIf(fn) {
+  const before = JSON.stringify(doc);
+  const did = fn();
+  if (did === false) { refresh(); return false; }
+  undoStack.push(before);
+  if (undoStack.length > 200) undoStack.shift();
+  redoStack.length = 0;
+  refresh();
+  autosave();
+  return true;
+}
+
 // A live edit -- a drag in progress -- mutates and refreshes without a
 // snapshot. beginEdit() takes the one snapshot for the whole gesture.
 let editing = false;
@@ -601,10 +621,27 @@ function paintAt(x, z, erase) {
   return touched;
 }
 
+// HOW OFTEN THE PAINTED GROUND IS REBUILT WHILE THE BRUSH IS DOWN.
+//
+// Not a fixed interval, because what it costs is not this file's to know: the
+// cover is a marching-squares pass over the weight field plus a scatter plus a
+// kerb run per named pair, and level/groundcover.js is free to make that
+// heavier. So the throttle is measured. The last rebuild's own cost sets the
+// next interval at three times it, which spends at most a third of the time
+// during a stroke on rebuilding and leaves the rest to the pointer.
+//
+// The alternative -- rebuild on brush-up only -- was rejected: the brush ring
+// says where the paint is going and nothing says where it went, so an author
+// would paint a stroke blind and find out afterwards.
+const PAINT_MIN_MS = 110;
+function paintInterval() {
+  return Math.max(PAINT_MIN_MS, Math.min(600, (scene.stats().coverMs || 0) * 3));
+}
+
 function flushPaint(force = false) {
   if (!paintDirty) return;
   const now = performance.now();
-  if (!force && now - lastPaint < 110) return;
+  if (!force && now - lastPaint < paintInterval()) return;
   lastPaint = now;
   paintDirty = false;
   doc.ground.paint = packPaint(paintCells);
@@ -677,11 +714,11 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
 
-  if (tool === 'place') { commit(() => placeAt(snapped(at.x), snapped(at.z))); return; }
-  if (tool === 'spawn') { commit(() => { addSpawn(snapped(at.x), snapped(at.z)); }); return; }
+  if (tool === 'place') { commitIf(() => placeAt(snapped(at.x), snapped(at.z))); return; }
+  if (tool === 'spawn') { commitIf(() => addSpawn(snapped(at.x), snapped(at.z))); return; }
   
-  if (tool === 'gate') { commit(() => { toggleGate(at.x, at.z); }); return; }
-  if (tool === 'wall') { commit(() => { toggleWallStyle(at.x, at.z); }); return; }
+  if (tool === 'gate') { commitIf(() => toggleGate(at.x, at.z)); return; }
+  if (tool === 'wall') { commitIf(() => toggleWallStyle(at.x, at.z)); return; }
 
   if (tool === 'fence' || tool === 'path') {
     commit(() => {

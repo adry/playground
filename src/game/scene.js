@@ -302,7 +302,13 @@ export async function startGame({ canvas, params }) {
   // be paying twice for the same grass. It is parented to the scene rather than
   // to the wave's group for the same reason the lanterns are.
   const cover = authored
-    ? authored.createGroundCover({ ground: authored.doc.ground, seed: authored.doc.seed })
+    ? authored.createGroundCover({
+      ground: authored.doc.ground,
+      seed: authored.doc.seed,
+      // Which pairs of grounds meet at a row of stones. groundcover.js takes it
+      // as an argument rather than reading it off the ground block.
+      kerbs: authored.doc.ground.kerbs || null,
+    })
     : null;
   if (cover) scene.add(cover.group);
 

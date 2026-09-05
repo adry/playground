@@ -27,6 +27,7 @@ out/
 /*-smoke.mjs
 /*-record.mjs
 /*-perf.mjs
+/*-tmp.mjs
 /dbg.mjs
 /legs.html
 
@@ -37,3 +38,13 @@ out/
 /game-err.mjs
 /world-shot.mjs
 /page-check.mjs
+
+# The end-to-end test's own level. editor-to-game.mjs saves the editor's real
+# download here, plays it, and deletes it again, and it has to be HERE because
+# public/ is the only directory the dev server hands to the game. A run that is
+# interrupted leaves it behind; it is a test artifact either way and never
+# something that ships. demo.json beside it is the level the site does ship.
+# Anything named *-check.json: two agents have now independently written a test
+# level in here, so the pattern is the rule rather than the file. demo.json is
+# the one the site ships and does not match it.
+/public/levels/*-check.json

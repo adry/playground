@@ -148,7 +148,9 @@ export async function startViewer({ canvas, params }) {
   function refreshCover() {
     if (cover) { scene.remove(cover.group); cover.dispose(); cover = null; }
     if (!world.ground) return;
-    cover = createGroundCover({ ground: world.ground, seed: world.seed || seed });
+    cover = createGroundCover({
+      ground: world.ground, seed: world.seed || seed, kerbs: world.ground.kerbs || null,
+    });
     scene.add(cover.group);
   }
   refreshCover();

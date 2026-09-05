@@ -233,7 +233,7 @@ const FRINGE = 0.35;
 // large fill is not a billiard table. Two centimetres, over a two metre
 // wavelength -- enough for the key light to find, far too little to trip over
 // or to tilt a headstone.
-const RELIEF = 0.020;
+const RELIEF = 0.016;
 const RELIEF_SCALE = 2.0;
 
 // The contact darkening along a crossover. A junction between two surfaces is
@@ -281,7 +281,7 @@ const LIP = 0.016;
 export const MATERIALS = {
   grass: { color: '#8d9873', detail: 'blades', density: 6.5, lift: 0.028, detailColor: '#79865b' },
   sand: { color: '#b0a794', detail: 'pebbles', density: 2.4, lift: 0.014, detailColor: '#c6bda8' },
-  gravel: { color: '#93928e', detail: 'chips', density: 6.0, lift: 0.012, detailColor: '#a8a7a2' },
+  gravel: { color: '#8b8a88', detail: 'chips', density: 6.0, lift: 0.012, detailColor: '#a8a7a2' },
   earth: { color: '#9c8768', detail: 'clods', density: 3.4, lift: 0.010, detailColor: '#87724f' },
 };
 

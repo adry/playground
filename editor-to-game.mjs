@@ -112,7 +112,7 @@ claim(
 // not, and the drop refused when it is red.
 claim(await clickEntry('celtic'), 'a headstone is an entry in the same list');
 const verdicts = await editor.page.evaluate(() => ({
-  open: window.__editor.preview(6.5, 6.5),
+  open: window.__editor.preview(6, 6),
   fence: window.__editor.preview(3, -7),
   path: window.__editor.preview(0, 0),
   out: window.__editor.preview(14.9, 14.9),
@@ -128,7 +128,7 @@ claim(
   (await editor.page.evaluate(() => window.__editor.doc.props.length)) === propsBefore,
   'a red drop does not happen',
 );
-await clickWorld(6.5, 6.5);
+await clickWorld(6, 6);
 const placed = await editor.page.evaluate(() => window.__editor.doc.props.at(-1));
 claim(
   (await editor.page.evaluate(() => window.__editor.doc.props.length)) === propsBefore + 1,

@@ -611,9 +611,79 @@ export const GRIME = 0.2;
 // it.
 export const FACE_ROWS = 512;
 
+// --- the bake pool ----------------------------------------------------------
+//
+// A stone's two maps are about 3 MB and a few hundred milliseconds, and until
+// now every stone baked its own. That is right for the game, whose prop cache
+// builds one stone per template and never two the same. It is badly wrong for
+// the level editor, which builds a prop per placement: measured, twenty-four
+// copies of ONE headstone came to forty-eight textures and 63 MB, because each
+// copy baked maps identical to its neighbour's.
+//
+// So the maps are pooled. What is NOT pooled is everything that gives a stone
+// its shape: the silhouette, the lean, the sink and whatever extras() builds
+// all still come from the stone's own per-seed stream, so two stones sharing a
+// bake still stand differently and carry different broken corners. Only the
+// surface grain and the wear on the letters repeat.
+//
+// TWO STREAMS, AND THIS IS THE PART THAT MATTERS. The bake used to draw from
+// the stone's own rng, which meant the stream position after it depended on
+// whether a bake happened -- so with a pool, a stone's lean would depend on
+// what had been placed before it. That is a bug, not a trade. The bake now has
+// its own stream, seeded from the pool key alone, and consumes nothing from the
+// stone. Pooling is therefore invisible by construction rather than by
+// accounting, and a stone is the same stone whatever its neighbours are.
+//
+// It also fixes something that was already wrong: buildTextures is skipped when
+// there is no DOM, so a stone built in node had a different lean from the same
+// stone built in a browser. They agree now.
+//
+// SLOTS is how many distinct bakes a variant may have. It cannot be keyed on
+// the seed alone: the editor derives a prop's seed from its POSITION, so every
+// placement has a unique one and a seed-keyed pool would share nothing at all,
+// which is the case this exists to fix.
+const TEXTURE_SLOTS = 4;
+// About 3 MB an entry. Sixteen is 48 MB and holds four bakes each of the four
+// commonest variants in a level, or one each of sixteen variants.
+const TEXTURE_POOL_LIMIT = 16;
+const texPool = new Map();
+let texClock = 0;
+
+function texKeyHash(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) || 1;
+}
+
+function pooledTextures(variant, seed, faceAspect) {
+  const key = `${variant}|${Math.abs(seed | 0) % TEXTURE_SLOTS}|${faceAspect.toFixed(3)}`;
+  let e = texPool.get(key);
+  if (e) { e.refs += 1; e.used = ++texClock; return e; }
+  // Past the ceiling, drop the least recently used bake that no stone is
+  // drawing. If every entry is in use the pool grows for now and settles when
+  // those stones are disposed.
+  if (texPool.size >= TEXTURE_POOL_LIMIT) {
+    const idle = [...texPool.values()].filter((x) => x.refs === 0).sort((a, b) => a.used - b.used)[0];
+    if (idle) {
+      idle.tex.map.dispose();
+      idle.tex.normalMap.dispose();
+      texPool.delete(idle.key);
+    }
+  }
+  e = { key, tex: buildTextures(variant, faceAspect, mulberry32(texKeyHash(key))), refs: 1, used: ++texClock };
+  texPool.set(key, e);
+  return e;
+}
+
+function releaseTextures(entry) {
+  if (entry) entry.refs = Math.max(0, entry.refs - 1);
+}
+
 // Colour map + height map for one stone. The face artwork occupies a region of
 // exact face aspect on the left; the narrow strip on the right is plain stone
 // that the sides and back sample, so nothing wraps around the corner.
+//
+// `rng` is the POOL's stream, not the stone's. See pooledTextures.
 function buildTextures(variant, faceAspect, rng) {
   const FH = FACE_ROWS;
   const FW = Math.round(FH * faceAspect);
@@ -763,7 +833,8 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
   const edge = 0.062;
 
   const hasDOM = typeof document !== 'undefined';
-  const tex = hasDOM ? buildTextures(variant, (2 * W) / H, rng) : null;
+  const texEntry = hasDOM ? pooledTextures(variant, seed, (2 * W) / H) : null;
+  const tex = texEntry ? texEntry.tex : null;
   const frontFrac = tex ? tex.frontFrac : 1;
   const stripFrac = tex ? tex.stripFrac : 0;
 
@@ -925,10 +996,9 @@ export function createTombstone({ variant = 'cross', seed = 1, scale = 1 } = {})
       plinthGeo?.dispose();
       for (const d of disposables) d.dispose?.();
       material.dispose();
-      if (tex) {
-        tex.map.dispose();
-        tex.normalMap.dispose();
-      }
+      // The maps belong to the pool and outlive this stone, so the next one of
+      // its kind does not pay for them again.
+      releaseTextures(texEntry);
     },
   };
 }

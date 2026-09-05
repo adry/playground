@@ -155,6 +155,11 @@ export function createEditorScene({ canvas }) {
   let fenceBuilt = null;
   let groundSig = '';
   let cover = null;
+  // How long the last cover rebuild took. The paint brush throttles itself
+  // against this: the cover is a marching-squares pass plus a scatter plus a
+  // kerb run or two, and what that costs depends on what groundcover.js is
+  // doing this month rather than on anything here.
+  let coverMs = 0;
   let flySig = '';
   let flies = null;
   const pathBuilt = new Map();
@@ -297,11 +302,19 @@ export function createEditorScene({ canvas }) {
   }
 
   function syncGround(doc) {
-    const s = sig([doc.ground.paint, doc.ground.w, doc.ground.h, doc.ground.cell, doc.seed]);
+    const s = sig([doc.ground.paint, doc.ground.w, doc.ground.h, doc.ground.cell, doc.ground.kerbs, doc.seed]);
     if (s === groundSig) return;
     groundSig = s;
     if (cover) { level.remove(cover.group); cover.dispose(); }
-    cover = createGroundCover({ ground: doc.ground, seed: doc.seed });
+    // `kerbs` says which pairs of grounds meet at a row of stones rather than
+    // at a plain crossover. It is a field of the document, and it is handed
+    // over explicitly because groundcover.js takes it as an argument rather
+    // than reading it off the ground block.
+    const t0 = performance.now();
+    cover = createGroundCover({
+      ground: doc.ground, seed: doc.seed, kerbs: doc.ground.kerbs || null,
+    });
+    coverMs = performance.now() - t0;
     level.add(cover.group);
   }
 
@@ -613,7 +626,10 @@ export function createEditorScene({ canvas }) {
       if (facing !== undefined) showFacing = facing;
     },
     stats() {
-      return { built: built.size, cuts: holeCuts, cover: cover?.stats, max: MAX_GROUND_HOLES, wallHeight: WALL.height };
+      return {
+        built: built.size, cuts: holeCuts, cover: cover?.stats, coverMs,
+        max: MAX_GROUND_HOLES, wallHeight: WALL.height,
+      };
     },
     personalities: PERSONALITIES,
   };
