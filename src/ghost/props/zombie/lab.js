@@ -150,7 +150,7 @@ async function boot() {
     // The cloth needs settling before it has a finite bounding box at all: one
     // frame in, half the sheet is still NaN and anything that measures the
     // scene comes back empty.
-    const idle = { move: new THREE.Vector2(), jump: false };
+    const idle = { x: 0, y: 0, jump: false };   // the shape Input.sample() returns
     for (let i = 0; i < 180; i++) g.update(1 / 60, idle);
     const ghostHolder = new THREE.Group();
     ghostHolder.add(g.mesh);

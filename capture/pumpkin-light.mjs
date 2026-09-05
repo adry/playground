@@ -59,13 +59,15 @@ await mkdir(outDir, { recursive: true });
 // Walk there. The stick is the same one a player holds, so the ghost arrives
 // under its own steam and the cloth is moving the way it moves in play.
 const target = { x: px + FACE.x * STAND, z: pz + FACE.z * STAND };
-// Twenty steps a second rather than sixty, and it is not a detail: every step
-// renders, and a frame on a container's software rasteriser is a second or
-// more. The rules substep internally at their own cap, so the walk is the same
-// walk; only the number of frames drawn on the way changes.
+// FIVE STEPS A SECOND ON THE WAY THERE, and it is not a detail: every step
+// draws a frame, a frame here is software-rasterised, and the walk is a dozen
+// of them against the four that are kept. The rules substep internally at their
+// own cap of 0.054 s, so the walk itself is unchanged -- only the number of
+// frames drawn along it. The cloth is stepped coarsely and is given time to
+// settle at the end before anything is captured.
 const arrive = await lab.page.evaluate(async (t) => {
   let last = null;
-  for (let i = 0; i < 20 * 8; i++) {
+  for (let i = 0; i < 40; i++) {
     const g = window.__game.state().ghost;
     const dx = t.x - g.x;
     const dz = t.z - g.z;
@@ -74,10 +76,10 @@ const arrive = await lab.page.evaluate(async (t) => {
     if (d < 0.15) break;
     // Ease off over the last stride or the ghost sails past and comes back.
     const k = Math.min(1, d / 1.2);
-    window.__game.step(1 / 20, { x: (dx / d) * k, y: (dz / d) * k });
+    window.__game.step(1 / 5, { x: (dx / d) * k, y: (dz / d) * k });
   }
   // A moment to settle, so the cloth is hanging rather than mid-swing.
-  for (let i = 0; i < 12; i++) window.__game.step(1 / 20, { x: 0, y: 0 });
+  for (let i = 0; i < 6; i++) window.__game.step(1 / 20, { x: 0, y: 0 });
   const g = window.__game.state().ghost;
   return { ...last, at: { x: g.x, z: g.z } };
 }, target);

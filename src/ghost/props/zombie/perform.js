@@ -70,16 +70,26 @@ import { Spring, easeOutBack, easeInOutCubic, easeOutElastic } from '../skeleton
 //    that is 0.375 of the leg's length here against 0.217 on the skeleton, and
 //    the head lag, below.
 //
-// 4. The HEAD is a third of the height and there is no neck under it. On the
-//    skeleton the skull is 16.7% of the height on a 0.145 neck and its spring
-//    is stiff enough to be effectively rigid; the head is a small weight the
-//    chest carries. Here the head is 33.0% of the height, its inertia about the
-//    atlas is roughly (0.330/0.167)^3 = 7.7 times the skeleton's for the same
-//    density, and metrics.js caps the neck at 0.30 rad in every axis because
-//    past that the skull ball drives through the deltoid. A head that big on a
-//    joint that short cannot be posed; it has to be SIMULATED, or the figure
-//    reads as a puppet on rails. That is the single biggest block of new code
-//    here and there is nothing in perform.js it could have been grafted onto.
+// 4. The HEAD is a third of the height and there is no neck under it. Measured
+//    off the built rigs, the skeleton's skull is 16.7% of its height and this
+//    head is 32.7% of this one, so its inertia about the atlas is about
+//    (0.327/0.167)^3 = 7.5 times the skeleton's for the same density. And
+//    metrics.js caps the neck at 0.30 rad in every axis and the head joint at
+//    [-0.55, 0.50], because past that the skull ball drives through the
+//    deltoid: the whole head has 49 degrees of travel against the chest.
+//
+//    Two things follow and neither is a tweak. The head cannot be POSED, it has
+//    to be SIMULATED, or a figure whose head is a third of it reads as a puppet
+//    on rails. And the head cannot be authored in ABSOLUTE world pitch the way
+//    both of the skeleton's performances author theirs, because an absolute
+//    track spends the entire 49 degree budget on whatever the torso is doing
+//    and then sits on its stop: the skeleton's own climb asks for 110 degrees
+//    of absolute head pitch against a chest at 124, which is 67 degrees of head
+//    on this figure and would arrive as a head frozen against the deltoid for
+//    two seconds. Every head angle in this file is relative to the chest, and
+//    the torso carries the rest of the swing. That is a change of authoring
+//    convention, not of numbers, and it is not something that could have been
+//    grafted onto perform.js without rewriting every track in it.
 //
 // What that leaves is a file that shares perform.js's shape and almost none of
 // its numbers, which is what a sibling is. Where a helper is genuinely
@@ -457,9 +467,10 @@ export function createZombiePerformance({
   // formulas checkable: point this file at a skeleton rig and it reproduces
   // perform.js's hand-tuned constants.
   //
-  //   chibi   how much of the figure is head. The skeleton is 0.167, this is
-  //           0.330. It scales the head's inertia, its spring, the depth of the
-  //           crouch and how much of the emergence the head carries.
+  //   chibi   how much of the figure is head, measured off the built rig. The
+  //           skeleton comes out at 0.167 and this figure at 0.327. It scales
+  //           the head's inertia, its spring, the depth of the crouch and how
+  //           much of the emergence the head carries.
   //   waddle  hip separation over leg length. The skeleton is 0.217, this is
   //           0.375. A figure whose feet are that far apart relative to its leg
   //           cannot walk by reaching forward; it has to move its weight
@@ -473,8 +484,9 @@ export function createZombiePerformance({
   // the same figure. Mass goes as the cube of a linear dimension and the moment
   // of inertia of a ball about a point below it goes as m * r^2, but the
   // radius of gyration also scales with the head, so the whole thing is very
-  // nearly the fifth power. The fifth power of 1.98 is 30, which is not a head,
-  // it is a wrecking ball, so it is capped: past about 5 the neck stops reading
+  // nearly the fifth power. The fifth power of 1.96 is 29, which is not a head,
+  // it is a wrecking ball, so the CUBE is used and it is then capped: this
+  // figure computes 7.5 and gets 5, because past about 5 the neck stops reading
   // as a neck and the figure reads as a bobblehead toy on a spring.
   const HEAD_I = clamp((headFrac / 0.167) ** 3, 1, 5);
 

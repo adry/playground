@@ -106,6 +106,20 @@ fs.cpSync(ROOT, SNAP, {
 });
 fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(SNAP, 'node_modules'));
 
+// A BLANK PAGE TO PUT THE END CARD ON, written into the copy and never into the
+// project. The board is a piece of DOM and a few requests; the page it normally
+// lives on is /lab/, which renders every prop in the project on a software GPU
+// and pins two cores doing it. Testing the board there measures the renderer
+// instead: the requests are starved, the assertions time out, and the failure
+// reads as a bug in the board. So the board gets a page with nothing on it, on
+// the same origin, which is all it actually needs. The two rules the assertions
+// touch are copied out of lab/index.html.
+fs.writeFileSync(path.join(SNAP, 'board-harness.html'), [
+  '<!doctype html><meta charset="utf-8"><title>board harness</title>',
+  '<style>.card{font:14px system-ui}.board{list-style:none;padding:0}.mine{font-weight:600}</style>',
+  '<body></body>',
+].join('\n'));
+
 const vite = spawn('npx', ['vite', '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
   cwd: SNAP,
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -282,7 +296,7 @@ try {
   console.log('\nprivate means private');
   {
     const { ctx, page } = await open({ board: BOARD });
-    await page.goto(`${ORIGIN}/lab/`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${ORIGIN}/board-harness.html`, { waitUntil: 'domcontentloaded' });
     const secondSlug = await page.evaluate(async ({ email, password }) => {
       const auth = await import('/src/net/auth.js');
       const sb = await import('/src/net/supabase.js');
@@ -349,7 +363,7 @@ try {
   console.log('\nthe board, in a page, cross origin');
   {
     const { ctx, page, errors } = await open({ board: BOARD, name: 'Ada' });
-    await page.goto(`${ORIGIN}/lab/`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${ORIGIN}/board-harness.html`, { waitUntil: 'domcontentloaded' });
 
     // The end card, built the way scene.js builds it, and the board attached to
     // it the way scene.js attaches it. Driving a real game to a real death
@@ -393,13 +407,17 @@ try {
     ok(!('owner' in scoreReq.body), 'and with no owner column, so it works before 002 as well as after');
 
     // The placing, which is the part CORS can silently break.
-    for (let i = 0; i < 12; i++) {
-      // eslint-disable-next-line no-await-in-loop
-      await page.evaluate(async ({ n }) => {
-        const { client } = await import('/src/net/supabase.js');
-        await client().postScore({ name: `Rival ${n}`, score: 900000 - n, fireflies: 10, seconds: 600 });
-      }, { n: i });
-    }
+    // Twelve better scores, so the one just posted is outside the top ten and
+    // the placing line is the only way to find it. One evaluate rather than
+    // twelve, because each round trip out to node and back costs more than the
+    // request it carries.
+    await page.evaluate(async () => {
+      const { client } = await import('/src/net/supabase.js');
+      for (let i = 0; i < 12; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await client().postScore({ name: `Rival ${i}`, score: 900000 - i, fireflies: 10, seconds: 600 });
+      }
+    });
     await page.click('.gb-tabs button:text-is("everyone")');
     await page.waitForFunction(() => {
       const li = document.querySelector('.gb-rows li.mine');
@@ -419,7 +437,7 @@ try {
   console.log('\nthe name, asked for once');
   {
     const { ctx, page } = await open({ board: BOARD, name: null });
-    await page.goto(`${ORIGIN}/lab/`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${ORIGIN}/board-harness.html`, { waitUntil: 'domcontentloaded' });
     await page.evaluate(async () => {
       const mod = await import('/src/net/leaderboard.js');
       const card = document.createElement('div');
