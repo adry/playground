@@ -49,7 +49,6 @@ import { createWorld } from './world/index.js';
 import { createWalledLevel, createWall, createVoid } from '../ghost/props/fence/wall.js';
 import { createGame, TUNING } from './rules.js';
 import {
-  waveTuning, waveSeed, clearBonus,
   loadBoard, submitScore, shareUrl, shareText,
 } from './run.js';
 import { createShareRecorder } from './share.js';
@@ -95,7 +94,7 @@ export async function startGame({ canvas, params }) {
   // so anything built before it would sit idle waiting; and the whole point of
   // knowing the level up front is that its variant set is known up front too.
   // See BAKE, below: every prop template this level will ever need is baked
-  // inside startWave(1), which runs before the first requestAnimationFrame,
+  // inside startRun(), which runs before the first requestAnimationFrame,
   // and a canvas bake costs about five times more once the renderer has drawn.
   //
   // The four modules behind it are imported here rather than at the top of the
@@ -150,15 +149,17 @@ export async function startGame({ canvas, params }) {
     };
   }
 
-  // A RUN is a sequence of waves. Everything about the level lives in `world`
-  // below and is thrown away between waves; everything about the run outlives
-  // them. Keeping the two apart is what makes "endless" a small change rather
-  // than a rewrite: a wave has no idea it is not the first.
+  // A RUN IS ONE ARENA, PLAYED UNTIL YOU ARE CAUGHT.
+  //
+  // It used to be a sequence of waves: clear the fireflies, get a bonus, get a
+  // new maze with faster skeletons. The owner has replaced that with a board
+  // that refills for ever, so there is nothing to clear and nothing to progress
+  // to, and the only thing that ends a run is the last life. What is left of
+  // the wave machinery is `startRun`, which still builds the level once and is
+  // still the only thing that knows where the ghost begins.
   const runSeed = seed;
   const run = {
     seed: runSeed,
-    wave: 1,
-    cleared: 0,
     score: 0,
     lives: TUNING.lives,
     fireflies: 0,
@@ -215,9 +216,9 @@ export async function startGame({ canvas, params }) {
   const VIEW = Number(params.get('view')) > 0 ? Number(params.get('view')) : 9.0;
   const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
-  // Set properly by startWave, which is the only thing that knows where a
-  // maze puts the ghost. It cannot read `layout` here: there is no layout
-  // until a wave starts.
+  // Set properly by startRun, which is the only thing that knows where the
+  // level puts the ghost. It cannot read `layout` here: there is no layout
+  // until the run starts.
   const camTarget = new THREE.Vector3(0, 0.75, 0);
 
   function placeCamera() {
@@ -699,49 +700,52 @@ export async function startGame({ canvas, params }) {
 
   // How a rules state maps onto a performance phase. 'leaving' is the walk out
   // of the pen and it is already a walk, so it drives like a hunt.
+  // A DORMANT skeleton is not in the game at all: it has not been spawned yet
+  // or it has burrowed back. perform.js's 'buried' is exactly that pose, the
+  // figure under the floor behind its own clip plane, so the two map onto each
+  // other and nothing extra has to be hidden.
   const PHASE = {
-    buried: 'buried',
+    dormant: 'buried',
     emerging: 'emerging',
     leaving: 'chasing',
     hunting: 'chasing',
     sinking: 'settling',
   };
 
-  // --- starting a wave -------------------------------------------------------
-  function startWave(wave) {
+  // --- starting the run ------------------------------------------------------
+  function startRun() {
     disposeWorld(world);
-    const tuning = waveTuning(wave);
-    // A wave is now a whole contained ARENA rather than a slice of an endless
-    // plane: the owner cut the endless world because it took too long to load,
-    // and a 30 by 30 level built once is the answer to that. The progression is
-    // unchanged, because "endless" was always about the run and not the ground.
-    //
-    // An authored run replays THE SAME LEVEL every wave, harder. There is one
-    // level in the file and inventing a second one from a seed would be the
-    // generator coming back in through the door the owner closed; what a wave
-    // still changes is waveTuning, so wave four of a hand-made arena is the
-    // same graveyard with faster skeletons and less scatter.
     if (authored) {
       layout = authored.pending || authored.createLevelWorld(authored.doc);
       authored.pending = null;
     } else {
-      layout = createWorld({ seed: waveSeed(runSeed, wave), size: arenaSize });
+      layout = createWorld({ seed: runSeed, size: arenaSize });
     }
     world = buildWorld(layout);
-    game = createGame({ world: layout, seed: waveSeed(runSeed, wave), tuning });
-    // The run's lives, not a fresh three. This is the whole of what makes a run
-    // a run rather than a sequence of games.
+    game = createGame({ world: layout, seed: runSeed, skeletons: TUNING.skelMax });
     game.state.lives = run.lives;
 
-    ensureRigs(game.state.skeletons.length);
-    for (let i = 0; i < game.state.skeletons.length; i++) {
-      const s = game.state.skeletons[i];
+    // ONE RIG PER SLOT, AND THE COUNT COMES OFF THE HERD.
+    //
+    // It used to come off `game.state.skeletons.length`, and that was the bug
+    // the owner hit as "no skeletons appear at all". `state.skeletons` is
+    // filled in by publish(), which runs inside update(), so immediately after
+    // createGame it is an EMPTY ARRAY. ensureRigs(0) built nothing, the frame
+    // loop's `if (!r) continue` then skipped every skeleton for the rest of the
+    // run, and the game had no monsters in it. It was invisible in every
+    // headless test, because the headless tests never build a rig.
+    //
+    // game.herd.list is the slots themselves and it is the right length before
+    // a single frame has run.
+    ensureRigs(game.herd.list.length);
+    for (let i = 0; i < game.herd.list.length; i++) {
+      const s = game.herd.list[i];
       // The marker's own yaw, so the figure climbs out with its back to the
       // stone and its face to the yard. It used to be 0 because a grave had no
       // meaningful facing and the hole was round on screen; a headstone has one
       // and the whole point of the zone is that the climb happens off its face.
       rigs[i].perf.reset();
-      rigs[i].perf.moveHome(s.home.x, s.home.z, s.home.yaw);
+      rigs[i].perf.moveHome(s.home.x, s.home.z, s.home.yaw || 0);
       rigs[i].homeId = s.home.id;
       rigs[i].homeX = s.home.x;
       rigs[i].homeZ = s.home.z;
@@ -775,15 +779,17 @@ export async function startGame({ canvas, params }) {
     // The run's score, not the wave's: a player deep in a run should never see
     // a number go backwards because a new maze started.
     const score = run.score + st.score;
-    const line = `WAVE ${run.wave}   ${score.toLocaleString('en-US')}   ${'\u25cf'.repeat(Math.max(0, st.lives))}   ${st.flyRemaining} left`;
+    // No wave number, because there are no waves. What a player wants instead
+    // is how much of the board is left and how many things are after them,
+    // which is the only difficulty signal an endless run has.
+    const line = `${score.toLocaleString('en-US')}   ${'\u25cf'.repeat(Math.max(0, st.lives))}`
+      + `   ${st.flyRemaining} fireflies   ${'\u2620'.repeat(Math.max(0, st.skeletonsUp))}`;
     if (line !== lastHud) { hud.textContent = line; lastHud = line; }
   }
 
   function showCard() {
     const place = submitScore({
       score: run.score,
-      wave: run.wave,
-      cleared: run.cleared,
       fireflies: run.fireflies,
       seed: run.seed,
       duration: Math.round(run.time),
@@ -849,8 +855,6 @@ export async function startGame({ canvas, params }) {
   }
 
   function newRun() {
-    run.wave = 1;
-    run.cleared = 0;
     run.score = 0;
     run.lives = TUNING.lives;
     run.fireflies = 0;
@@ -863,11 +867,11 @@ export async function startGame({ canvas, params }) {
     // it again; the seed still turns over, because it is the run's identity on
     // the score board as well as the generator's argument.
     run.seed = (Math.random() * 0xffffffff) >>> 0;
-    startWave(1);
+    startRun();
   }
 
   // --- input and loop --------------------------------------------------------
-  startWave(1);
+  startRun();
   const input = new Input(canvas, camera);
   placeCamera();
   resize();
@@ -961,14 +965,8 @@ export async function startGame({ canvas, params }) {
 
     // --- the endless part ----------------------------------------------------
     // Both of these are read off `state`, never worked out here. A maze is
-    // cleared when the rules say so and a run is over when the rules say so.
-    if (st.phase === 'cleared') {
-      run.score += st.score + clearBonus(run.wave);
-      run.cleared += 1;
-      run.lives = st.lives;
-      run.wave += 1;
-      startWave(run.wave);
-    } else if (st.phase === 'over' && !run.over) {
+    // over when the rules say so, and nothing else ends it.
+    if (st.phase === 'over' && !run.over) {
       run.over = true;
       run.score += st.score;
       run.lives = 0;
@@ -1024,11 +1022,7 @@ export async function startGame({ canvas, params }) {
     // a page reload changing the level under the measurement. Every template
     // the cache holds is a hit, which is the streaming best case: a chunk the
     // player has already walked through.
-    rebuild() { startWave(run.wave); return world.buildMs; },
-    // A DIFFERENT wave, which is the streaming case that actually matters: a
-    // chunk the cache has never seen, whose variants it may or may not already
-    // hold. The gap between this and rebuild() is what a template bake costs.
-    rebuildWave(n) { startWave(n); return world.buildMs; },
+    rebuild() { startRun(); return world.buildMs; },
     templates: () => propCache.size(),
     // Templates this wave still owes. Zero means the level is fully built.
     pending: () => world?.field?.pending ?? 0,

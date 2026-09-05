@@ -1944,8 +1944,29 @@ showKeys(keysWanted === '1');
 
 // --- go ------------------------------------------------------------------------------
 
+// WHAT IS LEFT IN THE FRAME LOOP, which is as close to nothing as it goes.
+//
+// The palette's pictures used to be pumped from here, one prop build a frame,
+// and it was measured at 2,787 ms of 3,117 across twenty pointer moves --
+// eighty nine per cent of the cost of moving the mouse -- because the guard was
+// "not dragging and not editing" and moving the pointer with a palette item
+// picked is neither. It does not live here at all any more: a group is drawn in
+// chunks off a timer when it is opened. See drawGroupThumbs.
+//
+// What remains is the ground brush, which only does anything while the brush is
+// down, and the spawn badges, which are DOM and only move when the camera does.
+// The scene renders on demand now, so a frame in which neither is true costs a
+// comparison and returns.
+let badgeSig = '';
 scene.onFrame = () => {
   if (paintDirty) flushPaint();
+  if (!world) return;
+  const t = scene.target;
+  // Only the camera, because everything else that moves a badge -- a grave
+  // added, moved or taken out -- goes through refresh, and sync() draws them.
+  const sig = `${t.x.toFixed(2)},${t.z.toFixed(2)},${scene.view.toFixed(2)},${scene.mode}`;
+  if (sig === badgeSig) return;
+  badgeSig = sig;
   scene.syncBadges(world);
 };
 
