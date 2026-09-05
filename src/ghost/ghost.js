@@ -8,6 +8,47 @@ import { ClothSim } from './cloth.js';
 // The eyes are painted into the fabric's UV space rather than being separate
 // meshes. That means they deform with the cloth for free, stay glued to the
 // front as the body turns, and can never drift off the surface.
+//
+// ===========================================================================
+// DRIVEN BODIES, AND WHY THE CLOTH CARES
+// ===========================================================================
+//
+// On /ghostly/ this model is the only authority: input goes in, the body moves,
+// the sheet hangs off the result. In the game it is NOT. rules.js owns where
+// the ghost is, because collision, catching, the vault and every fairness check
+// depend on the rules being the truth, and the scene used to reconcile the two
+// by letting this model integrate and then OVERWRITING its position afterwards.
+//
+// That is fine for the body and wrong for the sheet. A Verlet cloth infers its
+// velocity from how far its anchor moved since the last substep, so a
+// correction applied between frames is not a correction to the cloth, it is a
+// tug. Both integrators are the same model with the same numbers -- an
+// exponential approach to input times speed with a 0.12 s time constant -- and
+// scene.js already matches the speed. What they did not share is HOW THEY CUT
+// THE FRAME UP: this one takes two substeps of 1/120, and rules.js takes one of
+// 1/60, because its own cap of maxStep/fastest is 54.6 ms and a frame fits
+// inside it whole. Explicit Euler is not invariant to that. Two half steps and
+// one whole step of the same approach land up to 1.9 mm apart, every frame,
+// and the sheet was being handed that gap as motion.
+//
+// Measured over 20 s of the same stick, the change in the anchor's travel from
+// one substep to the next:
+//
+//                         p50        p99        max     substeps rougher
+//                                                        than half a mm
+//   /ghostly/          0.135 mm   0.425 mm   1.971 mm         0.9%
+//   the game, before   0.201 mm   2.125 mm   2.645 mm        35.1%
+//
+// Five times the jerk at the tail, on a third of all substeps, on a sheet whose
+// whole job is to react to motion. That is what the owner saw as a wind on the
+// game's ghost and not on /ghostly/'s.
+//
+// So `update` takes an optional `drive`: the position the caller insists the
+// body reaches by the end of the frame. The body still integrates, still turns,
+// still leans and still hops on its own; only its horizontal position is laid
+// out along a straight line to the driven point, one share per substep. The
+// rules keep owning where the ghost IS, exactly as before, and the sheet is
+// handed a smooth path instead of a correction.
 
 const TAU = Math.PI * 2;
 
@@ -395,7 +436,10 @@ export class Ghost {
 
   // --- per-frame ------------------------------------------------------------
 
-  update(dt, input) {
+  // `drive` is an optional { x, z } the caller insists the body must reach by
+  // the end of this frame. See the block above `at` below, and DRIVEN BODIES
+  // in the class comment.
+  update(dt, input, drive = null) {
     // THE SUBSTEP SIZE IS FIXED, THE COUNT IS NOT.
     //
     // This used to be a fixed COUNT of two, which made h grow with the frame.
@@ -444,16 +488,29 @@ export class Ghost {
     // frame while still holding h to 12.5 ms at the clamp.
     const sub = Math.min(MAX_SUBSTEPS, Math.max(1, Math.round(dt / SUBSTEP)));
     const h = dt / sub;
+    // Where the body starts the frame, so a driven path can be laid out across
+    // the substeps rather than arriving all at once. See `drive` above.
+    const sx = this.pos.x;
+    const sz = this.pos.z;
     for (let s = 0; s < sub; s++) {
       this.time += h;
-      this.#stepBody(h, input);
+      let at = null;
+      if (drive) {
+        const k = (s + 1) / sub;
+        at = { x: sx + (drive.x - sx) * k, z: sz + (drive.z - sz) * k };
+      }
+      this.#stepBody(h, input, at);
       this.cloth.substep(h, this.matrix, this.time, this.axis);
     }
     this.#updateEyes(dt);
     this.#syncGeometry();
   }
 
-  #stepBody(h, input) {
+  // `at` is where an outside authority says the body must be at the END of this
+  // substep. It replaces the integrated position and nothing else: velocity,
+  // yaw, lean, the hop and the bob are all still this model's own, because they
+  // are what the FIGURE does rather than where it is.
+  #stepBody(h, input, at = null) {
     const o = this.opts;
 
     const desiredX = input.x * o.maxSpeed;
@@ -467,6 +524,7 @@ export class Ghost {
 
     this.pos.x += this.vel.x * h;
     this.pos.z += this.vel.z * h;
+    if (at) { this.pos.x = at.x; this.pos.z = at.z; }
 
     // Hop. The interesting part is not the arc, it is what the skirt does on
     // the way down.

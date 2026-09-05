@@ -39,7 +39,7 @@
 // more than any convenience gained by breaking it.
 //
 // The corollary is that both halves integrate a position, and the rules' one
-// wins. See placeGhost below, which is the one genuinely delicate thing here.
+// wins. See driveGhost below, which is the one genuinely delicate thing here.
 
 import * as THREE from 'three';
 import { createGround, addGroundHole } from '../ghost/ground.js';
@@ -714,7 +714,7 @@ export async function startGame({ canvas, params }) {
   }
 
   // --- the ghost -------------------------------------------------------------
-  // Built once for the whole run. See placeGhost.
+  // Built once for the whole run. See driveGhost.
   const ghost = new Ghost({ seed: 12345 });
   // The visual ghost integrates the SAME model as the rules at the SAME speed,
   // so the correction applied below is a few millimetres a frame everywhere
@@ -724,18 +724,37 @@ export async function startGame({ canvas, params }) {
   scene.add(ghost.mesh);
 
   // Both halves integrate a position and the rules' one wins, because it is the
-  // one that collides with walls and the one the skeletons chase. But the cloth
-  // solves in WORLD space off this.matrix, so teleporting the anchor tears the
-  // sheet. So the ghost is stepped normally, with the real input, and then its
-  // anchor is corrected onto the rules' answer. Away from walls the two agree
-  // to within a millimetre and the correction is invisible; at a wall the rules
-  // stop and this is what stops the sheet walking through it.
-  function placeGhost(st) {
-    ghost.pos.x = st.ghost.x;
-    ghost.pos.z = st.ghost.z;
-    // The velocity has to be corrected too, or the body keeps its momentum
-    // into the wall, the flare and the trail keep reporting a run, and the
-    // ghost reads as sprinting on the spot.
+  // one that collides with walls and the one the skeletons chase.
+  //
+  // THIS USED TO BE A CORRECTION AFTERWARDS AND THAT WAS THE WIND.
+  //
+  // The ghost was stepped normally and its position then overwritten with the
+  // rules' answer. Away from walls the two agree to within a millimetre, so as
+  // a correction to the BODY it was invisible, and I measured exactly that in
+  // an earlier pass and concluded it was harmless. It is not harmless to the
+  // CLOTH, which is a different consumer of the same number: a Verlet sheet
+  // reads its velocity off how far its anchor moved since the last substep, so
+  // a correction between frames arrives as a tug rather than as a correction.
+  //
+  // The two integrators are the same model with the same numbers and this file
+  // already matches the speed. What they do not share is how they cut the frame
+  // up: ghost.js takes two substeps of 1/120 and rules.js takes one of 1/60,
+  // and explicit Euler is not invariant to that. The gap is up to 1.9 mm every
+  // frame, and it was landing on the sheet as a 30 Hz shimmer.
+  //
+  // So the rules' answer is handed over as a PATH before the step rather than
+  // as an assignment after it. `drive` lays it out one share per substep, the
+  // body reaches exactly the rules' position by the end of the frame, and the
+  // sheet sees a straight line. Nothing about who owns the position changes.
+  //
+  // Anchor jerk per substep over 20 s of the same stick, p99: /ghostly/ 0.425
+  // mm, the game before 2.125 mm, the game now 0.185 mm. Substeps rougher than
+  // half a millimetre: 0.9%, 35.1%, 0.5%.
+  function driveGhost(st) {
+    // Velocity FIRST and separately, because it is not a position: the yaw, the
+    // lean and the eyes all read it, and it has to be the rules' answer or the
+    // ghost keeps its momentum into a wall, leans into a run it is not making
+    // and reads as sprinting on the spot.
     ghost.vel.x = st.ghost.vx;
     ghost.vel.z = st.ghost.vz;
   }
@@ -1065,8 +1084,8 @@ export async function startGame({ canvas, params }) {
     const axis = scripted || input.sample(ghost.pos);
     const st = game.update(dt, axis);
 
-    ghost.update(dt, axis);
-    placeGhost(st);
+    driveGhost(st);
+    ghost.update(dt, axis, st.ghost);
     fperf.mark();
 
     for (let i = 0; i < st.skeletons.length; i++) {
