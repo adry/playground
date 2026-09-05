@@ -42,6 +42,7 @@ const RX = M.head.width / 2;
 const RZ = M.head.depth / 2;
 
 const BROW_Y = M.y.brow - M.y.atlas;
+const NOSE_Y = M.y.nose - M.y.atlas;
 const GRIN_Y = M.y.grin - M.y.atlas;
 const EAR_Y = M.y.ear - M.y.atlas;
 const HINGE_Y = M.y.jawHinge - M.y.atlas;
@@ -51,6 +52,8 @@ const SOCK_HW = M.socket.width / 2;
 const SOCK_HH = M.socket.height / 2;
 const GRIN_HW = M.grin.width / 2;
 const GRIN_HH = M.grin.height / 2;
+const NOSE_HW = M.nose.width / 2;
+const NOSE_HH = M.nose.height / 2;
 
 // Concentrate grid samples near `at`. The derivative is 1 - k cos(2 pi (t-at)),
 // so k = 0.55 puts 2.2x the samples on the face.
@@ -85,16 +88,53 @@ function unitDir(u, vv) {
 // grin's own half-size: 0 at the middle, 1 on its outline. One function, used
 // by the dent, by the hole cut in the shell and by the dark behind it, so the
 // three can never disagree about where the mouth is.
+// A small three- and five-lobed wobble on a feature's outline. Everything on
+// this face was a clean geometric primitive in the first build and the note
+// back was that the whole character was too smooth and too regular: the
+// reference's charm is in the irregularity. This is the cheapest honest way to
+// get it, and because it is a function of the ANGLE round the feature it is
+// the same wobble whichever way the feature is sampled, so the dent, the dark
+// disc inside it and the rim around it all agree.
+function lobes(theta, amount, phase) {
+  return 1 + amount * (Math.sin(3 * theta + phase) + 0.55 * Math.sin(5 * theta - phase * 1.7)) / 1.55;
+}
+
 function grinR(x, y) {
   const lift = M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(x) / GRIN_HW), 2);
-  return Math.hypot(x / GRIN_HW, (y - (GRIN_Y + lift)) / GRIN_HH);
+  const dx = x / GRIN_HW;
+  const dy = (y - (GRIN_Y + lift)) / GRIN_HH;
+  return Math.hypot(dx, dy) / lobes(Math.atan2(dy, dx), M.grin.wobble, 0.4);
 }
 
 // The same, for one eye socket. `side` is +1 for the figure's left.
 function socketR(x, y, side) {
-  const dx = x - side * SOCK_X;
-  const dy = (y - BROW_Y) + M.socket.slant * (-side * dx);
-  return Math.hypot(dx / SOCK_HW, dy / SOCK_HH);
+  const dx = (x - side * SOCK_X) / SOCK_HW;
+  const dy = ((y - BROW_Y) + M.socket.slant * (-side * (x - side * SOCK_X))) / SOCK_HH;
+  return Math.hypot(dx, dy) / lobes(Math.atan2(dy, dx), M.socket.wobble, side > 0 ? 0.9 : 2.3);
+}
+
+// The nasal aperture: a teardrop, point up. `w` is the half-width at a given
+// height, normalised, and it is what makes the shape a pear rather than a
+// lens: it goes to nothing at the top, and its widest point sits a third of
+// the way up from the bottom.
+function noseHalfWidth(t) {                 // t: -1 at the bottom, +1 at the top
+  const up = Math.min(1, Math.max(0, (t + 1) / 2));
+  const w = Math.pow(1 - up, 0.42) * Math.pow(up, 0.30);
+  // normalised so the widest point is exactly 1
+  const b = M.nose.bulge;
+  const peak = Math.pow(1 - b, 0.42) * Math.pow(b, 0.30);
+  return Math.max(0.10, w / peak);
+}
+
+function noseR(x, y) {
+  const t = (y - NOSE_Y) / NOSE_HH;
+  if (t > 1.02) return 2 + (t - 1);
+  const w = NOSE_HW * noseHalfWidth(Math.min(1, Math.max(-1, t)));
+  // The bottom of a nasal aperture is two lobes with a spine between them, so
+  // the low centre is pushed back out. Cheap, and it is the detail that stops
+  // the hole reading as a plain drop of ink.
+  const notch = t < -0.45 ? 1 - 0.45 * Math.exp(-Math.pow(x / (NOSE_HW * 0.30), 2)) : 1;
+  return Math.max(Math.abs(t), Math.abs(x) / (w * notch));
 }
 
 function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
@@ -109,15 +149,41 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
   const jawK = smoothstep(-0.10, -0.92, d.y);
   const taper = 1 - (1 - M.head.jawTaper) * jawK;
 
+  // --- 3b. crown fullness. An ellipsoid converges toward its poles, so a head
+  // built as one is an egg: widest at the cheeks and narrowing all the way to
+  // the crown. Widening the upper cranium is what turns it back into the
+  // reference's round, friendly ball.
+  const full = 1 + M.head.crownFull * smoothstep(0.20, 0.95, d.y);
+
   const p = new THREE.Vector3(
-    d.x * RX * taper,
+    d.x * RX * taper * full,
     CENTRE_Y + d.y * RY,
-    d.z * rzHere * taper,
+    d.z * rzHere * taper * full,
   );
 
   // Outward normal of the base ellipsoid, close enough to displace along.
   const n = new THREE.Vector3(d.x / RX, d.y / RY, d.z / rzHere).normalize();
   const front = smoothstep(0.05, 0.45, d.z);   // 0 behind, 1 on the face
+
+  // --- 6. the muzzle, and the chin under it.
+  //
+  // The single change that stops the grin reading as a strip of teeth clipped
+  // under a skull. The lower middle of the face swells forward, and the mouth
+  // is then cut INTO that swell rather than sitting on a smooth surface; the
+  // chin below it is a distinct lit form with the mouth's shadow above it.
+  // Without this there is a mouth and then nothing, and "nothing" is what the
+  // eye reads as the bottom of the head.
+  {
+    const dy = (p.y - (GRIN_Y + M.head.height * 0.045)) / (M.head.height * 0.145);
+    const dx = p.x / (M.head.width * 0.30);
+    p.addScaledVector(n, M.head.muzzle * Math.exp(-(dx * dx + dy * dy)) * front);
+  }
+  {
+    // the chin proper: a smaller, rounder pad below the mouth
+    const dy = (p.y - (GRIN_Y - M.grin.height * 0.90)) / (M.head.height * 0.055);
+    const dx = p.x / (M.head.width * 0.16);
+    p.addScaledVector(n, M.head.muzzle * 0.85 * Math.exp(-(dx * dx + dy * dy)) * front);
+  }
 
   // --- 1. the brow shelf. A band above the sockets, front only, that stands
   // proud. This is the single most valuable piece of form on the model: it is
@@ -159,9 +225,43 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
   // fills with bounce light and turns grey; this one holds its own shadow.
   if (sockets) {
     for (const side of [1, -1]) {
-      const k = 1 - smoothstep(0.80, 1.02, socketR(p.x, p.y, side));
+      const r = socketR(p.x, p.y, side);
+      // THE ORBITAL RIM, first: a raised ring all the way round the socket.
+      // The brow shelf above was doing this job on the top edge only, so the
+      // socket had a brow and no lid, no lower rim and no outer corner, and it
+      // read as a hole punched in a smooth ball. A full ring gives the eye an
+      // edge to be sunk behind from every direction, which is what makes the
+      // shadow inside it look like depth instead of paint.
+      const ring = Math.exp(-Math.pow((r - M.socket.rimAt) / 0.30, 2));
+      p.addScaledVector(n, M.head.browJut * M.socket.rim * ring * front);
+      const k = 1 - smoothstep(0.80, 1.02, r);
       if (k > 0) p.addScaledVector(n, -M.socket.depth * k * front);
     }
+  }
+
+  // --- 7. the nasal aperture.
+  {
+    const r = noseR(p.x, p.y);
+    const ring = Math.exp(-Math.pow((r - 1.30) / 0.34, 2));
+    p.addScaledVector(n, M.head.browJut * 0.30 * ring * front);
+    const k = 1 - smoothstep(0.78, 1.02, r);
+    if (k > 0) p.addScaledVector(n, -M.nose.depth * k * front);
+  }
+
+  // --- 8. irregularity.
+  //
+  // A very low amplitude lumpiness over the whole cranium, three octaves of
+  // it. At 34 px not one bump is resolvable; what IS resolvable is that the
+  // terminator across the head is not a clean arc, and that alone is the
+  // difference between a moulded ball and a head. The skull went round this
+  // same loop: the fix is authored irregularity, not more polygons.
+  {
+    const a = u * Math.PI * 2;
+    const lump =
+      Math.sin(a * 3 + 0.7) * Math.sin(vv * 7.0 + 1.3) * 0.55 +
+      Math.sin(a * 5 - 2.1) * Math.sin(vv * 11.0 - 0.4) * 0.30 +
+      Math.sin(a * 2 + 1.9) * Math.sin(vv * 4.0 + 2.6) * 0.45;
+    p.addScaledVector(n, M.head.height * 0.0055 * lump);
   }
 
   // --- the mouth. A lipless slot: a lens-shaped trough whose corners rise.

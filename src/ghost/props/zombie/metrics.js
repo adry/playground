@@ -119,13 +119,18 @@ export const M = {
     neck: f(0.640),           // neck pivot. See the note under `neck` below.
     chin: f(0.670),
     atlas: f(0.700),          // head pivot, at the base of the skull ball
-    grin: f(0.745),           // centre line of the mouth
+    grin: f(0.740),           // centre line of the mouth
     // The jaw hinge, well above the mouth and behind it, where a real condyle
     // sits under the ear. Putting it at the mouth makes an opening jaw slide
     // rather than swing, which reads as the teeth falling off.
     jawHinge: f(0.790),
-    brow: f(0.872),           // centre line of the eye sockets
-    ear: f(0.862),
+    // The nasal aperture, tucked between the lower halves of the orbits.
+    // High and small, because that is where a skull's is and because the only
+    // room for it is between the sockets: put it any lower and it merges with
+    // the grin into one dark smear at game scale.
+    nose: f(0.822),
+    brow: f(0.868),           // centre line of the eye sockets
+    ear: f(0.858),
     crown: f(1.000),
   },
 
@@ -147,20 +152,32 @@ export const M = {
   // a real skull because it is a toy, but it is not 1.0.
   head: {
     height: f(0.330),         // chin to crown
-    width: f(0.300),
-    depth: f(0.318),
+    // ROUNDER than the first build, which had these at 0.300 and 0.318 and
+    // came out egg-shaped: taller than wide, converging toward the crown, and
+    // the whole character read as an alien rather than a corpse. A chibi head
+    // is nearer a ball with a flat back. `crownFull` finishes the job by
+    // widening the upper cranium, which an ellipsoid alone never does.
+    width: f(0.316),
+    depth: f(0.326),
+    crownFull: 0.10,
     // How far the brow shelf stands proud of the ball. This is small in
     // absolute terms and does most of the shading work on the upper face.
-    browJut: f(0.022),
+    browJut: f(0.026),
     // How far behind the head's centre plane the jaw condyle sits.
     jawHingeZ: f(-0.026),
+    // A forward swell over the whole lower face, so the mouth is a hole cut
+    // INTO something rather than a seam where two shapes meet.
+    muzzle: f(0.020),
     // How much narrower the head is at the chin than at the cheekbones, as a
     // fraction of width. A chibi jaw is barely tapered; 1.0 would be a ball.
-    jawTaper: 0.80,
+    // A FULLER jaw than the first build's 0.80. There has to be a face below
+    // the mouth or the grin reads as a strip of teeth clipped under a skull,
+    // and 0.80 left barely three pixels of chin.
+    jawTaper: 0.88,
     // Flatten the back of the cranium slightly. Stops the three-quarter
     // silhouette being a perfect circle, which is what makes a big head read
     // as a balloon.
-    occiputFlat: 0.93,
+    occiputFlat: 0.90,
   },
 
   // Deep, dark, and EMPTY: no eyeball, just shadow. The depth matters more
@@ -169,33 +186,72 @@ export const M = {
   // from every camera angle the game can show, so it stays black without any
   // material trickery.
   socket: {
-    width: f(0.090),
-    height: f(0.086),
-    depth: f(0.038),
+    // ROUND, and the same both ways. The first build had them 0.090 by 0.086
+    // with a slant, and between the brow pressing the top edge down and the
+    // cheek pushing the bottom up they came out as angular almonds: a Roswell
+    // grey, not a corpse. Round, deep, with a rim all the way round and a
+    // colour inside that is not black.
+    width: f(0.094),
+    height: f(0.094),
+    depth: f(0.046),
+    // The orbital rim: a raised ring around the socket, as a fraction of
+    // browJut. This is what gives the eye a lid and a brow that overhangs it
+    // rather than a hole punched in a smooth ball.
+    rim: 0.62,
+    rimAt: 1.22,              // where the ring sits, in socketR units
+    // The outline is not a clean ellipse. A small three-lobed wobble is the
+    // difference between a moulded eyepiece and a hole where something rotted
+    // away, and it costs nothing.
+    wobble: 0.075,
     // Centre to centre. f(0.115) was the first pass and the two sockets came
     // within 0.02 of touching over the bridge, which read as one wide dark
     // band rather than two eyes. Pushed out until there is a clear strip of
     // green between them at game scale.
-    separation: f(0.140),
+    separation: f(0.152),
     // How far the upper rim cuts down toward the nose. The skeleton's note
     // applies verbatim: 0.60 is a glare, this is a stare. Change knowingly.
-    slant: 0.02,
+    // Zero. Any slant at all turns two round sockets into two angry eyebrows,
+    // and this character is supposed to be gruesome without being cross.
+    slant: 0.0,
+  },
+
+  // The nasal aperture. A skull's is a pear or teardrop: a narrow point at the
+  // top between the orbits, widening to two lobes at the bottom. It is a third
+  // of what says "the flesh has gone off this face", and the first build did
+  // not have one at all, which is most of why the face read as smooth and
+  // alien. Small, because there is only the gap between the sockets to put it
+  // in, and dark inside for the same reason the sockets are.
+  nose: {
+    width: f(0.058),
+    height: f(0.052),
+    depth: f(0.036),
+    // Where the widest part of the pear sits, as a fraction of the aperture's
+    // height measured from the bottom. Below the middle: that is what makes it
+    // a teardrop rather than a lens.
+    bulge: 0.34,
   },
 
   // Lipless: the mouth is a slot cut into the face, not lips laid on it, so
   // the teeth sit in a dark trough and read as bright blocks on black. That
   // contrast is the whole reason the grin survives to 34 px.
   grin: {
-    width: f(0.186),          // 0.62 of head width
-    height: f(0.062),
-    depth: f(0.030),
+    width: f(0.180),          // 0.57 of head width
+    height: f(0.052),
+    depth: f(0.032),
+    // The mouth's own irregularity. A perfectly smooth lens reads as a slot
+    // milled into the face; this is a torn one.
+    wobble: 0.10,
     curve: 0.55,              // how far the corners rise, as a fraction of height
     // Fewer teeth, bigger teeth. Ten uneven teeth at this size is a grey
     // dither; five is five white blocks and a gap you can actually see.
     teeth: { upper: 5, lower: 4, gapUpper: 3, gapLower: 1 },
   },
 
-  ear: { radius: f(0.030), thickness: f(0.014) },
+  // Small round ears, and they matter far more than their size suggests: they
+  // break the egg silhouette and they say "this was a person". The first build
+  // had them at f(0.030), which is three pixels, tucked behind the equator and
+  // effectively invisible; the head read as a bare ball from every angle.
+  ear: { radius: f(0.046), thickness: f(0.020), rim: f(0.011) },
 
   // Short crossed lines, and they are drawn as real geometry rods rather than
   // painted, because there is no texture pipeline here and an alpha card has

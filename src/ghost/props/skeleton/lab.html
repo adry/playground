@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Skeleton Rig Lab</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #b9bec7; }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<script type="module">
+// ONE SKELETON ON AN EMPTY FLOOR.
+//
+// This page exists because the question "does the figure still look right" kept
+// being asked through the wrong window. The only ways to see a skeleton were
+// the play page and the dance stage, and both build a whole level first: on the
+// capture container neither produced a single frame in twenty minutes, so a
+// quality judgement that should take seconds could not be made at all.
+//
+// It lives HERE and not at the repo root because the root is gitignored for
+// exactly this kind of page (see .gitignore, "Scratch harnesses"), and this one
+// is not scratch: it is how the next person answers a quality question about
+// the figure without booting a level. src/ghost/props/zombie/lab.html is the
+// same arrangement and the precedent for it.
+//
+// Same floor, lights, camera and tone map as src/ghost/main.js, so what it
+// looks like here is what it looks like in the scene. Two framings, because the
+// figure has to survive both:
+//
+//   ?view=9      TRUE GAME SCALE. The game's orthographic half height, so the
+//                skeleton is the handful of pixels tall a player sees.
+//   ?view=2.6    THE LAUNCH CLIP framing, which is what chase-record.mjs uses
+//                for the rise. This is the close-up the figure has to hold.
+//
+// ?tris=1 prints the triangle count. window.__preview.stats() returns it, and
+// window.__preview.step(dt, spin) turns the figure so a silhouette can be
+// judged from more than one side.
+import * as THREE from 'three';
+import { createGround } from '/src/ghost/ground.js';
+import { createSkeletonRig } from '/src/ghost/props/skeleton/model.js';
+
+const canvas = document.getElementById('view');
+const params = new URLSearchParams(location.search);
+const num = (k, d) => (params.get(k) === null ? d : Number(params.get(k)));
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#b9bec7').convertSRGBToLinear();
+
+const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+const view = num('view', 2.6);
+const target = new THREE.Vector3(0, num('ty', view > 5 ? 0.75 : 0.95), 0);
+
+function resize(w, h) {
+  const aspect = w / h;
+  camera.left = -view * aspect;
+  camera.right = view * aspect;
+  camera.top = view;
+  camera.bottom = -view;
+  camera.updateProjectionMatrix();
+  camera.position.copy(target).addScaledVector(CAM_DIR, 30);
+  camera.lookAt(target);
+  renderer.setSize(w, h, false);
+}
+
+// Lights: src/ghost/main.js verbatim.
+scene.add(new THREE.HemisphereLight(0xdfe6f5, 0x6f7480, 1.15));
+const key = new THREE.DirectionalLight(0xfff4e6, 2.1);
+key.position.copy(new THREE.Vector3(3.7, 6.0, 2.4).normalize().multiplyScalar(12));
+key.castShadow = params.get('noshadow') !== '1';
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near = 0.5;
+key.shadow.camera.far = 40;
+key.shadow.camera.left = -5;
+key.shadow.camera.right = 5;
+key.shadow.camera.top = 5;
+key.shadow.camera.bottom = -5;
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.006;
+key.shadow.radius = 3;
+scene.add(key);
+scene.add(key.target);
+const rim = new THREE.DirectionalLight(0xc4d4ff, 0.55);
+rim.position.set(-4, 2.5, -3);
+scene.add(rim);
+scene.add(createGround());
+
+const rig = createSkeletonRig();
+scene.add(rig.group);
+
+// A pose, because a figure standing perfectly straight hides every joint the
+// merge is supposed to leave alone. Small angles: this is for judging surface
+// and silhouette, not the gait.
+const J = rig.joints;
+function poseFor(k) {
+  const set = (j, x, y, z) => { if (j) j.rotation.set(x * k, y * k, z * k); };
+  set(J.spineLower, 0.06, 0, 0.02);
+  set(J.spineUpper, 0.05, 0.10, 0);
+  set(J.neck, -0.10, -0.12, 0);
+  set(J.head, -0.06, 0.16, 0.03);
+  set(J.jaw, 0.18, 0, 0);
+  set(J.shoulderL, -0.35, 0.12, 0.30);
+  set(J.shoulderR, -0.20, -0.10, -0.42);
+  set(J.elbowL, -0.75, 0, 0);
+  set(J.elbowR, -0.50, 0, 0);
+  set(J.wristL, -0.15, 0.10, 0);
+  set(J.wristR, 0.10, -0.08, 0);
+  set(J.hipL, 0.22, 0, 0.04);
+  set(J.hipR, -0.26, 0, -0.03);
+  set(J.kneeL, -0.30, 0, 0);
+  set(J.kneeR, -0.12, 0, 0);
+  set(J.ankleL, 0.10, 0, 0);
+  set(J.ankleR, 0.05, 0, 0);
+}
+poseFor(num('pose', 1));
+
+function triangles() {
+  let calls = 0;
+  let tris = 0;
+  rig.group.traverse((o) => {
+    if (!o.isMesh) return;
+    calls += 1;
+    const g = o.geometry;
+    tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+  });
+  return { meshes: calls, triangles: Math.round(tris) };
+}
+
+window.__preview = {
+  setSize(w, h) {
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    resize(w, h);
+    renderer.render(scene, camera);
+  },
+  // `spin` turns the figure about its own axis, so a silhouette can be judged
+  // from more than the one side the shipped camera happens to show.
+  step(dt = 1 / 60, spin = 0) {
+    rig.group.rotation.y = spin;
+    renderer.render(scene, camera);
+  },
+  stats: triangles,
+};
+
+resize(canvas.clientWidth || 900, canvas.clientHeight || 900);
+renderer.render(scene, camera);
+if (params.get('tris') === '1') console.log('rig', JSON.stringify(triangles()));
+window.__previewReady = true;
+</script>
+</body>
+</html>
