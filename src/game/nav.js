@@ -44,13 +44,22 @@
 // coordinates are gone; there is one frame now and it is the one the world
 // generator publishes in.
 
-// The window the rules keep resident around the player. Everything above pulls
-// from this, so it has to hold the furthest thing any of them looks at: a
-// scatter target is 26 units out, a re-homed grave up to 20, and the bot plans
-// over 60. 72 covers all of them with room, and the window is only rebuilt when
-// the player has moved SLACK from where it was built.
-export const WINDOW = 72;
-const SLACK = 20;
+// The window the rules keep resident around the player, rebuilt only once the
+// player has drifted SLACK from where it was last built.
+//
+// WHY 64. It is a navigation query radius and not an instantiation radius: what
+// it holds is a few hundred line segments and prop circles, tens of kilobytes,
+// and it costs the renderer nothing. The renderer's streaming radius is
+// independent of this number and should be whatever it can afford.
+//
+// The 64 is derived rather than picked. The furthest thing the rules ever look
+// at is a scatter target 26 units from the ghost, plus the 24 units a skeleton
+// standing on it looks out for a way past a fence, which is 50. Add SLACK,
+// which is how far the ghost may drift from where the window was last built,
+// and the window has to be 60. 64 is that with margin. If either of those two
+// numbers moves, this one moves with them, and soak.mjs asserts the relation.
+export const WINDOW = 64;
+export const SLACK = 10;
 // Bucket size for the barrier and prop indexes. A bucket has to be bigger than
 // the longest thing in it is thick and small enough that a query touches few:
 // 4.0 puts about two panels and a handful of stones in each.
@@ -285,7 +294,44 @@ export function createNav(world, { window: win = WINDOW } = {}) {
   // past) from the tip of a run (one segment stops, you can). The passage point
   // is that tip pushed out along the run by `clear`, so a mover aiming at it
   // does not clip the post.
+  // THREE KINDS OF END, and only one of them is a passage.
+  //
+  //   joint      two segments meet here, as at the corner of a pen. Not a way
+  //              past. Detected by a shared endpoint.
+  //   gate cheek the segment stops here because a GATE was cut out of the run.
+  //              Not a way past either, or rather it is, but it is the gate and
+  //              the gate is already in the list; counting it twice puts two
+  //              aim points a metre apart in the same opening and a skeleton
+  //              dithers between them.
+  //   free end   the run simply stops. This IS a passage, and in a world where
+  //              fences are sparse and mostly open it is the commoner one.
+  //
+  // The world is being asked to publish `end0`/`end1` as 'free' | 'gate' |
+  // 'joint' so this is read rather than inferred, because splitting a run at a
+  // gate makes a cheek that is conceptually shared and numerically is not. If
+  // the flag is absent the geometry is inferred below, exactly: a cheek is an
+  // endpoint lying within the gate's own opening, measured along the run.
   const PASS_CLEAR = 0.85;
+  function endKind(b, which) {
+    const flag = which < 0 ? b.end0 : b.end1;
+    if (flag) return flag;
+    return null;
+  }
+  function isGateCheek(b, x, z) {
+    const dx = b.x1 - b.x0;
+    const dz = b.z1 - b.z0;
+    const il = 1 / Math.max(1e-9, Math.hypot(dx, dz));
+    for (const g of gates) {
+      const ox = x - g.x;
+      const oz = z - g.z;
+      // Along the run, and across it. A cheek is at the opening's lip, so
+      // within half the opening along and on the line across.
+      const along = Math.abs(ox * dx * il + oz * dz * il);
+      const across = Math.abs(ox * -dz * il + oz * dx * il);
+      if (across < 0.35 && along <= g.half + 0.30) return true;
+    }
+    return false;
+  }
   function passages() {
     if (passageList) return passageList;
     const out = [];
@@ -303,13 +349,13 @@ export function createNav(world, { window: win = WINDOW } = {}) {
       const dz = b.z1 - b.z0;
       const il = 1 / Math.max(1e-9, Math.hypot(dx, dz));
       for (const [x, z, s] of [[b.x0, b.z0, -1], [b.x1, b.z1, 1]]) {
-        if (ends.get(key(x, z)) !== 1) continue;
-        const px = x + dx * il * PASS_CLEAR * s;
-        const pz = z + dz * il * PASS_CLEAR * s;
-        // An end that sits in a gate's mouth is the gate, said twice.
-        let dup = false;
-        for (const g of gates) if ((g.x - px) ** 2 + (g.z - pz) ** 2 < 2.5 * 2.5) { dup = true; break; }
-        if (!dup) out.push({ x: px, z: pz, kind: 'end', id: `${b.id}${s > 0 ? '+' : '-'}` });
+        const flag = endKind(b, s);
+        if (flag ? flag !== 'free' : (ends.get(key(x, z)) !== 1 || isGateCheek(b, x, z))) continue;
+        out.push({
+          x: x + dx * il * PASS_CLEAR * s,
+          z: z + dz * il * PASS_CLEAR * s,
+          kind: 'end', id: `${b.id}${s > 0 ? '+' : '-'}`,
+        });
       }
     }
     passageList = out;
@@ -333,16 +379,24 @@ export function createNav(world, { window: win = WINDOW } = {}) {
   // caveat and the soak states it.
   //
   //   blocked[i]  a disc of radius r does not fit at the cell centre
-  //   wall[i]     8 bits, one per neighbour, set if a BARRIER lies across that
-  //               step. Kept apart from blocked because the ghost in the air
-  //               ignores exactly this and nothing else.
+  //   wall[i]     8 bytes, one per neighbour, set if that step is impossible
+  //   fence[i]    the subset of those that are impossible because of a FENCE
+  //   jump[i]     4 entries, one per axis: the cell a VAULT from here arrives
+  //               at, or -1. Everything the asymmetry means, in one table.
   const DIR8 = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
-  function makeGrid({ x, z, half, cell = 1.25, radius = 0.55 }) {
+  // The four axis directions, as indices into DIR8, in the order the jump table
+  // uses: +x, +z, -x, -z.
+  const AXIS = [0, 2, 4, 6];
+  function makeGrid({ x, z, half, cell = 1.25, radius = 0.55, jumpReach = 1.525 }) {
     const n = Math.max(2, Math.ceil((half * 2) / cell));
     const x0 = x - (n * cell) / 2;
     const z0 = z - (n * cell) / 2;
     const blocked = new Uint8Array(n * n);
     const wall = new Uint8Array(n * n * 8);
+    // Which of those walls is a FENCE rather than a prop or a blocked cell.
+    // The two have to be kept apart because the airborne ghost ignores exactly
+    // one of them, and the bot's jump edges are laid on exactly this mask.
+    const fence = new Uint8Array(n * n * 8);
     const cx = (i) => x0 + (i % n) * cell + cell / 2;
     const cz = (i) => z0 + ((i / n) | 0) * cell + cell / 2;
     for (let i = 0; i < n * n; i++) if (!discClear(cx(i), cz(i), radius)) blocked[i] = 1;
@@ -356,12 +410,62 @@ export function createNav(world, { window: win = WINDOW } = {}) {
         if (na < 0 || nb < 0 || na >= n || nb >= n) { wall[i * 8 + d] = 1; continue; }
         const j = nb * n + na;
         if (blocked[j]) { wall[i * 8 + d] = 1; continue; }
-        if (crossesBarrier(cx(i), cz(i), cx(j), cz(j), radius * 0.5)) wall[i * 8 + d] = 1;
+        if (crossesBarrier(cx(i), cz(i), cx(j), cz(j), radius * 0.5)) { wall[i * 8 + d] = 1; fence[i * 8 + d] = 1; }
         else if (crossesProp(cx(i), cz(i), cx(j), cz(j), radius * 0.5)) wall[i * 8 + d] = 1;
       }
     }
+    // --- the jump table -------------------------------------------------
+    //
+    // A vault cannot be an edge to the ADJACENT cell, and getting that wrong is
+    // the kind of mistake that quietly makes a whole feature invisible. A fence
+    // of half thickness 0.10 keeps a 0.55 disc 0.65 away on each side, so the
+    // band of cells a ghost cannot stand in is 1.3 units wide, which at any
+    // sensible cell size is more than one cell. The cell across a fence from
+    // you is always blocked; the cell you actually land in is two or three
+    // further on.
+    //
+    // So jump[i * 4 + a] is the cell a vault from i along axis a arrives at, or
+    // -1. It is found by walking outward until an OPEN cell is reached, and it
+    // counts only if a fence was crossed on the way and no prop was.
+    //
+    // THE RESOLUTION CAVEAT, said plainly because soak.mjs's fairness rests on
+    // it. The reach searched is jumpReach + cell rather than jumpReach, because
+    // neither the takeoff point nor the landing point is a cell centre and each
+    // can be half a cell off in the helpful direction. The true geometry is
+    // kinder than that suggests: a ghost hard against a fence is 0.65 from its
+    // centreline and needs 0.65 on the other side, so a vault has to cover 1.30
+    // and it is given 1.53, which means a straight fence with clear ground both
+    // sides is ALWAYS vaultable and the only question the search is really
+    // answering is whether the far side is clear.
+    const K = Math.max(1, Math.ceil((jumpReach + cell) / cell));
+    const jump = new Int32Array(n * n * 4).fill(-1);
+    for (let i = 0; i < n * n; i++) {
+      if (blocked[i]) continue;
+      // Only cells that are up against something can vault, which is a small
+      // fraction of them and is what keeps this affordable at fine cell sizes.
+      let touching = false;
+      for (let d = 0; d < 8; d++) if (wall[i * 8 + d]) { touching = true; break; }
+      if (!touching) continue;
+      const a0 = i % n;
+      const b0 = (i / n) | 0;
+      for (let ax = 0; ax < 4; ax++) {
+        const [dx, dz] = DIR8[AXIS[ax]];
+        for (let k = 1; k <= K; k++) {
+          const na = a0 + dx * k;
+          const nb = b0 + dz * k;
+          if (na < 0 || nb < 0 || na >= n || nb >= n) break;
+          const j = nb * n + na;
+          if (blocked[j]) continue;
+          // First open cell along the ray. It is a landing only if a fence was
+          // crossed getting here and nothing solid was.
+          if (crossesBarrier(cx(i), cz(i), cx(j), cz(j), 0)
+            && !crossesProp(cx(i), cz(i), cx(j), cz(j), radius * 0.5)) jump[i * 4 + ax] = j;
+          break;
+        }
+      }
+    }
     return {
-      n, cell, x0, z0, blocked, wall, DIR8,
+      n, cell, x0, z0, blocked, wall, fence, jump, DIR8, AXIS, jumpReach,
       index: (wx, wz) => {
         const a = Math.floor((wx - x0) / cell);
         const b = Math.floor((wz - z0) / cell);

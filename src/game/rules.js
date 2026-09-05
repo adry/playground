@@ -1,211 +1,180 @@
 // createGame: the rules half of the graveyard.
 //
-//   import { createLayout } from './layout/index.js';
+//   import { createWorld } from './world/index.js';   // or ../refworld.mjs
 //   import { createGame } from './rules.js';
-//   const game = createGame({ layout: createLayout({ seed: 7 }) });
-//   const state = game.update(dt, { x, y });
+//   const game = createGame({ world: createWorld({ seed: 7 }) });
+//   const state = game.update(dt, { x, y, jump });
 //
-// `input` is the axis object src/ghost/input.js already produces and
-// src/ghost/main.js already feeds to Ghost.update: a stick, x and y each in
-// -1 to 1 in WORLD axes, not a direction and not a key. The ghost here
-// integrates it with the same model ghost.js uses, an exponential approach to
-// input * maxSpeed with a 0.12 s time constant, so a ratio measured in this
-// file is a ratio the player will actually feel.
+// `input` is the axis object src/ghost/input.js already produces: a stick, x
+// and y each in -1 to 1 in WORLD axes, plus `jump`, a one-frame edge. The ghost
+// here integrates the stick with the same model ghost.js uses, an exponential
+// approach to input * maxSpeed with a 0.12 s time constant, so a ratio measured
+// in this file is a ratio the player will actually feel.
 //
 // Nothing here imports three, builds a mesh or touches a canvas. The renderer
 // reads `state` and plays animations; it is never asked a question.
 //
-// ---------------------------------------------------------------------------
-// THE SPEED RATIO, which is the one decision everything else hangs off
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// THE JUMP, which is now the whole game
+// ===========================================================================
 //
-// Measured, before anything was changed: src/ghost/ghost.js has maxSpeed 4.5
-// (the brief said 4.0, and 4.5 is what the file says, which is a discrepancy
-// worth someone's attention), and props/skeleton/perform.js has TOP_SPEED 1.25.
-// That is a ratio of 0.28. Pac-Man's ghosts run at 0.75 of Pac-Man in the first
-// level and 0.95 by the last.
+// The old version of this file ignored `input.jump` and said so in a comment:
+// the hop was vertical, it lifted the ghost over nothing, and to the rules it
+// was character animation. That is what changed. A jump now carries the ghost
+// over a fence, and a skeleton has to walk round to a gate, and that asymmetry
+// replaces Pac-Man's cornering asymmetry as the thing the game is about.
 //
-// So one number had to move. Both did, and the split between them is the whole
-// argument, because the two directions cost completely different things.
+// THE MODEL, stated in full, because a jump that is vague is a jump that is
+// argued about later:
 //
-//   The skeleton's ceiling is CADENCE. perform.js drives the walk from distance
-//   travelled, not from time, so the step rate is speed / STEP_LENGTH and
-//   STEP_LENGTH is 0.629. Its authored 1.25 is 1.99 steps a second, a walk. To
-//   put a 4.5 ghost at 0.75 the skeleton would need 3.375, which is 5.37 steps
-//   a second, 322 a minute, faster than a sprinter, and the figure cannot
-//   absorb it by lengthening its stride: perform.js says in its own comment
-//   that 1.15 legs under a 1.225 hip run out of reach at 0.35 either side and
-//   only the heel-off buys the stride it has.
+//   1. A jump is a BALLISTIC LEAP ALONG THE CURRENT VELOCITY. Horizontal
+//      velocity is frozen at the instant of takeoff and the stick is ignored
+//      until landing. There is no air control at all.
 //
-//   The ghost's ceiling is FEEL. Everything the cloth does that sells the
-//   character, the flare, the lift along the normal, the trail, is driven by
-//   velocity through cloth.js, so a ghost at a third speed is not a slower
-//   ghost, it is a limp one.
+//   2. It lasts 0.50 s and carries the ghost `speed * 0.50` units, which at the
+//      top speed of 3.05 is 1.53. That is enough to clear a fence and its posts
+//      with room and not enough to clear anything else.
 //
-// THE MEASUREMENT. soak.mjs has two sweeps and it needs both, because varying
-// the ratio by moving the skeleton also moves its cadence and the two cannot
-// then be told apart. `--sweep` moves the skeleton at a fixed ghost;
-// `--ghostsweep` holds the skeleton at one animatable pace and buys the ratio
-// by slowing the ghost down. The second is the one that decided it. Holding the
-// skeleton at 2.05 (cadence 3.26/s) and walking the ghost down, 40 levels each,
-// three players: the careful bot, the reckless bot, which is the same greedy
-// walk with the danger term switched off, and a passive one that never moves.
+//   3. It NEEDS A RUN AT IT. Takeoff is refused below `jumpMinSpeed` 2.0 units
+//      a second, measured along the direction of travel. From a standing start
+//      the ghost reaches 2.0 in 0.13 s, so in open ground the requirement costs
+//      nothing; where it bites is exactly where it should, a ghost pinned
+//      against the fence it wants to cross with no room to build pace into it.
 //
-//     ghost  ratio  careful%  deaths  reckless%   threat%
-//      4.50   0.46    100.0%    0.17      55.0%     14.8%
-//      4.00   0.51     97.5%    0.38      47.5%     16.1%
-//      3.60   0.57    100.0%    0.50      25.0%     20.2%
-//      3.20   0.64     97.5%    0.57       7.5%     23.4%
-//      2.90   0.71     95.0%    0.95       2.5%     24.7%
-//      2.70   0.76     92.5%    1.00      12.5%     29.1%
-//      2.50   0.82     77.5%    1.23       5.0%     33.0%
-//      2.20   0.93     42.5%    2.20       0.0%     37.9%
+//   4. THE GHOST IS CATCHABLE IN THE AIR. No invulnerability, no i-frames, the
+//      same catch radius on the same horizontal distance. This is the most
+//      important rule in the model and it is what stops a jump being a dodge.
+//      A jump that is also a dodge makes the fence irrelevant: you would jump
+//      to escape rather than to cross, and the interesting play, leading a
+//      skeleton to the wrong side of a fence, would never happen because
+//      nobody would need it.
 //
-// There is a cliff, and where it sits is the most interesting thing the soak
-// found. THIS TABLE IS THE SECOND ONE. The first was measured with a bot that
-// steered from graph node to graph node, and it put the cliff between 0.71 and
-// 0.76: at 0.76 the careful bot cleared 66.7% of levels rather than 92.5%. The
-// bot was the problem, not the ratio. A ghost that aims at the next node takes
-// every corner on the corridor's centreline, which is exactly what a skeleton
-// does, so a bot built that way silently throws away the one advantage the
-// design gives the player and then reports the game as too hard.
+//      Rules 1, 3 and 4 are three independent reasons a jump is not an escape.
+//      Jumping next to a skeleton is strictly worse than steering: you give up
+//      the steering, you keep the hitbox, and you commit half a second.
 //
-// Replacing it with a pure-pursuit follower that aims at a point along the
-// path, so the disc cuts the inside of a turn, moved the cliff by one and a
-// half rows, to somewhere between 0.76 and 0.82. That shift is the cornering
-// advantage, measured twice by two completely different methods and agreeing:
-// see the table in bot.js, where a ghost on rails runs at 78% of its top speed
-// over a random route and a ghost cutting corners at 93 to 97%.
+//   5. IN THE AIR IT IGNORES BARRIERS AND NOTHING ELSE. A fence is 0.86 tall
+//      and the ghost hops it. A vault, a boulder or a headstone is not, and the
+//      ghost's disc still resolves against every solid prop while airborne.
 //
-// So the design's asymmetry is worth about a fifth of the player's speed, it is
-// entirely a matter of how well they drive, and it is what lets this maze carry
-// a ratio at all. The maze needs it: 170 nodes and 24 junctions means about
-// seven nodes, fourteen units, between one decision and the next, where
-// Pac-Man's board offers a junction every two or three tiles. In a long
-// corridor there is no juke available. You either outrun the thing behind you
-// to the next junction or you do not, and cutting the corner when you get there
-// is the whole margin.
+//   6. THE LANDING IS CHECKED AT TAKEOFF, not on the way down. At the instant
+//      the jump is requested the rules compute the landing point, which is a
+//      pure function of position, frozen velocity and air time, and refuse the
+//      whole jump if the ghost's disc will not fit there or if a prop stands in
+//      the flight path. A landing rolled back in mid-air is a teleport, and the
+//      ghost's cloth solves in world space, so it may never be teleported. A
+//      refusal publishes `jumpRefused` so the renderer can play a stumble
+//      rather than nothing.
 //
-// THE CHOICE: ghost 3.05, skeleton 2.15, a NOMINAL ratio of 0.705.
+//   7. There is a `jumpCooldown` of 0.35 s after landing, which stops a lattice
+//      of fences being crossed as a chain of vaults with no ground contact.
 //
-//   The nominal ratio is not the one the player feels. Measured in play over a
-//   full level, the ghost averages 2.86 units a second of its 3.05, because it
-//   corners well and almost never has to stop; the skeletons average their full
-//   2.15, because a point on an edge always travels at exactly its own speed.
-//   So the EFFECTIVE ratio is 2.15 / 2.86 = 0.75 against a player who drives
-//   well, and 2.15 / 2.39 = 0.90 against one who takes every corner square.
-//   That band, 0.75 to 0.90, is Pac-Man's own 0.75 to 0.95, arrived at from a
-//   nominal number that looks nothing like it.
+//   8. A jump costs nothing in SPEED. `landDrag` is 1.0 and is here as a dial
+//      rather than as a tax, because the cost of a jump ought to be situational
+//      and not a toll: crossing a fence should be free when nothing is near you
+//      and expensive when something is. soak.mjs measures whether that holds
+//      and reports what happens when it does not.
 //
-//   0.705 rather than 0.76, which the table also allows, because 0.76 costs
-//   another 0.18 off the ghost for a difference of two and a half points of
-//   clear rate and five of threat, and the ghost's speed is not free.
+// WHAT I CHANGED IN ghost.js'S OWN NUMBERS, AND WHY
 //
-//   Measured at the shipped pair over 500 levels: the careful bot clears 94.0%
-//   and loses 0.81 lives a level; a level runs 221 s; the player spends 25.9%
-//   of it within 8.0 units of a skeleton and 3.5% within 4.0. The reckless bot,
-//   at the same speeds, clears 7.5%. A game where driving well is worth twelve
-//   times the clear rate of not bothering is a game with something in it.
+// ghost.js hops with an initial 3.6 up against 9.0 down, which is an apex of
+// 0.72 and an air time of 0.80 s. 0.80 s is the number that had to move. It is
+// a HOVER, authored as character before it meant anything, and as a game action
+// it is 2.4 units of committed travel at top speed, which overshoots any fence
+// and lands the ghost somewhere it did not choose. It also makes a jump feel
+// like a decision taken and then waited out.
 //
-//   The skeleton goes up 72%, from 1.25 to 2.15, which is 3.42 steps a second,
-//   205 a minute. That is a run, not a scramble.
-//   The ghost comes down 32%, from 4.5 to 3.05, and accelTime is untouched at
-//   0.12, which matters more than the top speed does: the stick still bites in
-//   an eighth of a second, so the ghost feels no less connected, only less
-//   floaty. It still crosses the 44-unit playfield in 14 s.
+//   up 3.6 -> 5.0, gravity 9.0 -> 20.0.
+//   air time 0.80 -> 0.50 s. Apex 0.72 -> 0.625.
 //
-//   Neither number alone would have done it. Skeleton-only would have needed
-//   5.4 steps a second; ghost-only would have needed 1.67 and killed the cloth.
+// The arc is almost the same height and happens in five eighths of the time: a
+// vault rather than a float. That is deliberately the cheapest possible change
+// to the shipped free-roam scene, because the apex is what you SEE and the air
+// time is what you FEEL, and only the second one was wrong. It is still your
+// decision whether to take it into the free-roam scene; if you do not, the
+// rules and ghost.js will disagree about how long the ghost is off the ground
+// and the renderer will pop.
 //
-// WHAT TO TELL THE ANIMATOR
+// ===========================================================================
+// SPEED, unchanged, and why the redirection did not invalidate it
+// ===========================================================================
 //
-//   1. TOP_SPEED goes 1.25 -> 2.15. The cycle is distance-driven so the cadence
-//      follows on its own; expect a run. If it reads as a scramble anyway the
-//      fix is STRIDE, not speed: STEP_LENGTH from 0.629 to about 0.78 brings it
-//      back to 2.76 steps a second, and the reach comes from a deeper HIP_STALK
-//      and more MAX_HEEL, which is what a person does to lengthen their own
-//      stride. Do not fix it by slowing the skeleton down. The ratio is load
-//      bearing: at 0.57 a player who ignores the skeletons entirely still
-//      clears a quarter of levels, and at 0.46 more than half of them.
-//   2. The figure is 2.5 units tall and strides 0.629. A person of that height
-//      strides about 1.5. It was already mincing at 1.25 and the new speed only
-//      makes that visible, so the stride work is worth doing on its own merits.
-//   3. Cruise Elroy tops out at 2.49, which is 3.96 steps a second, and that IS
-//      the edge. It is one skeleton, at the end of a level, and reading as
-//      slightly unhinged is the point of it, but it needs a tell the player can
-//      see: a faster jaw chatter and a harder forward lean would do it, because
-//      a difficulty change nobody can see is a difficulty change nobody learns.
-//   4. Frightened is 1.20, BELOW the authored 1.25, so the flee can play the
-//      original walk cycle a touch under pace. Nothing new to animate.
-//   5. Eaten is 5.20 and is not a walk at all. It wants its own clip: a heap of
-//      bones going home faster than it ever chased anybody.
+// ghost 3.05, skeleton 2.15, a nominal ratio of 0.705. That was measured, and
+// the argument behind it is worth repeating in one paragraph because it is the
+// thing most likely to be second-guessed now that the maze is gone.
+//
+// The skeleton's ceiling is CADENCE: perform.js drives the walk from distance
+// travelled and STEP_LENGTH is 0.629, so 2.15 is 3.42 steps a second, a run.
+// The ghost's ceiling is FEEL: everything the cloth does is driven by velocity,
+// so a slow ghost is not a slower ghost, it is a limp one. The nominal 0.705
+// was measured as an effective 0.75 against a player who drives well and 0.90
+// against one who does not, and that band is Pac-Man's own.
+//
+// None of that measurement was about the maze. It was about cornering, and
+// cornering still exists: a disc cutting the inside of a turn round a headstone
+// is the same advantage it was round a corridor corner. What HAS changed is
+// that the corner-cutting advantage is now smaller, because open ground has
+// fewer corners, and the jump is the new advantage that replaces the part of it
+// that went away. soak.mjs re-measures both.
+//
+// ===========================================================================
+// SCORING, repriced for one firefly per screen
+// ===========================================================================
+//
+// A firefly worth 10 points when there are 345 of them is not the same object
+// as a firefly worth 10 points when there is one on screen. The old level paid
+// about 3450 for a sweep that took 221 s, so good play was worth about 15.6
+// points a second. At a spacing of 18 units a ghost travelling well reaches one
+// about every 8 to 10 s including the detour, so a firefly has to pay about 130
+// to hold that rate. It pays 100, and the rest comes from the STREAK.
+//
+// THE STREAK is the answer to "two runs of the same length should not score the
+// same". Every firefly collected without dying adds one; the multiplier is
+// 1 + floor(streak / 5), capped at 8; a death puts it back to zero. So the
+// twenty-sixth firefly of a clean life is worth 600 and the first one after a
+// death is worth 100, and a run's score is dominated by its longest clean
+// stretch rather than by its duration. That is a leaderboard with something on
+// it: length alone is a flat distribution, and length times cleanliness is not.
+// soak.mjs prints the distribution rather than asserting it is good.
+//
+// A lantern pays 500 because it is now one of the few things worth deliberately
+// travelling to, and eating a frightened skeleton keeps Pac-Man's doubling.
 
 import { createNav } from './nav.js';
-import { createHerd, DEFAULT_SPEEDS, EMERGE_TIME, PERSONALITIES } from './chase.js';
+import { createHerd, DEFAULT_SPEEDS, DEFAULT_CHASE, EMERGE_TIME, PERSONALITIES, SKEL_RADIUS } from './chase.js';
 
 export const TUNING = {
   // --- the two speeds, and see the essay above ------------------------------
   ghostSpeed: 3.05,
-  ghostAccel: 0.12,          // ghost.js's own accelTime, untouched
-  speeds: DEFAULT_SPEEDS,    // walk 2.15, fright 1.20, eaten 5.20, plus Elroy
+  ghostAccel: 0.12,
+  speeds: DEFAULT_SPEEDS,
+  chase: DEFAULT_CHASE,
+
+  // --- the jump -------------------------------------------------------------
+  jumpUp: 5.0,             // ghost.js's airV, was 3.6
+  jumpGravity: 20.0,       // ghost.js's gravity, was 9.0
+  jumpMinSpeed: 2.0,       // the run-up. See rule 3.
+  jumpCooldown: 0.35,
+  landDrag: 1.0,           // see rule 8. A dial, not a tax, until measured.
 
   // --- collision ------------------------------------------------------------
-  // The ghost is 1.31 across its skirt but the skirt is cloth. 0.55 lets it
-  // pass a skeleton in a 2.0 corridor with 0.45 of play either side of the
-  // centreline, which is what makes cutting a corner possible at all.
   ghostRadius: 0.55,
-  // Bones touching cloth. Ghost 0.55 plus skeleton 0.475 is 1.02 at true
-  // contact; 0.85 lets the two overlap slightly before it counts, which is
-  // what every arcade game does and what stops a near miss reading as a cheat.
   catchRadius: 0.85,
-  // Fireflies sit at 1.0 spacing on the centreline and the ghost is allowed to
-  // cut corners, so this has to be wider than the body: hugging the inside of a
-  // 90 degree turn puts the ghost 0.86 from the junction firefly, and at 0.80
-  // the reward for taking the fast line was silently losing a pellet. 1.0 also
-  // means the ghost cannot skip one by moving fast, since the worst lateral
-  // offset in a 2.0 corridor is 0.45.
+  // A firefly is a destination now rather than something you sweep up in
+  // passing, so the pick radius no longer has to forgive a corner cut. It is
+  // still generous because arriving at a thing and not taking it is the worst
+  // feeling a pickup can produce.
   pickRadius: 1.00,
-  powerRadius: 0.90,
+  powerRadius: 1.10,
 
-  // --- the mode schedule ----------------------------------------------------
+  // --- the mode schedule, unchanged -----------------------------------------
   //
-  // Pac-Man's first level is 7 scatter, 20 chase, 7, 20, 5, 20, 5, then chase
-  // for ever, and the reason that schedule is most of why the game is playable
-  // is that scatter is not a rest, it is a RESET: every skeleton reverses and
-  // leaves, so a player pinned in a corner is always at most twenty seconds
-  // from being let out.
-  //
-  // It cannot be copied verbatim, because the unit it is denominated in is a
-  // maze crossing and this maze is a different size. Pac-Man's ghosts cross
-  // their board in about 3.4 s; a 2.05 skeleton crosses this 44 by 32 field in
-  // 21 s. Copying 7 s of scatter would mean a skeleton turning round, walking
-  // a sixth of the way to its corner and turning back, which the player would
-  // read as a twitch rather than as a reprieve.
-  //
-  // So the schedule is scaled to how long it takes to get somewhere, and the
-  // pattern is kept: long enough to break a pin, short enough that the level
-  // has a rhythm rather than two halves.
-  //
-  //   scatter 9, chase 24, scatter 9, chase 28, scatter 7, chase 34,
-  //   scatter 5, chase 40, scatter 3, chase 46, scatter 3, then chase for ever.
-  //
-  // The scatter SHRINKS, 9 to 3, and the chase GROWS, 24 to 46. Pac-Man only
-  // does the first of those, because its board is over in a minute; a level
-  // here runs 221 s and needs the second as well or the back half has no shape.
-  // The last scatter ends at 208 s, so a typical level lives entirely inside
-  // the schedule and the permanent chase is what a slow player falls into.
-  //
-  // 9 s of scatter is 19 units of travel, a plot and a half: enough for a
-  // skeleton to visibly leave and for the player to take the corridor it just
-  // vacated. 3 s is 6 units, which is a glance away rather than a reprieve, and
-  // that is the point of the shrink.
-  //
-  // Measured against two controls, 40 levels each. Chase for ever: 85.0% clear,
-  // 1.20 deaths, 30.9% of the run under threat. Scatter for ever: 97.5% clear,
-  // 0.10 deaths, 17.8% threat, and it is not the walkover it sounds, because a
-  // patrolling skeleton in a corridor is still a skeleton in a corridor. The
-  // shipped schedule sits at 92.5%, 0.85 deaths and 27.3% threat, nearer the
-  // relentless end than the restful one, which is where a Pac-Man wants to be.
+  // scatter 9, chase 24, scatter 9, chase 28, scatter 7, chase 34, scatter 5,
+  // chase 40, scatter 3, chase 46, scatter 3, then chase for ever. The scatter
+  // SHRINKS and the chase GROWS, and in an endless run the tail of it is the
+  // difficulty curve: past 208 s a life is permanent chase, and Cruise Elroy
+  // has wound the chaser up by then as well. The schedule restarts on a death,
+  // which is Pac-Man's own behaviour and is the only mercy in the design.
   waves: [
     { mode: 'scatter', t: 9 }, { mode: 'chase', t: 24 },
     { mode: 'scatter', t: 9 }, { mode: 'chase', t: 28 },
@@ -216,55 +185,25 @@ export const TUNING = {
   ],
 
   // --- the power pellet -----------------------------------------------------
-  //
-  // 10.0 s, and the measurement that picked it is SKELETONS EATEN PER LANTERN,
-  // because that is what a power pellet is for. Under one and it is not a
-  // reward, over about two and the chase stops rather than reverses. 40 levels
-  // at each duration, careful bot:
-  //
-  //     seconds   per lantern
-  //         4        0.21
-  //         6        0.58
-  //         8        1.04
-  //        10        1.39
-  //        12        1.76
-  //        16        2.25
-  //
-  // Pac-Man's first level gives 6 s, but its ghosts flee at half speed on a
-  // board a third of the width; 6 s here buys 0.53, which is a pellet that
-  // mostly does nothing. 10 s is 30.5 units of ghost travel and, against a
-  // skeleton fleeing at 1.20, a closing speed of 1.85, so anything within about
-  // 18 units is catchable and one and a bit actually gets caught. The bot is
-  // not even trying hard: it only diverts to hunt inside a fixed range, so 1.39
-  // is a floor on what a player who commits will get.
-  //
-  // Note what a caught skeleton costs beyond the window: it runs home at 5.20
-  // and then climbs out over 3.4 s, so eating one removes it for eight to ten
-  // seconds AFTER the lantern goes out. That is the real reward and it is why
-  // the window does not need to be longer.
-  //
-  // The mode schedule is PAUSED while a lantern burns, which is Pac-Man's own
-  // behaviour and matters here: a 10 s window that ate into a 3 s late scatter
-  // would delete the reprieve rather than add to it.
+  // 10.0 s, picked on skeletons eaten per lantern. Re-measured against the new
+  // spacing in soak.mjs, because a lantern forty units away is a different
+  // object from one four units away.
   powerTime: 10.0,
-  // Pac-Man's doubling, which is what makes chaining them worth the risk.
   eatScore: [200, 400, 800, 1600],
-  fireflyScore: 10,
-  powerScore: 50,
-  clearBonus: 1000,
+  fireflyScore: 100,
+  streakStep: 5,
+  streakCap: 8,
+  powerScore: 500,
 
   lives: 3,
-  // A beat for the death animation, then everything is put back. Pac-Man's is
-  // about 1.9 s and it matters: without it a death is not punctuated and the
-  // player does not know what happened.
   deathPause: 1.6,
-  // The same beat at the start of a level and after a death, so the player is
-  // not eaten while reading the board.
   readyPause: 1.8,
 
-  // A move longer than this is cut into pieces before it is integrated. 0.2
-  // units is a tenth of the corridor width, so nothing can pass through a wall
-  // however big a dt a backgrounded tab hands us.
+  // How far around the ghost the rules publish pickups for the renderer and
+  // the bot. Independent of nav's own window and of whatever the renderer
+  // chooses to instantiate.
+  publishRange: 44,
+
   maxStep: 0.20,
 };
 
@@ -273,41 +212,42 @@ function clampAxis(input) {
   let y = Number.isFinite(input?.y) ? input.y : 0;
   const len = Math.hypot(x, y);
   if (len > 1) { x /= len; y /= len; }
-  return { x, y };
+  return { x, y, jump: !!input?.jump };
 }
 
-export function createGame({ layout, seed = 1, tuning = {}, skeletons = 4 } = {}) {
-  const T = { ...TUNING, ...tuning, speeds: { ...TUNING.speeds, ...(tuning.speeds || {}) } };
-  const nav = createNav(layout);
-  const herd = createHerd({
-    nav, graves: nav.graves, count: Math.max(1, skeletons), seed, speeds: T.speeds,
-  });
+export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {}) {
+  const T = {
+    ...TUNING,
+    ...tuning,
+    speeds: { ...TUNING.speeds, ...(tuning.speeds || {}) },
+    chase: { ...TUNING.chase, ...(tuning.chase || {}) },
+  };
+  // The air time is DERIVED from ghost.js's two numbers rather than stated
+  // beside them, so the rules and the renderer can never disagree about it.
+  const airTime = (2 * T.jumpUp) / T.jumpGravity;
 
-  const flyCount = nav.fireflies.length;
-  const collected = new Uint8Array(flyCount);
-  const powerTaken = new Uint8Array(nav.powerups.length);
+  const nav = createNav(world);
+  const herd = createHerd({ nav, count: Math.max(1, skeletons), seed, speeds: T.speeds, chase: T.chase });
 
-  // Fireflies bucketed by tile, so a pickup test is the handful in the tile the
-  // ghost is standing in rather than all 345 of them. At 60 Hz over a few
-  // hundred simulated minutes that difference is the whole soak's runtime.
-  const flyBuckets = new Map();
-  const bucketKey = (u, v) => `${nav.A(u)},${nav.B(v)}`;
-  nav.fireflies.forEach((f, i) => {
-    const k = bucketKey(f.u, f.v);
-    if (!flyBuckets.has(k)) flyBuckets.set(k, []);
-    flyBuckets.get(k).push(i);
-  });
+  // Taken pickups, by the world's own stable id. A ten minute run collects
+  // perhaps sixty fireflies, so this stays small; if a run ever gets long
+  // enough for it to matter, it is prunable by distance from the ghost, since
+  // the world outside the window is not published.
+  const takenFly = new Set();
+  const takenPower = new Set();
 
-  const graveWorld = herd.list.map((s) => {
-    const g = layout.spawns.graves[s.id % layout.spawns.graves.length];
-    return { x: g.x, z: g.z };
-  });
+  const ghost = {
+    x: world.spawn.x, z: world.spawn.z,
+    vx: 0, vz: 0,
+    air: false, airT: 0, airY: 0, airVX: 0, airVZ: 0,
+    cool: 0,
+  };
+  const heading = { x: 0, z: -1 };
 
-  const ghost = { u: 0, v: 0, vu: 0, vv: 0 };
-  const heading = { du: 0, dv: -1 };
   const state = {
     time: 0,
-    phase: 'ready',        // ready | play | dying | cleared | over
+    phase: 'ready',          // ready | play | dying | over. There is no
+                             // 'cleared': nothing clears in an endless world.
     score: 0,
     lives: T.lives,
     mode: 'scatter',
@@ -316,173 +256,241 @@ export function createGame({ layout, seed = 1, tuning = {}, skeletons = 4 } = {}
     powerUntil: 0,
     power: false,
     eatenChain: 0,
-    ghost: { x: 0, z: 0, u: 0, v: 0, vx: 0, vz: 0, speed: 0 },
-    fireflies: { total: flyCount, remaining: flyCount, collected },
-    powerups: nav.powerups.map((p, i) => ({ index: i, x: 0, z: 0, taken: false })),
-    // One object per skeleton, filled in place every frame rather than rebuilt:
-    // the soak runs tens of millions of frames and a fresh array of objects
-    // each one is most of its garbage.
+    // The endless-run numbers. `lifeTime` drives Cruise Elroy; `streak` and
+    // `multiplier` drive the score; `distance` is the other half of a
+    // leaderboard row.
+    lifeTime: 0,
+    streak: 0,
+    multiplier: 1,
+    bestStreak: 0,
+    distance: 0,
+    collected: 0,
+    ghost: {
+      x: 0, z: 0, vx: 0, vz: 0, speed: 0,
+      // The renderer drives the hop off these three rather than running its
+      // own timer, so the arc on screen is the arc the rules used.
+      airborne: false, airY: 0, airProgress: 0,
+      canJump: true,
+    },
+    // Live pickups within publishRange, rebuilt as the ghost moves. The
+    // renderer instantiates from these lists and the ids are the world's, so a
+    // firefly that leaves the list and comes back is the same firefly.
+    fireflies: [],
+    powerups: [],
     skeletons: [],
     events: [],
-    // Declared here so the shape of `state` never changes, which matters to
-    // anything reading it in a hot loop.
     readyLeft: 0,
     dyingLeft: 0,
   };
-  // `input.jump` is deliberately ignored. ghost.js's hop is vertical only: it
-  // does not move the ghost in x or z and it does not lift it over anything, so
-  // to the rules it is a piece of character animation and nothing else. If a
-  // hop is ever meant to dodge a skeleton, that is a rule and it belongs here.
-  layout.powerups.forEach((p, i) => { state.powerups[i].x = p.x; state.powerups[i].z = p.z; });
 
-  function placeGhost() {
-    ghost.u = nav.ghostSpawn.u;
-    ghost.v = nav.ghostSpawn.v;
-    ghost.vu = 0;
-    ghost.vv = 0;
-    heading.du = 0;
-    heading.dv = -1;
-    const fixed = nav.resolveDisc(ghost.u, ghost.v, T.ghostRadius);
-    ghost.u = fixed.u;
-    ghost.v = fixed.v;
+  // --- the published pickup lists -------------------------------------------
+  let pubX = NaN;
+  let pubZ = NaN;
+  let flyPool = [];
+  let powerPool = [];
+  function refreshPickups(force) {
+    if (!force && Math.hypot(ghost.x - pubX, ghost.z - pubZ) < 8) return;
+    pubX = ghost.x;
+    pubZ = ghost.z;
+    const r = T.publishRange;
+    flyPool = nav.near(pubX, pubZ, r, 'fireflies').filter((f) => !takenFly.has(f.id));
+    powerPool = nav.near(pubX, pubZ, r, 'powerups').filter((p) => !takenPower.has(p.id));
+    state.fireflies = flyPool;
+    state.powerups = powerPool;
   }
 
   function startWaves() {
     state.modeIndex = 0;
     state.mode = T.waves[0].mode;
     state.modeLeft = T.waves[0].t;
+    for (const s of herd.list) herd.setScatter(s, ghost);
   }
 
+  // A death does NOT move the ghost. In an endless world there is nowhere to
+  // put it back to, and the cloth solves in world space so it may not be
+  // teleported anyway. What resets is the herd, which goes underground and
+  // re-homes to graves in the pen band around wherever the ghost now is.
   function resetRound() {
-    placeGhost();
-    herd.reset();
+    ghost.vx = 0;
+    ghost.vz = 0;
+    ghost.air = false;
+    ghost.airT = 0;
+    ghost.airY = 0;
+    ghost.cool = 0;
+    nav.focus(ghost.x, ghost.z);
+    const fixed = nav.resolveDisc(ghost.x, ghost.z, T.ghostRadius);
+    ghost.x = fixed.x;
+    ghost.z = fixed.z;
+    herd.reset(ghost);
     startWaves();
     state.power = false;
     state.powerUntil = 0;
     state.eatenChain = 0;
+    state.lifeTime = 0;
+    state.streak = 0;
+    state.multiplier = 1;
     state.phase = 'ready';
     state.readyLeft = T.readyPause;
+    refreshPickups(true);
   }
   resetRound();
 
   function publish() {
-    const w = nav.toWorld(ghost.u, ghost.v);
-    state.ghost.x = w.x;
-    state.ghost.z = w.z;
-    state.ghost.u = ghost.u;
-    state.ghost.v = ghost.v;
-    // The stick is in world axes, so the velocity is too; the grid velocity is
-    // the same vector read in the other frame.
-    const wv = nav.toWorld(ghost.u + ghost.vu, ghost.v + ghost.vv);
-    state.ghost.vx = wv.x - w.x;
-    state.ghost.vz = wv.z - w.z;
-    state.ghost.speed = Math.hypot(ghost.vu, ghost.vv);
+    state.ghost.x = ghost.x;
+    state.ghost.z = ghost.z;
+    state.ghost.vx = ghost.air ? ghost.airVX : ghost.vx;
+    state.ghost.vz = ghost.air ? ghost.airVZ : ghost.vz;
+    state.ghost.speed = Math.hypot(state.ghost.vx, state.ghost.vz);
+    state.ghost.airborne = ghost.air;
+    state.ghost.airY = ghost.airY;
+    state.ghost.airProgress = ghost.air ? 1 - ghost.airT / airTime : 0;
+    state.ghost.canJump = !ghost.air && ghost.cool <= 0 && state.ghost.speed >= T.jumpMinSpeed;
     for (let i = 0; i < herd.list.length; i++) {
       const s = herd.list[i];
-      const p = nav.toWorld(s.u, s.v);
-      const out = state.skeletons[i] || (state.skeletons[i] = {
-        id: s.id, name: s.name, grave: graveWorld[i],
-      });
+      const out = state.skeletons[i] || (state.skeletons[i] = { id: s.id, name: s.name, grave: { x: 0, z: 0 } });
       out.state = s.state;
-      out.x = p.x;
-      out.z = p.z;
-      out.u = s.u;
-      out.v = s.v;
+      out.x = s.x;
+      out.z = s.z;
+      out.grave.x = s.grave.x;
+      out.grave.z = s.grave.z;
       out.speed = s.speed;
       out.frightened = s.state === 'frightened';
-      // Enough for the scene to point the rig without recomputing anything.
-      out.yaw = headingYaw(s);
-      // 0 to 1 through the 3.4 s climb, so the scene can scrub perform.js's
-      // emerge rather than run its own timer and drift out of step with this.
+      out.yaw = Math.atan2(s.hx, s.hz);
       out.emergeProgress = s.state === 'emerging' ? 1 - s.timer / EMERGE_TIME
         : s.state === 'buried' ? 0 : 1;
     }
     return state;
   }
 
-  function headingYaw(s) {
-    if (s.from === -1 || s.to === -1) return 0;
-    const a = nav.nodes[s.from];
-    const b = nav.nodes[s.to];
-    const p = nav.toWorld(a.u, a.v);
-    const q = nav.toWorld(b.u, b.v);
-    return Math.atan2(q.x - p.x, q.z - p.z);
+  // --- the jump --------------------------------------------------------------
+
+  function tryJump() {
+    if (ghost.air || ghost.cool > 0) return false;
+    const sp = Math.hypot(ghost.vx, ghost.vz);
+    if (sp < T.jumpMinSpeed) {
+      state.events.push({ type: 'jumpRefused', why: 'noRunUp' });
+      return false;
+    }
+    const lx = ghost.x + ghost.vx * airTime;
+    const lz = ghost.z + ghost.vz * airTime;
+    // Rule 6: the landing is decided here and never revisited. The flight path
+    // must be clear of props, since props are solid in the air, and the landing
+    // point must hold the ghost's disc on the ground.
+    if (nav.crossesProp(ghost.x, ghost.z, lx, lz, T.ghostRadius) || !nav.discClear(lx, lz, T.ghostRadius)) {
+      state.events.push({ type: 'jumpRefused', why: 'noLanding' });
+      return false;
+    }
+    ghost.air = true;
+    ghost.airT = airTime;
+    ghost.airY = 0;
+    ghost.airVX = ghost.vx;
+    ghost.airVZ = ghost.vz;
+    // Did it actually clear a fence? Only the event cares, but the event is how
+    // the soak counts vaults and how the renderer knows to play the good one.
+    const over = nav.crossesBarrier(ghost.x, ghost.z, lx, lz, 0);
+    state.events.push({ type: 'jump', overFence: over, x: ghost.x, z: ghost.z, toX: lx, toZ: lz });
+    return true;
   }
 
   function moveGhost(h, input) {
-    const desiredU = input.x * T.ghostSpeed;
-    const desiredV = input.y * T.ghostSpeed;
-    // ghost.js's own integrator, in the grid frame. The stick is in world axes,
-    // so it is rotated in first, and the isometry is a rotation so speeds match.
-    const dw = nav.toGrid(desiredU, desiredV);
+    if (ghost.air) {
+      // No air control at all. The velocity is the one it took off with.
+      const t = airTime - ghost.airT;
+      ghost.airY = T.jumpUp * t - 0.5 * T.jumpGravity * t * t;
+      const bx = ghost.x;
+      const bz = ghost.z;
+      ghost.x += ghost.airVX * h;
+      ghost.z += ghost.airVZ * h;
+      // Props only: rule 5.
+      const fixed = nav.resolveDisc(ghost.x, ghost.z, T.ghostRadius, true);
+      ghost.x = fixed.x;
+      ghost.z = fixed.z;
+      state.distance += Math.hypot(ghost.x - bx, ghost.z - bz);
+      ghost.airT -= h;
+      if (ghost.airT <= 0) {
+        ghost.air = false;
+        ghost.airY = 0;
+        ghost.airT = 0;
+        ghost.cool = T.jumpCooldown;
+        ghost.vx = ghost.airVX * T.landDrag;
+        ghost.vz = ghost.airVZ * T.landDrag;
+        // Belt and braces. The takeoff test said this point was clear; if the
+        // window was rebuilt mid-flight and it is not, push out rather than
+        // stand in a fence.
+        const land = nav.resolveDisc(ghost.x, ghost.z, T.ghostRadius);
+        ghost.x = land.x;
+        ghost.z = land.z;
+        state.events.push({ type: 'land', x: ghost.x, z: ghost.z });
+      }
+      return;
+    }
+
+    ghost.cool -= h;
+    const desiredX = input.x * T.ghostSpeed;
+    const desiredZ = input.y * T.ghostSpeed;
     const blend = 1 - Math.exp(-h / T.ghostAccel);
-    ghost.vu += (dw.u - ghost.vu) * blend;
-    ghost.vv += (dw.v - ghost.vv) * blend;
-    const beforeU = ghost.u;
-    const beforeV = ghost.v;
-    ghost.u += ghost.vu * h;
-    ghost.v += ghost.vv * h;
-    const fixed = nav.resolveDisc(ghost.u, ghost.v, T.ghostRadius);
-    ghost.u = fixed.u;
-    ghost.v = fixed.v;
+    ghost.vx += (desiredX - ghost.vx) * blend;
+    ghost.vz += (desiredZ - ghost.vz) * blend;
+    const beforeX = ghost.x;
+    const beforeZ = ghost.z;
+    ghost.x += ghost.vx * h;
+    ghost.z += ghost.vz * h;
+    const fixed = nav.resolveDisc(ghost.x, ghost.z, T.ghostRadius);
+    ghost.x = fixed.x;
+    ghost.z = fixed.z;
+    const mx = ghost.x - beforeX;
+    const mz = ghost.z - beforeZ;
+    const m = Math.hypot(mx, mz);
+    state.distance += m;
     // Heading is the direction it ACTUALLY went, not the direction it is being
-    // pushed. That matters for the ambusher: a ghost held against a wall is not
-    // going where the stick says, and aiming 8 units into a plot would make the
-    // ambusher easy to bait.
-    const mu = ghost.u - beforeU;
-    const mv = ghost.v - beforeV;
-    const m = Math.hypot(mu, mv);
+    // pushed, which matters for the ambusher: a ghost held against a fence is
+    // not going where the stick says.
     if (m > 1e-5) {
       const k = 1 - Math.exp(-h / 0.15);
-      heading.du += (mu / m - heading.du) * k;
-      heading.dv += (mv / m - heading.dv) * k;
-      const hl = Math.hypot(heading.du, heading.dv);
-      if (hl > 1e-6) { heading.du /= hl; heading.dv /= hl; }
+      heading.x += (mx / m - heading.x) * k;
+      heading.z += (mz / m - heading.z) * k;
+      const hl = Math.hypot(heading.x, heading.z);
+      if (hl > 1e-6) { heading.x /= hl; heading.z /= hl; }
     }
   }
 
   function pickups() {
-    const a = nav.A(ghost.u);
-    const b = nav.B(ghost.v);
     const r2 = T.pickRadius ** 2;
-    for (let bb = b - 1; bb <= b + 1; bb++) {
-      for (let aa = a - 1; aa <= a + 1; aa++) {
-        const list = flyBuckets.get(`${aa},${bb}`);
-        if (!list) continue;
-        for (const i of list) {
-          if (collected[i]) continue;
-          const f = nav.fireflies[i];
-          if ((f.u - ghost.u) ** 2 + (f.v - ghost.v) ** 2 > r2) continue;
-          collected[i] = 1;
-          state.fireflies.remaining--;
-          state.score += T.fireflyScore;
-          // The renderer's cue. fireflies.js's collect(index) plays the take;
-          // the rules only ever say which one.
-          state.events.push({ type: 'firefly', index: i });
-        }
-      }
+    for (let i = flyPool.length - 1; i >= 0; i--) {
+      const f = flyPool[i];
+      if ((f.x - ghost.x) ** 2 + (f.z - ghost.z) ** 2 > r2) continue;
+      takenFly.add(f.id);
+      flyPool.splice(i, 1);
+      state.collected++;
+      state.streak++;
+      if (state.streak > state.bestStreak) state.bestStreak = state.streak;
+      state.multiplier = Math.min(T.streakCap, 1 + Math.floor(state.streak / T.streakStep));
+      const paid = T.fireflyScore * state.multiplier;
+      state.score += paid;
+      state.events.push({ type: 'firefly', id: f.id, x: f.x, z: f.z, score: paid, multiplier: state.multiplier });
     }
     const pr2 = T.powerRadius ** 2;
-    for (let i = 0; i < nav.powerups.length; i++) {
-      if (powerTaken[i]) continue;
-      const p = nav.powerups[i];
-      if ((p.u - ghost.u) ** 2 + (p.v - ghost.v) ** 2 > pr2) continue;
-      powerTaken[i] = 1;
-      state.powerups[i].taken = true;
+    for (let i = powerPool.length - 1; i >= 0; i--) {
+      const p = powerPool[i];
+      if ((p.x - ghost.x) ** 2 + (p.z - ghost.z) ** 2 > pr2) continue;
+      takenPower.add(p.id);
+      powerPool.splice(i, 1);
       state.score += T.powerScore;
       state.power = true;
       state.powerUntil = state.time + T.powerTime;
       state.eatenChain = 0;
       herd.frighten();
-      state.events.push({ type: 'power', index: i });
+      state.events.push({ type: 'power', id: p.id, x: p.x, z: p.z });
     }
   }
 
   function contacts() {
+    // Rule 4: no airborne exemption. The test is horizontal and the ghost's
+    // height above the ground is not in it.
     const r2 = T.catchRadius ** 2;
     for (const s of herd.list) {
       if (!herd.isSolid(s)) continue;
-      if ((s.u - ghost.u) ** 2 + (s.v - ghost.v) ** 2 > r2) continue;
+      if ((s.x - ghost.x) ** 2 + (s.z - ghost.z) ** 2 > r2) continue;
       if (s.state === 'frightened') {
         herd.eat(s);
         const chain = Math.min(state.eatenChain, T.eatScore.length - 1);
@@ -491,9 +499,8 @@ export function createGame({ layout, seed = 1, tuning = {}, skeletons = 4 } = {}
         state.events.push({ type: 'eat', skeleton: s.id, score: T.eatScore[chain] });
         continue;
       }
-      // Caught.
       state.lives--;
-      state.events.push({ type: 'death', skeleton: s.id, by: s.name });
+      state.events.push({ type: 'death', skeleton: s.id, by: s.name, streak: state.streak });
       state.phase = state.lives > 0 ? 'dying' : 'over';
       state.dyingLeft = T.deathPause;
       state.power = false;
@@ -512,8 +519,10 @@ export function createGame({ layout, seed = 1, tuning = {}, skeletons = 4 } = {}
       const w = T.waves[state.modeIndex];
       state.mode = w.mode;
       state.modeLeft += w.t;
-      // Every skeleton turns round on a mode flip. Pac-Man's rule, and the
-      // reason a scatter is legible without being announced.
+      // Scatter is re-anchored to where the ghost is NOW, so a skeleton leaves
+      // from wherever the chase had got to rather than walking at a corner of a
+      // board that does not exist.
+      if (w.mode === 'scatter') for (const s of herd.list) herd.setScatter(s, ghost);
       herd.reverseAll();
       state.events.push({ type: 'mode', mode: state.mode });
     }
@@ -522,22 +531,20 @@ export function createGame({ layout, seed = 1, tuning = {}, skeletons = 4 } = {}
   function ctx() {
     const chaser = herd.list.find((s) => s.name === 'chaser');
     return {
-      ghost: { u: ghost.u, v: ghost.v },
+      ghost,
       heading,
-      chaser: chaser && herd.isSolid(chaser) ? { u: chaser.u, v: chaser.v } : null,
+      chaser: chaser && herd.isSolid(chaser) ? chaser : null,
       mode: state.power ? 'chase' : state.mode,
       power: state.power,
-      left: state.fireflies.remaining / Math.max(1, state.fireflies.total),
+      lifeTime: state.lifeTime,
     };
   }
 
   function substep(h, input) {
     state.time += h;
+    nav.focus(ghost.x, ghost.z);
     if (state.phase === 'ready') {
       state.readyLeft -= h;
-      // The graves still count down through the ready beat, so the first
-      // skeleton is climbing out as the player takes their first step, which is
-      // exactly the shot the scene wants.
       herd.step(h, ctx());
       if (state.readyLeft <= 0) state.phase = 'play';
       return;
@@ -549,6 +556,7 @@ export function createGame({ layout, seed = 1, tuning = {}, skeletons = 4 } = {}
     }
     if (state.phase !== 'play') return;
 
+    state.lifeTime += h;
     if (state.power && state.time >= state.powerUntil) {
       state.power = false;
       state.eatenChain = 0;
@@ -556,44 +564,41 @@ export function createGame({ layout, seed = 1, tuning = {}, skeletons = 4 } = {}
       state.events.push({ type: 'powerEnd' });
     }
     advanceModes(h);
+    if (input.jump) tryJump();
     moveGhost(h, input);
+    refreshPickups(false);
     herd.step(h, ctx());
     pickups();
-    if (state.fireflies.remaining === 0) {
-      state.score += T.clearBonus;
-      state.phase = 'cleared';
-      state.events.push({ type: 'clear' });
-      return;
-    }
     contacts();
   }
 
   return {
     nav,
     herd,
+    world,
     tuning: T,
+    airTime,
     state,
-    layout,
     update(dt, input) {
       state.events.length = 0;
       let remain = Number.isFinite(dt) ? Math.max(0, Math.min(dt, 5)) : 0;
       const axis = clampAxis(input);
-      // A dt is cut so no piece moves anything further than maxStep. That is
-      // what makes a backgrounded tab safe: a 3 s catch-up frame becomes 48
-      // substeps and nothing passes through a wall in any of them.
       const fastest = Math.max(T.ghostSpeed, T.speeds.eaten, T.speeds.walk * 1.3);
       const cap = T.maxStep / fastest;
       let guard = 0;
+      // The jump edge belongs to the first substep only, or one press across a
+      // three second catch-up frame would be forty-eight jumps.
+      let jumpEdge = axis.jump;
       while (remain > 1e-9 && guard++ < 4096) {
         const h = Math.min(remain, cap);
-        substep(h, axis);
+        substep(h, { x: axis.x, y: axis.y, jump: jumpEdge });
+        jumpEdge = false;
         remain -= h;
-        if (state.phase === 'cleared' || state.phase === 'over') break;
+        if (state.phase === 'over') break;
       }
       return publish();
     },
-    // Everything a bot or the soak wants and a renderer does not.
-    debug: { ghost, heading, collected, powerTaken, T, PERSONALITIES },
+    debug: { ghost, heading, takenFly, takenPower, T, PERSONALITIES, SKEL_RADIUS },
   };
 }
 

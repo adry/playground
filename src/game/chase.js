@@ -105,8 +105,9 @@ export const DEFAULT_CHASE = {
   arrive: 0.30,
   // How far out a skeleton looks for a way past a fence. Far enough to see the
   // gate at the other end of a pen wall, near enough that it does not consider
-  // a gate it will never reach.
-  passageRange: 30,
+  // a gate it will never reach, and small enough that scatterOut + this stays
+  // inside nav's window. nav.js's WINDOW is derived from these two.
+  passageRange: 24,
   // Scatter, re-anchored. There is no corner in an infinite plane, so a
   // skeleton scatters to a point this far from where the ghost was AT THE
   // MOMENT THE MODE FLIPPED, in its own fixed quarter. The point does not

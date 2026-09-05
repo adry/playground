@@ -206,52 +206,93 @@ function rawChunk(seed, cx, cz, spacing) {
 }
 
 export function createWorld({ seed = 1, spacing = FLY_SPACING } = {}) {
+  const raws = new Map();
   const chunks = new Map();
 
+  function raw(cx, cz) {
+    const key = `${cx},${cz}`;
+    let c = raws.get(key);
+    if (!c) raws.set(key, (c = rawChunk(seed, cx, cz, spacing)));
+    return c;
+  }
+
+  // A chunk's own items, rejected against its 3x3 neighbourhood. Rejection is
+  // what makes the stand-in FAIR rather than merely present: a firefly inside a
+  // headstone or a grave under a fence is an unfair world, and a soak run
+  // against an unfair world measures the world instead of the rules.
   function chunkAt(cx, cz) {
     const key = `${cx},${cz}`;
     let c = chunks.get(key);
     if (c) return c;
-    c = rawChunk(seed, cx, cz, spacing);
-    // The rejection pass: drop this chunk's fence entirely if any of its
-    // segments properly crosses a segment from a neighbour. Dropping the whole
-    // run rather than the offending segment is what keeps a gate from being
-    // orphaned from the fence it was cut into.
+    const me = raw(cx, cz);
+    const nbBarriers = [];
+    const nbProps = [];
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const n = raw(cx + dx, cz + dz);
+        for (const b of n.barriers) nbBarriers.push(b);
+        for (const p of n.props) nbProps.push(p);
+      }
+    }
+    // Two fences crossing is both ugly and the way an accidental gateless
+    // pocket gets built. The whole run yields rather than the offending
+    // segment, so a gate is never orphaned from the fence it was cut into, and
+    // only the chunk with the larger key yields, so the decision is symmetric.
     let crosses = false;
     for (let dz = -1; dz <= 1 && !crosses; dz++) {
       for (let dx = -1; dx <= 1 && !crosses; dx++) {
         if (!dx && !dz) continue;
-        // Ordering rule so the decision is symmetric and order-free: only the
-        // chunk with the larger key yields.
         if ((cz + dz) * 1000 + (cx + dx) > cz * 1000 + cx) continue;
-        const nb = rawChunk(seed, cx + dx, cz + dz, spacing);
-        for (const a of c.barriers) {
-          for (const b of nb.barriers) {
+        for (const a of me.barriers) {
+          for (const b of raw(cx + dx, cz + dz).barriers) {
             if (segCross(a.x0, a.z0, a.x1, a.z1, b.x0, b.z0, b.x1, b.z1)) { crosses = true; break; }
           }
           if (crosses) break;
         }
       }
     }
-    if (crosses) { c = { ...c, barriers: [], gates: [] }; }
-    // Props that sit in a gate would violate G5, and a prop on a fence line
-    // looks like a mistake. Both are cheaper to drop here than to test for.
+    const barriers = crosses ? [] : me.barriers;
+    const gates = crosses ? [] : me.gates;
+    const liveBarriers = nbBarriers.filter((b) => !crosses || me.barriers.indexOf(b) === -1);
+
+    const clearOf = (x, z, r) => {
+      for (const b of liveBarriers) if (segPointDist(b, x, z) < r + b.half) return false;
+      for (const p of nbProps) if (Math.hypot(p.x - x, p.z - z) < r + p.radius) return false;
+      return true;
+    };
+    // A gate has to admit a disc of 0.60 (G5), so nothing solid within 0.95.
+    const inGate = (x, z, r) => {
+      for (const g of gates) if (Math.hypot(x - g.x, z - g.z) < 0.95 + r) return true;
+      return false;
+    };
+
     c = {
-      ...c,
-      props: c.props.filter((p) => {
-        for (const g of c.gates) if (Math.hypot(p.x - g.x, p.z - g.z) < 0.95 + p.radius) return false;
-        for (const b of c.barriers) if (segPointDist(b, p.x, p.z) < p.radius + b.half + 0.05) return false;
-        return true;
+      barriers,
+      gates,
+      // Props keep clear of fences and gates. They may still touch each other,
+      // which is a look problem rather than a fairness one.
+      props: me.props.filter((p) => {
+        for (const b of liveBarriers) if (segPointDist(b, p.x, p.z) < p.radius + b.half + 0.05) return false;
+        return !inGate(p.x, p.z, p.radius);
       }),
+      // A firefly must be somewhere the ghost's own disc can reach it, so it
+      // needs the pick radius of room and not merely its own point.
+      fireflies: me.fireflies.filter((f) => clearOf(f.x, f.z, 0.62)),
+      powerups: me.powerups.filter((p) => clearOf(p.x, p.z, 0.75)),
+      // A grave must admit the skeleton's body, or something climbs out of the
+      // ground already stuck.
+      graves: me.graves.filter((g) => clearOf(g.x, g.z, 0.70)),
     };
     chunks.set(key, c);
     return c;
   }
 
-  // A query box is grown by the largest thing a neighbouring chunk can reach
-  // into it with, which is a fence run: 8 panels is 16 units.
+  // Chunk selection is padded by the longest thing a neighbour can reach in
+  // with, which is a fence run of 8 panels. POINT items are then filtered back
+  // to the box, so a query returns what is in the box and not what is in the
+  // chunks that overlap it. Segments are kept if their extent overlaps.
   const PAD = 18;
-  function collect(box, key) {
+  function collect(box, key, point) {
     const c0 = Math.floor((box.minX - PAD) / CHUNK);
     const c1 = Math.floor((box.maxX + PAD) / CHUNK);
     const r0 = Math.floor((box.minZ - PAD) / CHUNK);
@@ -259,22 +300,46 @@ export function createWorld({ seed = 1, spacing = FLY_SPACING } = {}) {
     const out = [];
     for (let cz = r0; cz <= r1; cz++) {
       for (let cx = c0; cx <= c1; cx++) {
-        for (const it of chunkAt(cx, cz)[key]) out.push(it);
+        for (const it of chunkAt(cx, cz)[key]) {
+          if (point) {
+            if (it.x < box.minX || it.x > box.maxX || it.z < box.minZ || it.z > box.maxZ) continue;
+          } else if (Math.min(it.x0 ?? it.x, it.x1 ?? it.x) > box.maxX
+            || Math.max(it.x0 ?? it.x, it.x1 ?? it.x) < box.minX
+            || Math.min(it.z0 ?? it.z, it.z1 ?? it.z) > box.maxZ
+            || Math.max(it.z0 ?? it.z, it.z1 ?? it.z) < box.minZ) continue;
+          out.push(it);
+        }
       }
     }
     return out;
   }
 
+  // The spawn has to be somewhere the ghost fits, and (0, 0) is not always.
+  // Spiral out until it is.
+  let spawn = { x: 0, z: 0 };
+  {
+    const near = (x, z) => {
+      const box = { minX: x - 4, minZ: z - 4, maxX: x + 4, maxZ: z + 4 };
+      for (const b of collect(box, 'barriers', false)) if (segPointDist(b, x, z) < 0.75) return false;
+      for (const p of collect(box, 'props', true)) if (Math.hypot(p.x - x, p.z - z) < 0.62 + p.radius) return false;
+      return true;
+    };
+    for (let r = 0; r < 40 && !near(spawn.x, spawn.z); r++) {
+      const a = r * 2.4;
+      spawn = { x: Math.cos(a) * r * 0.8, z: Math.sin(a) * r * 0.8 };
+    }
+  }
+
   return {
     CHUNK,
     spacing,
-    spawn: { x: 0, z: 0 },
-    barriers: (box) => collect(box, 'barriers'),
-    gates: (box) => collect(box, 'gates'),
-    props: (box) => collect(box, 'props'),
-    fireflies: (box) => collect(box, 'fireflies'),
-    powerups: (box) => collect(box, 'powerups'),
-    graves: (box) => collect(box, 'graves'),
+    spawn,
+    barriers: (box) => collect(box, 'barriers', false),
+    gates: (box) => collect(box, 'gates', true),
+    props: (box) => collect(box, 'props', true),
+    fireflies: (box) => collect(box, 'fireflies', true),
+    powerups: (box) => collect(box, 'powerups', true),
+    graves: (box) => collect(box, 'graves', true),
   };
 }
 

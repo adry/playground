@@ -1,49 +1,84 @@
-// A player, so the level can be played a thousand times without anybody
+// A player, so the world can be played a thousand times without anybody
 // playing it.
 //
-// It is deliberately GREEDY: it goes to the nearest uncollected firefly, and
-// the only cleverness is that "nearest" is measured with skeletons making the
-// ground expensive rather than impassable. If a level cannot be cleared by that
-// it cannot be cleared, and if that clears every level without ever being
-// cornered the level has no chase in it. Those two failures look completely
-// different in the numbers, which is the point of having a bot at all:
-// clearRate near 0 is a broken level and threatTime near 0 is a boring one.
+// ---------------------------------------------------------------------------
+// WHY IT HAD TO BE REWRITTEN, AND IT IS THE SAME LESSON TWICE
+// ---------------------------------------------------------------------------
 //
-// The first version refused any node with a skeleton within three hops and
-// picked the nearest firefly by plain hop count. It cleared nothing: it walked
-// happily toward a firefly on the far side of the chaser, hit the refusal at
-// the last moment and dithered on the spot until something ate it. Risk has to
-// be in the DISTANCE, not in a veto, or a greedy bot cannot route around
-// anything. That is the change, and it took the clear rate from 0 to what the
-// soak reports.
+// The first bot in this project steered from graph node to graph node, which is
+// exactly what a skeleton does, so it threw away the ghost's cornering
+// advantage and then reported the game as too hard. It put the difficulty cliff
+// a ratio and a half below where it really is and nearly cost the ghost another
+// 0.18 of top speed for nothing. The fix was a pure-pursuit follower that cuts
+// the inside of a turn.
 //
-// It steers with the same stick a human has, a world-axis vector in -1 to 1,
-// so it is subject to the same acceleration, the same wall sliding and the same
-// corner cutting the player is. It never teleports along the graph.
+// The same mistake is available twice over in the new design, and both versions
+// of it would misreport the game rather than make the bot look bad:
+//
+//   1. A bot that always walks to the NEAREST firefly. That was a reasonable
+//      player when there were 345 of them a unit apart and the choice did not
+//      exist. At one per screen the choice is the game: one is close and on the
+//      chaser's side of the map, one is forty units away with nothing near it,
+//      and a bot that takes the near one every time makes the world look far
+//      more lethal than it is.
+//
+//   2. A bot that never jumps, or one that always jumps. On every journey there
+//      is now a question, take the direct line over the fence or the safe line
+//      round to the gate, and a bot with a habit rather than a reason answers it
+//      the same way every time and measures nothing.
+//
+// Both are solved by the same move: the bot plans over a GRID with cost, risk
+// is paid ALONG the route rather than checked at the destination, and a fence
+// crossing is an EDGE WITH A PRICE rather than a wall or a freeway. Then
+// "nearest" already means "cheapest including how dangerous the journey is",
+// the near-and-dangerous firefly loses to the far-and-safe one on its own, and
+// the vault-or-gate question is answered per journey by the same arithmetic
+// that answers everything else. `jumpCost` is the one dial, and sweeping it is
+// how soak.mjs answers whether the asymmetry produces play or a habit.
+//
+// It steers with the same stick a human has, plus the same one-frame jump edge,
+// so it is subject to the same acceleration, the same sliding, the same
+// cornering and the same refusal to jump without a run-up. It never teleports.
 
 const SKILLS = {
-  // A node this many hops from a skeleton or closer costs extra to enter, and
-  // the surcharge grows as the square of how close it is. 7 hops is 14 units,
-  // about seven seconds of skeleton.
-  scare: 7,
-  // Detour, in nodes, the bot will pay to move one hop further from a skeleton
-  // at the closest range. The square law spends almost all of this at 1 and 2
-  // hops and almost none at 6.
-  caution: 0.75,
-  // Standing next to something is never worth any firefly.
+  // --- risk ------------------------------------------------------------------
+  // A cell this near a hunting skeleton, in WORLD UNITS, costs extra to cross,
+  // and the surcharge grows as the square of how close it is. 14 units is about
+  // six and a half seconds of skeleton, which was 7 hops on the old lattice.
+  scare: 14,
+  // Multiplier on the surcharge at point blank. The square law spends almost
+  // all of it inside 5 units and almost none at 12.
+  caution: 6.0,
+  // Inside this, never, at any price.
+  wallAt: 1.8,
   wall: 400,
+
+  // --- the jump ---------------------------------------------------------------
+  // What crossing a fence costs, as a multiple of the cell it saves. 1.0 would
+  // make a vault exactly as cheap as walking the same distance on open ground,
+  // which is what it physically is; anything above 1.0 prices the commitment.
+  // See the sweep in soak.mjs: this is the number the whole asymmetry turns on.
+  jumpCost: 3.0,
+  // How close the fence has to be before the stick presses jump.
+  jumpTrigger: 2.2,
+
+  // --- planning ---------------------------------------------------------------
   think: 0.10,
-  // Pure-pursuit lookahead along the planned path, in units. This is the corner
-  // cut, and it is the ghost's whole advantage over a thing on rails. See the
-  // table in step() for what each value is worth.
+  half: 30,            // planning window half width, world units
+  cell: 1.25,
+  // Rebuild the occupancy raster only after the ghost has moved this far. The
+  // raster is the expensive part; the Dijkstra over it is not.
+  regrid: 8,
+  // Pure-pursuit lookahead, the corner cut, unchanged in value and in reason.
   cut: 1.8,
-  huntRange: 22,        // cost units, so about eleven nodes of clear corridor
-  panicPower: 14,       // how much a lantern is discounted when something is close
+  // Do not abandon the firefly you are already going to unless the new one is
+  // this much better. With one pickup per screen, dithering between two of them
+  // is the single most expensive thing a player can do.
+  switchMargin: 0.75,
+  huntRange: 30,
+  panicPower: 26,
 };
 
-// A binary heap keyed on cost. 170 nodes and 180 edges, so this is a few
-// hundred operations per plan and the bot can afford to re-plan ten times a
-// second for a few hundred simulated minutes.
 function makeHeap(n) {
   const node = new Int32Array(n + 1);
   const cost = new Float64Array(n + 1);
@@ -85,248 +120,278 @@ function makeHeap(n) {
 export function createBot(game, opts = {}) {
   const S = { ...SKILLS, ...opts };
   const nav = game.nav;
-  const N = nav.nodes.length;
-  const danger = new Int32Array(N);
-  const dist = new Float64Array(N);
-  const prev = new Int32Array(N);
-  const bfsQ = new Int32Array(N);
-  const heap = makeHeap(N * 4);
-  const flyNode = nav.fireflies.map((f) => nav.nodeNear(f.u, f.v));
-  const powerNode = nav.powerups.map((p) => nav.nodeNear(p.u, p.v));
 
-  let next = -1;
-  let after = -1;
-  let aimU = 0;
-  let aimV = 0;
+  let grid = null;
+  let gridX = NaN;
+  let gridZ = NaN;
+  let N = 0;
+  let dist = null;
+  let prev = null;
+  let prevJump = null;
+  let skelD = null;
+  let heap = null;
+  let queue = null;
+
   let cool = 0;
-  const stats = { threatTime: 0, panicTime: 0, plans: 0, stuck: 0 };
+  let route = [];          // cell indices, ghost first
+  let routeJump = [];      // routeJump[k] is true if the step INTO route[k] is a vault
+  let goalKey = null;
+  let goalCost = Infinity;
+  let goalPt = null;
+  const stats = {
+    threatTime: 0, panicTime: 0, plans: 0, stuck: 0,
+    jumps: 0, vaults: 0, refused: 0, gatePasses: 0, plannedVaults: 0,
+  };
 
-  // Hops from the nearest hunting skeleton, capped, by multi-source breadth
-  // first. Cheap enough to redo on every plan, which it has to be: a stale
-  // danger field is exactly the thing that gets a bot eaten.
-  function dangerField(solid) {
-    danger.fill(S.scare);
-    let tail = 0;
-    for (const s of solid) {
-      const n = nav.nodeNear(s.u, s.v);
-      if (danger[n] > 0) { danger[n] = 0; bfsQ[tail++] = n; }
+  function ensureGrid(x, z) {
+    if (grid && Math.hypot(x - gridX, z - gridZ) < S.regrid) return;
+    grid = nav.makeGrid({ x, z, half: S.half, cell: S.cell, radius: game.tuning.ghostRadius });
+    gridX = x;
+    gridZ = z;
+    if (N !== grid.n * grid.n) {
+      N = grid.n * grid.n;
+      dist = new Float64Array(N);
+      prev = new Int32Array(N);
+      prevJump = new Uint8Array(N);
+      skelD = new Float64Array(N);
+      heap = makeHeap(N * 4);
+      queue = new Int32Array(N * 8);
     }
-    let head = 0;
-    while (head < tail) {
-      const n = bfsQ[head++];
-      if (danger[n] >= S.scare) continue;
-      for (const m of nav.nodes[n].edges) {
-        if (danger[m] <= danger[n] + 1) continue;
-        danger[m] = danger[n] + 1;
-        bfsQ[tail++] = m;
+  }
+
+  // How far, over the ground, each cell is from the nearest hunting skeleton.
+  // Over the GROUND and not in a straight line, which is the whole point: a
+  // firefly six units away with a fence between it and the chaser is safe, and
+  // a bot measuring straight lines cannot see that. This field is the bot's
+  // half of the asymmetry and it uses no jump edges, because skeletons cannot.
+  function dangerField(solid) {
+    skelD.fill(Infinity);
+    heap.clear();
+    for (const s of solid) {
+      const c = grid.nearestOpen(s.x, s.z);
+      if (c < 0) continue;
+      const d0 = Math.hypot(grid.wx(c) - s.x, grid.wz(c) - s.z);
+      if (d0 < skelD[c]) { skelD[c] = d0; heap.push(c, d0); }
+    }
+    while (heap.size) {
+      const n = heap.pop();
+      const dn = skelD[n];
+      if (dn > S.scare) continue;
+      for (let d = 0; d < 8; d++) {
+        if (grid.wall[n * 8 + d]) continue;
+        const [dx, dz] = grid.DIR8[d];
+        const m = n + dz * grid.n + dx;
+        const step = (dx && dz ? Math.SQRT2 : 1) * grid.cell;
+        if (dn + step >= skelD[m]) continue;
+        skelD[m] = dn + step;
+        heap.push(m, dn + step);
       }
     }
   }
 
-  function enterCost(n) {
-    const d = danger[n];
-    if (d >= S.scare) return 1;
-    if (d <= 1) return S.wall;
-    const close = S.scare - d;
+  function riskMul(c) {
+    const d = skelD[c];
+    if (!(d < S.scare)) return 1;
+    if (d < S.wallAt) return S.wall;
+    const close = (S.scare - d) / S.scare;
     return 1 + S.caution * close * close;
   }
 
-  function plan(here) {
+  // Dijkstra from the ghost. Cost of a step is its LENGTH times the risk of the
+  // cell it enters, so risk is integrated along the whole journey rather than
+  // sampled at the end of it. A fence crossing is an extra edge at jumpCost
+  // times the same length.
+  function plan(from) {
     dist.fill(Infinity);
     prev.fill(-1);
-    dist[here] = 0;
+    prevJump.fill(0);
+    dist[from] = 0;
     heap.clear();
-    heap.push(here, 0);
+    heap.push(from, 0);
     while (heap.size) {
       const n = heap.pop();
       const dn = dist[n];
-      for (const m of nav.nodes[n].edges) {
-        const c = dn + enterCost(m);
+      for (let d = 0; d < 8; d++) {
+        const [dx, dz] = grid.DIR8[d];
+        const m = n + dz * grid.n + dx;
+        const a = n % grid.n;
+        if (a + dx < 0 || a + dx >= grid.n || m < 0 || m >= N) continue;
+        const step = (dx && dz ? Math.SQRT2 : 1) * grid.cell;
+        let c = Infinity;
+        let jumped = 0;
+        if (!grid.wall[n * 8 + d]) {
+          c = dn + step * riskMul(m);
+        } else if (grid.fence[n * 8 + d] && !grid.blocked[m] && !dx !== !dz) {
+          // A vault. Only on the four axis steps, because the real jump carries
+          // 1.53 units at top speed and a diagonal cell step is 1.77.
+          c = dn + step * S.jumpCost * riskMul(m);
+          jumped = 1;
+        } else continue;
         if (c >= dist[m]) continue;
         dist[m] = c;
         prev[m] = n;
+        prevJump[m] = jumped;
         heap.push(m, c);
       }
     }
     stats.plans++;
   }
 
-  // The first TWO steps of the path, because one is not enough. A bot that aims
-  // at the next node and only then looks further goes round every corner on the
-  // graph's own centreline, which is exactly what a skeleton does, and throws
-  // away the single advantage the ghost has: it is a disc in a 2.0 corridor and
-  // can cut the inside of a turn. A bot built that way does not merely play
-  // worse, it MISREPORTS THE GAME: it put the difficulty cliff a full ratio and
-  // a half lower than it really is, which nearly cost the ghost another 0.18 of
-  // speed for nothing. See the table in step().
-  function firstStep(here, goal) {
+  function buildRoute(goal) {
+    route.length = 0;
+    routeJump.length = 0;
     let n = goal;
-    if (n === here) return [-1, -1];
     let guard = 0;
-    let last = -1;
-    while (prev[n] !== here && prev[n] !== -1 && guard++ < N * 2) { last = n; n = prev[n]; }
-    if (prev[n] !== here) return [-1, -1];
-    return [n, last];
+    while (n !== -1 && guard++ < N) {
+      route.push(n);
+      routeJump.push(prevJump[n]);
+      n = prev[n];
+    }
+    route.reverse();
+    routeJump.reverse();
   }
 
-  // The goal is a POINT, not a node. Half the fireflies sit at edge midpoints,
-  // 1.0 from either end, so a bot that walks to the nearest node and stops has
-  // not collected anything: the first version of this did exactly that, left
-  // every midpoint firefly on the floor and could not clear a level however
-  // long it was given. `stuck` in the stats is what it looks like when it
-  // happens, so the counter stays.
-  const goal = { node: -1, u: 0, v: 0 };
-  function chooseGoal(here, state, threat) {
-    let best = -1;
+  // The goal. `dist` already contains the risk of getting there, so this is a
+  // plain minimum and the near-and-dangerous versus far-and-safe question is
+  // already answered inside it. The only judgement left is what a thing is
+  // WORTH, which is where the lantern's discount and the hysteresis live.
+  function chooseGoal(state, threat) {
+    let best = null;
     let bestC = Infinity;
-    let bu = 0;
-    let bv = 0;
+
+    const consider = (key, x, z, bonus) => {
+      const c = grid.index(x, z);
+      if (c < 0) return;
+      const cell = grid.blocked[c] ? grid.nearestOpen(x, z) : c;
+      if (cell < 0 || !(dist[cell] < Infinity)) return;
+      const cost = dist[cell] - bonus;
+      if (cost < bestC) { bestC = cost; best = { key, cell, x, z }; }
+    };
 
     if (state.power) {
       for (const s of game.herd.list) {
         if (s.state !== 'frightened') continue;
-        const n = nav.nodeNear(s.u, s.v);
-        if (dist[n] > S.huntRange || dist[n] >= bestC) continue;
-        bestC = dist[n]; best = n; bu = s.u; bv = s.v;
+        consider(`s${s.id}`, s.x, s.z, S.huntRange);
       }
-      if (best !== -1) { goal.node = best; goal.u = bu; goal.v = bv; return goal; }
+      if (best) { goalKey = best.key; goalCost = bestC; goalPt = best; return best; }
     }
+    for (const p of state.powerups) consider(`p${p.id}`, p.x, p.z, threat < 12 ? S.panicPower : 6);
+    for (const f of state.fireflies) consider(`f${f.id}`, f.x, f.z, 0);
+    if (!best) { goalKey = null; goalPt = null; return null; }
 
-    for (let i = 0; i < powerNode.length; i++) {
-      if (state.powerups[i].taken) continue;
-      const n = powerNode[i];
-      // A lantern is worth a detour, and a big one when something is close: it
-      // is the only thing in the level that turns the chase round.
-      const c = dist[n] - (threat < 9 ? S.panicPower : 2);
-      if (c < bestC) { bestC = c; best = n; bu = nav.powerups[i].u; bv = nav.powerups[i].v; }
+    // Hysteresis. Keep the goal we already committed to unless the new one is
+    // better by a real margin: with one pickup per screen, changing your mind
+    // halfway costs the whole journey twice.
+    if (goalKey && goalKey !== best.key && goalPt) {
+      const c = grid.index(goalPt.x, goalPt.z);
+      const cell = c >= 0 && grid.blocked[c] ? grid.nearestOpen(goalPt.x, goalPt.z) : c;
+      const stillThere = (goalKey[0] === 'f' && state.fireflies.some((f) => `f${f.id}` === goalKey))
+        || (goalKey[0] === 'p' && state.powerups.some((p) => `p${p.id}` === goalKey))
+        || goalKey[0] === 's';
+      if (stillThere && cell >= 0 && dist[cell] < Infinity && dist[cell] < bestC + S.switchMargin * Math.abs(bestC)) {
+        goalCost = dist[cell];
+        return { key: goalKey, cell, x: goalPt.x, z: goalPt.z };
+      }
     }
-    for (let i = 0; i < flyNode.length; i++) {
-      if (state.fireflies.collected[i]) continue;
-      const n = flyNode[i];
-      const f = nav.fireflies[i];
-      // Break the tie between the fireflies sharing a node by which is nearer
-      // on the ground, so the bot sweeps a corridor rather than yo-yoing.
-      const c = dist[n] + 0.4 * Math.hypot(f.u - nav.nodes[here].u, f.v - nav.nodes[here].v) / 20;
-      if (c >= bestC) continue;
-      bestC = c; best = n; bu = f.u; bv = f.v;
-    }
-    goal.node = best; goal.u = bu; goal.v = bv;
-    return goal;
+    goalKey = best.key;
+    goalCost = bestC;
+    goalPt = best;
+    return best;
   }
 
   function step(state, dt) {
-    const g = game.debug.ghost;
-    const here = nav.nodeNear(g.u, g.v);
+    const g = state.ghost;
     const solid = game.herd.list.filter((s) => game.herd.isSolid(s) && s.state !== 'frightened');
-    const nearest = solid.length ? Math.min(...solid.map((s) => Math.hypot(s.u - g.u, s.v - g.v))) : 999;
+    const nearest = solid.length ? Math.min(...solid.map((s) => Math.hypot(s.x - g.x, s.z - g.z))) : 999;
     if (nearest < 8) stats.threatTime += dt;
     if (nearest < 4) stats.panicTime += dt;
+    for (const e of state.events) {
+      if (e.type === 'jump') { stats.jumps++; if (e.overFence) stats.vaults++; }
+      if (e.type === 'jumpRefused') stats.refused++;
+    }
+    // Nothing to steer with while in the air, and the stick is ignored anyway.
+    if (g.airborne) return { x: 0, y: 0, jump: false };
 
     cool -= dt;
-    if (cool <= 0 || next === -1) {
+    if (cool <= 0 || !route.length) {
       cool = S.think;
+      ensureGrid(g.x, g.z);
+      const here = grid.nearestOpen(g.x, g.z);
+      if (here < 0) { stats.stuck++; return { x: 0, y: 0, jump: false }; }
       dangerField(solid);
       plan(here);
-      const gl = chooseGoal(here, state, nearest);
-      if (gl.node === -1) { next = -1; aimU = g.u; aimV = g.v; }
-      else if (gl.node === here) { next = -2; aimU = gl.u; aimV = gl.v; }
-      else {
-        const pair = firstStep(here, gl.node);
-        next = pair[0];
-        after = pair[1];
-        if (next === -1) {
-          // Nowhere to go at all. Take the safest neighbour rather than stop,
-          // which is the one thing that is always wrong.
-          let bestD = -1;
-          for (const m of nav.nodes[here].edges) if (danger[m] > bestD) { bestD = danger[m]; next = m; }
-          after = -1;
-          stats.stuck++;
-        }
-        if (next !== -1) { aimU = nav.nodes[next].u; aimV = nav.nodes[next].v; }
+      const goal = chooseGoal(state, nearest);
+      if (!goal) {
+        // Nothing worth going to inside the window. Walk away from the nearest
+        // skeleton rather than stop, which is the one thing always wrong.
+        stats.stuck++;
+        if (!solid.length) return { x: 0, y: 0, jump: false };
+        const s = solid[0];
+        const dx = g.x - s.x;
+        const dz = g.z - s.z;
+        const l = Math.hypot(dx, dz) || 1;
+        return { x: dx / l, y: dz / l, jump: false };
       }
-    }
-    if (next === -1) return { x: 0, y: 0 };
-    if (next === -2) {
-      // The goal is a point on the tile we are already standing on: a firefly
-      // at an edge midpoint, or a lantern. Steer straight at it.
-      const w0 = nav.toWorld(aimU, aimV);
-      const p0 = nav.toWorld(g.u, g.v);
-      const dx0 = w0.x - p0.x;
-      const dz0 = w0.z - p0.z;
-      const l0 = Math.hypot(dx0, dz0);
-      if (l0 < 0.20) { next = -1; cool = 0; }
-      return l0 < 1e-6 ? { x: 0, y: 0 } : { x: dx0 / l0, y: dz0 / l0 };
+      buildRoute(goal.cell);
+      for (const j of routeJump) if (j) { stats.plannedVaults++; break; }
     }
 
-    // Pure pursuit along the next two edges, which is the corner cut and is
-    // the ghost's whole advantage over a thing on rails. Aiming at the next
-    // node and only then looking further keeps the ghost on the centreline;
-    // aiming at the point S.cut further ALONG the path lets it start the turn
-    // early and slide round the inside of the corner.
-    //
-    // Measured in isolation, 150 random 80-unit routes over 25 levels, ghost
-    // top speed 3.05:
-    //
-    //     lookahead   effective speed   % of top
-    //       0.05          2.386           78.2      a thing on rails
-    //       0.80          2.671           87.6
-    //       1.60          2.827           92.7
-    //       2.40          2.958           97.0
-    //       3.20          2.881           94.5      too wide, grinds the wall
-    //
-    // The first row is what a skeleton gets, near enough: it runs the graph
-    // exactly and always travels at exactly its own speed. So the NOMINAL ratio
-    // of 0.705 is an effective 0.90 against a player who takes every corner
-    // square and an effective 0.73 against one who does not, and that band,
-    // 0.73 to 0.90, is Pac-Man's own 0.75 to 0.95. The asymmetry DESIGN.md
-    // asks for is worth about a fifth of the player's speed, and it is entirely
-    // a matter of how well they drive.
-    //
-    // An earlier version of this switched the aim point outright once the ghost
-    // came within a distance of the next node, and it could deadlock: the wall
-    // stopped the ghost short, the node was never reached, and the follower
-    // waited for ever. Arc length has no such state.
-    const p = nav.toWorld(g.u, g.v);
-    const pts = [[nav.nodes[here].u, nav.nodes[here].v], [nav.nodes[next].u, nav.nodes[next].v]];
-    if (after !== -1 && after !== next) pts.push([nav.nodes[after].u, nav.nodes[after].v]);
-    let seg = 0;
-    let segT = 0;
+    if (route.length < 2) {
+      // Standing on the goal cell. Steer at the exact point.
+      const p = goalPt || { x: g.x, z: g.z };
+      const dx = p.x - g.x;
+      const dz = p.z - g.z;
+      const l = Math.hypot(dx, dz);
+      if (l < 0.15) { route.length = 0; cool = 0; return { x: 0, y: 0, jump: false }; }
+      return { x: dx / l, y: dz / l, jump: false };
+    }
+
+    // Walk the route forward to the nearest point on it, so a route is followed
+    // rather than restarted, then aim S.cut further along. Arc length has no
+    // state and cannot deadlock the way "switch when within d of the next node"
+    // could: that version waited for ever for a node the wall stopped it short
+    // of, and it is the reason this is written as a length and not a test.
+    let k = 0;
     let bestD = Infinity;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const dx = pts[i + 1][0] - pts[i][0];
-      const dy = pts[i + 1][1] - pts[i][1];
-      const ll = dx * dx + dy * dy || 1;
-      let t = ((g.u - pts[i][0]) * dx + (g.v - pts[i][1]) * dy) / ll;
-      t = t < 0 ? 0 : t > 1 ? 1 : t;
-      const d = (g.u - (pts[i][0] + dx * t)) ** 2 + (g.v - (pts[i][1] + dy * t)) ** 2;
-      if (d < bestD) { bestD = d; seg = i; segT = t; }
+    for (let i = 0; i < route.length; i++) {
+      const d = (grid.wx(route[i]) - g.x) ** 2 + (grid.wz(route[i]) - g.z) ** 2;
+      if (d < bestD) { bestD = d; k = i; }
     }
+    if (k >= route.length - 1) { route.length = 0; cool = 0; }
     let rem = S.cut;
-    let si = seg;
-    let st = segT;
-    for (;;) {
-      const left = (1 - st) * 2.0;
-      if (rem <= left || si + 1 >= pts.length - 1) {
-        const t = Math.min(1, st + rem / 2.0);
-        aimU = pts[si][0] + (pts[si + 1][0] - pts[si][0]) * t;
-        aimV = pts[si][1] + (pts[si + 1][1] - pts[si][1]) * t;
-        break;
-      }
-      rem -= left;
-      si++;
-      st = 0;
+    let aimI = Math.min(k + 1, route.length - 1);
+    let px = g.x;
+    let pz = g.z;
+    let wantJump = false;
+    let toFence = Infinity;
+    let travelled = 0;
+    for (let i = k + 1; i < route.length; i++) {
+      const qx = grid.wx(route[i]);
+      const qz = grid.wz(route[i]);
+      const seg = Math.hypot(qx - px, qz - pz);
+      if (routeJump[i] && travelled < toFence) toFence = travelled;
+      travelled += seg;
+      px = qx; pz = qz;
+      aimI = i;
+      rem -= seg;
+      if (rem <= 0) break;
     }
-    // Arrived at the last node of the plan: plan again rather than orbit it.
-    const endU = pts[pts.length - 1][0];
-    const endV = pts[pts.length - 1][1];
-    if (Math.hypot(endU - g.u, endV - g.v) < 0.30) { next = -1; after = -1; cool = 0; }
-
-    const w = nav.toWorld(aimU, aimV);
-    const dx = w.x - p.x;
-    const dz = w.z - p.z;
-    const len = Math.hypot(dx, dz);
-    if (len < 1e-6) return { x: 0, y: 0 };
-    return { x: dx / len, y: dz / len };
+    // The vault. The plan asked for one, the fence is close, and the ghost is
+    // allowed to make it. Everything that decides WHETHER it is legal lives in
+    // rules.js; all the bot does is press the button at the right moment, the
+    // same as a player.
+    if (toFence < S.jumpTrigger && g.canJump) {
+      const lx = g.x + g.vx * game.airTime;
+      const lz = g.z + g.vz * game.airTime;
+      if (nav.crossesBarrier(g.x, g.z, lx, lz, 0) && nav.discClear(lx, lz, game.tuning.ghostRadius)) wantJump = true;
+    }
+    const ax = grid.wx(route[aimI]);
+    const az = grid.wz(route[aimI]);
+    const dx = ax - g.x;
+    const dz = az - g.z;
+    const l = Math.hypot(dx, dz);
+    if (l < 1e-6) return { x: 0, y: 0, jump: wantJump };
+    return { x: dx / l, y: dz / l, jump: wantJump };
   }
 
   return { step, stats, S };
@@ -337,31 +402,43 @@ export function createBot(game, opts = {}) {
 // a much weaker statement than "the passive player dies in 17 seconds", and the
 // first one is true at any speed ratio at all.
 export function passiveBot(game) {
-  const stats = { threatTime: 0, panicTime: 0, plans: 0, stuck: 0 };
+  const stats = { threatTime: 0, panicTime: 0, plans: 0, stuck: 0, jumps: 0, vaults: 0, refused: 0, plannedVaults: 0 };
   return {
     stats,
     step: (state, dt) => {
-      if (game) {
-        const g = game.debug.ghost;
-        const solid = game.herd.list.filter((s) => game.herd.isSolid(s) && s.state !== 'frightened');
-        const near = solid.length ? Math.min(...solid.map((s) => Math.hypot(s.u - g.u, s.v - g.v))) : 999;
-        if (near < 8) stats.threatTime += dt;
-        if (near < 4) stats.panicTime += dt;
-      }
-      return { x: 0, y: 0 };
+      const g = state.ghost;
+      const solid = game.herd.list.filter((s) => game.herd.isSolid(s) && s.state !== 'frightened');
+      const near = solid.length ? Math.min(...solid.map((s) => Math.hypot(s.x - g.x, s.z - g.z))) : 999;
+      if (near < 8) stats.threatTime += dt;
+      if (near < 4) stats.panicTime += dt;
+      return { x: 0, y: 0, jump: false };
     },
   };
 }
 
-// The careless player: the same greedy walk to the nearest firefly with the
-// danger term switched off entirely, so it only ever avoids a skeleton by
-// walking into one and dying. This is the LOWER bound the sweep needs. The
-// careful bot has perfect information and re-plans ten times a second, so it
-// flatters any ratio; the gap between the two is how much the chase actually
-// rewards playing well, and a ratio where that gap is zero is a ratio with no
-// game in it.
+// The careless player: the same planner with the danger term switched off, so
+// it only ever avoids a skeleton by walking into one and dying. This is the
+// LOWER bound the sweeps need. The careful bot has perfect information and
+// re-plans ten times a second, so it flatters any setting; the gap between the
+// two is how much the game rewards playing well, and a setting where that gap
+// is zero is a setting with no game in it.
 export function recklessBot(game) {
-  return createBot(game, { caution: 0, wall: 1, scare: 1, panicPower: 2, think: 0.16 });
+  return createBot(game, { caution: 0, wall: 1, wallAt: 0, scare: 1, panicPower: 4, think: 0.16, switchMargin: 0 });
+}
+
+// The third player, and the one that answers the owner's question directly: the
+// careful bot with the vault priced at nothing, so it crosses every fence it
+// meets and never walks to a gate. If this one plays as well as the careful bot
+// then the jump has no cost and the asymmetry is decoration.
+export function vaultBot(game) {
+  return createBot(game, { jumpCost: 1.0 });
+}
+
+// And its opposite, which never jumps at all: the player who has not learned
+// the mechanic. The gap between this and the careful bot is what the jump is
+// WORTH, and it is the number that says whether the feature earns its place.
+export function groundBot(game) {
+  return createBot(game, { jumpCost: 1e6 });
 }
 
 export default createBot;

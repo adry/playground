@@ -64,22 +64,39 @@ export const FLY_CELL = 18;
 // FLY_CELL - 2 * FLY_REACH and as far as FLY_CELL + 2 * FLY_REACH.
 export const FLY_REACH = 4.0;
 
-// The power pellet lattice, in world units. One jack-o'-lantern per 96, which
-// is one per about twenty eight fireflies.
-export const POWER_CELL = 96;
+// The power pellet lattice, in world units, with the jitter it is allowed. The
+// rules half asked for a FLOOR of one per 64 by 64 box anywhere, and a lattice
+// of pitch p with jitter j meets it when p + 2j <= 64 (no gap wider than a box)
+// and p <= 64 - 2j (every box holds one whole jitter window, so the guarantee
+// does not care how the jitters happen to correlate). 52 and 5 satisfy both
+// with two units of slack, and 5 is enough freedom to put the pellet on a path
+// rather than in the middle of nowhere.
+export const POWER_CELL = 52;
+export const POWER_REACH = 5;
 
-// Open graves. src/ghost/ground.js can only cut the floor MAX_GROUND_HOLES
-// times and throws at the next one, so in an endless world the budget has to be
-// a property of the GEOMETRY rather than of a level: at most one open grave per
-// region of this size, placed within HOLE_REACH of the region's centre. Two
-// graves are then never closer than HOLE_REGION - 2 * HOLE_REACH = 24, and a
-// disc of radius 20 spans less than HOLE_REGION on each axis so it can touch at
-// most two regions each way, which is at most four graves. That is exactly the
-// floor's limit, and it holds everywhere, forever, with no bookkeeping.
-export const HOLE_REGION = 48;
-export const HOLE_REACH = 12;
+// Graves. Two constraints pull in opposite directions and this is where they
+// meet.
+//
+//   The FLOOR: the rules half re-homes a dead skeleton to a grave 10 to 20
+//   units from the ghost, so there has to be one in every 32 by 32 box. One
+//   grave per chunk, jittered by at most GRAVE_REACH about the chunk centre,
+//   gives that when 24 + 2 * GRAVE_REACH <= 32 and 24 <= 32 - 2 * GRAVE_REACH,
+//   which is GRAVE_REACH <= 4.
+//
+//   The CEILING: src/ghost/ground.js can only cut the floor MAX_GROUND_HOLES
+//   times and THROWS at the next one. Grave x coordinates are 24 * cx + 12 +
+//   jitter, so two graves share a 40 wide window only when their chunks differ
+//   by at most one on that axis: 2 * 24 - 2 * GRAVE_REACH = 41 > 40. At most
+//   two columns and two rows, so AT MOST FOUR GRAVES WITHIN A DISC OF RADIUS 20
+//   of anywhere in the world, which is exactly what the floor allows.
+//
+// GRAVE_REACH = 3.5 satisfies both with a unit to spare at each end. The
+// consumer's side of the bargain is in index.js: cut holes for the nearest
+// MAX_NEAR_HOLES graves inside HOLE_RADIUS and no others.
+export const GRAVE_REACH = 3.5;
 export const HOLE_RADIUS = 20;
 export const MAX_NEAR_HOLES = 4;
+export const GRAVE_BOX = 32;
 
 // The entrance. The player starts at the origin and the owner asked for the
 // start to be spacious, so nothing is built inside this radius and the site
@@ -201,7 +218,7 @@ export function createField(seed) {
   }
   function vPathsNear(v, reach) {
     const lo = Math.ceil((v - reach - PATH_SWING) / PATH_SPACING);
-    const hi = Math.floor((v + reach + PATH_SPACING * 0 + PATH_SWING) / PATH_SPACING);
+    const hi = Math.floor((v + reach + PATH_SWING) / PATH_SPACING);
     const out = [];
     for (let m = lo; m <= hi; m++) out.push(m);
     return out;

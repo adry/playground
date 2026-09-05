@@ -37,4 +37,20 @@ import './vault.js';      // 1.77, the only building, and the widest footprint
 import './calvary.js';    // 1.82, a cross standing on three steps
 import './obelisk.js';    // 1.85, the tallest thing in the graveyard
 
+// NOT IN THE SET, deliberately.
+//
+// anchor.js, ironmarker.js, pillow.js, railed.js, rustic.js and soldier.js are
+// six more stones that were being built when the owner said the set was big
+// enough. All six are complete files that register cleanly and measure sane
+// dimensions, but none was reviewed at scene size and two were mid-fix when
+// they stopped: the soldier's cross read as an up arrow, and the rustic cross's
+// logs were too straight.
+//
+// They are left on disk rather than deleted, and left OUT of this file rather
+// than registered, because an unreviewed stone in the set is worse than no
+// stone: the layout generator would start placing it in levels. To take one,
+// render it beside cross and fred at 300x400 first, then add an import here and
+// a measured box to src/game/layout/footprints.js. Registering without the
+// second is a silent no-op: a stone not in footprints.js is never placed.
+
 export { VARIANTS, createTombstone } from '../tombstones.js';
