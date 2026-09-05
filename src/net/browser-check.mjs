@@ -139,7 +139,8 @@ try {
 
     // The editor is a tool before it is an account.
     ok(await page.isVisible('#view'), 'the editor opens without anybody signing in');
-    ok(await page.isVisible('button:text-is("save json")'), 'and save json is there, as it always was');
+    ok(await page.isVisible('button:text-is("save")'), 'and the file save is there, as it always was');
+    ok(await page.isVisible('button:text-is("download a copy")'), 'and so is the download');
 
     await signIn(page);
     eq(fake.users.size, 1, 'creating an account makes one');
@@ -454,9 +455,9 @@ try {
     ok(true, 'signing in says it cannot rather than hanging');
 
     await page.keyboard.press('Escape');
-    await page.click('button:text-is("save json")');
+    await page.click('button:text-is("download a copy")');
     await page.waitForTimeout(500);
-    ok(await page.isVisible('#view'), 'and the editor is the tool it always was: json still saves');
+    ok(await page.isVisible('#view'), 'and the editor is the tool it always was: a file still saves');
     ok(await page.isVisible('button:text-is("play this")'), 'and play is still there');
     eq(errors.length, 0, 'no page errors', errors.join('\n'));
     await ctx.close();

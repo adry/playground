@@ -408,3 +408,35 @@ fences and each other, nine come out at about 11.
 It is the arena shrinking under the requirement. The straight choice is nine at
 about 11, or five at about 20, and it is the owner's to make now that levels are
 authored by hand.
+
+### SETTLED: about eleven apart, and "cross the screen" is retired
+
+The table above is the ceiling with the WHOLE arena available. It is not, and
+the requirement is not reachable at any count once the camera is taken into
+account. Measured on a 30 by 30 arena, six fireflies:
+
+| available to place in | six fireflies, best nearest neighbour |
+|---|---|
+| the whole arena | 15.9 |
+| less the two near walls' blind bands | 12.3 |
+| less the three dim corners as well | 11.5 |
+| and in practice, dodging props and fences too | 11.9 mean, 9.0 worst over 100 arenas |
+
+The bands and the corners are not negotiable: they are the difference between a
+firefly the player can see and one they cannot, and "Where a firefly may not go"
+above derives both. Six is the owner's count. So the spacing is the thing that
+gave, and **the owner has taken it: about eleven apart is the shipped answer and
+the 15-to-25 "have to cross the screen for the next one" ambition is formally
+retired for this arena size.**
+
+Two consequences, so nobody re-derives them:
+
+- `FLY_GAP` in `field.js` and `gap` in `fireflies.js` are **nine**, not twelve.
+  A floor of twelve sits above the measured ceiling of 11.5 and vetoes the sixth
+  firefly in every level. That is not caution, it is an impossible constraint:
+  the shipped demo came out with five and the audit failed it for having five.
+- The ambition is not dead, it is arena-bound. Six fireflies 15 to 25 apart
+  needs a bigger yard, and the same table is how to size one: the spacing scales
+  with the arena's usable width, so 20 apart at six wants roughly 40 by 40 of
+  which 65% is visible. That is a decision about the camera and the level size,
+  not about the fireflies.

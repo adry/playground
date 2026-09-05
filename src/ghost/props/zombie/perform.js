@@ -869,12 +869,25 @@ export function createZombiePerformance({
   // figure reads as a puppet on rails, which is the exact failure the brief
   // named. Simulated, it is the character.
   //
-  // So it is a pendulum, driven by the ROOT's measured world acceleration. The
-  // root and not the neck, deliberately: the pelvis's motion does not depend on
-  // what the head is doing, so there is no feedback path and the loop cannot
-  // ring itself up. Feeding the neck's own acceleration back into the neck's
-  // own rotation is a closed loop with a one frame delay, and at these gains it
-  // is a loop that howls.
+  // So it is a pendulum, driven by the measured world acceleration of the point
+  // it hangs from, which is the NECK ANCHOR.
+  //
+  // The choice of point is load bearing and the obvious one is wrong. The
+  // pelvis is the tempting measurement because it is unambiguously upstream,
+  // but a pelvis that only translates gives a head almost nothing: the torque
+  // about the atlas from a vertical acceleration is comZ * a_y, and comZ on a
+  // head this round is a couple of centimetres, so the bob would move the head
+  // by under a degree. Everything that actually throws a big head about is
+  // ROTATIONAL: the lurch, the pelvis list, the torso pitching over. At the
+  // neck anchor, 0.64 above the hips, all of that arrives as linear
+  // acceleration, and measured there the walk drives the head an order of
+  // magnitude harder.
+  //
+  // And it is still not a feedback loop, which is the reason the pelvis looked
+  // necessary in the first place. J.neck's world position is a function of the
+  // group, the root and the two spine joints only. The head is a LEAF below it.
+  // So the head's own rotation cannot reach this measurement, and the one frame
+  // of lag is honest lag rather than a delay in a loop that would howl.
   //
   // The torque about the atlas is r cross m*a, with r the vector from the pivot
   // to the head's centre of mass, both measured off the rig above:
@@ -902,14 +915,19 @@ export function createZombiePerformance({
   const rootAcc = new THREE.Vector3();
   const bodyAcc = new THREE.Vector3();
   let accPrimed = false;
-  // Gain, in radians per unit of torque per unit mass. Set so that the walk's
-  // own vertical acceleration, about 0.9 g at this bob and cadence, produces
-  // about 6 degrees of nod: any less and the head reads as bolted on, any more
-  // and it detaches from the shoulders, which on a figure with no neck happens
-  // at surprisingly small angles.
-  const HEAD_GAIN = 0.085 * chibi + 0.012;
-  const HEAD_PITCH_CAP = 0.34;
-  const HEAD_ROLL_CAP = 0.26;
+  // Gain, in radians per metre per second squared. Set against the measured
+  // acceleration at the neck during a steady shamble, which runs about 7 m/s^2
+  // fore-aft and 5 lateral: this puts the pitch drive on its cap at the peak of
+  // each lurch and the roll at about 9 degrees once a cycle, which is the
+  // waddle read. Any less and the head is bolted on; any more and it visibly
+  // parts company with the shoulders, which on a figure with no neck happens at
+  // surprisingly small angles.
+  const HEAD_GAIN = 0.030 * chibi + 0.006;
+  // The caps are the rest of the head's angular budget, after the authored
+  // HEAD_REL_MAX has taken its share. 0.63 + 0.16 is 0.79, and 0.79 * 0.70 is
+  // 0.55, which is exactly LIMITS.head.x. The two numbers are not independent.
+  const HEAD_PITCH_CAP = 0.16;
+  const HEAD_ROLL_CAP = 0.30;
 
   // Jaw drive. Measured off the HEAD, because the mandible hangs off the head
   // and it is the head's acceleration it feels, and the head is now the thing
@@ -941,7 +959,7 @@ export function createZombiePerformance({
 
   group.updateMatrixWorld(true);
   J.head.getWorldPosition(headPrev);
-  J.root.getWorldPosition(rootPrev);
+  J.neck.getWorldPosition(rootPrev);
 
   // ===========================================================================
   // PHASES
@@ -1110,10 +1128,9 @@ export function createZombiePerformance({
     // The head is NOT driven up here. It is left to arrive on its own: the body
     // stands up, the head lags most of a second behind it, and the shape of
     // that lag is the head spring's own. All this does is stop pointing it at
-    // the floor.
-    const gaze = track([[0, 3], [0.7, -14], [1.5, 4], [2.2, 6]], t) * D;
-    T.neck = mix(T.thorax, gaze, 0.16);
-    T.head = gaze;
+    // the floor, and let it look up as the torso comes vertical.
+    headRel = clamp(track([[0, -2], [0.7, -22], [1.5, -4], [2.2, 0]], t) * D,
+      -HEAD_REL_MAX, HEAD_REL_MAX);
 
     // The arms fling out for balance and then fold back in, and they stay well
     // inside LIMITS.shoulder. easeOutElastic rings this on the way back and the
@@ -1206,8 +1223,10 @@ export function createZombiePerformance({
     // ghost, and that is one clamped number. Everything else it does arrives
     // through driveHead, out of the body's own acceleration.
     T.headYaw = clamp(err, -0.6, 0.6);
-    T.head = (-3 + 8 * moving) * D + (dist < TOTAL_H * 1.6 ? -5 * D : 0);
-    T.neck = mix(T.thorax, T.head, 0.16);
+    // Against the chest, and the chest is already leaning forward, so a small
+    // negative here is a head held level and staring straight ahead. Which is
+    // the pose: the body slouches, the head does not.
+    headRel = (-10 - 5 * moving) * D + (dist < TOTAL_H * 1.6 ? -4 * D : 0);
     T.headRoll = 0;
 
     // Arms LOW and heavy, not out in front. Two reasons, and the second is the
@@ -1340,9 +1359,7 @@ export function createZombiePerformance({
     T.root = pitch;
     T.lumbar = pitch + 6 * D;
     T.thorax = T.lumbar + 8 * D;
-    const gaze = track([[0, 6], [0.5, 34], [2.0, 82]], t) * D;
-    T.neck = mix(T.thorax, gaze, 0.16);
-    T.head = gaze;
+    headRel = clamp(track([[0, 0], [0.5, 14], [2.0, 30]], t) * D, -HEAD_REL_MAX, HEAD_REL_MAX);
     T.headYaw = 0;
     T.headRoll = 0;
     const arm = track([[0, -26], [0.8, -14], [2.4, 8]], t) * D;
@@ -1608,13 +1625,13 @@ export function createZombiePerformance({
     );
   }
 
-  // The pelvis's acceleration in the BODY's frame, measured one frame late.
-  // Velocity is smoothed before it is differenced, because differencing twice
-  // at a variable dt is otherwise mostly noise.
+  // The neck anchor's acceleration in the BODY's frame, measured one frame
+  // late. Velocity is smoothed before it is differenced, because differencing
+  // twice at a variable dt is otherwise mostly noise.
   let lagPitch = 0;
   let lagRoll = 0;
   function measureBody(dt) {
-    J.root.getWorldPosition(rootPos);
+    J.neck.getWorldPosition(rootPos);
     if (accPrimed) {
       v1.subVectors(rootPos, rootPrev).divideScalar(dt);
       v2.copy(v1).sub(rootVel).divideScalar(dt);
@@ -1706,13 +1723,18 @@ export function createZombiePerformance({
   const POSE_KEYS = Object.keys(T).filter((k) => k !== 'lift');
 
   function applyPose(dt) {
-    // The head's three springs get the AUTHORED intent plus the MEASURED lag,
-    // and the lag is added to the target rather than to the output: a spring
-    // driven by a target it is chasing lags it, rings around it and overshoots
-    // it, and all three of those are the point. Added after the spring it would
-    // be a decoration drawn on top, which is the thing this project does not do.
-    T.head += lagPitch;
-    T.neck += lagPitch * 0.22;
+    // The head's springs get the AUTHORED intent plus the MEASURED lag, and the
+    // lag is added to the TARGET rather than to the output: a spring driven by
+    // a target it is chasing lags it, rings around it and overshoots it, and
+    // all three of those are the point. Added after the spring it would be a
+    // decoration drawn on top, which is the thing this project does not do.
+    //
+    // The sum is clamped to the head's whole angular budget here, once, so that
+    // the per-joint clamps further down are a safety net that never fires
+    // rather than a shaper that quietly eats the lag on every big beat.
+    const rel = clamp(headRel + lagPitch, -0.90, 0.83);
+    T.neck = T.thorax + rel * NECK_SHARE;
+    T.head = T.thorax + rel;
     T.headRoll += lagRoll;
 
     for (const key of POSE_KEYS) {
@@ -1756,10 +1778,15 @@ export function createZombiePerformance({
       const sh = S[`shoulder${side}`].value + fast * 0.5;
       const el = S[`elbow${side}`].value + fast;
       const wr = S[`wrist${side}`].value + fast * 1.6;
-      let shoulderX = sh - thorax;
-      let shoulderZ = sgn * S[`spread${side}`].value;
+      let shoulderX = lim('shoulder', 'x', sh - thorax);
+      // The published z range is one-sided, [-0.35, 1.45], because it is
+      // written for a limb whose OUTWARD direction is positive z. On the right
+      // arm outward is negative z, so the clamp is applied to the outward
+      // amount and the sign put back, or the right arm is pinned to 0.35 while
+      // the left swings to 1.45 and the figure walks lopsided.
+      let shoulderZ = sgn * lim('shoulder', 'z', S[`spread${side}`].value);
       let elbowX = el - sh;
-      let wristX = wr - el;
+      let wristX = lim('wrist', 'x', wr - el);
 
       if (armBlend > 0) {
         // The chain hangs off the shoulder anchor, which is four joints down
@@ -1790,11 +1817,12 @@ export function createZombiePerformance({
         }
       }
 
-      J[`shoulder${side}`].rotation.set(
-        lim('shoulder', 'x', shoulderX), 0, lim('shoulder', 'z', shoulderZ),
-      );
+      // Written UNCLAMPED from here, because from here it may be an IK answer
+      // and clamping a solver's answer moves the hand. The authored halves were
+      // clamped above, where they are still authored.
+      J[`shoulder${side}`].rotation.set(shoulderX, 0, shoulderZ);
       J[`elbow${side}`].rotation.x = elbowX;
-      J[`wrist${side}`].rotation.x = lim('wrist', 'x', wristX);
+      J[`wrist${side}`].rotation.x = wristX;
     }
   }
 
@@ -2091,7 +2119,7 @@ export function createZombiePerformance({
     group.position.set(pos.x, S.lift.value - rootRest.y * scale, pos.z);
     group.rotation.y = yaw;
     group.updateMatrixWorld(true);
-    J.root.getWorldPosition(rootPrev);
+    J.neck.getWorldPosition(rootPrev);
     J.head.getWorldPosition(headPrev);
     rootVel.set(0, 0, 0); rootAcc.set(0, 0, 0);
     headVel.set(0, 0, 0); headAcc.set(0, 0, 0);

@@ -205,8 +205,8 @@ export const M = {
   // length is set by LEGIBILITY, not by the reference: 4.4 px at 720p is the
   // shortest mark that still reads as a line rather than a speck.
   stitch: {
-    length: f(0.042),
-    thickness: f(0.0055),
+    length: f(0.036),
+    thickness: f(0.0042),
     forehead: 3,
     cheek: 2,
   },

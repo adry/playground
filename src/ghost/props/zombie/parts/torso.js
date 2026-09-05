@@ -255,7 +255,11 @@ export function buildTorso({ materials }) {
       const a = Math.PI / 2 + (i / STEPS - 0.5) * 2 * reach;
       // Ribs are shallower than the skin at the front and meet it at the sides,
       // which is what makes them sit INSIDE the cavity rather than on it.
-      const inset = M.cavity.ribFront + (1 - M.cavity.ribFront) *
+      // The ends stop at 0.86 of the shell rather than reaching 1.0. At 1.0 the
+      // tube's CENTRE line lies on the skin, so half of every rib sits outside
+      // the body and the three of them read as fat pale sausages strapped
+      // across the chest, which is what the first pass looked like.
+      const inset = M.cavity.ribFront + (0.86 - M.cavity.ribFront) *
         smoothstep(M.cavity.halfAngle * 0.72, reach, Math.abs(a - Math.PI / 2));
       // and they droop forward and down, as real ribs do.
       const droop = 0.30 * M.cavity.ribSpacing *

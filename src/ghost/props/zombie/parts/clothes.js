@@ -51,7 +51,7 @@ export function buildJacket({ materials }) {
 
   const open = M.jacket.openHalfAngle;
   const arc = Math.PI * 2 - 2 * open;
-  const gap = 0.010 * M.height;          // standoff from the body
+  const gap = 0.007 * M.height;          // standoff from the body
   const top = M.jacket.top;
 
   const hemAt = (u) => M.jacket.hem + tornEdge(u, 9, M.jacket.tatter, 3);
@@ -62,12 +62,23 @@ export function buildJacket({ materials }) {
   // Radius, with a slow fold running round the garment. Cloth that follows the
   // body exactly reads as paint; three shallow folds are enough to break the
   // highlight without turning it into corrugated iron.
+  // A jacket has a SHOULDER YOKE: it stands off the body near the top, over
+  // the deltoids, and follows it further down. Built without one, the garment
+  // hugged the chest at shoulder height and the deltoids pushed straight
+  // through it, which read as bare shoulders with a bib hung under them.
+  const yoke = (y) => {
+    const t = Math.max(0, (y - (M.y.shoulder - 0.075 * M.height)) / (0.075 * M.height));
+    return 1 + 0.30 * Math.min(1, t) * Math.min(1, t);
+  };
   const radAt = (u, y, out) => {
     const [hw, hd] = trunkProfile(y);
     const a = Math.PI / 2 + open + u * arc;
     const fold = 1 + 0.045 * Math.sin(u * Math.PI * 3.0 + 0.7) * (0.35 + 0.65 * (1 - Math.abs(u - 0.5) * 2));
     const k = gap + out;
-    return new THREE.Vector3(Math.cos(a) * (hw * fold + k), y, Math.sin(a) * (hd * fold + k));
+    const yk = yoke(y);
+    // The yoke widens the garment sideways only: a jacket that stands 30 per
+    // cent off the chest as well looks inflated.
+    return new THREE.Vector3(Math.cos(a) * (hw * fold * yk + k), y, Math.sin(a) * (hd * fold + k));
   };
 
   const outer = (u, vv) => radAt(u, yAt(u, vv), M.jacket.thickness);

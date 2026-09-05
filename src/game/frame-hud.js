@@ -10,6 +10,33 @@
 //
 // The buckets are deliberately coarse. The question this answers is "was that
 // hitch the sim, the props still baking, or the draw", not "which line".
+//
+// ===========================================================================
+// A HITCH THIS INSTRUMENT WILL SHOW YOU THAT IS NOT THE GAME
+// ===========================================================================
+//
+// Frames of 200 to 1200 ms turn up in headless runs on the capture container
+// and they are the CONTAINER SCHEDULING, not the code. Three things prove it,
+// and all three are worth repeating before anyone spends a day on it:
+//
+//   the simulation is bit-deterministic, verified by hashing the ghost's
+//   position over 3000 frames across repeated runs in one process;
+//
+//   the spikes land on DIFFERENT frames each run, which a deterministic
+//   workload cannot do if the cost is algorithmic;
+//
+//   an allocation-free arithmetic control loop, doing nothing but Math.sqrt
+//   in a tight loop, reproduces them at the same magnitudes: 797 ms, 356 ms,
+//   340 ms, on a run of the same length.
+//
+// This is the third time this project has been misled by its own instrument.
+// The other two are recorded in editor-perf.mjs and in game/world/audit.js and
+// they are both the same shape: a number taken once, out of order or on a cold
+// process, pointing the opposite way to the same number taken warm.
+//
+// So: a spike here is evidence only if it reproduces on the SAME frame across
+// runs, or if a bucket accounts for it. An unattributed spike on a machine you
+// do not own is not a finding.
 
 const HISTORY = 240;      // four seconds at 60fps
 const HITCH_MS = 33;      // a dropped frame at 60fps

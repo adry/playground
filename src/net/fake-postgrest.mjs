@@ -108,7 +108,16 @@ export function makeFake({ rejectKey = false, legacy = false } = {}) {
     //   every other part of the board works and only the placing goes missing,
     //   which is the sort of bug that survives a release.
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.setHeader('Access-Control-Allow-Headers', 'apikey,authorization,content-type,prefer,accept,x-client-info');
+    // ECHOED, not listed. The gateway allows whatever the browser asks for, and
+    // a list written by hand is a list that goes stale: the auth library sends
+    // `x-supabase-api-version` and `x-client-info` as well as the obvious four,
+    // and a fake that named only the obvious four failed a preflight the real
+    // project would have passed. That is the fake being wrong about the world,
+    // which is the one thing a fake must never be.
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      req.headers['access-control-request-headers'] || 'apikey,authorization,content-type,prefer,accept',
+    );
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
     res.setHeader('Access-Control-Expose-Headers', 'content-range,content-location');
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }

@@ -11,8 +11,8 @@
 // WHAT SIGNED OUT SAVING DOES, since it is the question this design turns on.
 // It does not silently keep anything anywhere. The editor already has two ways
 // to not lose work, and both of them are better than a half account: the
-// autosave, which survives a reload, and `save json`, which survives
-// everything. So `save online` while signed out opens this panel at the sign in
+// autosave, which survives a reload, and the file the editor writes, which
+// survives everything. So `save online` while signed out opens this panel at the sign in
 // step and finishes the save afterwards, and the level is untouched if the
 // person changes their mind. A queue of things to upload later would be a third
 // place work can live, and the first place it can be lost.
@@ -260,7 +260,7 @@ export function createOnlinePanel({
     }
     state.busy = false;
     if (!res.ok) {
-      note(`not saved: ${res.reason}. The level is untouched, and save json still works.`, true);
+      note(`not saved: ${res.reason}. The level is untouched, and saving a file still works.`, true);
       return null;
     }
     bind(res.slug || slug);
@@ -394,7 +394,7 @@ export function createOnlinePanel({
       el(page, 'h2', { text: 'sign in' }),
       el(page, 'p', {
         text: 'Your levels are kept in your account, private until you say otherwise. '
-          + 'The editor works signed out too: play, and save json, need nobody.',
+          + 'The editor works signed out too: building, playing and saving a file need nobody.',
       }),
       el(page, 'div', { class: 'row' }, [
         el(page, 'button', {
@@ -496,7 +496,7 @@ export function createOnlinePanel({
   }
 
   return {
-    // The button beside `save json`. Signed in, it saves; signed out, it opens
+    // The button beside save. Signed in, it saves; signed out, it opens
     // the panel and saves as soon as there is somebody to save for.
     save: () => saveCurrent(),
     // The button that opens the account and the list.
