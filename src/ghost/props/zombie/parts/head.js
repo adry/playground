@@ -129,7 +129,19 @@ const aim = (x, y, z = 1) => v3(x, y - BALL.cy, z * RZ).normalize();
 // come from `metrics.js` as LENGTHS on the surface and are converted to angles
 // here, so the numbers in metrics stay measurable against the reference.
 
-const angFor = (halfLen, atDir) => Math.atan2(halfLen, headR(atDir));
+// A LENGTH on the ball's surface, as an angle from the feature's axis.
+//
+// The surface point at angle theta from the axis stands `R * sin(theta)` off
+// it, so the conversion is an arcsine and NOT an arctangent. Written as an
+// arctangent first, and every feature on the face came out 13 per cent small
+// -- the mouth worst of all, because it is the widest.
+//
+// It also divides by `rhoIn`, so the number in metrics.js means THE VISIBLE
+// OPENING. A grommet's outline is where its rim's outer edge goes; what a
+// person measuring the reference is measuring is where the dark stops, which
+// is at rho = rhoIn. Sizing to the outline instead made every feature a
+// further tenth too small on top of the arctangent.
+const angFor = (halfLen, atDir, rhoIn) => Math.asin(Math.min(0.985, halfLen / headR(atDir))) / rhoIn;
 
 const socketAxis = (side) => aim(side * M.socket.separation / 2, M.y.brow - M.y.atlas);
 const noseAxis = aim(0, M.y.nose - M.y.atlas);
@@ -156,10 +168,11 @@ export function buildHead({ materials }) {
   // it: THE AMOUNT OF SMOOTH GREEN FACE LEFT IS WHAT CARRIES THE CHARM. A
   // broad clear forehead, a clear bridge between the sockets and clear cheek
   // below all have to survive.
+  const SOCK_IN = 0.90;
   const socket = (side) => {
     const A = socketAxis(side);
-    const ax = angFor(M.socket.width / 2, A);
-    const ay = angFor(M.socket.height / 2, A);
+    const ax = angFor(M.socket.width / 2, A, SOCK_IN);
+    const ay = angFor(M.socket.height / 2, A, SOCK_IN);
     return grommet({
       R: headR, axis: A, up: v3(0, 1, 0),
       outline: ellipseOutline(ax, ay),
@@ -173,7 +186,7 @@ export function buildHead({ materials }) {
       // orbit down and turned two round sockets into two almonds; built as the
       // rim's own crest it can only push the eye's edge OUT.
       jutMax: (phi) => M.head.browJut * mix(0.40, 1.0, smoothstep(-0.25, 0.85, Math.sin(phi))),
-      rhoIn: 0.90, rhoOut: 1.36,
+      rhoIn: SOCK_IN, rhoOut: 1.30,
       phiSteps: 56, dishSteps: 9, rimSteps: 7,
       floorFlat: 0.70,
     });
@@ -190,10 +203,11 @@ export function buildHead({ materials }) {
   // read as a beak. The outline here is an explicit half-width profile with
   // its widest point BELOW centre and a notch riding up into the bottom edge
   // for the nasal spine, which is what turns one dark drop into two lobes.
+  const NOSE_IN = 0.86;
   const nose = (() => {
     const A = noseAxis;
-    const ax = angFor(M.nose.width / 2, A);
-    const ay = angFor(M.nose.height / 2, A);
+    const ax = angFor(M.nose.width / 2, A, NOSE_IN);
+    const ay = angFor(M.nose.height / 2, A, NOSE_IN);
     // phi = +pi/2 is up. The profile is a function of how far down we are.
     const outline = (phi) => {
       const s = Math.sin(phi), c = Math.cos(phi);
@@ -211,7 +225,7 @@ export function buildHead({ materials }) {
       depth: M.nose.depth,
       seat: M.head.browJut * 0.20,
       jutMax: () => M.head.browJut * 0.30,
-      rhoIn: 0.86, rhoOut: 1.40,
+      rhoIn: NOSE_IN, rhoOut: 1.26,
       phiSteps: 48, dishSteps: 7, rimSteps: 6,
       floorFlat: 0.60,
     });
@@ -231,10 +245,11 @@ export function buildHead({ materials }) {
   //
   // The rim's crest is nearly zero: a raised ring here would read as lips.
   // What it is for is covering the ball's ragged cut, and 1.6 mm does that.
+  const GRIN_IN = 0.84;
   const mouth = (() => {
     const A = grinAxis;
-    const ax = angFor(M.grin.width / 2, A);
-    const ay = angFor(M.grin.height / 2, A);
+    const ax = angFor(M.grin.width / 2, A, GRIN_IN);
+    const ay = angFor(M.grin.height / 2, A, GRIN_IN);
     const outline = (phi) => {
       const c = Math.cos(phi), s = Math.sin(phi);
       // The corners rise: a grin, not a letterbox. Applied to the outline's
@@ -247,7 +262,7 @@ export function buildHead({ materials }) {
       depth: M.grin.depth,
       seat: M.grin.depth * 0.16,
       jutMax: () => M.head.browJut * 0.10,
-      rhoIn: 0.84, rhoOut: 1.34,
+      rhoIn: GRIN_IN, rhoOut: 1.14,
       phiSteps: 64, dishSteps: 7, rimSteps: 6,
       floorFlat: 0.52,
     });
@@ -290,8 +305,8 @@ export function buildHead({ materials }) {
   // it is fully inside the socket dish, so it inherits the same guarantee.
   for (const side of [+1, -1]) {
     const A = socketAxis(side);
-    const ax = angFor(M.socket.width / 2, A) * 0.52;
-    const ay = angFor(M.socket.height / 2, A) * 0.52;
+    const ax = angFor(M.socket.width / 2, A, SOCK_IN) * 0.52;
+    const ay = angFor(M.socket.height / 2, A, SOCK_IN) * 0.52;
     const inner = grommet({
       R: headR, axis: A, up: v3(0, 1, 0), outline: ellipseOutline(ax, ay),
       depth: M.socket.depth * 1.30, seat: M.socket.depth * 1.02,

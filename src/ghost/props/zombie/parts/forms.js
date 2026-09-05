@@ -82,8 +82,8 @@ export const PALETTE = {
   // corpse. Dark red-purple is what is in an empty orbit, it takes the key
   // light as a colour rather than as a value, and it ties the face to the red
   // in the open chest.
-  socket: '#2e1a24',
-  socketDeep: '#1b0f16',
+  socket: '#4a2432',
+  socketDeep: '#28131d',
   jacket: '#aba08a',
   jacketDark: '#7d745f',
   shorts: '#7d8365',
@@ -313,6 +313,12 @@ export function grommet({
   seat,                  // how far the shared rim/dish ring sits below it
   jutMax,                // phi -> crest height of the rim band above the host
   rhoIn = 0.90, rhoOut = 1.34,
+  // Where the dish STARTS, as a fraction of rhoIn. 0 gives a closed dish with
+  // a floor, which is what an eye socket or a mouth trough is. Anything above
+  // 0 gives an annulus with no floor -- a funnel you can see THROUGH -- which
+  // is what the chest cavity's lip is, because what belongs behind that
+  // opening is the flesh column, not a plate of skin.
+  dishFrom = 0,
   phiSteps = 56, dishSteps = 9, rimSteps = 7,
   floorFlat = 0.66,      // fraction of the dish that is at FULL depth
   outerLift = 0.0016,    // the rim's outer edge, clear of the host's chords
@@ -341,26 +347,28 @@ export function grommet({
   // holds its own shadow, which is the whole point of the feature.
   const sink = (s) => mix(depth, seat, smoothstep(floorFlat, 1.0, s));
 
+  const closed = dishFrom <= 0;
   const dishPts = [];
-  const cIdx = dishPts.length;
-  {
+  if (closed) {
     const d = dirAt(0, 0);
     dishPts.push(d.clone().multiplyScalar(R(d) - depth));
   }
-  for (let j = 1; j <= dishSteps; j++) {
-    const s = j / dishSteps;
+  const j0 = closed ? 1 : 0;
+  for (let j = j0; j <= dishSteps; j++) {
+    const s = mix(dishFrom, 1, j / dishSteps);
     for (let i = 0; i < phiSteps; i++) {
       const phi = 2 * Math.PI * (i / phiSteps);
       const d = dirAt(s * rhoIn, phi);
       dishPts.push(d.clone().multiplyScalar(R(d) - sink(s)));
     }
   }
-  const dAt = (i, j) => 1 + (j - 1) * phiSteps + (((i % phiSteps) + phiSteps) % phiSteps);
+  const base = closed ? 1 : 0;
+  const dAt = (i, j) => base + (j - j0) * phiSteps + (((i % phiSteps) + phiSteps) % phiSteps);
   const dishIdx = [];
   // The dish is seen from OUTSIDE the host looking in, so its triangles face
   // back along the feature axis: the reverse of the host's own winding.
-  for (let i = 0; i < phiSteps; i++) dishIdx.push(cIdx, dAt(i, 1), dAt(i + 1, 1));
-  for (let j = 1; j < dishSteps; j++) {
+  if (closed) for (let i = 0; i < phiSteps; i++) dishIdx.push(0, dAt(i, 1), dAt(i + 1, 1));
+  for (let j = j0; j < dishSteps; j++) {
     for (let i = 0; i < phiSteps; i++) {
       const a = dAt(i, j), b = dAt(i + 1, j), c = dAt(i + 1, j + 1), d = dAt(i, j + 1);
       dishIdx.push(a, c, b, a, d, c);

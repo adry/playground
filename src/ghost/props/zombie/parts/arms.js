@@ -71,7 +71,7 @@ export function buildArm({ materials, side = 'L' }) {
   const foreB = wrist.position.clone().add(outW);      // in the elbow's frame
 
   // --- deltoid ---------------------------------------------------------------
-  const delt = track(ovoid(A.upperRadius * 1.16, A.upperRadius * 1.24, A.upperRadius * 1.10, { uSteps: 14, vSteps: 10 }));
+  const delt = track(ovoid(A.upperRadius * 1.02, A.upperRadius * 1.12, A.upperRadius * 0.98, { uSteps: 14, vSteps: 10 }));
   assertOutward(delt, v3(0, 0, 0), 'deltoid');
   put(shoulder, delt, materials.skin, { pos: v3(s * A.upperRadius * 0.18, -A.upperRadius * 0.22, 0).add(outS), name: 'deltoid' });
 

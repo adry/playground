@@ -168,34 +168,49 @@ export function buildTorso({ materials }) {
   const winCentre = 0.5 * (M.y.cavityTop + M.y.cavityBottom);
   const tilt = Math.atan2(winCentre - B.cy, B.hd);
   const axis = v3(0, Math.sin(tilt), Math.cos(tilt));
+
+  // How much of the outline is actually OPEN. The rim band and the funnel
+  // between them occupy everything from `RHO_OPEN` outward, so the hole a
+  // viewer sees stops there -- and `M.y.cavityTop`, `M.y.cavityBottom` and
+  // `C.halfAngle` describe THE HOLE, not the outline. Both extents are
+  // therefore divided through by it. Sized to the outline instead, the window
+  // came out a quarter small in both directions and the character's defining
+  // feature was a thumbnail.
+  const RHO_IN = 0.94, DISH_FROM = 0.80;
+  const RHO_OPEN = RHO_IN * DISH_FROM;
+
   const solveAy = () => {
-    const want = 0.5 * (M.y.cavityTop - M.y.cavityBottom);
-    let lo = 0.05, hi = 1.30;
+    const want = 0.5 * (M.y.cavityTop - M.y.cavityBottom) + (winCentre - B.cy);
+    const V = v3(0, Math.cos(tilt), -Math.sin(tilt));
+    let lo = 0.05, hi = 1.45;
     for (let k = 0; k < 44; k++) {
-      const ay = 0.5 * (lo + hi);
-      // straight up from the window's axis by ay
-      const V = v3(0, Math.cos(tilt), -Math.sin(tilt));
-      const d = axis.clone().multiplyScalar(Math.cos(ay)).addScaledVector(V, Math.sin(ay)).normalize();
-      const h = d.y * chestR(d);
-      if (h < want + (winCentre - B.cy)) lo = ay; else hi = ay;
+      const a = 0.5 * (lo + hi);
+      const d = axis.clone().multiplyScalar(Math.cos(a * RHO_OPEN))
+        .addScaledVector(V, Math.sin(a * RHO_OPEN)).normalize();
+      if (d.y * chestR(d) < want) lo = a; else hi = a;
     }
     return 0.5 * (lo + hi);
   };
   const ay = solveAy();
+  const ax = C.halfAngle / RHO_OPEN;
 
   const cavity = grommet({
     R: chestR, axis, up: v3(0, 1, 0),
-    outline: ellipseOutline(C.halfAngle, ay),
-    // The lip funnels in by the shell's own thickness and stops: what is
-    // behind it is the flesh column, not a floor of skin.
+    outline: ellipseOutline(ax, ay),
+    // The lip funnels in by the shell's own thickness AND STOPS. `dishFrom`
+    // makes it an annulus with no floor, so the window is genuinely open and
+    // what you see through it is the flesh column. Built with the default
+    // closed dish it is a plate of skin at one shell-thickness of depth, which
+    // caps the cavity shut -- the whole feature disappeared, and from the
+    // outside it just looked like a chest that had not been cut.
     depth: T.shellThickness, seat: T.shellThickness * 0.10,
     jutMax: () => T.shellThickness * 0.16,
-    rhoIn: 0.92, rhoOut: 1.30,
-    phiSteps: 56, dishSteps: 3, rimSteps: 6,
-    floorFlat: 0.10,
+    rhoIn: RHO_IN, rhoOut: 1.16, dishFrom: DISH_FROM,
+    phiSteps: 60, dishSteps: 3, rimSteps: 6,
+    floorFlat: 0.0,
   });
 
-  const chest = track(closedRadial({ uSteps: 34, vSteps: 22, R: chestR, skip: cavity.cut(1.10) }));
+  const chest = track(closedRadial({ uSteps: 40, vSteps: 26, R: chestR, skip: cavity.cut(1.04) }));
   chest.translate(0, chestCentreLocal.y, 0);
   assertOutward(chest, chestCentreLocal, 'chest');
   put(spineUpper, chest, materials.skin, { name: 'chest' });
@@ -233,7 +248,7 @@ export function buildTorso({ materials }) {
     const x = Math.sin(a) * r * C.floorX, z = Math.cos(a) * r * C.floorZ;
     return Math.hypot(x, z);
   };
-  const ribSpan = C.halfAngle * 0.92;
+  const ribSpan = C.halfAngle * 0.90;
   for (let k = 0; k < C.ribPairs; k++) {
     const h = C.ribTop - k * C.ribSpacing;
     for (const side of [+1, -1]) {

@@ -42,7 +42,7 @@ export function buildLower({ materials }) {
     joints[`ankle${side}`] = ankle;
 
     // The hip ball, which is what joins the thigh to the pelvis mass.
-    const hipBall = track(ovoid(L.thighRadius * 0.94, L.thighRadius * 1.00, L.thighRadius * 1.02, { uSteps: 12, vSteps: 9 }));
+    const hipBall = track(ovoid(L.thighRadius * 0.98, L.thighRadius * 1.02, L.thighRadius * 1.04, { uSteps: 12, vSteps: 9 }));
     put(hip, hipBall, materials.skin, { name: 'hip' });
 
     const thigh = track(limb(
