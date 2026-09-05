@@ -456,7 +456,31 @@ export function deriveLevel(doc) {
   }));
   const barriers = [...wall.segments, ...runs.flatMap((r) => r.segments)];
   const gates = runs.flatMap((r) => r.gates);
-  const props = doc.props.map(propRecord);
+  // A GRAVE IS THREE THINGS AND THE FILE STORES ONE.
+  //
+  // The generator's graves are a pose plus a hole prop plus a spoil heap, and
+  // `graves(box)` points at the hole. A hand-made level stores only the pose,
+  // because a spawn the author can move in one piece is the whole point of the
+  // tool, and the two props are synthesised here. They come out of props()
+  // exactly as the generator's do, which is what keeps the renderer, the
+  // overlap check and the reachability fill on one code path.
+  //
+  // The heap goes on the long side of the mouth: hole is 1.0 by 0.45 in plan
+  // with its long axis along local X, and the heap is 1.0 by 0.643, so 1.2 out
+  // along local Z clears both with a little to spare.
+  const graveProps = [];
+  for (const g of doc.graves) {
+    const c = Math.cos(g.yaw || 0);
+    const s = Math.sin(g.yaw || 0);
+    graveProps.push(
+      propRecord({ id: `${g.id}/hole`, kind: 'hole', variant: 'grave', x: g.x, z: g.z, yaw: g.yaw }),
+      propRecord({
+        id: `${g.id}/dirt`, kind: 'dirt', variant: null,
+        x: g.x + s * 1.2, z: g.z + c * 1.2, yaw: g.yaw,
+      }),
+    );
+  }
+  const props = [...doc.props.map(propRecord), ...graveProps];
   const paths = doc.paths.map((p) => ({
     id: p.id, material: p.material, width: p.width, points: p.points.map((q) => [q[0], q[1]]),
   }));

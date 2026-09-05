@@ -617,17 +617,15 @@ export const FACE_ROWS = 512;
 function buildTextures(variant, faceAspect, rng) {
   const FH = FACE_ROWS;
   const FW = Math.round(FH * faceAspect);
-  // The strip is NOT scaled with FACE_ROWS, and this is worth a note because
-  // scaling it was the one thing that showed when the face map was halved.
+  // The strip is NOT scaled with FACE_ROWS, and the asymmetry is the point.
   //
-  // The face is MINIFIED -- a thousand texels over a hundred and fifty pixels of
-  // screen -- so halving it costs nothing the mip chain was not already taking.
-  // The strip is the opposite: the sides and the back sample a 112 texel band
-  // of it stretched over the whole depth of the stone, so it is MAGNIFIED, and
-  // halving it put a visible stipple down the rounded arris of every stone
-  // where the speckle stopped being sub-pixel. It is 160 columns whatever the
-  // face is, which on a 512 map is a third of a megabyte a stone and buys back
-  // the edge exactly.
+  // The face is MINIFIED: a thousand texels over the hundred and fifty pixels of
+  // screen it gets at any shipped framing, so halving it only takes a mip level
+  // the sampler was already choosing. The strip is the opposite. The sides and
+  // the back sample a 112 texel band of it stretched over the whole depth of
+  // the stone, so it is MAGNIFIED, and magnified detail is the one kind a
+  // resolution cut is guaranteed to show. It stays at 160 columns whatever the
+  // face does, which on a 512 map is a third of a megabyte a stone.
   const STRIP = 160;
   const w = FW + STRIP;
 

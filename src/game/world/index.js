@@ -95,27 +95,38 @@
 // frame is 22 world units across the screen by 37 deep, so the arena is about
 // one and a half screens.
 //
-//   props      one per about 25 square units, so 35 or so. The old level ran at
-//              one per 26 and looked right, and this arena has to hold four
-//              characters running, so it is not made denser.
+//   props      30 of them, one per 30 square units, of which 17 are headstones.
+//              The old level ran at one per 26 and looked right, and this arena
+//              has to hold five characters running through it as well.
 //   fireflies  NINE, on a 3 by 3 lattice pulled toward whatever is worth
-//              walking to, giving a mean nearest neighbour near 9. The owner
-//              asked for one per screen and a level you can clear; in an arena
-//              a screen and a half across you cannot have both, and 9 units is
-//              the compromise: about half a screen between them, seventy units
-//              of running to sweep a level, and nine times fewer than the first
-//              build's one per unit of corridor.
+//              walking to, mean nearest neighbour 6.2 and never closer than
+//              5.5. The owner asked for one per screen and a level worth
+//              clearing; in an arena a screen and a half across you cannot have
+//              both, and this is the compromise: about seventy units of running
+//              to sweep a level, and nine times fewer than the first build's
+//              one per unit of corridor. Measured, the next one is on screen
+//              100% of the time, so no off screen indicator is needed here.
 //   pellets    four, one per quadrant, on a path crossing where there is one.
 //              Pac-Man's number and Pac-Man's placement.
-//   graves     four, one per quadrant. That is exactly MAX_GROUND_HOLES, so a
-//              bounded arena has no hole budget to manage at all: every grave
-//              can be cut at once and the fifth that would throw cannot exist.
-//              One per quadrant puts one within about twelve units of anywhere,
-//              which is the range a dead skeleton re-homes over.
-//   fence      about one unit per 11 square units of ground. That is four times
-//              the endless world's and half the old maze's, and the shape is
-//              what matters rather than the total: it is two or three closed
-//              pens and a divider rather than corridor walls.
+//   graves     four, one per quadrant, guaranteed. That is exactly
+//              MAX_GROUND_HOLES, so a bounded arena has no hole budget to
+//              manage at all: every grave can be cut at once and the fifth that
+//              would throw cannot exist. One per quadrant puts one within about
+//              twelve units of anywhere, which is the range a dead skeleton
+//              re-homes over.
+//   fence      67 units, one per 13 square units of ground. The old maze ran at
+//              one per 6.1, so it is less than half, and the SHAPE is what
+//              matters rather than the total: two pens, a divider three levels
+//              in four, and a stub across each corner, rather than corridor
+//              walls. See fence.js for the measurement that decided that.
+//
+// AND THE THING THAT IS TRUE OF EVERY LEVEL BECAUSE A PASS AT THE END MAKES IT
+// TRUE: the walkable ground is ONE PIECE. Navigation treats a solid prop as a
+// circle of its bounding radius, so a row of headstones is a wall to anything
+// that walks, and a row laid across a corner is a place the ghost can hop into
+// and no skeleton can follow. repair.js finds those and takes props back out
+// until there are none, on the same raster the rules half judges on and at the
+// finest step anybody measures at. It costs about 0.7 props a level.
 //
 // Nothing in this package imports three or touches a canvas, with the single
 // exception every file in src/game already makes: two published constants come

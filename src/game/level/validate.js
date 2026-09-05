@@ -1,0 +1,356 @@
+// IS THIS LEVEL PLAYABLE? Asked continuously, never at save time.
+//
+// The rule the editor is built on is that a violation shows up the moment it
+// happens. A report at save time tells you that something you did twenty
+// minutes ago was wrong; a red outline under the headstone you are still
+// dragging tells you which headstone, while your hand is on it. So everything
+// here is cheap enough to run on every change: it is a few hundred props
+// against a few dozen segments, which is microseconds.
+//
+// What it checks, and where each rule comes from:
+//
+//   OVERLAP        Two solid props may not share ground. The test is the
+//                  MEASURED box or disc out of layout/footprints.js, turned by
+//                  the prop's own yaw, because a headstone is much wider than
+//                  it is deep and a circle test spaces a row of ledgers 1.9
+//                  apart until the row stops being a row.
+//   BARRIER        No prop may stand in a fence or a wall. The barrier is a
+//                  capsule of its own published `half`.
+//   GATE           Nothing solid may touch a gate's approach capsule or the
+//                  leaf's sweep disc. world/index.js is emphatic about why the
+//                  keep-out is a capsule: the question is not whether a body
+//                  fits through the opening but whether it can REACH it.
+//   ARENA          Everything inside the wall, footprint included.
+//   PERIMETER      The wall is one closed loop with no gate in it. That is what
+//                  makes it the edge of the level rather than a fence.
+//   SEALED PEN     A closed fence run with no gate is a pocket the ghost can
+//                  vault into and no skeleton can ever reach. The generator
+//                  forbids it by construction (rule 1: every run has exactly
+//                  one gate) and a hand-made level has to be told.
+//   RUN GAP        Two fence runs closer than the body can pass between are a
+//                  pocket closed BETWEEN two runs, which is the generator's
+//                  rule 3.
+//   SPAWNS         At most four graves, because src/ghost/ground.js cuts at
+//                  most four holes and throws at the fifth, and rules.js runs
+//                  exactly four personalities.
+//   REACHABLE      A flood fill at body radius from the ghost's spawn. Anything
+//                  a body cannot walk to is called out: a firefly there is
+//                  uncollectable and a grave there strands a skeleton.
+//
+// Severity is honest. An `error` makes the level unplayable; a `warn` makes it
+// worse than it should be. Nothing here refuses to save: the owner can save a
+// level with a warning on it and come back to it.
+
+import { BODY } from './format.js';
+import { isSolid } from './catalogue.js';
+
+const RUN_GAP = 2.4;      // world/index.js rule 3, the least ground between two runs
+const NAV_CELL = 0.5;
+export const GHOST_R = 0.55;
+
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+// --- shapes -------------------------------------------------------------------
+
+// A prop's footprint as an oriented box or a disc, in world space.
+export function shapeOf(p) {
+  const f = p.foot;
+  if (f.shape === 'disc') return { disc: true, x: p.x, z: p.z, r: f.r };
+  return { disc: false, x: p.x, z: p.z, yaw: p.yaw || 0, hu: f.halfU, hv: f.halfV };
+}
+
+function discBox(d, b, pad) {
+  const c = Math.cos(-b.yaw);
+  const s = Math.sin(-b.yaw);
+  const dx = d.x - b.x;
+  const dz = d.z - b.z;
+  const lx = dx * c - dz * s;
+  const lz = dx * s + dz * c;
+  const qx = lx - clamp(lx, -b.hu, b.hu);
+  const qz = lz - clamp(lz, -b.hv, b.hv);
+  return Math.hypot(qx, qz) < d.r + pad;
+}
+
+function axes(b) {
+  return [
+    { x: Math.cos(b.yaw), z: -Math.sin(b.yaw) },
+    { x: Math.sin(b.yaw), z: Math.cos(b.yaw) },
+  ];
+}
+
+function boxBox(a, b, pad) {
+  for (const box of [a, b]) {
+    for (const ax of axes(box)) {
+      const proj = (o) => {
+        const c = (o.x - 0) * ax.x + (o.z - 0) * ax.z;
+        const e = Math.abs(ax.x * Math.cos(o.yaw) - ax.z * Math.sin(o.yaw)) * o.hu
+          + Math.abs(ax.x * Math.sin(o.yaw) + ax.z * Math.cos(o.yaw)) * o.hv;
+        return { c, e };
+      };
+      const pa = proj(a);
+      const pb = proj(b);
+      if (Math.abs(pa.c - pb.c) > pa.e + pb.e + pad) return false;
+    }
+  }
+  return true;
+}
+
+export function shapesOverlap(p, q, pad = 0) {
+  const a = shapeOf(p);
+  const b = shapeOf(q);
+  if (a.disc && b.disc) return Math.hypot(a.x - b.x, a.z - b.z) < a.r + b.r + pad;
+  if (a.disc) return discBox(a, b, pad);
+  if (b.disc) return discBox(b, a, pad);
+  return boxBox(a, b, pad);
+}
+
+export function pointSegD(px, pz, x0, z0, x1, z1) {
+  const dx = x1 - x0;
+  const dz = z1 - z0;
+  const ll = dx * dx + dz * dz;
+  let t = ll > 1e-12 ? ((px - x0) * dx + (pz - z0) * dz) / ll : 0;
+  t = clamp(t, 0, 1);
+  return Math.hypot(px - (x0 + dx * t), pz - (z0 + dz * t));
+}
+
+// A prop against a line with a thickness. The prop is taken at its bounding
+// radius here on purpose: a segment test against a turned box is a lot more
+// work for a question whose answer, at these sizes, differs by a centimetre.
+function propNearSegment(p, x0, z0, x1, z1, half) {
+  return pointSegD(p.x, p.z, x0, z0, x1, z1) < half + p.radius;
+}
+
+// --- the flood fill -------------------------------------------------------------
+
+export function reachability({ box, barriers, props, spawn, radius = BODY / 2 + 0.05 }) {
+  const pad = 1.0;
+  const minX = box.minX - pad;
+  const minZ = box.minZ - pad;
+  const w = Math.ceil((box.maxX - box.minX + 2 * pad) / NAV_CELL);
+  const h = Math.ceil((box.maxZ - box.minZ + 2 * pad) / NAV_CELL);
+  const open = new Uint8Array(w * h);
+  const seen = new Uint8Array(w * h);
+  const solids = props.filter((p) => p.solid);
+  for (let j = 0; j < h; j++) {
+    for (let i = 0; i < w; i++) {
+      const x = minX + (i + 0.5) * NAV_CELL;
+      const z = minZ + (j + 0.5) * NAV_CELL;
+      let ok = x > box.minX && x < box.maxX && z > box.minZ && z < box.maxZ;
+      if (ok) {
+        for (const b of barriers) {
+          if (pointSegD(x, z, b.x0, b.z0, b.x1, b.z1) < b.half + radius) { ok = false; break; }
+        }
+      }
+      if (ok) {
+        for (const p of solids) {
+          if (Math.hypot(x - p.x, z - p.z) < p.radius + radius) { ok = false; break; }
+        }
+      }
+      open[j * w + i] = ok ? 1 : 0;
+    }
+  }
+  const at = (x, z) => {
+    const i = Math.round((x - minX) / NAV_CELL - 0.5);
+    const j = Math.round((z - minZ) / NAV_CELL - 0.5);
+    if (i < 0 || j < 0 || i >= w || j >= h) return -1;
+    return j * w + i;
+  };
+  // Start from the nearest open cell to the spawn, so a spawn that is itself a
+  // hair inside something does not make the whole level unreachable.
+  let start = at(spawn.x, spawn.z);
+  if (start < 0 || !open[start]) {
+    let best = -1;
+    let bd = Infinity;
+    for (let k = 0; k < open.length; k++) {
+      if (!open[k]) continue;
+      const x = minX + ((k % w) + 0.5) * NAV_CELL;
+      const z = minZ + (Math.floor(k / w) + 0.5) * NAV_CELL;
+      const d = Math.hypot(x - spawn.x, z - spawn.z);
+      if (d < bd) { bd = d; best = k; }
+    }
+    start = best;
+  }
+  if (start >= 0) {
+    const stack = [start];
+    seen[start] = 1;
+    while (stack.length) {
+      const k = stack.pop();
+      const i = k % w;
+      const j = (k / w) | 0;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const x = i + di;
+        const y = j + dj;
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        const n = y * w + x;
+        if (seen[n] || !open[n]) continue;
+        seen[n] = 1;
+        stack.push(n);
+      }
+    }
+  }
+  return {
+    reachable(x, z) {
+      const k = at(x, z);
+      // A point in a wall is not reachable, but nor is it a fair question: the
+      // caller asks about firefly and grave positions, which are open ground.
+      return k >= 0 && seen[k] === 1;
+    },
+    open(x, z) {
+      const k = at(x, z);
+      return k >= 0 && open[k] === 1;
+    },
+  };
+}
+
+// --- the whole check ------------------------------------------------------------
+
+// `world` is anything createLevelWorld() returns; `doc` the document behind it.
+export function validateLevel(doc, world) {
+  const issues = [];
+  const d = world._derived;
+  const add = (severity, code, message, at, refs = []) => issues.push({
+    severity, code, message, at, refs,
+  });
+
+  // --- the perimeter ---------------------------------------------------------
+  const pts = doc.wall.points;
+  if (pts.length < 3) {
+    add('error', 'perimeter', 'the wall needs at least three points', null);
+  } else {
+    const total = d.wall.segments.reduce((s, b) => s + b.length, 0);
+    let want = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      want += Math.hypot(b[0] - a[0], b[1] - a[1]);
+    }
+    if (Math.abs(total - want) > 0.05 || d.wall.gates.length) {
+      add('error', 'perimeter', 'the perimeter is not closed: it is the edge of the level and takes no gate', null);
+    }
+  }
+
+  // --- the fences ------------------------------------------------------------
+  for (const run of d.runs) {
+    if (run.source.closed && run.gates.length === 0) {
+      const p = run.source.points[0];
+      add('error', 'sealed', `fence ${run.id} is a closed pen with no gate: the ghost can vault in and no skeleton can follow`, { x: p[0], z: p[1] }, [run.id]);
+    }
+    if (run.gates.length > 1) {
+      add('warn', 'gates', `fence ${run.id} has ${run.gates.length} gates; the generator gives every run exactly one`, { x: run.gates[1].x, z: run.gates[1].z }, [run.id]);
+    }
+  }
+  // The closest approach between two runs, reported once per pair rather than
+  // once per pair of segments: a pen beside a divider would otherwise raise the
+  // same warning eight times.
+  for (let i = 0; i < d.runs.length; i++) {
+    for (let j = i + 1; j < d.runs.length; j++) {
+      let gap = Infinity;
+      let at = null;
+      for (const a of d.runs[i].segments) {
+        for (const b of d.runs[j].segments) {
+          const g = Math.min(
+            pointSegD(a.x0, a.z0, b.x0, b.z0, b.x1, b.z1),
+            pointSegD(a.x1, a.z1, b.x0, b.z0, b.x1, b.z1),
+            pointSegD(b.x0, b.z0, a.x0, a.z0, a.x1, a.z1),
+            pointSegD(b.x1, b.z1, a.x0, a.z0, a.x1, a.z1),
+          );
+          if (g < gap) { gap = g; at = { x: (a.x0 + b.x0) / 2, z: (a.z0 + b.z0) / 2 }; }
+        }
+      }
+      if (gap < RUN_GAP) {
+        add('warn', 'rungap', `fences ${d.runs[i].id} and ${d.runs[j].id} come within ${gap.toFixed(2)}; under ${RUN_GAP} closes a pocket between them`, at, [d.runs[i].id, d.runs[j].id]);
+      }
+    }
+  }
+
+  // --- the props -------------------------------------------------------------
+  const props = d.props;
+  const box = d.box;
+  for (let i = 0; i < props.length; i++) {
+    const p = props[i];
+    if (p.x - p.radius < box.minX || p.x + p.radius > box.maxX
+      || p.z - p.radius < box.minZ || p.z + p.radius > box.maxZ) {
+      add('error', 'arena', `${p.kind} is outside the wall`, p, [p.id]);
+    }
+    for (const b of d.barriers) {
+      if (propNearSegment(p, b.x0, b.z0, b.x1, b.z1, b.half)) {
+        add('error', 'barrier', `${p.kind} stands in the ${b.kind}`, p, [p.id]);
+        break;
+      }
+    }
+    if (p.solid) {
+      for (const g of d.gates) {
+        if (Math.hypot(p.x - g.sweep.x, p.z - g.sweep.z) < g.sweep.r + p.radius) {
+          add('error', 'gate', `${p.kind} is inside the gate leaf's sweep`, p, [p.id, g.id]);
+          break;
+        }
+        if (pointSegD(p.x, p.z, g.clear.x0, g.clear.z0, g.clear.x1, g.clear.z1) < g.clear.r + p.radius) {
+          add('error', 'gate', `${p.kind} blocks the approach to a gate`, p, [p.id, g.id]);
+          break;
+        }
+      }
+      for (let j = i + 1; j < props.length; j++) {
+        const q = props[j];
+        if (!q.solid) continue;
+        if (Math.abs(p.x - q.x) > p.radius + q.radius || Math.abs(p.z - q.z) > p.radius + q.radius) continue;
+        if (shapesOverlap(p, q)) {
+          add('error', 'overlap', `${p.kind} and ${q.kind} overlap`, { x: (p.x + q.x) / 2, z: (p.z + q.z) / 2 }, [p.id, q.id]);
+        }
+      }
+    }
+  }
+
+  // --- the spawns ------------------------------------------------------------
+  if (doc.graves.length > 4) {
+    add('error', 'spawns', 'at most four skeleton spawns: the floor cuts four holes and throws at the fifth', null);
+  }
+  const orders = doc.graves.map((g) => g.order).sort((a, b) => a - b);
+  if (orders.some((o, i) => o !== i)) {
+    add('warn', 'order', 'the spawn order is not a clean run from 0', null);
+  }
+  const seenPersonality = new Set();
+  for (const g of doc.graves) {
+    if (seenPersonality.has(g.personality)) {
+      add('warn', 'personality', `two spawns are both the ${g.personality}`, g, [g.id]);
+    }
+    seenPersonality.add(g.personality);
+  }
+  if (doc.graves.length && doc.graves.length < 4) {
+    add('warn', 'spawns', `${doc.graves.length} of 4 skeleton spawns placed`, null);
+  }
+
+  // --- the ghost's own ground -------------------------------------------------
+  const nav = reachability({ box, barriers: d.barriers, props, spawn: doc.spawn });
+  if (!nav.open(doc.spawn.x, doc.spawn.z)) {
+    add('error', 'spawn', 'the ghost starts inside something', doc.spawn);
+  }
+  for (const g of d.graves) {
+    if (!nav.reachable(g.x, g.z)) {
+      add('error', 'unreachable', `grave ${g.order + 1} is somewhere a body cannot walk to`, g, [g.id]);
+    }
+  }
+  for (const f of d.flies.points) {
+    if (!nav.reachable(f.x, f.z)) {
+      add('warn', 'unreachable', 'a firefly landed somewhere a body cannot walk to', f);
+    }
+  }
+  if (d.flies.missed > 0) {
+    add('warn', 'fireflies', `${d.flies.missed} of ${d.flies.cells} firefly cells had nowhere to put one`, null);
+  }
+  for (const p of d.powerups) {
+    if (!nav.reachable(p.x, p.z)) {
+      add('error', 'unreachable', 'a pellet is somewhere a body cannot walk to', p, [p.id]);
+    }
+  }
+
+  return {
+    issues,
+    errors: issues.filter((i) => i.severity === 'error'),
+    warnings: issues.filter((i) => i.severity === 'warn'),
+    // Which props are implicated, so the editor can outline them.
+    flagged: new Set(issues.flatMap((i) => i.refs)),
+    nav,
+  };
+}
+
+export default validateLevel;

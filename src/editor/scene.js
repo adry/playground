@@ -1,0 +1,519 @@
+// THE EDITOR'S VIEW: the level on the game's own floor, under the game's own
+// light, plus the overlays an author needs and a player must never see.
+//
+// Two decisions worth stating.
+//
+// IT IS THE GAME'S RIG, NOT A TOOL'S RIG. Same floor, same hemisphere and key
+// light, same orthographic camera on the same (1, 0.78, 1) axis as
+// src/game/viewer.js. A level laid out under a tool's own lighting is a level
+// laid out for the tool: the whole prop set was authored for this camera at
+// this angle, several pieces read wrong from behind because of it, and the only
+// way to see that while placing them is to place them in the light they ship
+// in. The plan view is a SECOND camera on the same scene, not a second scene.
+//
+// IT DIFFS, IT DOES NOT REBUILD. A headstone costs about 6 ms to build with its
+// texture bake, so rebuilding the level on every frame of a drag would make
+// dragging useless. Everything below is keyed by the document's own ids and
+// only what changed is rebuilt: moving a prop writes a position, changing its
+// variant builds a new one, and the wall, the fences and the ground cover are
+// rebuilt only when their own signature changes.
+
+import * as THREE from 'three';
+import { createGround, addGroundHole, MAX_GROUND_HOLES } from '../ghost/ground.js';
+import { createWall, createVoid, WALL } from '../ghost/props/fence/wall.js';
+import { createFencePanel } from '../ghost/props/fence/panel.js';
+import { createGate } from '../ghost/props/fence/gate.js';
+import { createFireflies } from '../ghost/props/fireflies.js';
+import { buildLevelProp, buildLevelPath } from '../game/level/build.js';
+import { createGroundCover } from '../game/level/groundcover.js';
+import { PERSONALITIES } from '../game/level/catalogue.js';
+
+const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
+const OVER_Y = 0.035;
+
+const sig = (v) => JSON.stringify(v);
+
+export function createEditorScene({ canvas }) {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.localClippingEnabled = true;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#b9bec7').convertSRGBToLinear();
+  scene.add(new THREE.HemisphereLight(0xdfe6f5, 0x6f7480, 1.15));
+
+  const key = new THREE.DirectionalLight(0xfff4e6, 2.1);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.camera.near = 0.5;
+  key.shadow.camera.far = 120;
+  key.shadow.bias = -0.0004;
+  key.shadow.normalBias = 0.006;
+  key.shadow.radius = 3;
+  scene.add(key, key.target);
+  const LIGHT_OFFSET = new THREE.Vector3(3.7, 6.0, 2.4).normalize().multiplyScalar(40);
+
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
+  const target = new THREE.Vector3(0, 0, 0);
+  let view = 18;
+  let mode = 'game';   // 'game' or 'plan'
+
+  const ground = createGround({ fadeStart: 60, fadeEnd: 400 });
+  scene.add(ground);
+
+  const level = new THREE.Group();
+  scene.add(level);
+  const overlay = new THREE.Group();
+  scene.add(overlay);
+
+  function placeCamera() {
+    if (mode === 'plan') {
+      camera.position.set(target.x, 200, target.z + 0.001);
+      camera.up.set(0, 0, -1);
+    } else {
+      camera.position.copy(target).addScaledVector(CAM_DIR, 120);
+      camera.up.set(0, 1, 0);
+    }
+    camera.lookAt(target);
+    key.target.position.set(target.x, 0, target.z);
+    key.position.copy(key.target.position).add(LIGHT_OFFSET);
+    key.target.updateMatrixWorld();
+    ground.userData.uniforms?.uFocus.value.copy(target);
+  }
+
+  function resize() {
+    const w = canvas.clientWidth || 800;
+    const h = canvas.clientHeight || 600;
+    const aspect = w / h;
+    camera.left = -view * aspect; camera.right = view * aspect;
+    camera.top = view; camera.bottom = -view;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h, false);
+    const reach = Math.min(90, view * Math.max(1, aspect) * 1.7);
+    key.shadow.camera.left = -reach; key.shadow.camera.right = reach;
+    key.shadow.camera.top = reach; key.shadow.camera.bottom = -reach;
+    key.shadow.camera.updateProjectionMatrix();
+    placeCamera();
+  }
+
+  // --- picking -----------------------------------------------------------------
+
+  const raycaster = new THREE.Raycaster();
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const ndc = new THREE.Vector2();
+  const hitPoint = new THREE.Vector3();
+
+  function setRay(clientX, clientY) {
+    const r = canvas.getBoundingClientRect();
+    ndc.x = ((clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((clientY - r.top) / r.height) * 2 + 1;
+    raycaster.setFromCamera(ndc, camera);
+  }
+
+  // Where a click lands on the floor. Everything the author points at is on the
+  // floor: a prop is placed at a point, a fence is drawn through points, and a
+  // brush paints cells. Picking against the props themselves is a separate
+  // question, below.
+  function groundAt(clientX, clientY) {
+    setRay(clientX, clientY);
+    if (!raycaster.ray.intersectPlane(plane, hitPoint)) return null;
+    return { x: hitPoint.x, z: hitPoint.z };
+  }
+
+  // What is under the cursor, by the document id the built object carries.
+  function pickAt(clientX, clientY) {
+    setRay(clientX, clientY);
+    const hits = raycaster.intersectObjects(level.children, true);
+    for (const hit of hits) {
+      let o = hit.object;
+      while (o && o !== level) {
+        if (o.userData.pickId) return { id: o.userData.pickId, kind: o.userData.pickKind, point: hit.point };
+        o = o.parent;
+      }
+    }
+    return null;
+  }
+
+  // A world point projected to client pixels, for the DOM badges.
+  function toScreen(x, z) {
+    const v = new THREE.Vector3(x, 0, z).project(camera);
+    const r = canvas.getBoundingClientRect();
+    return { x: (v.x * 0.5 + 0.5) * r.width, y: (-v.y * 0.5 + 0.5) * r.height, behind: v.z > 1 };
+  }
+
+  // --- what is built -------------------------------------------------------------
+
+  const built = new Map();     // pick id -> { group, key, made, cut }
+  let wallSig = '';
+  let wallBuilt = null;
+  let fenceSig = '';
+  let fenceBuilt = null;
+  let groundSig = '';
+  let cover = null;
+  let flySig = '';
+  let flies = null;
+  const pathBuilt = new Map();
+  let holeCuts = 0;
+
+  function dropCut(entry) {
+    if (entry.cut) { entry.cut.remove(); entry.cut = null; holeCuts -= 1; }
+  }
+
+  function drop(id) {
+    const e = built.get(id);
+    if (!e) return;
+    dropCut(e);
+    level.remove(e.group);
+    e.made?.dispose?.();
+    built.delete(id);
+  }
+
+  function syncProps(world) {
+    const seen = new Set();
+    // Holes take the floor's four cuts in the order the level lists them, so
+    // the graves get them and a decorative fifth grave hole simply reads as a
+    // filled one. That is the documented fallback in ground.js rather than a
+    // failure: addGroundHole THROWS at the fifth.
+    holeCuts = 0;
+    for (const p of world.props()) {
+      seen.add(p.id);
+      const k = `${p.kind}/${p.variant}`;
+      let e = built.get(p.id);
+      if (e && e.key !== k) { drop(p.id); e = null; }
+      if (!e) {
+        const made = buildLevelProp(p, { allowCut: true });
+        if (!made) continue;
+        made.group.userData.pickId = p.id;
+        made.group.userData.pickKind = 'prop';
+        level.add(made.group);
+        e = { group: made.group, key: k, made, cut: null, wantsCut: !!made.__wantsCut };
+        built.set(p.id, e);
+      }
+      e.group.position.set(p.x, 0, p.z);
+      e.group.rotation.y = p.yaw || 0;
+      if (e.wantsCut) {
+        if (holeCuts < MAX_GROUND_HOLES) {
+          const foot = { x: p.x, z: p.z, rotation: -(p.yaw || 0), halfX: 1.06, halfZ: 0.5, radius: 0.3 };
+          if (!e.cut) { e.cut = addGroundHole(ground, foot); } else e.cut.set(foot);
+          holeCuts += 1;
+        } else {
+          dropCut(e);
+        }
+      }
+    }
+    for (const id of [...built.keys()]) if (!seen.has(id)) drop(id);
+  }
+
+  function syncWall(doc) {
+    const s = sig([doc.wall.points, doc.size]);
+    if (s === wallSig) return;
+    wallSig = s;
+    if (wallBuilt) { level.remove(wallBuilt.group); wallBuilt.dispose?.(); }
+    const group = new THREE.Group();
+    const made = createWall({
+      seed: 1, points: doc.wall.points.map(([x, z]) => ({ x, z })), closed: true,
+    });
+    group.add(made.group);
+    const h = doc.size / 2;
+    const dark = createVoid({ bounds: { x: 0, z: 0, halfX: h, halfZ: h } });
+    group.add(dark.group);
+    level.add(group);
+    wallBuilt = { group, dispose() { made.dispose?.(); dark.dispose?.(); } };
+  }
+
+  // Fences are rebuilt whole. They are cheap next to a headstone, and the
+  // alternative -- diffing panels along a run whose points just moved -- is a
+  // lot of machinery for something the author edits a handful of times.
+  function syncFences(world, doc) {
+    const s = sig(doc.fences);
+    if (s === fenceSig) return;
+    fenceSig = s;
+    if (fenceBuilt) { level.remove(fenceBuilt.group); fenceBuilt.dispose(); }
+    const group = new THREE.Group();
+    const made = [];
+    for (const b of world.barriers()) {
+      if (b.kind !== 'fence') continue;
+      const len = Math.hypot(b.x1 - b.x0, b.z1 - b.z0);
+      const panels = Math.max(1, Math.round(len / world.PANEL));
+      for (let i = 0; i < panels; i++) {
+        const t = (i + 0.5) / panels;
+        const p = createFencePanel({ seed: (i * 7 + 3) | 0 });
+        p.group.position.set(b.x0 + (b.x1 - b.x0) * t, 0, b.z0 + (b.z1 - b.z0) * t);
+        p.group.rotation.y = Math.atan2(b.x1 - b.x0, b.z1 - b.z0) + Math.PI / 2;
+        p.group.scale.z = 1;
+        p.group.userData.pickId = b.run;
+        p.group.userData.pickKind = 'fence';
+        group.add(p.group);
+        made.push(p);
+      }
+    }
+    for (const g of world.gates()) {
+      const gate = createGate({ seed: 6, hingeSide: 'left' });
+      gate.hinge.rotation.y = -0.5;
+      gate.group.position.set(g.prop.x, 0, g.prop.z);
+      gate.group.rotation.y = g.prop.yaw;
+      gate.group.userData.pickId = g.id;
+      gate.group.userData.pickKind = 'gate';
+      group.add(gate.group);
+      made.push(gate);
+    }
+    level.add(group);
+    fenceBuilt = { group, dispose() { for (const m of made) m.dispose?.(); } };
+  }
+
+  function syncPaths(world) {
+    const seen = new Set();
+    for (const p of world.paths()) {
+      seen.add(p.id);
+      const s = sig([p.material, p.width, p.points]);
+      const e = pathBuilt.get(p.id);
+      if (e && e.sig === s) continue;
+      if (e) { level.remove(e.made.group); e.made.dispose?.(); }
+      const made = buildLevelPath(p, { seed: 3 });
+      made.group.userData.pickId = p.id;
+      made.group.userData.pickKind = 'path';
+      level.add(made.group);
+      pathBuilt.set(p.id, { sig: s, made });
+    }
+    for (const [id, e] of pathBuilt) {
+      if (seen.has(id)) continue;
+      level.remove(e.made.group);
+      e.made.dispose?.();
+      pathBuilt.delete(id);
+    }
+  }
+
+  function syncGround(doc) {
+    const s = sig([doc.ground.paint, doc.ground.w, doc.ground.h, doc.ground.cell, doc.seed]);
+    if (s === groundSig) return;
+    groundSig = s;
+    if (cover) { level.remove(cover.group); cover.dispose(); }
+    cover = createGroundCover({ ground: doc.ground, seed: doc.seed });
+    level.add(cover.group);
+  }
+
+  function syncFlies(world) {
+    const pts = world.fireflies();
+    const s = pts.map((p) => `${p.x.toFixed(2)},${p.z.toFixed(2)}`).join('|');
+    if (s === flySig) return;
+    flySig = s;
+    if (flies) { level.remove(flies.group); flies.dispose?.(); }
+    flies = createFireflies({ seed: 5, points: pts });
+    level.add(flies.group);
+  }
+
+  // --- the overlays ---------------------------------------------------------------
+  //
+  // Flat lines and rings on the floor. Rebuilt every sync, which is fine: they
+  // are a few hundred vertices and no textures.
+
+  function clearOverlay() {
+    for (const c of [...overlay.children]) {
+      overlay.remove(c);
+      c.geometry?.dispose();
+      c.material?.dispose();
+    }
+  }
+
+  function lineOf(points, color, opacity = 0.95) {
+    const g = new THREE.BufferGeometry().setFromPoints(points.map(([x, z]) => new THREE.Vector3(x, OVER_Y, z)));
+    return new THREE.Line(g, new THREE.LineBasicMaterial({
+      color, depthTest: false, transparent: true, opacity,
+    }));
+  }
+
+  function ringOf(x, z, r, color, opacity = 0.9) {
+    const pts = [];
+    for (let i = 0; i <= 36; i++) {
+      const a = (i / 36) * Math.PI * 2;
+      pts.push([x + Math.cos(a) * r, z + Math.sin(a) * r]);
+    }
+    return lineOf(pts, color, opacity);
+  }
+
+  // The footprint the validator actually tests, drawn where the author can see
+  // it. A turned box is the whole reason a row of ledgers reads as a row, so
+  // the outline is the turned box and never a circle.
+  function footprintOutline(p, color, opacity = 0.9) {
+    const f = p.foot;
+    if (f.shape === 'disc') return ringOf(p.x, p.z, f.r, color, opacity);
+    const c = Math.cos(p.yaw || 0);
+    const s = Math.sin(p.yaw || 0);
+    const corner = (u, v) => [p.x + u * c + v * s, p.z - u * s + v * c];
+    return lineOf([
+      corner(-f.halfU, -f.halfV), corner(f.halfU, -f.halfV),
+      corner(f.halfU, f.halfV), corner(-f.halfU, f.halfV), corner(-f.halfU, -f.halfV),
+    ], color, opacity);
+  }
+
+  // WHICH WAY IS IT FACING. Several props were authored to face the camera and
+  // look wrong from behind, so the tool says which way each one looks rather
+  // than leaving the author to walk round it. The chevron points along the
+  // prop's local +Z, which is what footprints.js calls its face, and it turns
+  // amber when that face is pointing away from this camera.
+  const FACE_AWAY = 0x00;
+  function facingMark(p) {
+    const c = Math.cos(p.yaw || 0);
+    const s = Math.sin(p.yaw || 0);
+    const fx = s;
+    const fz = c;
+    const reach = (p.foot.shape === 'disc' ? p.foot.r : p.foot.halfV) + 0.34;
+    const tip = [p.x + fx * reach, p.z + fz * reach];
+    const base = [p.x + fx * (reach - 0.26), p.z + fz * (reach - 0.26)];
+    const side = 0.16;
+    // The camera looks along -CAM_DIR in plan; a face is "away" when its own
+    // normal points into the screen.
+    const dot = fx * -CAM_DIR.x + fz * -CAM_DIR.z;
+    const colour = dot > 0.35 ? 0xd08a2a : 0x3a7fd0;
+    return lineOf([
+      [base[0] - fz * side, base[1] + fx * side],
+      tip,
+      [base[0] + fz * side, base[1] - fx * side],
+    ], colour, 0.95);
+  }
+
+  let showFootprints = true;
+  let showFacing = true;
+
+  function syncOverlay(world, doc, { selection = new Set(), flagged = new Set(), hover = null, brush = null } = {}) {
+    clearOverlay();
+    const d = world._derived;
+
+    // The arena edge, always, because everything has to be inside it.
+    overlay.add(lineOf([...doc.wall.points, doc.wall.points[0]], 0x4a5160, 0.6));
+
+    for (const g of d.gates) {
+      // The approach capsule, which is the thing an author blocks by accident.
+      overlay.add(lineOf([[g.clear.x0, g.clear.z0], [g.clear.x1, g.clear.z1]], 0x2fbf6a, 0.8));
+      overlay.add(ringOf(g.sweep.x, g.sweep.z, g.sweep.r, 0x2fbf6a, 0.45));
+      overlay.add(lineOf([[g.x0, g.z0], [g.x1, g.z1]], 0x2fbf6a, 0.95));
+    }
+
+    for (const p of d.props) {
+      const bad = flagged.has(p.id);
+      const sel = selection.has(p.id);
+      if (showFootprints || bad || sel) {
+        overlay.add(footprintOutline(p, bad ? 0xd23b3b : sel ? 0x1f6fe0 : 0x8b93a3, bad || sel ? 1 : 0.35));
+      }
+      if (showFacing && p.foot.shape !== 'disc') overlay.add(facingMark(p));
+      if (bad) overlay.add(ringOf(p.x, p.z, p.radius + 0.12, 0xd23b3b, 0.85));
+    }
+
+    for (const g of d.graves) {
+      overlay.add(ringOf(g.x, g.z, 1.35, selection.has(g.id) ? 0x1f6fe0 : 0x8a5bd0, 0.9));
+      overlay.add(lineOf([[g.x, g.z], [g.x + Math.sin(g.yaw) * 1.5, g.z + Math.cos(g.yaw) * 1.5]], 0x8a5bd0, 0.7));
+    }
+    // The spawn order, drawn as the line a wave of skeletons comes out in.
+    const ordered = [...d.graves].sort((a, b) => a.order - b.order);
+    for (let i = 0; i + 1 < ordered.length; i++) {
+      overlay.add(lineOf([[ordered[i].x, ordered[i].z], [ordered[i + 1].x, ordered[i + 1].z]], 0x8a5bd0, 0.4));
+    }
+
+    for (const p of d.powerups) {
+      overlay.add(ringOf(p.x, p.z, p.radius + 0.2, selection.has(p.id) ? 0x1f6fe0 : 0xd8a33a, 0.85));
+    }
+
+    overlay.add(ringOf(doc.spawn.x, doc.spawn.z, 0.55, 0x2f3542, 0.9));
+    overlay.add(ringOf(doc.spawn.x, doc.spawn.z, 3.2, 0x2f3542, 0.25));
+
+    for (const f of d.flies.points) overlay.add(ringOf(f.x, f.z, 0.28, 0xd8c33a, 0.9));
+
+    for (const run of d.runs) {
+      const pts = run.source.points.map(([x, z]) => [x, z]);
+      if (run.source.closed) pts.push(pts[0]);
+      overlay.add(lineOf(pts, selection.has(run.id) ? 0x1f6fe0 : 0x2f6fd0, 0.5));
+      for (const [x, z] of run.source.points) overlay.add(ringOf(x, z, 0.12, 0x2f6fd0, 0.8));
+    }
+
+    if (hover) overlay.add(ringOf(hover.x, hover.z, 0.2, 0x2f3542, 0.5));
+    if (brush) overlay.add(ringOf(brush.x, brush.z, brush.r, 0x2f3542, 0.8));
+  }
+
+  // --- the badges ---------------------------------------------------------------
+  //
+  // Which skeleton climbs out of which hole, and in what order. This is DOM
+  // rather than geometry on purpose: it has to be legible at every zoom, and a
+  // plane in the scene is not.
+
+  const badgeLayer = document.createElement('div');
+  badgeLayer.className = 'badges';
+  canvas.parentElement.appendChild(badgeLayer);
+
+  function syncBadges(world) {
+    const graves = world._derived.graves;
+    while (badgeLayer.children.length > graves.length) badgeLayer.lastChild.remove();
+    while (badgeLayer.children.length < graves.length) {
+      const el = document.createElement('div');
+      el.className = 'badge';
+      badgeLayer.appendChild(el);
+    }
+    graves.forEach((g, i) => {
+      const el = badgeLayer.children[i];
+      const s = toScreen(g.x, g.z);
+      el.style.transform = `translate(${s.x}px, ${s.y}px)`;
+      el.textContent = `${g.order + 1} ${g.personality}`;
+      el.dataset.personality = g.personality;
+    });
+  }
+
+  // --- the public face --------------------------------------------------------
+
+  function sync(world, doc, opts) {
+    syncWall(doc);
+    syncGround(doc);
+    syncFences(world, doc);
+    syncPaths(world);
+    syncProps(world);
+    syncFlies(world);
+    syncOverlay(world, doc, opts);
+    syncBadges(world);
+  }
+
+  let time = 0;
+  let last = performance.now();
+  let onFrame = null;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const dt = Math.min((now - last) / 1000, 1 / 20);
+    last = now;
+    time += dt;
+    onFrame?.(dt);
+    flies?.update(time, dt);
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(frame);
+
+  window.addEventListener('resize', resize);
+  resize();
+
+  return {
+    renderer, scene, camera, level, overlay, ground,
+    sync,
+    syncBadges,
+    groundAt,
+    pickAt,
+    toScreen,
+    set onFrame(fn) { onFrame = fn; },
+    get view() { return view; },
+    setView(v) { view = Math.max(4, Math.min(60, v)); resize(); },
+    get mode() { return mode; },
+    setMode(m) { mode = m === 'plan' ? 'plan' : 'game'; placeCamera(); },
+    pan(dx, dz) { target.x += dx; target.z += dz; placeCamera(); },
+    lookAt(x, z) { target.set(x, 0, z); placeCamera(); },
+    get target() { return target; },
+    setOverlayFlags({ footprints, facing }) {
+      if (footprints !== undefined) showFootprints = footprints;
+      if (facing !== undefined) showFacing = facing;
+    },
+    stats() {
+      return { built: built.size, cuts: holeCuts, cover: cover?.stats, max: MAX_GROUND_HOLES, wallHeight: WALL.height };
+    },
+    personalities: PERSONALITIES,
+  };
+}
+
+export default createEditorScene;

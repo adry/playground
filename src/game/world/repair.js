@@ -115,9 +115,12 @@ function blockers(props, x, z, r) {
 
 // nav.js's grid over the whole arena and a little beyond it, so the wall is
 // represented rather than falling off the edge of the raster.
-function navGrid(box, barriers, gates, props, spawn) {
+function navGrid(box, barriers, gates, props, spawn, cell = NAV_CELL) {
   const at = { x: (box.minX + box.maxX) / 2, z: (box.minZ + box.maxZ) / 2 };
-  const half = Math.max(box.maxX - at.x, box.maxZ - at.z) + 4.5;
+  // Only far enough past the wall for the wall itself to be in the raster. It
+  // blocks 0.555 + 0.25 of ground, so 1.5 is all of it, and the raster is
+  // quadratic in this number.
+  const half = Math.max(box.maxX - at.x, box.maxZ - at.z) + 1.5;
   const nav = createNav({
     spawn,
     barriers: () => barriers,
@@ -128,7 +131,7 @@ function navGrid(box, barriers, gates, props, spawn) {
     graves: () => [],
   });
   nav.focus(at.x, at.z);
-  const grid = nav.makeGrid({ x: at.x, z: at.z, half, cell: NAV_CELL, radius: NAV_R });
+  const grid = nav.makeGrid({ x: at.x, z: at.z, half, cell, radius: NAV_R });
   grid.nav = nav;
   return grid;
 }
@@ -193,7 +196,12 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
   for (let round = 0; round < rounds; round++) {
     report.rounds = round + 1;
     const props = placer.props;
-    const grid = navGrid(box, barriers, gates, props, spawn);
+    // The gross partitions first, on a raster four times cheaper, and then the
+    // fine one that decides. A half unit grid finds a row of headstones across
+    // the arena in forty milliseconds; it cannot find the last two per cent,
+    // which is what the quarter unit rounds are for.
+    const cell = round === 0 ? NAV_CELL * 2 : NAV_CELL;
+    const grid = navGrid(box, barriers, gates, props, spawn, cell);
     const { label, sizes } = components(grid);
 
     // The main piece is the one the ghost starts in. If the ghost cannot stand
@@ -216,10 +224,15 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
     for (let id = 0; id < sizes.length; id++) {
       if (id === main) continue;
       const inside = insideCount(grid, label, id, box);
-      if (inside <= MIN_POCKET) { leak += inside; continue; }
-      leak += inside;
-      if (inside > worstSize) { worst = id; worstSize = inside; }
+      const scale = (NAV_CELL / cell) ** 2;
+      if (inside * scale <= MIN_POCKET) { leak += inside * scale; continue; }
+      leak += inside * scale;
+      if (inside * scale > worstSize) { worst = id; worstSize = inside * scale; }
     }
+    // A clean coarse round proves nothing: the fine raster has the last word,
+    // always, because the failures that are left are the ones a half unit grid
+    // steps over.
+    if (worst < 0 && cell > NAV_CELL) continue;
     if (worst < 0 && leak > MAX_LEAK) {
       // Several pockets, none of them big on its own, but enough of them
       // together to fail. Take the largest whatever its size.
@@ -295,7 +308,7 @@ export function repairLevel({ box, barriers, gates, graves, spawn, placer, round
   }
 
   // Ran out of rounds. Hand back what there is; world-check.mjs will say so.
-  const grid = navGrid(box, barriers, gates, placer.props, spawn);
+  const grid = navGrid(box, barriers, gates, placer.props, spawn, NAV_CELL);
   const { label } = components(grid);
   const spawnCell = grid.nearestOpen(spawn.x, spawn.z, 1.5);
   const main = spawnCell >= 0 ? label[spawnCell] : -1;

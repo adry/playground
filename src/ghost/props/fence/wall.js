@@ -419,13 +419,79 @@ function miter(a, b) {
   return { x: (a.x + b.x) / d, z: (a.z + b.z) / d };
 }
 
+// Where the piers stand, worked out from the raw corner polyline before
+// anything is sampled or swept.
+//
+// It has to come first because the piers define the BAYS, and the bays are what
+// every other kind of variation on this wall is keyed to: the coursing, the
+// settle, the lean and the tone all change from one bay to the next and are
+// constant within one. That ordering is the whole shape of the build.
+//
+// One pier at every original corner, one at each gate jamb, and the rest spread
+// evenly along each corner-to-corner span so no bay is a different length from
+// its neighbours. `spacing` is a target, not a law.
+function pierPlan(points, closed, spacing, openings) {
+  const src = points.map((p) => ({ x: p.x, z: p.z }));
+  if (closed && src.length > 1) {
+    const a = src[0];
+    const b = src[src.length - 1];
+    if (Math.hypot(a.x - b.x, a.z - b.z) < 1e-6) src.pop();
+  }
+  const n = src.length;
+  const corners = [0];
+  let s = 0;
+  const legs = closed ? n : n - 1;
+  for (let i = 0; i < legs; i++) {
+    const a = src[i];
+    const b = src[(i + 1) % n];
+    s += Math.hypot(b.x - a.x, b.z - a.z);
+    corners.push(s);
+  }
+  const total = s;
+
+  const inGap = (d) => openings.some((o) => d > o.a + 1e-6 && d < o.b - 1e-6);
+  const want = new Set();
+  for (let i = 0; i < corners.length - 1; i++) {
+    const a = corners[i];
+    const b = corners[i + 1];
+    const k = Math.max(1, Math.round((b - a) / spacing));
+    for (let j = 0; j <= k; j++) want.add(+(a + ((b - a) * j) / k).toFixed(4));
+  }
+  for (const o of openings) { want.add(+o.a.toFixed(4)); want.add(+o.b.toFixed(4)); }
+
+  const out = [];
+  const seen = new Set();
+  for (const d of [...want].sort((p, q) => p - q)) {
+    if (inGap(d)) continue;
+    const key = closed && Math.abs(d - total) < 1e-6 ? 0 : d;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(Math.min(d, total));
+  }
+  return { at: out, corners, total };
+}
+
 // Turn the caller's corners into a sampled path: every original corner kept
-// exactly, straight spans subdivided so the coping has somewhere to undulate.
+// exactly, straight spans subdivided so the coping has somewhere to undulate,
+// and a DOUBLED sample at every pier.
+//
+// The doubling is not cosmetic and it is worth knowing why it is there, because
+// it looks like a redundant vertex. The bay index rides in a vertex attribute,
+// and a vertex attribute is INTERPOLATED: with one sample either side of a
+// pier, the attribute ramps smoothly from bay 3 to bay 4 across the span
+// between them, so every fragment in that span hashes to a different bay and
+// the whole span comes back as a band of dense speckle. Which is exactly what
+// the first render of this pass showed -- a vertical bar of noise at every
+// pier, twenty-four of them. Two coincident samples make the span between the
+// bays zero-length, so no triangle anywhere spans two bays and the attribute is
+// constant across every one of them. The change of coursing then happens on a
+// plane that stands inside a pier, which is the same trick the fence uses to
+// hide a rail joint inside a post.
 //
 // Corners are never moved and never wander. A corner that has drifted off the
 // lattice is a corner that no longer meets the level's own grid, and the whole
 // point of a 6 by 6 of major squares is that the wall lands on the lines.
-function samplePath(points, closed, step, rand, wander) {
+function samplePath(points, closed, step, rand, wander, splits) {
   const src = points.map((p) => ({ x: p.x, z: p.z }));
   if (closed && src.length > 1) {
     const a = src[0];
@@ -434,52 +500,96 @@ function samplePath(points, closed, step, rand, wander) {
   }
   const n = src.length;
   const out = [];
-  const last = closed ? n : n - 1;
-  for (let i = 0; i < last; i++) {
+  const legs = closed ? n : n - 1;
+
+  let base = 0;
+  for (let i = 0; i < legs; i++) {
     const a = src[i];
     const b = src[(i + 1) % n];
     const len = Math.hypot(b.x - a.x, b.z - a.z);
     const parts = Math.max(1, Math.round(len / step));
-    for (let k = 0; k < parts; k++) {
-      const t = k / parts;
-      out.push({
+    // Every subdivision of this leg, plus every split that falls inside it.
+    const ds = new Set();
+    for (let k = 0; k < parts; k++) ds.add(+((len * k) / parts).toFixed(5));
+    for (const sp of splits) {
+      const d = sp - base;
+      if (d > 1e-5 && d < len - 1e-5) ds.add(+d.toFixed(5));
+    }
+    const list = [...ds].sort((p, q) => p - q);
+    for (const d of list) {
+      const t = d / len;
+      const onPier = d === 0 || splits.some((sp) => Math.abs(sp - (base + d)) < 1e-4);
+      const pt = {
         x: a.x + (b.x - a.x) * t,
         z: a.z + (b.z - a.z) * t,
-        corner: k === 0,
-      });
+        corner: d === 0,
+        // `pier` is on BOTH halves of a doubled pair and is what suppresses the
+        // lateral wander, so the two really are coincident and the zero-length
+        // span between them can be dropped. `split` is on the SECOND only and
+        // is what opens the next bay. Marking both with one flag was the first
+        // try and it cost eight hundred triangles of zero-area quads, because
+        // the first half kept a random wander and the pair no longer coincided.
+        pier: onPier,
+        s: base + d,
+      };
+      out.push(pt);
+      // The leg start is a corner and always carries a pier, so it doubles too.
+      if (onPier) out.push({ ...pt, split: true });
     }
+    base += len;
   }
-  if (!closed) out.push({ x: src[n - 1].x, z: src[n - 1].z, corner: true });
-
-  let s = 0;
-  for (let i = 0; i < out.length; i++) {
-    if (i > 0) s += Math.hypot(out[i].x - out[i - 1].x, out[i].z - out[i - 1].z);
-    out[i].s = s;
-  }
-  const total = closed
-    ? s + Math.hypot(out[0].x - out[out.length - 1].x, out[0].z - out[out.length - 1].z)
-    : s;
+  const total = base;
+  if (!closed) out.push({ x: src[n - 1].x, z: src[n - 1].z, corner: true, s: total });
 
   const dirAt = (i) => {
+    // Skip over coincident samples: a doubled pier sample has no direction of
+    // its own and asking it for one gives a zero vector.
     const a = out[i];
-    const b = out[(i + 1) % out.length];
-    return across(b.x - a.x, b.z - a.z);
+    for (let k = 1; k <= out.length; k++) {
+      const b = out[(i + k) % out.length];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      if (Math.hypot(dx, dz) > 1e-7) return across(dx, dz);
+    }
+    return across(1, 0);
+  };
+  const dirBefore = (i) => {
+    const b = out[i];
+    for (let k = 1; k <= out.length; k++) {
+      const a = out[(i - k + out.length * 2) % out.length];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      if (Math.hypot(dx, dz) > 1e-7) return across(dx, dz);
+    }
+    return across(1, 0);
   };
   for (let i = 0; i < out.length; i++) {
-    const prev = closed || i > 0 ? dirAt((i - 1 + out.length) % out.length) : dirAt(0);
-    const next = closed || i < out.length - 1 ? dirAt(i) : dirAt(out.length - 2);
+    const prev = closed || i > 0 ? dirBefore(i) : dirAt(i);
+    const next = closed || i < out.length - 1 ? dirAt(i) : dirBefore(i);
+    // Both halves of a doubled pair take the same mitre, which on a straight is
+    // just the run's own across-vector and at a corner is the bisector. They
+    // are coincident, so the span between them is zero-length whatever frame
+    // they carry; what matters is only that they carry the SAME one, or the
+    // zero-length span opens into a sliver.
     const m = miter(prev, next);
     out[i].m = m;
-    // Unit across, for the normals. normalize(m), not m: the mitre vector is
-    // longer than one and a normal built from it comes out unnormalised at
-    // every corner, which lights the corner brighter than the run it joins.
     const ml = Math.hypot(m.x, m.z) || 1;
     out[i].n = { x: m.x / ml, z: m.z / ml };
     // A wall that has stood a hundred years is not on a line. The wander is
-    // lateral and tiny, and it is zero at every original corner.
-    out[i].wander = out[i].corner ? 0 : (rand() * 2 - 1) * wander;
+    // lateral and tiny, and it is zero at every corner and every pier.
+    out[i].wander = out[i].pier ? 0 : (rand() * 2 - 1) * wander;
   }
-  return { pts: out, total, closed };
+
+  // UNROLL a closed loop: the last sample is a copy of the first, so the sweep
+  // never wraps. Without it the span from the last sample back to sample zero
+  // would carry the last bay's index at one end and bay zero's at the other,
+  // which is the speckle band again, once, at the seam.
+  if (closed) {
+    out.push({ ...out[0], s: total, seam: true });
+    out[0].seam = true;
+  }
+
+  return { pts: out, total, loop: closed, closed: false };
 }
 
 // A fresh sample exactly `s` along a sampled path, interpolated between the two
@@ -506,9 +616,11 @@ function pointAt(path, s) {
         s,
         corner: false,
         // Between two samples the frame is the segment's, and a segment has one
-        // frame from end to end: only an original corner turns.
+        // frame from end to end: only an original corner turns. The bay is the
+        // one the span belongs to, which is the one its first sample carries.
         m: a.m,
         n: a.n,
+        bay: a.bay,
         wander: 0,
       };
     }
@@ -588,7 +700,7 @@ function sweep(path, loop, shape, stamp) {
 
   for (let i = 0; i < rings; i++) {
     const p = path.pts[i];
-    const bay = stamp.bay(p.s);
+    const bay = p.bay || 0;
     const base = i * vertsPerRing;
     for (let e = 0; e < edges; e++) {
       const a = loop[e];
@@ -615,6 +727,14 @@ function sweep(path, loop, shape, stamp) {
   for (let i = 0; i < spans; i++) {
     const a = i * vertsPerRing;
     const b = ((i + 1) % rings) * vertsPerRing;
+    // The doubled samples at every pier leave a zero-length span between them.
+    // Its quads are exactly zero-area, so the surface is continuous whether
+    // they are there or not, and on a 30 by 30 they were sixteen hundred
+    // triangles of nothing. Skipped.
+    const dx = position[b * 3] - position[a * 3];
+    const dy = position[b * 3 + 1] - position[a * 3 + 1];
+    const dz = position[b * 3 + 2] - position[a * 3 + 2];
+    if (dx * dx + dy * dy + dz * dz < 1e-12) continue;
     for (let e = 0; e < edges; e++) {
       index.push(a + e * 2, b + e * 2, b + e * 2 + 1, a + e * 2, b + e * 2 + 1, a + e * 2 + 1);
     }
@@ -639,7 +759,7 @@ function endCap(path, loop, end, shape, stamp) {
   const dl = Math.hypot(dir.x, dir.z) || 1;
   const nx = dir.x / dl;
   const nz = dir.z / dl;
-  const bay = stamp.bay(p.s);
+  const bay = p.bay || 0;
 
   const position = [];
   const normal = [];
@@ -823,7 +943,7 @@ function pier(p, size, H, rise, rand, bay) {
 // 0.40 gives three hundred bars and three thousand triangles on a 30 by 30,
 // which lands the ironwork at roughly 1.7 times a masonry wall. Tighter looks
 // better and costs linearly; this is where it was left.
-function railingBars(path, v, H, piers, rand, stamp) {
+function railingBars(path, v, H, piers, rand) {
   const r = v.barSize / 2;
   const ring = [[r, r], [-r, r], [-r, -r], [r, -r]];
   const y0 = v.plinthTop - 0.02;
@@ -861,7 +981,7 @@ function railingBars(path, v, H, piers, rand, stamp) {
           const q = world(p, u, w, yy);
           position.push(q[0], q[1], q[2]);
           normal.push(0, 0, 0);       // filled in below
-          stone.push(s, 1, stamp.bay(s), 1);
+          stone.push(s, 1, p.bay || 0, 1);
         }
       }
       for (let e = 0; e < 4; e++) {
@@ -1151,7 +1271,6 @@ export function createWall({
   if (thickness) v.thickness = thickness;
   const rand = rng(seed);
   const { body: bodyLoop, cope: copeLoop, copeBottom } = sections(height, v);
-  const path = samplePath(points, closed, step, rand, wander);
 
   // Openings.
   const openings = []
@@ -1161,37 +1280,26 @@ export function createWall({
     .sort((p, q) => p.a - q.a);
   const inOpening = (s) => openings.some((o) => s > o.a + 1e-6 && s < o.b - 1e-6);
 
-  // --- where the piers stand ------------------------------------------------
-  // Worked out BEFORE anything is swept, because the piers are what define the
-  // bays and the bays are what the coursing varies over.
-  const pierS = [];
+  // Piers first, path second. See pierPlan: the piers define the bays and the
+  // bays are what every kind of variation on this wall is keyed to.
+  const plan = pierPlan(points, closed, pierSpacing, openings);
+  const path = samplePath(points, closed, step, rand, wander, piers ? plan.at : []);
+  const pierS = piers ? plan.at.map((d) => pointAt(path, d)) : [];
+
+  // Number the bays, walking the samples in order. A bay opens at the SECOND of
+  // each doubled pier sample, so no span ever straddles two of them.
+  const bayStart = [0];
   {
-    const cornerS = path.pts.filter((p) => p.corner).map((p) => p.s);
-    if (path.closed) cornerS.push(path.total);
-    const want = new Set();
-    for (let i = 0; i < cornerS.length - 1; i++) {
-      const a = cornerS[i];
-      const b = cornerS[i + 1];
-      const n = Math.max(1, Math.round((b - a) / pierSpacing));
-      for (let k = 0; k <= n; k++) want.add(+(a + ((b - a) * k) / n).toFixed(4));
-    }
-    for (const o of openings) { want.add(+o.a.toFixed(4)); want.add(+o.b.toFixed(4)); }
-    const seen = new Set();
-    for (const s of [...want].sort((p, q) => p - q)) {
-      if (inOpening(s)) continue;
-      const key = path.closed && Math.abs(s - path.total) < 1e-6 ? 0 : s;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      pierS.push(pointAt(path, Math.min(s, path.total)));
+    let bay = 0;
+    for (const pt of path.pts) {
+      if (pt.split) { bay += 1; bayStart[bay] = pt.s; }
+      pt.bay = bay;
     }
   }
-
-  // A bay is the length of wall between two piers, and it is the unit
-  // everything below varies over: the coursing, the settle, the lean and the
-  // tone. Index rather than distance, so the shader can hash it.
-  const bayOf = (s) => {
+  const bayRange = (i) => [bayStart[i] ?? 0, bayStart[i + 1] ?? path.total];
+  const bayAt = (s) => {
     let i = 0;
-    while (i + 1 < pierS.length && pierS[i + 1].s <= s + 1e-6) i++;
+    while (i + 1 < bayStart.length && bayStart[i + 1] <= s + 1e-6) i++;
     return i;
   };
 
@@ -1201,20 +1309,19 @@ export function createWall({
   // order of magnitude bigger: one bay has slumped in the middle, the next
   // leans out at the top, the one after is straight. Quadratic in height in
   // both cases, so the footing stays bedded in the dirt and all of the movement
-  // is where the eye reads a wall's line, along its top.
-  const bays = pierS.map(() => ({
+  // is where the eye reads a wall's line, along its top. Zero at both ends of a
+  // bay, so the wall is pinned wherever a pier holds it up -- which is what a
+  // pier is for, and which is also why no bay's slump ever shows as a step
+  // against its neighbour's.
+  const bays = bayStart.map(() => ({
     sag: (rand() * 2 - 1) * v.sag,
     lean: (rand() * 2 - 1) * v.lean,
   }));
   const ph = rand() * Math.PI * 2;
   const shapeAt = (s) => {
-    const i = bayOf(s);
-    const a = pierS[i] ? pierS[i].s : 0;
-    const b = pierS[i + 1] ? pierS[i + 1].s : path.total;
-    // Zero at both piers and full in the middle, so a bay's slump is a bay's
-    // slump and the wall is pinned wherever a pier holds it up. Which is what
-    // a pier is for.
-    const t = b > a ? Math.min(1, Math.max(0, (s - a) / (b - a))) : 0;
+    const i = bayAt(s);
+    const [a0, b0] = bayRange(i);
+    const t = b0 > a0 ? Math.min(1, Math.max(0, (s - a0) / (b0 - a0))) : 0;
     return { arch: Math.sin(t * Math.PI), bay: bays[i] || bays[0] };
   };
   const shape = {
@@ -1233,17 +1340,21 @@ export function createWall({
     },
   };
 
-  const stamp = { bay: bayOf, dressed: 0, iron: 0 };
+  const stamp = { dressed: 0, iron: 0 };
   const parts = [];
 
   // --- the body -------------------------------------------------------------
-  const bodyRuns = cutRuns(path, openings);
-  for (const run of bodyRuns) {
+  // A run's ends want caps -- they are gate jambs -- EXCEPT at the seam where
+  // an unrolled closed loop meets itself, where the two ends are the same place
+  // and a cap there would be a wall built across its own corner.
+  const capped = (run, loop) => {
+    if (!run.pts[0].seam) parts.push(endCap(run, loop, 0, shape, stamp));
+    if (!run.pts[run.pts.length - 1].seam) parts.push(endCap(run, loop, 1, shape, stamp));
+  };
+
+  for (const run of cutRuns(path, openings)) {
     parts.push(sweep(run, bodyLoop, shape, stamp));
-    if (!run.closed) {
-      parts.push(endCap(run, bodyLoop, 0, shape, stamp));
-      parts.push(endCap(run, bodyLoop, 1, shape, stamp));
-    }
+    capped(run, bodyLoop);
   }
 
   if (v.kind === 'masonry') {
@@ -1281,10 +1392,7 @@ export function createWall({
 
     for (const run of cutRuns(path, [...openings, ...copeGaps].sort((p, q) => p.a - q.a))) {
       parts.push(sweep(run, copeLoop, shape, stamp));
-      if (!run.closed) {
-        parts.push(endCap(run, copeLoop, 0, shape, stamp));
-        parts.push(endCap(run, copeLoop, 1, shape, stamp));
-      }
+      capped(run, copeLoop);
     }
 
     // The stones that shifted rather than fell. Built as a one-span run over
@@ -1316,47 +1424,41 @@ export function createWall({
     const plinthCope = copeLoop.map(([u, y]) => [u, y - (height - v.plinthTop)]);
     for (const run of cutRuns(path, openings)) {
       parts.push(sweep(run, plinthCope, shape, stamp));
-      if (!run.closed) {
-        parts.push(endCap(run, plinthCope, 0, shape, stamp));
-        parts.push(endCap(run, plinthCope, 1, shape, stamp));
-      }
+      capped(run, plinthCope);
     }
-    const ironStamp = { bay: bayOf, dressed: 1, iron: 1 };
+    const ironStamp = { dressed: 1, iron: 1 };
     const rail = railSection(v, height);
     for (const run of cutRuns(path, openings)) {
       parts.push(sweep(run, rail, shape, ironStamp));
-      if (!run.closed) {
-        parts.push(endCap(run, rail, 0, shape, ironStamp));
-        parts.push(endCap(run, rail, 1, shape, ironStamp));
-      }
+      if (!run.pts[0].seam) parts.push(endCap(run, rail, 0, shape, ironStamp));
+      if (!run.pts[run.pts.length - 1].seam) parts.push(endCap(run, rail, 1, shape, ironStamp));
     }
-    parts.push(railingBars(path, v, height, pierS, rand, ironStamp));
+    parts.push(railingBars(path, v, height, pierS, rand));
   }
 
   // --- the piers ------------------------------------------------------------
-  if (piers) {
-    for (const p of pierS) {
-      // A pier on a corner has to be bigger than one on a straight, and by how
-      // much is not a taste call. On a straight the coping oversails to 0.295
-      // and the pier's face stands at 0.43, so the pier is 0.135 proud. At a
-      // mitred right angle the coping reaches |m| times that, 0.417, and a
-      // pier left at 0.43 would be 0.013 proud -- which is not a pier, it is
-      // the coping's point poking out through a block, and the first render of
-      // the corner showed exactly that. cornerScale puts the pier's face at
-      // 0.559 and the proudness back to 0.142, so a corner pier stands off its
-      // wall by the same amount a straight one does. Interpolated between
-      // |m| = 1 on a straight and sqrt(2) at a square corner, so a level whose
-      // walls are not at right angles gets the right answer too.
-      const mlen = Math.hypot(p.m.x, p.m.z);
-      const corner = 1 + (mlen - 1) * (WALL.pier.cornerScale - 1) / (Math.SQRT2 - 1);
-      // And then no two piers are quite the same size or quite the same height.
-      // Twenty-four identical blocks at 5.0 centres is the loudest repeat left
-      // on the prop once the coursing varies, because a pier is a silhouette
-      // and the eye counts silhouettes.
-      const jitter = 0.94 + rand() * 0.12;
-      const rise = WALL.pier.rise * (0.82 + rand() * 0.40);
-      parts.push(pier(p, WALL.pier.width * corner * jitter, height, rise, rand, bayOf(p.s)));
-    }
+  for (const p of pierS) {
+    // A pier on a corner has to be bigger than one on a straight, and by how
+    // much is not a taste call. On a straight the coping oversails to 0.295
+    // and the pier's face stands at 0.43, so the pier is 0.135 proud. At a
+    // mitred right angle the coping reaches |m| times that, 0.417, and a pier
+    // left at 0.43 would be 0.013 proud -- which is not a pier, it is the
+    // coping's point poking out through a block, and the first render of the
+    // corner showed exactly that. cornerScale puts the pier's face at 0.559
+    // and the proudness back to 0.142, so a corner pier stands off its wall by
+    // the same amount a straight one does. Interpolated between |m| = 1 on a
+    // straight and sqrt(2) at a square corner, so a level whose walls are not
+    // at right angles gets the right answer too.
+    const mlen = Math.hypot(p.m.x, p.m.z);
+    const corner = 1 + (mlen - 1) * (WALL.pier.cornerScale - 1) / (Math.SQRT2 - 1);
+    // And then no two piers are quite the same size or quite the same height.
+    // Twenty-four identical blocks at 5.0 centres was the loudest repeat left
+    // on the prop once the coursing varied, because a pier is a silhouette and
+    // the eye counts silhouettes. Held inside 6% of width and 20% of the cap's
+    // rise, so the rhythm still reads as a rhythm.
+    const jitter = 0.94 + rand() * 0.12;
+    const rise = WALL.pier.rise * (0.82 + rand() * 0.40);
+    parts.push(pier(p, WALL.pier.width * corner * jitter, height, rise, rand, bayAt(p.s)));
   }
 
   // The project's own merge, not three's: it is what the rendering pass uses

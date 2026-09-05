@@ -741,8 +741,15 @@ export async function startGame({ canvas, params }) {
       return Object.fromEntries(Object.entries(s).map(([k, v]) => [k, +v.toFixed(1)]));
     },
     // Rebuild the same wave, so the build can be timed more than once without
-    // a page reload changing the level under the measurement.
+    // a page reload changing the level under the measurement. Every template
+    // the cache holds is a hit, which is the streaming best case: a chunk the
+    // player has already walked through.
     rebuild() { startWave(run.wave); return world.buildMs; },
+    // A DIFFERENT wave, which is the streaming case that actually matters: a
+    // chunk the cache has never seen, whose variants it may or may not already
+    // hold. The gap between this and rebuild() is what a template bake costs.
+    rebuildWave(n) { startWave(n); return world.buildMs; },
+    templates: () => propCache.size(),
     // The named buckets buildWorld parents its work under.
     buckets: () => world?.buckets || {},
   };
