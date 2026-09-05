@@ -191,32 +191,46 @@ export const M = {
     // cheek pushing the bottom up they came out as angular almonds: a Roswell
     // grey, not a corpse. Round, deep, with a rim all the way round and a
     // colour inside that is not black.
+    // 0.092 by 0.073 is 29 per cent of head WIDTH and 22 per cent of head
+    // HEIGHT, measured off the reference. They were 0.092 square, which is 28
+    // per cent of the height, and the pair plus their rims covered nearly the
+    // whole upper face: the head read as mostly hole, and as a corrupted skull
+    // rather than the reference's cute-and-gruesome toy.
+    //
+    // The rule that sets this, and it is worth stating because the legibility
+    // argument pulls the other way: THE AMOUNT OF SMOOTH GREEN FACE LEFT IS
+    // WHAT CARRIES THE CHARM. The reference has a broad clear forehead above
+    // the sockets, a clear bridge between them and clear cheek below, and all
+    // three have to survive. Oversizing for 34 px was right and it overshot;
+    // the test is not only "can I see them at game scale" but "is this still
+    // a face at arm's length".
     width: f(0.092),
-    height: f(0.092),
+    height: f(0.073),
     depth: f(0.030),
     // The orbital rim: a raised ring around the socket, as a fraction of
     // browJut. This is what gives the eye a lid and a brow that overhangs it
     // rather than a hole punched in a smooth ball.
-    rim: 0.45,
+    rim: 0.38,
     // Where the ring sits, in socketR units, and how tight it is. It was at
     // 1.22 with a wide falloff and the raised ground reached out to 1.6 socket
     // radii: what that reads as is a big shallow crater with a small dark bead
     // at the bottom of it, which is not an eye socket. Pulled in tight against
     // the opening it reads as a rim.
-    rimAt: 1.18,
-    rimWide: 0.14,
-    // The outline is not a clean ellipse. A three- and five-lobed wobble is
-    // the difference between a moulded eyepiece and a hole where something
-    // rotted away, and it costs nothing.
+    // Tight against the opening, and low. A wide rim eats the forehead and
+    // the cheek, which is exactly the face this character cannot spare.
+    rimAt: 1.14,
+    rimWide: 0.11,
+    // NO WOBBLE. The outline is a clean ellipse.
     //
-    // It is also doing a second job. The socket's dark is PAINTED on the head
-    // rather than cut into it (see parts/head.js), so its edge is a staircase
-    // at grid resolution: half a pixel in a shipped frame, but scalloped on a
-    // close crop. At 0.05 that scalloping read as an artifact on a clean
-    // ellipse. At 0.14 the outline is visibly irregular by intent and the
-    // staircase disappears into it, which is the same trade the torn hems and
-    // the chest tear are making.
-    wobble: 0.075,
+    // It carried a three- and five-lobed wobble for one round, on the argument
+    // that an irregular outline would absorb the staircase where the painted
+    // dark meets the skin. It does not: at close range the two together read
+    // as digital corruption, jagged and pixelly, and it was the single ugliest
+    // thing in the render. The reference's sockets have clean smooth edges and
+    // a torn one is a different character. The staircase is dealt with by
+    // sampling the face three times as finely (see parts/head.js), which is
+    // solving it rather than disguising it.
+    wobble: 0,
     // Centre to centre. f(0.115) was the first pass and the two sockets came
     // within 0.02 of touching over the bridge, which read as one wide dark
     // band rather than two eyes. Pushed out until there is a clear strip of
@@ -252,9 +266,10 @@ export const M = {
     width: f(0.180),          // 0.57 of head width
     height: f(0.052),
     depth: f(0.026),
-    // The mouth's own irregularity. A perfectly smooth lens reads as a slot
-    // milled into the face; this is a torn one.
-    wobble: 0.10,
+    // NO WOBBLE, for the same reason as the socket above: in the reference
+    // the mouth is a smooth wide curve with the teeth clearly seated in it,
+    // and a ragged outline made the teeth read as detached from the slot.
+    wobble: 0,
     curve: 0.55,              // how far the corners rise, as a fraction of height
     // Fewer teeth, bigger teeth. Ten uneven teeth at this size is a grey
     // dither; five is five white blocks and a gap you can actually see.

@@ -104,7 +104,8 @@ const flat = (pts) => {
 // Omitted quads leave a real hole in the mesh, which is how every opening on
 // this character is made.
 export function gridSurface({
-  uSteps, vSteps, closedU = true, point, keepQuad = null, uAt = null, vAt = null,
+  uSteps, vSteps, closedU = true, point, keepQuad = null, keepIndex = null,
+  uAt = null, vAt = null,
 }) {
   const uN = closedU ? uSteps : uSteps + 1;
   const vN = vSteps + 1;
@@ -118,6 +119,12 @@ export function gridSurface({
   const idx = [];
   for (let i = 0; i < uSteps; i++) {
     for (let j = 0; j < vSteps; j++) {
+      // keepIndex is tested on the CELL INDICES, not on the parameter values.
+      // That is what lets a denser patch be dropped into a coarse grid without
+      // a crack: both sides agree on the seam because both are quoting the
+      // same integer cell boundary, whereas a test on u and v puts the coarse
+      // edge up to half a cell either side of where the patch actually starts.
+      if (keepIndex && !keepIndex(i, j)) continue;
       if (keepQuad) {
         const uc = (uOf(i) + uOf(i + 1 === uN ? uSteps : i + 1)) / 2;
         const vc = (vOf(j) + vOf(j + 1)) / 2;

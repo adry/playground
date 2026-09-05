@@ -632,83 +632,103 @@ export function buildHead({ materials }) {
   const group = new THREE.Group();
   group.userData.outwardX = 1;
 
-  // THE SHELL, AND WHY THE DARK IS PAINTED ON IT RATHER THAN PUT BEHIND IT.
+  // THE SHELL: one continuous surface, painted in three colours, and sampled
+  // three times more finely over the face than over the rest of the head.
   //
-  // The sockets, the nasal aperture and the mouth are all drawn from THE SAME
-  // parametric surface as the face, over THE SAME grid, in three passes that
-  // keep different quads. There is no cut, no hole, nothing placed behind
-  // anything: it is one continuous surface, coloured in three parts, and the
-  // dark is the recess itself rather than an object seen through an opening.
+  // --- why the dark is painted rather than put behind an opening
   //
-  // This is the fifth construction and the four before it all failed the same
-  // way, so the reasoning is worth keeping.
+  // The sockets, the nasal aperture and the mouth are drawn from THE SAME
+  // surface as the face. There is no cut, no hole, nothing placed behind
+  // anything: the dark is the recess itself. Four constructions came before
+  // this one and all four failed the same way, so the reasoning is kept:
   //
   //   1. A dark BALL seated in the dent: flush only at its own pole.
-  //   2. A dark PATCH resampled off the built surface: the patch reaches the
-  //      surface through frontUV, which inverts the base ellipsoid, while the
-  //      shell has a brow, a cheek, a crown swell and three octaves of lumps
-  //      on top of that. The two disagree by a fraction of a millimetre and
-  //      the patch comes through the skin in slivers.
-  //   3. A CUP following the dent's own depth profile: same problem, one term
-  //      further down. Each fix removed one source of drift and revealed the
-  //      next.
+  //   2. A dark PATCH resampled off the built surface: it reaches the surface
+  //      through frontUV, which inverts the base ellipsoid, while the shell
+  //      has a brow, a cheek, a crown swell and three octaves of lumps on top
+  //      of that. They disagree by a fraction of a millimetre and the patch
+  //      comes through the skin in slivers.
+  //   3. A CUP following the dent's depth profile: the same, one term further
+  //      down. Each fix removed one source of drift and revealed the next.
   //   4. A real HOLE with a rim ribbon over the cut and a bowl behind, which
-  //      is how the chest cavity works and works well there. On a socket it
-  //      does not, for two reasons the chest does not have: the recess is
-  //      applied along the local normal, which at an orbit is raked 25 degrees
-  //      off the view, so the surviving shell slides sideways over the hole;
-  //      and the bowl behind is a solid whose silhouette has to stay hidden
-  //      inside a curving head from every angle, which it does not once the
-  //      walk turns the head twenty degrees, which it does every cycle.
+  //      is how the chest cavity works and works well there. On a socket the
+  //      bowl is a solid whose silhouette has to stay hidden inside a curving
+  //      head from every angle, and it does not, once the walk turns the head
+  //      twenty degrees, which it does every cycle.
   //
-  // Painting it removes every one of those failure modes at once, because
-  // there are no longer two surfaces to disagree. What it costs is that the
-  // boundary between colours is a staircase at grid resolution. That is worth
-  // it: the boundary sits on the steep wall of the dent, in its own shadow,
-  // and at 104 samples across the face one step is about half a pixel in a
-  // shipped frame.
-  // 128 x 88. The boundary between the painted zones is a staircase at grid
-  // resolution, and this is the only lever on it: at 104 x 64 one step is
-  // about a tenth of a socket radius, which is half a pixel in a shipped frame
-  // and invisible there, but scalloped enough to be distracting on a close
-  // crop. Doubling the v samples halves it. The head is the character and it
-  // is worth the triangles; nothing else on the model is sampled this finely.
-  const U = 128;
-  const V = 88;
+  // Painting removes all of it, because there are no longer two surfaces to
+  // disagree. What it costs is that the boundary between colours is a
+  // staircase at grid resolution.
+  //
+  // --- and why the face is its own patch
+  //
+  // That staircase is the whole reason for the two-resolution grid below. It
+  // was disguised for one round by wobbling the socket outline, and the
+  // disguise was worse than the artifact: the two together read as digital
+  // corruption. The only real fix is to sample the boundary finely enough
+  // that the steps disappear, and the only affordable way to do that is to
+  // spend the samples where the boundary is.
+  //
+  // So: a coarse grid over the whole head with the face rectangle omitted,
+  // and a patch over that rectangle at three times the density in both
+  // directions. The seam is chosen by CELL INDEX, not by parameter value, so
+  // both sides quote the same boundary and there is no crack; the extra fine
+  // vertices along the shared edge sit on the true surface while the coarse
+  // edge is its chord, and that sagitta is under a thousandth of a
+  // millimetre. Nine times the samples over a third of the head costs about
+  // as much as doubling the whole grid did, and puts all of it on the face.
+  const U = 88, V = 60;
   const uAt = (i) => concentrate(i / U, U_FRONT, 0.55);
   const vAt = (j) => vWarp(j / V, V_FACE, 0.45);
 
-  // Which of the three a quad belongs to, decided on the BARE surface.
-  //
-  // This has to be the bare one and the reason is worth stating, because the
-  // built one looks like the obvious choice and produces the single worst
-  // artifact on the model. The recess varies with r, so the map from (u, v) to
-  // the BUILT position is compressed against the socket's wall: many grid
-  // cells land in a narrow band of r there, the predicate flips back and forth
-  // across them, and the boundary comes out as a comb of teeth a dozen deep.
-  // The map to the BARE position is smooth and monotonic, so the boundary is
-  // a clean staircase one cell deep.
-  //
-  // The thresholds are then set larger than the features' own outlines,
-  // because the recess pushes the painted patch inward and it has to be cut
-  // oversize to land in the right place.
+  // The face rectangle, in coarse cell indices. i from 0 to 44 is the front
+  // 33 per cent of the circumference once the u warp is taken into account,
+  // u = 0.088 to 0.413, which clears the outermost reach of both orbital
+  // rims; j from 5 to 48 runs from below the chin to above the brow.
+  const I0 = 0, I1 = 44, J0 = 5, J1 = 48;
+  const DENSITY = 3;
+
   const SKIN = 0, DARK = 1, DEEP = 2;
+  // Which of the three a quad belongs to. Decided on the surface AS BUILT:
+  // each recess is now a push along one FIXED axis per feature rather than
+  // along the local normal, so the map from parameter to built position is
+  // well behaved and the boundary comes out clean. Under the old
+  // normal-aligned recess it was compressed against the dent wall, the
+  // predicate flipped back and forth across it, and the boundary came out as
+  // a comb of teeth a dozen deep.
   const zoneOf = (u, vv) => {
-    const p = surfacePoint(u, vv, BARE);
+    const p = surfacePoint(u, vv);
     if (p.z <= 0) return SKIN;
     for (const side of [1, -1]) {
       const r = socketR(p.x, p.y, side);
-      if (r <= 0.62) return DEEP;
-      if (r <= 1.16) return DARK;
+      if (r <= 0.58) return DEEP;
+      if (r <= 1.00) return DARK;
     }
-    if (grinR(p.x, p.y) <= 1.08) return DEEP;
-    if (noseR(p.x, p.y) <= 1.10) return DARK;
+    if (grinR(p.x, p.y) <= 1.00) return DEEP;
+    if (noseR(p.x, p.y) <= 1.00) return DARK;
     return SKIN;
   };
 
-  for (const [zone, material] of [[SKIN, materials.skin], [DARK, materials.socket], [DEEP, materials.socketDeep]]) {
+  const zones = [[SKIN, materials.skin], [DARK, materials.socket], [DEEP, materials.socketDeep]];
+
+  // the coarse shell, with the face rectangle left out
+  for (const [zone, material] of zones) {
     put(group, gridSurface({
       uSteps: U, vSteps: V, closedU: true, uAt, vAt,
+      point: (u, vv) => surfacePoint(u, vv),
+      keepIndex: (i, j) => !(i >= I0 && i < I1 && j >= J0 && j < J1),
+      keepQuad: (u, vv) => zoneOf(u, vv) === zone,
+    }).geometry, material);
+  }
+
+  // the face, at DENSITY times the sampling in both directions
+  for (const [zone, material] of zones) {
+    put(group, gridSurface({
+      uSteps: (I1 - I0) * DENSITY,
+      vSteps: (J1 - J0) * DENSITY,
+      closedU: false,
+      uAt: (k) => uAt(I0 + k / DENSITY),
+      vAt: (k) => vAt(J0 + k / DENSITY),
       point: (u, vv) => surfacePoint(u, vv),
       keepQuad: (u, vv) => zoneOf(u, vv) === zone,
     }).geometry, material);
