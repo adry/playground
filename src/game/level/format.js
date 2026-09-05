@@ -22,8 +22,8 @@
 // Three things the file does NOT store, and why.
 //
 //   fireflies   The owner asked for them to be automated. The file carries the
-//               RULE and the loader runs it (see fireflies.js). Nine positions
-//               in a file would be nine positions that go stale the moment a
+//               RULE and the loader runs it (see fireflies.js). Five positions
+//               in a file would be five positions that go stale the moment a
 //               headstone moves.
 //   barriers    A fence is stored as a POLYLINE with gate marks on it. The
 //               barrier list is derived, and derived is the only way to keep
@@ -127,21 +127,34 @@
 //                                 0 is bare floor and n is materials[n-1]
 //   },
 //
-//   "fireflies": { "cell": 8, "edge": 4, "gap": 5.5, "seed": 7 }
-//                                 THE RULE, not the positions.
+//   "fireflies": { "count": 5, "gap": 12, "edge": 1.5, "seed": 7 }
+//                                 THE RULE, not the positions. FIVE is the
+//                                 owner's number and `gap` is a floor rather
+//                                 than a target: the sampler maximises the
+//                                 spacing by itself and reaches about twenty,
+//                                 which is a screen's width. See fireflies.js
+//                                 for the measurements behind both, and
+//                                 DEFAULT_FLY_RULE for the fields left out
+//                                 here, which a file rarely sets.
 // }
 //
 // ============================================================================
 // HOW THE GAME LOADS ONE
 // ============================================================================
 //
-//   /lab/?world=1&level=/levels/mine.json
+//   /lab/?game=1&level=/levels/mine.json    play it
+//   /lab/?world=1&level=/levels/mine.json   walk it, with no game in it
 //
-// The level viewer takes a `level` query parameter and, when it is there,
-// builds from the file instead of from a seed. That is the ONLY door: nothing
-// the editor writes reaches a shipped page except through a URL the owner
-// types, so a level in the editor's autosave cannot leak into /, /ghostly/ or
-// /lab/. See src/game/viewer.js.
+// Both pages take a `level` query parameter and, when it is there, build from
+// the file instead of from a seed: src/game/scene.js is the game and
+// src/game/viewer.js is the placement viewer. That parameter is the ONLY door:
+// nothing the editor writes reaches a shipped page except through a URL the
+// owner types, so a level in the editor's autosave cannot leak into /,
+// /ghostly/ or /lab/.
+//
+// A level the game SHIPS WITH lives in public/levels/, which Vite copies to the
+// site root, so /levels/demo.json is a level anyone can be sent to. That is
+// still a typed URL and still nothing any page links to.
 
 import {
   PANEL, FENCE_HALF, BARRIER_HEIGHT, GATE_HALF, GATE_APPROACH, GATE_CLEAR_R,

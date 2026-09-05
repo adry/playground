@@ -68,7 +68,17 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
 // is 1.225, so a figure standing at M.y.hip has its knees locked dead straight
 // and cannot bend, bounce or step. 1.150 is about 24 degrees of knee, which is
 // a dancer's stance: enough bend to drop into and enough leg left to push with.
-const HIP_BASE = 1.105;
+//
+// It was 1.105 and that was 45mm too low. The paragraph above is what the
+// stance was meant to be and the constant had drifted below it, so the routine
+// never straightened. Measured over a phrase on the planted leg, the knee ran
+// 46 degrees at its shallowest, 62 median, 94 at its deepest: a figure that
+// squats for sixteen beats rather than one that drops and pushes, and with no
+// tall beat to set the low ones against. At 1.150 the lift track and the bounce
+// are untouched, so the hips still travel the same 137mm over the phrase, but
+// that travel now runs 21 / 45 / 87, which puts the accents at the 24 degrees
+// this paragraph always claimed and leaves the drops as deep as they were.
+const HIP_BASE = 1.150;
 // How far the hips drop on each beat, at amplitude 1. Added after the springs.
 const BOUNCE = 0.048;
 // And the extra drop on the first beat of each bar, which is what stops four
@@ -474,8 +484,8 @@ const WAVE_SEG = 0.62;         // how long one segment's own bump lasts, in beat
 // because it is not a stylistic choice: it is what stops the shins going dark.
 //
 // This routine is a squat, and a squat throws the knee forward of the ankle. At
-// 0.02 the feet stand under the hips, the knee ends up 284mm ahead of the
-// ankle, and the shin therefore rakes 30 degrees backward -- which, under this
+// 0.02 the feet stood under the hips, the knee ended up 284mm ahead of the
+// ankle, and the shin therefore raked 30 degrees backward -- which, under this
 // project's fixed camera, points it almost exactly along the view axis. Two
 // things go wrong at once. The shin foreshortens to half its length, so it
 // reads as a stub; and the surface the camera can see is then the shin's
@@ -485,16 +495,18 @@ const WAVE_SEG = 0.62;         // how long one segment's own bump lasts, in beat
 // dancer, on every beat. It looks exactly like a model bug and it is not one:
 // the same rig in its bind pose in the same frame has white shins.
 //
-// Standing the feet 260mm forward puts the ankle back under the knee. Measured
-// over a phrase that takes the shin from 30 degrees off vertical to 14, and the
-// lit fraction of the visible surface from 0.15 to 0.42, with the frames that
-// render under 0.30 falling from 89% to 17%. It costs nothing: foot slip and IK
+// Standing the feet forward puts the ankle back under the knee. Measured over a
+// phrase, 0.22 takes the shin from 30 degrees off vertical to 13, and the lit
+// fraction of the visible surface from 0.15 to 0.43, with the frames rendering
+// under 0.30 falling from 89% to 17%. It costs nothing: foot slip and IK
 // shortfall both stay at exactly zero, because the plants are still fixed
-// points and the legs still reach them. Past about 0.30 they stop reaching.
+// points and the legs still reach them, with the longest hip-to-ankle span over
+// the phrase at 1.130 against a leg of 1.150. Past about 0.26, paired with the
+// hip height above, the legs run out of reach and the feet start to skate.
 //
 // It is also the better stance. A figure squatting with its feet under its hips
 // is sitting down; one with its feet under its knees is loaded to spring.
-const STANCE_Z = 0.26;
+const STANCE_Z = 0.22;
 // How far the bar 2 shuffle carries the troupe sideways, in metres. Published
 // so a caller framing a shot knows how much room the line needs beside it.
 export const SHUFFLE_SPAN = 0.54;

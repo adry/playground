@@ -27,8 +27,10 @@
 //   fireflies      The owner asked for them to be automated. They are drawn so
 //                  the author can see where the rule will put them, and there
 //                  is no tool that moves one.
-//   a play mode    This is not the game. /lab/?world=1&level=... is, and it is
-//                  one link away from a saved file.
+//   a play mode    This is not the game. /lab/?game=1&level=... is, and it is
+//                  one link away from a saved file. /lab/?world=1&level=... is
+//                  the same level with the game taken out of it, which is the
+//                  one to open when the question is about placement.
 //   free camera    Two views, the game's and straight down, because those are
 //                  the two questions an author asks: what will the player see,
 //                  and where actually is everything.
@@ -673,20 +675,39 @@ window.addEventListener('keyup', (e) => { if (e.code === 'Space') spaceDown = fa
 
 // --- files -------------------------------------------------------------------------
 
+// Everything that makes a level unplayable, in one list, from all three
+// checkers. The wedges are in here because a wedge is audit.js's rule 11 and
+// comes back as an ordinary finding; there is no separate wedge case and there
+// must not be one, or a check gets added later and forgotten here.
+function collectBlocking() {
+  return [
+    ...report.errors.map((e) => e.message),
+    ...review.errors.map((e) => `${e.code}: ${e.message}`),
+    ...fair.fail.map((f) => `${f}: ${FAIR_MESSAGES[f] || f}`),
+    // A CHECK THAT THREW IS NOT A CHECK THAT PASSED. Both of these come back
+    // with an empty finding list when they fall over, which would otherwise
+    // read as a clean level: the audit that could not run is the one thing
+    // here that is more alarming than a finding, not less.
+    ...(review.error ? [`the audit could not run: ${review.error}`] : []),
+    ...(fair.error ? [`the fairness check could not run: ${fair.error}`] : []),
+  ];
+}
+
 function saveFile({ anyway = false } = {}) {
   // NOT A QUIET SAVE. The generator used to be the last thing between a broken
   // level and a player and it is gone, so a level that fails a fairness
   // property or carries a geometry error has to be refused out loud. The owner
   // can still force it -- it is their tool -- but never by accident.
-  const blocking = [
-    ...report.errors.map((e) => e.message),
-    ...review.errors.map((e) => `${e.code}: ${e.message}`),
-    ...fair.fail.map((f) => `${f}: ${FAIR_MESSAGES[f] || f}`),
-  ];
+  let blocking = collectBlocking();
   if (review.stale || fair.stale) {
-    say('checking the level before saving; press save again in a moment');
+    // The debounce has not fired yet, so what `blocking` was built from is the
+    // last check and not this level. Run both now -- they are synchronous and
+    // cost a couple of hundred milliseconds -- rather than send the owner away
+    // to press the button again, which is a step they can skip and then the
+    // save went out unchecked.
+    say('checking the level...');
     deepReview();
-    return;
+    blocking = collectBlocking();
   }
   if (blocking.length && !anyway) {
     const ok = confirm(
@@ -702,7 +723,10 @@ function saveFile({ anyway = false } = {}) {
   a.download = `${(doc.name || 'level').replace(/[^a-z0-9-_]+/gi, '-')}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  say(`saved ${a.download}. open it with /lab/?world=1&level=<url>`);
+  // Both doors, because they answer different questions. /lab/?game=1 PLAYS it,
+  // which is the one that matters now that the game loads a file; ?world=1 is
+  // the same level with no game in it, for judging placement.
+  say(`saved ${a.download}. play it with /lab/?game=1&level=<url>, walk it with /lab/?world=1&level=<url>`);
 }
 
 // THE GENERATOR AS A BLANK PAGE. It no longer competes with the editor: it
@@ -761,6 +785,14 @@ let message = '';
 function say(text) {
   message = text;
   drawStatus();
+}
+
+// The status line is written as HTML, because the counts in it are marked up.
+// A MESSAGE IS NOT, and it used to be: `open it with /lab/?...level=<url>` came
+// out as `level=` with the angle brackets swallowed as a tag, which is exactly
+// the half of the sentence the reader needed.
+function escapeHtml(text) {
+  return String(text).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 }
 
 function el(tag, props = {}, children = []) {
@@ -1091,20 +1123,50 @@ const round = (v) => Math.round(v * 100) / 100;
 // One change of stone along the perimeter. `at` is a distance from the first
 // corner, exactly as a gate's is, so this is the gate placement UI wearing a
 // different hat.
+//
+// Two rows, because a change of stone has two halves and they are different
+// questions. The first is WHERE and TO WHAT: a distance along the run and the
+// variant that holds from there on. The second is HOW THE TWO MEET, which is
+// the joint, and it only ever has three answers: a pier standing on the change,
+// the new material toothed course by course into the old, or a stepped break
+// with the new build proud of the old.
+//
+// The joint's OWN stone is offered only for a pier, because that is the only
+// joint that has one: wall.js reads jointVariant on a pier and nowhere else, a
+// tooth is by definition the two materials interlocking, and a step is a face
+// of the new build. Its default is not a variant but a sentence -- the older of
+// the two -- which is what a real buttress the new work was laid up to would
+// be, so the empty option says so rather than repeating a stone name.
 function styleRow(st, i) {
   const len = wallLength(doc.wall.points);
-  return el('div', { class: 'row' }, [
+  const rows = [el('div', { class: 'row' }, [
     el('span', { class: 'n', text: String(i + 1) }),
     number(st.at, 0, Math.round(len), 0.5, (v) => commit(() => {
-      st.at = Math.max(0, Math.min(len, v));
+      // Not zero. createWall drops a change at zero -- from there on IS the
+      // base variant -- so an author who typed 0 would watch the row do
+      // nothing at all. Half a unit in is the nearest thing that means it.
+      st.at = Math.max(0.5, Math.min(len, v));
       doc.wall.styles.sort((a, b) => a.at - b.at);
     })),
     select(WALL_VARIANTS, st.variant, (v) => commit(() => { st.variant = v; })),
-    select(WALL_JOINTS, st.joint, (v) => commit(() => { st.joint = v; })),
     el('button', { text: '×', title: 'remove', onclick: () => commit(() => {
       doc.wall.styles.splice(i, 1);
     }) }),
-  ]);
+  ])];
+  rows.push(el('div', { class: 'row' }, [
+    el('label', { text: 'joint' }),
+    select(WALL_JOINTS, st.joint, (v) => commit(() => {
+      st.joint = v;
+      if (v !== 'pier') delete st.jointVariant;
+    })),
+    ...(st.joint === 'pier' ? [
+      select(['the older', ...WALL_VARIANTS], st.jointVariant || 'the older', (v) => commit(() => {
+        if (v === 'the older') delete st.jointVariant;
+        else st.jointVariant = v;
+      })),
+    ] : []),
+  ]));
+  return el('div', { class: 'style' }, rows);
 }
 
 // audit.js's full rule set plus the wedge pass. A wedge is clickable: it flies
@@ -1200,13 +1262,13 @@ function drawStatus() {
       + `${world ? world._derived.flies.spacing.toFixed(0) : 0} apart)`,
     `${s.cuts}/${s.max} floor cuts · ${world ? world._derived.gates.length : 0} gates`,
     errors ? `<span class="bad">${errors} error${errors === 1 ? '' : 's'}</span>` : 'geometry ok',
-    review.stale ? 'audit: checking' : review.errors.length
+    review.stale ? 'audit: checking' : (review.errors.length || review.wedges.length)
       ? `<span class="bad">audit ${review.errors.length}, ${review.wedges.length} wedge${review.wedges.length === 1 ? '' : 's'}</span>`
       : 'audit: clean, no wedges',
     fair.stale ? 'fairness: checking' : unfair
       ? `<span class="bad">fails ${fair.fail.join(', ')}</span>`
       : 'fairness: all eight pass',
-    message ? `<span>${message}</span>` : '',
+    message ? `<span>${escapeHtml(message)}</span>` : '',
   ].filter(Boolean).join('<br>');
 }
 

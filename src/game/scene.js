@@ -281,6 +281,16 @@ export async function startGame({ canvas, params }) {
   const ground = createGround({ fadeStart: 60, fadeEnd: 260 });
   scene.add(ground);
 
+  // The painted ground cover, which only an authored level has. It belongs to
+  // the RUN and not to the wave: the document does not change between waves, so
+  // rebuilding a few thousand instanced blades every time one is cleared would
+  // be paying twice for the same grass. It is parented to the scene rather than
+  // to the wave's group for the same reason the lanterns are.
+  const cover = authored
+    ? authored.createGroundCover({ ground: authored.doc.ground, seed: authored.doc.seed })
+    : null;
+  if (cover) scene.add(cover.group);
+
   // --- the prop cache --------------------------------------------------------
   //
   // Built once for the RUN, not once for the wave, and that is the whole point:
@@ -388,7 +398,7 @@ export async function startGame({ canvas, params }) {
     const t0 = performance.now();
     const group = new THREE.Group();
     scene.add(group);
-    const built = { group, flies: null, lanterns: [], holes: [], parts: [], buildMs: 0 };
+    const built = { group, flies: null, lanterns: [], holes: [], parts: [], animated: [], buildMs: 0 };
     // Named buckets so the perf probe can attribute a draw call to a thing
     // rather than to the scene as a whole. They cost one Group each and nothing
     // per frame; the alternative is guessing which half of 1229 is the fence.
@@ -454,26 +464,80 @@ export async function startGame({ canvas, params }) {
     // four runs, because four runs cannot make a corner: see wall.js. It is
     // 3,648 triangles and one draw call for the whole enclosure, which is
     // cheaper than any four props in the level.
-    const enclosure = createWalledLevel({
-      seed: 1,
-      size: lay.bounds.maxX - lay.bounds.minX,
-      sizeZ: lay.bounds.maxZ - lay.bounds.minZ,
-      centre: {
-        x: (lay.bounds.minX + lay.bounds.maxX) / 2,
-        z: (lay.bounds.minZ + lay.bounds.maxZ) / 2,
-      },
-      dark: true,
-    });
+    //
+    // AN AUTHORED WALL IS BUILT FROM THE FILE'S OWN LOOP, with the file's
+    // variant and its style changes on it. The owner picks ashlar, brick,
+    // rubble or iron in the editor and marks where the stone changes hands and
+    // with what joint, and a game that drew all four the same way would be a
+    // game where that choice does nothing. It goes through createWall rather
+    // than createWalledLevel because a document's wall is a polyline and need
+    // not be the centred rectangle createWalledLevel assumes; `at` on a style
+    // change is a distance from points[0], which is what the editor's own
+    // preview passes and the same coordinate a gate uses.
+    let enclosure;
+    if (authored) {
+      const spec = authored.doc.wall;
+      const made = createWall({
+        seed: 1,
+        points: spec.points.map(([x, z]) => ({ x, z })),
+        closed: true,
+        variant: spec.variant,
+        styles: spec.styles && spec.styles.length ? spec.styles : null,
+      });
+      const dusk = createVoid({
+        bounds: {
+          x: (lay.bounds.minX + lay.bounds.maxX) / 2,
+          z: (lay.bounds.minZ + lay.bounds.maxZ) / 2,
+          halfX: (lay.bounds.maxX - lay.bounds.minX) / 2,
+          halfZ: (lay.bounds.maxZ - lay.bounds.minZ) / 2,
+        },
+      });
+      const group = new THREE.Group();
+      group.add(made.group, dusk.group);
+      enclosure = { group, dispose() { made.dispose?.(); dusk.dispose?.(); } };
+    } else {
+      enclosure = createWalledLevel({
+        seed: 1,
+        size: lay.bounds.maxX - lay.bounds.minX,
+        sizeZ: lay.bounds.maxZ - lay.bounds.minZ,
+        centre: {
+          x: (lay.bounds.minX + lay.bounds.maxX) / 2,
+          z: (lay.bounds.minZ + lay.bounds.maxZ) / 2,
+        },
+        dark: true,
+      });
+    }
     fenceBucket.add(enclosure.group);
     built.parts.push(enclosure);
+
+    // The gate leaves, and only for an authored level. A gate the author put
+    // in a fence is a thing they placed and expect to see; the generated page
+    // has never drawn one and this is not the change that starts.
+    if (authored) {
+      for (const g of lay.gates(lay.bounds)) {
+        const made = authored.createGate({ seed: 6, hingeSide: 'left' });
+        made.hinge.rotation.y = -0.5;
+        made.group.position.set(g.prop.x, 0, g.prop.z);
+        made.group.rotation.y = g.prop.yaw;
+        fenceBucket.add(made.group);
+        built.parts.push(made);
+      }
+    }
 
     charge('fence');
 
     // Paths, which are what make a corridor legible as a corridor rather than
     // as the gap between two fences.
+    //
+    // A file's path carries a MATERIAL, which is the one field the generator's
+    // paths() does not have: sand, gravel or a kerb run. buildLevelPath is the
+    // same switch the editor draws with, and a record with no material is sand,
+    // so a generated path comes out of it exactly as createSandPath left it.
     for (const [i, ribbon] of lay.paths(lay.bounds).entries()) {
       if (!ribbon?.points || ribbon.points.length < 2) continue;
-      const path = createSandPath({ seed: 7 + i, width: ribbon.width || 1.35, points: ribbon.points });
+      const path = authored
+        ? authored.buildLevelPath({ ...ribbon, width: ribbon.width || 1.35 }, { seed: 7 + i })
+        : createSandPath({ seed: 7 + i, width: ribbon.width || 1.35, points: ribbon.points });
       pathBucket.add(path.group);
       built.parts.push(path);
     }
@@ -482,9 +546,18 @@ export async function startGame({ canvas, params }) {
 
     // Stones and pumpkins go through the cache and come out as instances; a
     // grave hole does not, because it cuts the floor and the floor outlives the
-    // wave. Anything else the layout emits that this page cannot build yet is
-    // skipped rather than guessed at. The level is still valid: a missing bench
-    // changes nothing about whether a corridor is clear.
+    // wave.
+    //
+    // EVERYTHING ELSE. On a generated level anything the layout emits that is
+    // not one of those three is skipped rather than guessed at, and the level
+    // is still valid: a missing bench changes nothing about whether a corridor
+    // is clear. On an AUTHORED level a skipped prop is the author's fountain
+    // not being there, which is the tool lying about what it made, so the rest
+    // go through buildLevelProp -- the project's one prop switch, the same one
+    // the editor's preview and the viewer draw with. They are one group each
+    // rather than instances: the palette's remaining kinds are placed a handful
+    // at a time by hand, and instancing a lone fountain costs more machinery
+    // than it saves.
     const placements = [];
     // How many of each variant this chunk has placed. See SLOTS: the count IS
     // the slot, so two castings of a variant cannot share a bake until the
@@ -509,7 +582,19 @@ export async function startGame({ canvas, params }) {
         // taken back on teardown or the next maze inherits four holes in the
         // wrong places and the fifth registration throws.
         if (made.registerWith) made.registerWith(ground);
+        continue;
       }
+      if (p.kind === 'hole') continue;
+      if (!authored) continue;
+      const made = authored.buildLevelProp(p, { allowCut: false });
+      if (!made) continue;
+      made.group.position.set(p.x, 0, p.z);
+      made.group.rotation.y = p.yaw || 0;
+      propBucket.add(made.group);
+      built.parts.push(made);
+      // A fountain runs water and a lantern flickers, so the ones that publish
+      // an update() are collected and stepped with the rest of the frame.
+      if (made.update) built.animated.push(made);
     }
     // The props go in as instances the moment their template exists, and the
     // templates that do not exist yet are BAKED OVER THE FOLLOWING FRAMES
@@ -564,7 +649,12 @@ export async function startGame({ canvas, params }) {
     // recompiles the ground material by hole count, and a hole left registered
     // against a disposed geometry would be a cut nothing can take back.
     for (const h of w.holes) h.dispose?.();
-    for (const p of w.parts) if (p !== w.holes[0]) p.dispose?.();
+    // Every hole is also in `parts`, and the ones past the first were being
+    // disposed twice: the guard tested one hole where it meant all of them.
+    // Harmless as it happens -- a hole's dispose drops its handle first -- but
+    // it is not a thing to rely on.
+    const holes = new Set(w.holes);
+    for (const p of w.parts) if (!holes.has(p)) p.dispose?.();
     w.flies?.dispose?.();
     // NOT the lanterns. They belong to the run and the next wave moves them.
     scene.remove(w.group);
@@ -636,7 +726,18 @@ export async function startGame({ canvas, params }) {
     // plane: the owner cut the endless world because it took too long to load,
     // and a 30 by 30 level built once is the answer to that. The progression is
     // unchanged, because "endless" was always about the run and not the ground.
-    layout = createWorld({ seed: waveSeed(runSeed, wave), size: arenaSize });
+    //
+    // An authored run replays THE SAME LEVEL every wave, harder. There is one
+    // level in the file and inventing a second one from a seed would be the
+    // generator coming back in through the door the owner closed; what a wave
+    // still changes is waveTuning, so wave four of a hand-made arena is the
+    // same graveyard with faster skeletons and a shorter fright.
+    if (authored) {
+      layout = authored.pending || authored.createLevelWorld(authored.doc);
+      authored.pending = null;
+    } else {
+      layout = createWorld({ seed: waveSeed(runSeed, wave), size: arenaSize });
+    }
     world = buildWorld(layout);
     game = createGame({ world: layout, seed: waveSeed(runSeed, wave), tuning });
     // The run's lives, not a fresh three. This is the whole of what makes a run
@@ -690,9 +791,11 @@ export async function startGame({ canvas, params }) {
       caughtBy: run.caughtBy,
     });
     const board = loadBoard();
+    // The link has to come back to the SAME level, or a score made on a
+    // hand-made arena sends whoever follows it to a generated one.
     const url = shareUrl(
       { ...run, remaining: game.state.flyRemaining },
-      `${location.origin}${location.pathname}?game=1`,
+      `${location.origin}${location.pathname}?game=1${levelUrl ? `&level=${encodeURIComponent(levelUrl)}` : ''}`,
     );
 
     card.innerHTML = '';
@@ -751,7 +854,9 @@ export async function startGame({ canvas, params }) {
     run.over = false;
     // A new maze, not the same one again. Replaying an identical level after
     // losing is the thing that makes a roguelike feel like a test rather than a
-    // game, and the generator is free.
+    // game, and the generator is free. An authored run has one level and gets
+    // it again; the seed still turns over, because it is the run's identity on
+    // the score board as well as the generator's argument.
     run.seed = (Math.random() * 0xffffffff) >>> 0;
     startWave(1);
   }
@@ -827,6 +932,9 @@ export async function startGame({ canvas, params }) {
 
     world.flies.update(time, dt);
     for (const l of world.lanterns) l.update?.(time, dt);
+    // An authored level's own props: the fountain's water, a lantern's flame.
+    // Empty on a generated level, so this costs a loop over nothing.
+    for (const a of world.animated) a.update(time, dt);
     follow(dt);
     drawHud(st);
 
@@ -872,6 +980,9 @@ export async function startGame({ canvas, params }) {
     state: () => game.state,
     run: () => ({ ...run }),
     board: () => loadBoard(),
+    // What is actually loaded, so a harness can prove that the file it saved is
+    // the file being played rather than infer it from a screenshot.
+    level: () => (authored ? { url: levelUrl, name: authored.doc.name, size: authored.doc.size } : null),
     share: () => shareUrl({ ...run, remaining: game.state.flyRemaining }, ''),
     get layout() { return layout; },
   };

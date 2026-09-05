@@ -16,8 +16,9 @@
   It writes to two places and neither of them reaches a shipped page. Its
   autosave is localStorage under this page's own key, which only this page
   reads. Its output is a JSON file the owner downloads on purpose. The game
-  loads a level only from a URL typed into /lab/?world=1&level=..., so a level
-  in progress here cannot appear anywhere else by accident.
+  loads a level only from a URL typed into /lab/?game=1&level=... (or
+  /lab/?world=1&level=... for the same level with no game in it), so a level in
+  progress here cannot appear anywhere else by accident.
 -->
 <style>
   :root {
@@ -141,6 +142,16 @@
   .issues li[data-severity="error"] { border-left-color: var(--bad); }
   .issues li:hover { background: #eef2fb; }
   .issues .none { border-left-color: var(--ok); color: var(--dim); cursor: default; }
+
+  /* One change of stone along the wall: where and to what on the first line,
+     how the two builds meet on the second. Ruled off from its neighbours
+     because two of these stacked read as four unrelated rows otherwise. */
+  .style {
+    border-left: 2px solid var(--panel-line);
+    padding-left: 6px;
+    margin: 5px 0;
+  }
+  .style .row:last-child { margin-bottom: 0; }
 
   .spawns { margin: 0; padding: 0; list-style: none; }
   .spawns li {

@@ -429,14 +429,18 @@ export default validateLevel;
 
 // --- the slow half ---------------------------------------------------------------
 
-// Which audit rules are worth blocking a save on. All of them, with one
-// exception: audit.js still asks for at least eight fireflies, and the owner
-// has since fixed the number at FIVE (see level/fireflies.js for the
-// measurement that decided it). Until that constant moves, the finding is a
-// note rather than a fault, and pretending otherwise would train the owner to
-// ignore the panel.
-function auditSeverity(rule, message) {
-  if (rule === 'floor' && /fireflies/.test(message)) return 'note';
+// Which audit rules are worth blocking a save on. ALL OF THEM, now.
+//
+// There used to be one exception here. audit.js asked for at least eight
+// fireflies while the owner had already fixed the number at five, so the
+// finding was downgraded to a note rather than train the owner to ignore the
+// panel. That constant has since moved -- audit.js's floor is five, which is
+// level/fireflies.js's count -- so the exception was suppressing a real
+// failure: a level with nowhere to put a fifth firefly would have saved
+// without a word. There is no exception list any more, and there should not be
+// one: a rule worth writing down is worth blocking on, and a rule that is not
+// belongs out of the audit rather than in a filter here.
+function auditSeverity() {
   return 'error';
 }
 
@@ -452,7 +456,11 @@ export function reviewLevel(world) {
       issues.push({ severity, code: f.rule, message: f.message, at: null, refs: [], from: 'audit' });
     }
   } catch (err) {
-    issues.push({ severity: 'warn', code: 'audit', message: `the audit could not run: ${err.message}`, at: null, refs: [], from: 'audit' });
+    // A CHECK THAT DID NOT RUN IS NOT A CHECK THAT PASSED. This is the whole
+    // fairness guarantee, so the honest answer to "the audit threw" is that
+    // this level is not known to be playable, and saving it has to be as loud
+    // as saving a level with a finding in it.
+    issues.push({ severity: 'error', code: 'audit', message: `the audit could not run, so this level is unchecked: ${err.message}`, at: null, refs: [], from: 'audit' });
   }
   try {
     wedges = findWedges({
@@ -463,7 +471,7 @@ export function reviewLevel(world) {
       spawn: world.spawn,
     });
   } catch (err) {
-    issues.push({ severity: 'warn', code: 'wedge', message: `the wedge pass could not run: ${err.message}`, at: null, refs: [], from: 'audit' });
+    issues.push({ severity: 'error', code: 'wedge', message: `the wedge pass could not run, so this level is unchecked: ${err.message}`, at: null, refs: [], from: 'audit' });
   }
   return {
     issues,
