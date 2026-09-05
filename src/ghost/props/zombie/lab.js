@@ -33,7 +33,13 @@ const BACKDROP = new THREE.Color('#b9bec7').convertSRGBToLinear();
 const scene = new THREE.Scene();
 scene.background = BACKDROP;
 
-const CAM_DIR = new THREE.Vector3(1, 0.78, 1).normalize();
+// ?mode=face is a flat orthographic elevation, used only while building the
+// face. It is NOT how the character is judged: the scene camera below is. It
+// exists because a feature that is in the wrong place is far easier to see
+// without a 29 degree downward projection folded on top of it.
+const CAM_DIR = mode === 'face'
+  ? new THREE.Vector3(0, 0, 1)
+  : new THREE.Vector3(1, 0.78, 1).normalize();
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 const target = new THREE.Vector3(0, 0.45, 0);
 let view = params.has('view') ? Number(params.get('view')) : 1.5;

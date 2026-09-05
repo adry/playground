@@ -194,19 +194,35 @@ export function createOnlinePanel({
   api = null, page = typeof document !== 'undefined' ? document : null,
 }) {
   const board = () => api || client();
-  const state = { user: null, levels: null, busy: false, note: '', bad: false, loading: false };
+  const state = { user: null, levels: null, busy: false, note: '', bad: false, loading: false, form: { email: '', password: '' } };
   let root = null;   // the .go panel body, while it is open
   let intent = null; // what to do as soon as somebody signs in
+
+  // COMING BACK FROM GOOGLE. The redirect lands on this page with `?code=` in
+  // the URL, the auth client exchanges it for a session and then cleans the URL
+  // up, so this has to be read before anything else looks at it. It is the
+  // difference between arriving back in the editor signed in with the panel
+  // open where you left it, and arriving back at an editor that looks exactly
+  // as it did before you pressed the button.
+  const cameBackFromGoogle = Boolean(
+    page && page.defaultView && /[?&]code=/.test(page.defaultView.location.search),
+  );
 
   // Told when the Google round trip finishes, which happens on page load rather
   // than in response to a click: the person left this page and came back to it.
   onChange((user) => {
     state.user = user;
     state.levels = null;
-    if (user && intent) { const go = intent; intent = null; go(); }
-    else draw();
+    if (user && intent) { const go = intent; intent = null; go(); return; }
+    if (user && cameBackFromGoogle && !root) { open(); return; }
+    draw();
   });
 
+  // CONSTRUCTING THE AUTH CLIENT ON PAGE LOAD, and not later, which is the only
+  // reason this line is here rather than inside open(). The code exchange
+  // happens when the client is built; if nothing built it until somebody
+  // pressed a button, a person coming back from Google would land on a page
+  // that had quietly not finished signing them in.
   currentUser().then((user) => { state.user = user; draw(); });
 
   function note(text, bad = false) {
@@ -373,22 +389,56 @@ export function createOnlinePanel({
   }
 
   function signedOut() {
-    const email = el(page, 'input', { type: 'email', placeholder: 'email', autocomplete: 'username' });
-    const pass = el(page, 'input', { type: 'password', placeholder: 'password', autocomplete: 'current-password' });
+    // THE TYPED TEXT LIVES IN `state`, NOT IN THE INPUT. Every redraw rebuilds
+    // this panel from scratch, and a redraw happens the moment the button is
+    // pressed, to say "signing in...". Reading the value off the element would
+    // therefore work exactly once and then hand back an empty string, and a
+    // failed password would clear the email as well and make the person type
+    // both again.
+    const email = el(page, 'input', {
+      type: 'email', placeholder: 'email', autocomplete: 'username', value: state.form.email,
+      oninput: (e) => { state.form.email = e.target.value; },
+    });
+    const pass = el(page, 'input', {
+      type: 'password', placeholder: 'password', autocomplete: 'current-password', value: state.form.password,
+      oninput: (e) => { state.form.password = e.target.value; },
+    });
 
     const go = async (fn, what) => {
+      const who = state.form.email.trim();
+      const secret = state.form.password;
+      if (!who || !secret) { note('an email and a password, first', true); return; }
       state.busy = true;
       note(`${what}...`);
-      const res = await fn(email.value.trim(), pass.value);
+      const res = await fn(who, secret);
       state.busy = false;
       if (!res.ok) { note(res.reason, true); return; }
       if (res.needsConfirmation) {
-        note('account made. Check your email for the confirmation link, then sign in.');
+        note('account made. Check your email for the link, then sign in.');
         return;
       }
-      // onChange redraws and runs whatever was waiting on a sign in.
+      // The password is not kept a moment longer than the request that used it.
+      state.form.password = '';
+      // onChange redraws, and runs whatever was waiting on somebody signing in.
       note('');
     };
+
+    // A FORM, so that pressing enter in the password field signs you in. Two
+    // inputs and a button that only respond to a click is the sort of thing
+    // that reads as broken rather than as unfinished.
+    const form = el(page, 'form', {
+      onsubmit: (e) => { e.preventDefault(); go(signInWithEmail, 'signing in'); },
+    }, [
+      el(page, 'div', { class: 'row' }, [email]),
+      el(page, 'div', { class: 'row' }, [pass]),
+      el(page, 'div', { class: 'row' }, [
+        el(page, 'button', { class: 'grow', type: 'submit', text: 'sign in' }),
+        el(page, 'button', {
+          class: 'grow', type: 'button', text: 'create account',
+          onclick: () => go(signUpWithEmail, 'making an account'),
+        }),
+      ]),
+    ]);
 
     return [
       el(page, 'h2', { text: 'sign in' }),
@@ -399,6 +449,7 @@ export function createOnlinePanel({
       el(page, 'div', { class: 'row' }, [
         el(page, 'button', {
           class: 'grow go-primary',
+          type: 'button',
           text: 'continue with Google',
           onclick: async () => {
             note('sending you to Google...');
@@ -410,12 +461,7 @@ export function createOnlinePanel({
         }),
       ]),
       el(page, 'div', { class: 'sep' }),
-      el(page, 'div', { class: 'row' }, [email]),
-      el(page, 'div', { class: 'row' }, [pass]),
-      el(page, 'div', { class: 'row' }, [
-        el(page, 'button', { class: 'grow', text: 'sign in', onclick: () => go(signInWithEmail, 'signing in') }),
-        el(page, 'button', { class: 'grow', text: 'create account', onclick: () => go(signUpWithEmail, 'making an account') }),
-      ]),
+      form,
     ];
   }
 

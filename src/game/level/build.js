@@ -35,6 +35,7 @@ import { createGrassPatch, createGrassTuft } from '../../ghost/props/ground/gras
 import { createFlowerClump } from '../../ghost/props/ground/flowers.js';
 import { createFountain } from '../../ghost/props/fountain/index.js';
 import { createShed } from '../../ghost/props/shed/index.js';
+import { setWindEnabled, windEnabled } from '../../ghost/props/foliage/wind.js';
 
 // Every wobble in a prop hangs off this, so it has to be the same number every
 // time the same prop is built and a different one for its neighbour.
@@ -54,7 +55,35 @@ const LANTERNS = {
   street: createStreetLamp,
 };
 
-export function buildLevelProp(p, { allowCut = true } = {}) {
+// NOTHING BUILT HERE MOVES IN THE WIND, and that is enforced rather than
+// assumed. READ THIS IF YOU ARE ADDING A PLANT.
+//
+// foliage/wind.js has a global switch, off by default, and attachWind reads it
+// when a plant is BUILT rather than when it is drawn. That is a good bargain
+// for a still scene (a plant that cannot move costs no vertex work and no
+// extra shader programs) and a trap for exactly one situation: a page that
+// turned the wind on for its own reasons, and then an author paints a level
+// through this door. The plant would come out animated and stay animated for
+// the life of the object, and grass is the worst of them by a distance -- a
+// patch is a hundred blades at 0.088 units of tip travel with a full second of
+// phase spread inside one patch, which does not read as a plant leaning, it
+// reads as a lawn crawling.
+//
+// So the switch is forced off around the build and put back afterwards. It
+// costs two function calls per prop. If a windy authored level is ever wanted,
+// this wrapper is the line to change, and changing it is a decision somebody
+// makes on purpose rather than a state a page leaked in.
+export function buildLevelProp(p, opts = {}) {
+  const windy = windEnabled();
+  if (windy) setWindEnabled(false);
+  try {
+    return buildStillProp(p, opts);
+  } finally {
+    if (windy) setWindEnabled(true);
+  }
+}
+
+function buildStillProp(p, { allowCut = true } = {}) {
   const s = propSeed(p);
   switch (p.kind) {
     case 'stone': return createTombstone({ variant: p.variant, seed: s });

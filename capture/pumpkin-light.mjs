@@ -34,6 +34,12 @@ const outDir = args.out || 'out/pumpkin-light';
 // The classic pumpkin in public/levels/demo.json. Beside it, not on it.
 const [px, pz] = String(args.at || '-6.8,-2.4').split(',').map(Number);
 const STAND = 1.25;   // how far from the pumpkin the ghost is parked
+// IN FRONT OF THE FACE, and it has to be. Both halves of the effect are aimed:
+// the beams leave through the three cuts and nothing else, so a ghost parked
+// round the back is only ever lit by the lantern and the picture cannot tell a
+// mis-aimed spotlight from a working one. demo.json's pumpkins are yawed PI/4
+// and pumpkin.js's FACE_YAW is PI/4, so both of them look along +x.
+const FACE = { x: 1, z: 0 };
 
 const lab = await openLab({
   width, height, entry: '/lab/',
@@ -46,22 +52,26 @@ await mkdir(outDir, { recursive: true });
 
 // Walk there. The stick is the same one a player holds, so the ghost arrives
 // under its own steam and the cloth is moving the way it moves in play.
-const target = { x: px - STAND, z: pz };
+const target = { x: px + FACE.x * STAND, z: pz + FACE.z * STAND };
+// Twenty steps a second rather than sixty, and it is not a detail: every step
+// renders, and a frame on a container's software rasteriser is a second or
+// more. The rules substep internally at their own cap, so the walk is the same
+// walk; only the number of frames drawn on the way changes.
 const arrive = await lab.page.evaluate(async (t) => {
   let last = null;
-  for (let i = 0; i < 60 * 12; i++) {
+  for (let i = 0; i < 20 * 8; i++) {
     const g = window.__game.state().ghost;
     const dx = t.x - g.x;
     const dz = t.z - g.z;
     const d = Math.hypot(dx, dz);
     last = { x: g.x, z: g.z, d };
-    if (d < 0.12) break;
+    if (d < 0.15) break;
     // Ease off over the last stride or the ghost sails past and comes back.
     const k = Math.min(1, d / 1.2);
-    window.__game.step(1 / 60, { x: (dx / d) * k, y: (dz / d) * k });
+    window.__game.step(1 / 20, { x: (dx / d) * k, y: (dz / d) * k });
   }
-  // A moment to settle, so the cloth is not mid-swing.
-  for (let i = 0; i < 40; i++) window.__game.step(1 / 60, { x: 0, y: 0 });
+  // A moment to settle, so the cloth is hanging rather than mid-swing.
+  for (let i = 0; i < 12; i++) window.__game.step(1 / 20, { x: 0, y: 0 });
   const g = window.__game.state().ghost;
   return { ...last, at: { x: g.x, z: g.z } };
 }, target);

@@ -189,8 +189,20 @@ const CRAWL = {
   // Normalised hip height, 0 buried and 1 at the crouch.
   hipU: [[0, 0], [0.55, 0.02], [1.9, 0.04], [2.4, 0.16], [3.0, 0.20],
     [3.6, 0.44], [4.4, 0.74], [5.2, 1]],
-  // Torso world pitch. 78 is face down, 34 is the crouch it stands out of.
-  pitch: [[0, 78], [0.9, 78], [1.6, 72], [2.4, 58], [3.4, 46], [4.3, 38], [5.2, 34]],
+  // Torso world pitch. 92 is face down and a little past horizontal, 34 is the
+  // crouch it stands out of.
+  //
+  // The opening angle is not free and it is not cosmetic: BURIED_Y is computed
+  // from it, because how deep the figure has to be to hide its head depends on
+  // how far over the head is folded. At 78 the head stands 0.48 above the hips
+  // and the whole figure has to sit 0.51 down to hide it, which puts the
+  // shoulder further under than a 0.44 arm can climb out of: the first version
+  // opened with six tenths of a second of empty floor while the claw fought its
+  // way to the surface. At 92 the head is folded flat, only 0.30 has to be
+  // hidden, and the claw breaks the surface with 16cm to spare. The chibi's own
+  // proportions are what force this: on a figure whose head is a third of its
+  // height, how deep the grave is IS the head angle.
+  pitch: [[0, 92], [0.9, 90], [1.6, 80], [2.4, 62], [3.4, 48], [4.3, 38], [5.2, 34]],
   // Extra bend at the two spine joints, on top of the torso pitch. Negative
   // arches the chest up and away from the floor, which is what the shoulders
   // have to do for the arms to reach out in front at all. Half the skeleton's
@@ -220,14 +232,19 @@ const CRAWL = {
   // Right arm, the one that breaks the surface. World pitch: 0 hangs down,
   // -90 reaches straight forward, -145 is as high as LIMITS.shoulder allows.
   // These follow the SHOULDER, which is under the floor until about t = 3.2.
-  armR: [[0, 18], [0.32, -138, easeOutBack], [0.62, -144], [1.0, -132],
+  // The punch is at -147, one degree inside the -2.60 rad stop, and the elbow
+  // is nearly straight through it. Both are the extreme rather than a
+  // comfortable value, and they have to be: the arm is 0.58 to the claw tip
+  // against a shoulder buried 0.32 down, so every degree off vertical and every
+  // degree of elbow is centimetres of claw that never reaches the surface.
+  armR: [[0, 18], [0.32, -147, easeOutBack], [0.62, -146], [1.0, -132],
     [1.5, -108], [2.2, -94], [3.0, -78], [3.6, -58], [4.3, -40], [5.2, -30]],
-  elbowR: [[0, 74], [0.32, 26], [0.62, 14], [1.2, 48], [2.0, 56], [3.0, 44], [4.0, 26], [5.2, 30]],
+  elbowR: [[0, 74], [0.32, 8], [0.62, 10], [1.2, 48], [2.0, 56], [3.0, 44], [4.0, 26], [5.2, 30]],
   wristR: [[0, 10], [0.5, -6], [0.85, 40], [1.4, 30], [2.5, 12], [5.2, 6]],
   // Left arm, the same beats about two thirds of a second behind and shallower.
-  armL: [[0, 22], [0.9, 22], [1.15, -134, easeOutBack], [1.5, -142], [2.0, -120],
+  armL: [[0, 22], [0.9, 22], [1.15, -145, easeOutBack], [1.5, -144], [2.0, -120],
     [2.6, -100], [3.2, -80], [3.8, -60], [4.4, -42], [5.2, -32]],
-  elbowL: [[0, 78], [1.15, 28], [1.5, 16], [2.0, 50], [2.8, 54], [3.6, 36], [4.2, 26], [5.2, 32]],
+  elbowL: [[0, 78], [1.15, 12], [1.5, 14], [2.0, 50], [2.8, 54], [3.6, 36], [4.2, 26], [5.2, 32]],
   wristL: [[0, 12], [1.3, -4], [1.7, 38], [2.3, 26], [3.2, 10], [5.2, 6]],
   // Arm flare, so the hands plant wide of the shoulders rather than under them.
   // Capped at LIMITS.shoulder.z, which is 1.45 rad, nowhere near binding.
@@ -479,41 +496,46 @@ export function createZombiePerformance({
   const HIP_STALK = HIP_TALL - SPAN * 0.0087;
   const HIP_CROUCH = ANKLE_Y + SPAN * 0.33;
 
-  // Stride. The body agent publishes GAIT.stride and GAIT.shamble as the
-  // figure's own intent, and it is taken rather than re-derived, because the
-  // seam between the two halves is worth more than a second opinion.
+  // Stride. Derived from the rig, and then CHECKED against the figure's own
+  // published intent rather than taken from it.
   //
-  // It is CROSS-CHECKED against an independent derivation, which is the only
-  // reason to trust it: the skeleton's HALF_STEP is 0.313 of its leg span and
-  // its LIFT_BEHIND is 0.365, and shrinking both by the waddle factor below
-  // gives a step of 0.214 here against the published 0.246. Fifteen percent
-  // apart is agreement, and it also settles an ambiguity: GAIT.stride is
-  // documented as "heel to heel", which is one STEP in some conventions and one
-  // full CYCLE in others. Read as a cycle it would be 0.123, which is half the
-  // independent answer, so it is a step.
-  //
-  // strideK is why the naive scaling is not enough. A figure whose stance is
-  // this wide relative to its leg spends most of a step moving its weight
-  // sideways, and a forward stride that would suit a narrow stance leaves it
-  // straddled. It is 1.0 at the skeleton's proportions by construction, so the
-  // skeleton's numbers come out of this untouched.
-  const strideK = mix(1, 0.78, waddle);
-  const STEP_TARGET = GAIT?.stride && GAIT?.shamble
-    ? GAIT.stride * GAIT.shamble
-    : SPAN * 0.678 * strideK / (2 * 0.62);
-  const DUTY = mix(0.62, 0.68, chibi);      // fraction of its cycle a foot is planted
   // A planted foot travels HALF_STEP + LIFT_BEHIND backward relative to its own
   // hip before it lifts, and since the foot is nailed to the world that is
   // exactly how far the BODY moves during one stance. How far it moves per STEP
   // is a different number and confusing the two is the classic way to build a
   // walk that skates: at this duty factor a foot is down for 1.36 step periods,
   // so the step is the excursion over 1.36 rather than the excursion itself.
-  const EXCURSION = 2 * DUTY * STEP_TARGET;
-  // Split in the skeleton's own ratio: a foot lands less far ahead than it
-  // lifts behind, because the heel comes off at the end of a stance and that
-  // hands the leg back reach it did not have when it landed.
-  let HALF_STEP = EXCURSION * 0.4615;
-  const LIFT_BEHIND = EXCURSION * 0.5385;
+  //
+  // The two fractions are the skeleton's own, expressed against its leg: its
+  // HALF_STEP of 0.36 is 0.313 of a 1.1504 span and its LIFT_BEHIND of 0.42 is
+  // 0.365. A foot lands less far ahead than it lifts behind because the heel
+  // comes off at the end of a stance and hands the leg back reach it did not
+  // have when it landed.
+  //
+  // strideK is why scaling by leg length is not enough on its own. A figure
+  // whose stance is this wide relative to its leg spends most of a step moving
+  // its weight sideways, and a forward stride that would suit a narrow stance
+  // leaves it straddled. It is 1.0 at the skeleton's proportions by
+  // construction, so pointing this file at a skeleton reproduces 0.360 and
+  // 0.420 exactly, which is the check that this is a proportional relationship
+  // and not a chibi number with a scale factor on it.
+  const strideK = mix(1, 0.78, waddle);
+  const DUTY = mix(0.62, 0.68, chibi);      // fraction of its cycle a foot is planted
+  let HALF_STEP = SPAN * 0.313 * strideK;
+  const LIFT_BEHIND = SPAN * 0.365 * strideK;
+  const EXCURSION = HALF_STEP + LIFT_BEHIND;
+  // And the cross-check, kept as a number rather than an assertion because it
+  // is the seam between two agents and a disagreement is a conversation, not a
+  // crash. The body agent publishes GAIT.stride 0.447 and GAIT.shamble 0.55,
+  // which is a step of 0.246 against the 0.214 derived above: 14% apart, which
+  // is agreement, and which also settles an ambiguity in the contract. Their
+  // note calls stride "heel to heel", which is one STEP in some conventions and
+  // one full CYCLE in others; read as a cycle it would be 0.123, half the
+  // independent answer, so it is a step. Published so a change to either side
+  // shows up as the two drifting apart.
+  const strideVsMetrics = GAIT?.stride && GAIT?.shamble
+    ? (EXCURSION / (2 * DUTY)) / (GAIT.stride * GAIT.shamble)
+    : null;
   // And a hard geometric guard on the forward half, because that is the one
   // that can be out of reach. At the moment of touchdown the hips are at the
   // BOTTOM of the bob, which is exactly why the bob is phased where it is, and
@@ -732,7 +754,12 @@ export function createZombiePerformance({
     (headBox.max.y - headBox.min.y), (headBox.max.x - headBox.min.x),
   ) * 0.5;
   const headTopAboveHip = (HEAD_Y - rootRest.y + HEAD_COM_Y) * Math.cos(OPEN_PITCH) + headBall;
-  const BURIED_Y = -(headTopAboveHip + SPAN * 0.05);
+  // The margin has to clear the CLIPPING PLANE and not the floor. The plane
+  // keeps everything above -CLIP_SLACK so that a boot lying flat is not sliced,
+  // and a crown sitting between the floor and that plane is a green dome
+  // visibly parked in the grass. Getting this wrong is invisible in every
+  // frame but the first.
+  const BURIED_Y = -(headTopAboveHip + SPAN * 0.04 + CLIP_SLACK / scale);
   // And the check, published rather than asserted, because a rig whose arms
   // cannot reach the surface is the body agent's news and not this file's to
   // throw on. Positive means a claw breaks the surface at the opening pose.
@@ -909,10 +936,10 @@ export function createZombiePerformance({
   // for most of a second after the body stops, because its damping ratio is
   // 0.35. The jaw then hangs off the head's motion in turn, so the whole chain
   // is consequence all the way down.
-  const rootPos = new THREE.Vector3();
-  const rootPrev = new THREE.Vector3();
-  const rootVel = new THREE.Vector3();
-  const rootAcc = new THREE.Vector3();
+  const anchorPos = new THREE.Vector3();
+  const anchorPrev = new THREE.Vector3();
+  const anchorVel = new THREE.Vector3();
+  const anchorAcc = new THREE.Vector3();
   const bodyAcc = new THREE.Vector3();
   let accPrimed = false;
   // Gain, in radians per metre per second squared. Set against the measured
@@ -959,7 +986,7 @@ export function createZombiePerformance({
 
   group.updateMatrixWorld(true);
   J.head.getWorldPosition(headPrev);
-  J.neck.getWorldPosition(rootPrev);
+  J.neck.getWorldPosition(anchorPrev);
 
   // ===========================================================================
   // PHASES
@@ -1529,11 +1556,21 @@ export function createZombiePerformance({
   // Where a hand should reach to: out in front of its own shoulder, on the
   // floor. Worked from the shoulder's real position rather than from the body's
   // origin, because during the climb the shoulder swings through most of its
-  // own arm length while the hips barely move. Both distances are fractions of
-  // the arm, so they shrink with it: the skeleton's 0.42 forward is 0.57 of its
-  // shoulder-to-wrist span and 0.57 is what is used here.
-  const HAND_AHEAD = ARM_SPAN * 0.57;
-  const HAND_OUT = ARM_SPAN * 0.135;
+  // own arm length while the hips barely move.
+  //
+  // FORWARD is the skeleton's, as a fraction of the arm rather than in metres:
+  // its 0.42 is 0.57 of its shoulder-to-wrist span. OUT is not, and the reason
+  // is the head. The skeleton plants its hands 0.135 of an arm out from the
+  // shoulder line and they are clearly in front of a narrow skull. Here the
+  // head is 0.30 wide against a 0.185 shoulder separation, so hands planted at
+  // the skeleton's spacing land directly behind the head from this camera and
+  // the whole clawing beat happens where nothing can see it. At 0.30 they plant
+  // outside the head's silhouette. It is a framing number, not an anatomy one,
+  // and it is exactly the class of adjustment metrics.js flags under
+  // LEGIBILITY: a chibi's own head is the thing most likely to hide its own
+  // performance.
+  const HAND_AHEAD = ARM_SPAN * 0.62;
+  const HAND_OUT = ARM_SPAN * 0.30;
 
   function aimHand(side, out) {
     J[`shoulder${side}`].getWorldPosition(out);
@@ -1631,16 +1668,16 @@ export function createZombiePerformance({
   let lagPitch = 0;
   let lagRoll = 0;
   function measureBody(dt) {
-    J.neck.getWorldPosition(rootPos);
+    J.neck.getWorldPosition(anchorPos);
     if (accPrimed) {
-      v1.subVectors(rootPos, rootPrev).divideScalar(dt);
-      v2.copy(v1).sub(rootVel).divideScalar(dt);
-      rootVel.copy(approachVec(rootVel, v1, 26, dt));
-      rootAcc.copy(approachVec(rootAcc, v2, 16, dt));
+      v1.subVectors(anchorPos, anchorPrev).divideScalar(dt);
+      v2.copy(v1).sub(anchorVel).divideScalar(dt);
+      anchorVel.copy(approachVec(anchorVel, v1, 26, dt));
+      anchorAcc.copy(approachVec(anchorAcc, v2, 16, dt));
     } else {
       accPrimed = true;
     }
-    rootPrev.copy(rootPos);
+    anchorPrev.copy(anchorPos);
 
     // Into the body's own frame. Yaw only, because the pelvis's pitch and roll
     // are themselves part of what is being measured and rotating the
@@ -1648,9 +1685,9 @@ export function createZombiePerformance({
     const cy = Math.cos(-yaw);
     const sy = Math.sin(-yaw);
     bodyAcc.set(
-      rootAcc.x * cy + rootAcc.z * sy,
-      rootAcc.y,
-      -rootAcc.x * sy + rootAcc.z * cy,
+      anchorAcc.x * cy + anchorAcc.z * sy,
+      anchorAcc.y,
+      -anchorAcc.x * sy + anchorAcc.z * cy,
     );
 
     // tau_x = comY * a_z - comZ * a_y, normalised by comY so the gain has
@@ -1923,10 +1960,15 @@ export function createZombiePerformance({
       // built to avoid. metrics().overLimit is how a change to the model or the
       // gait that pushes a hip past its stop becomes a number in the harness
       // rather than a limp nobody can name.
+      //
+      // Only the x axes are measured. LIMITS.hip.z is published as [-0.35,
+      // 0.60], a one-sided range for a joint whose outward direction is
+      // positive z on the left and negative z on the right, so comparing a
+      // right hip's abduction against it would report an excess that is an
+      // artefact of the convention rather than of the pose.
       overLimit = Math.max(
         overLimit,
         Math.abs(hipX - lim('hip', 'x', hipX)),
-        Math.abs(hipZ - lim('hip', 'z', hipZ)),
         Math.abs(knee - lim('knee', 'x', knee)),
       );
 
@@ -2105,6 +2147,7 @@ export function createZombiePerformance({
     armBlend = 0;
     handsDown = false;
     shakeFired = 0;
+    headRel = 0;
     lagPitch = 0;
     lagRoll = 0;
     accPrimed = false;
@@ -2119,9 +2162,9 @@ export function createZombiePerformance({
     group.position.set(pos.x, S.lift.value - rootRest.y * scale, pos.z);
     group.rotation.y = yaw;
     group.updateMatrixWorld(true);
-    J.neck.getWorldPosition(rootPrev);
+    J.neck.getWorldPosition(anchorPrev);
     J.head.getWorldPosition(headPrev);
-    rootVel.set(0, 0, 0); rootAcc.set(0, 0, 0);
+    anchorVel.set(0, 0, 0); anchorAcc.set(0, 0, 0);
     headVel.set(0, 0, 0); headAcc.set(0, 0, 0);
     applyPose(1 / 60);
     applyLegs(1 / 60);
@@ -2151,9 +2194,21 @@ export function createZombiePerformance({
     hipStalk: HIP_STALK,
     hipCrouch: HIP_CROUCH,
     buriedY: BURIED_Y,
+    // Positive means a claw can break the surface from where it is buried, at
+    // the pose the climb opens in. Negative means the model's arms are too
+    // short for the depth its head needs, which is news for the body agent.
+    reachMargin,
+    headRelMax: HEAD_REL_MAX,
+    headPitchCap: HEAD_PITCH_CAP,
+    neckShare: NECK_SHARE,
+    headGain: HEAD_GAIN,
     halfStep: HALF_STEP,
     liftBehind: LIFT_BEHIND,
     stepLength: STEP_LENGTH,
+    // The rig-derived step over the one metrics.js asks for. 1.0 is perfect
+    // agreement; anything outside about 0.8 to 1.25 is the two halves of this
+    // character disagreeing about how far it walks and wants routing.
+    strideVsMetrics,
     duty: DUTY,
     cadence: CADENCE,
     topSpeed: TOP_SPEED,
@@ -2218,9 +2273,18 @@ export function createZombiePerformance({
         pitch: J.head.rotation.x,
         yaw: J.head.rotation.y,
         roll: J.head.rotation.z,
+        neckPitch: J.neck.rotation.x,
+        rel: headRel,
         lagPitch,
         lagRoll,
         worldPitch: S.head.value,
+        // How far behind the chest the head actually is, which is the whole
+        // point of the file and the one number that says whether it reads.
+        behindChest: S.head.value - S.thorax.value,
+        // Radians the head joint was driven past its published stop, so a
+        // clamp that starts eating the performance shows up as a number.
+        clipped: Math.abs((S.head.value - S.neck.value)
+          - lim('head', 'x', S.head.value - S.neck.value)),
       };
       out.knee = { L: J.kneeL.rotation.x, R: J.kneeR.rotation.x };
       out.hip = { L: J.hipL.rotation.x, R: J.hipR.rotation.x };
@@ -2232,17 +2296,31 @@ export function createZombiePerformance({
       out.overLimit = overLimit;
       out.liftCap = liftCap;
       for (const side of ['L', 'R']) {
+        const f = feet[side];
         J[`ankle${side}`].getWorldPosition(v1);
         // The contact point, not the pivot. Once the heel is off, the ankle is
         // supposed to be moving and the toe is supposed not to be, so the toe
         // is the only honest place to measure foot slip.
         v2.set(0, -ANKLE_Y, TOE_AHEAD);
         J[`ankle${side}`].localToWorld(v2);
+        // And WHERE THAT TOE WAS PUT, worked analytically from the plant rather
+        // than remembered, so a harness can measure slip without any stance
+        // bookkeeping of its own and without trusting that it spotted the frame
+        // a stance began. Rotating the ankle about the toe leaves the toe at
+        // exactly TOE_AHEAD in front of the plant along the foot's own heading,
+        // for every pitch, which is the identity the whole stance rests on.
+        const ta = TOE_AHEAD * scale;
+        v3.set(
+          f.plant.x + Math.sin(f.yaw) * ta,
+          f.plant.y,
+          f.plant.z + Math.cos(f.yaw) * ta,
+        );
         out.feet[side] = {
           world: v1.toArray(),
           toe: v2.toArray(),
-          swinging: feet[side].swing < 1,
-          plant: feet[side].plant.toArray(),
+          toeWant: v3.toArray(),
+          swinging: f.swing < 1,
+          plant: f.plant.toArray(),
           pitch: footPitch[side],
         };
       }

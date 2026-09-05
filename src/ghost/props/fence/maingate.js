@@ -46,24 +46,36 @@ import { WALL } from './wall.js';
 // the darkness outside. That is the whole character and a texture cannot have
 // it, because the thing behind the bars is the level.
 //
-// THIN METAL AT THIS CAMERA. The camera is orthographic along (1, 0.78, 1), so
-// a world-axis-aligned bar of section `w` presents w * sqrt(2) / 2 * ... no:
-// screen-right is (x - z) / sqrt(2), so a square bar of side w standing on a
-// wall that runs along x shows BOTH of its faces to the camera and covers
-// w * sqrt(2) / 2 + w * sqrt(2) / 2, which is 0.707 w, of screen width. At the
-// game's framing (view 9, 800 px tall, so about 44 px per world unit) that is
+// THIN METAL AT THIS CAMERA, and this is arithmetic rather than judgement,
+// because the first pass got it wrong by a factor of two in the direction that
+// matters.
 //
-//     w = 0.036  the wall's own railing bar   1.1 px    shimmers
-//     w = 0.062  a fence picket on its side   1.9 px    shimmers
-//     w = 0.105  what this uses               3.3 px    holds
+// The camera is orthographic along (1, 0.78, 1), so screen-right is the unit
+// vector (-1, 0, 1) / sqrt(2). A bar of x-width wx and z-depth wz standing on a
+// wall that runs along x therefore covers (wx + wz) / sqrt(2) of screen width:
+// BOTH of its faces are turned toward the camera and both count. A displacement
+// ALONG that wall covers only 1 / sqrt(2) of its length. At the game's own
+// framing -- view 9 on an 800 px canvas, so 44.4 px per world unit -- that is
 //
-// so the bars here are three times the section of the ones on wall.js's iron
-// variant, and that is a decision about ALIASING before it is one about weight.
-// It happens to be right twice over: this is a main gate and a main gate's bars
-// are heavy. The other half of the same decision is the PITCH: 0.235 centres
-// leaves a 0.13 gap, which is 4 px of hole between 3.3 px of bar. Tighter reads
-// as a solid black panel from across the arena, which loses the one quality the
-// gate exists for.
+//     bar section    on screen   what it is
+//     0.036 square   1.6 px      wall.js's railing bar, at a 12.6 px pitch
+//     0.092 hex      5.4 px      this gate's bars, at an 8.4 px pitch
+//
+// TWO NUMBERS COME OUT OF THAT AND THEY PULL AGAINST EACH OTHER. The bar has to
+// be thick enough not to shimmer, which wants it fat; the GAPS have to survive,
+// which wants it thin and wants few of them, and the gaps are the whole point.
+// Measured, per leaf, across the 1.873 between the two stiles:
+//
+//     bars   pitch     bar      gap       open
+//     7      7.4 px    6.2 px   1.2 px    16%    a black panel with lines on it
+//     6      8.4 px    5.4 px   3.0 px    36%    a grille
+//     5      9.8 px    6.2 px   3.7 px    37%    a grille, and sparse
+//
+// Seven was built first and rendered as a solid slab from anywhere but a
+// close-up, which fails the one thing the gate is for -- it is the only object
+// in the level you can see through. SIX, at 0.092, is what is here: a third of
+// the gateway is hole at the game's framing, and 5.4 px of bar is three times
+// the wall's own railings and does not crawl.
 //
 // The bars are hexagonal prisms with their ring vertices SHARED, so
 // computeVertexNormals rolls the light round them; the rails and stiles are
@@ -95,7 +107,7 @@ import { WALL } from './wall.js';
 // they RACK -- the frame parallelograms and the free edge falls -- which is
 // exactly a shear, and it keeps the meeting stiles vertical and touching.
 //
-// The right leaf has dropped 107 mm and its bottom corner is 7 mm INTO the
+// The far leaf has dropped 122 mm and its bottom corner is 24 mm INTO the
 // threshold stone. It is not resting near the ground, it is resting ON it, and
 // that is the detail that says the thing has not moved in fifty years.
 
@@ -110,26 +122,39 @@ export const MAINGATE = {
   // THE OPENING, jamb pier centre to jamb pier centre, and therefore the
   // `width` handed to createWall.
   //
-  // FIVE UNITS, which is ONE WALL SECTION -- WALL.pier.spacing, the floor's own
-  // major grid, and src/game/level/format.js's WALL_SECTION are all 5.0 and all
-  // the same 5.0. A 30 unit side is six of them.
+  // FIVE UNITS, WHICH IS ONE WALL SECTION, AND IT IS CENTRED ON A SECTION
+  // BOUNDARY. Those two sentences are the whole placement rule and they are
+  // worth separating, because it is the second one that makes everything else
+  // line up.
   //
-  // Where it goes is the other half of the same decision, and the two fight:
-  // six sections a side means the MIDPOINT OF A SIDE IS A SECTION BOUNDARY, so
-  // a five unit opening can be centred on its wall or aligned to the section
-  // lattice and not both. Centred wins, for two reasons that are not about
-  // taste. The gate exists so the owner can start their paths from it, and a
-  // pair of gates centred on opposite walls gives one straight spine through
-  // the middle of the arena and through the spawn at (0, 0); moved a section
-  // over, the spine misses the spawn and the arena's own centre by 2.5. And on
-  // a 30 unit wall an opening at 10..15 leaves 10 of wall on one side and 15 on
-  // the other, which is a 40:60 split and reads as a mistake from anywhere.
+  // The section is 5.0 in three places that all mean the same 5.0:
+  // WALL.pier.spacing, the floor's own major grid, and
+  // src/game/level/format.js's WALL_SECTION. A 30 unit side is six of them, so
+  // a side's MIDPOINT IS A BOUNDARY, and a boundary is exactly where the wall
+  // already stands a pier. So a main gate is not squeezed in between the piers:
+  // it REPLACES one. `at` is a multiple of the section, the pier that stood
+  // there is inside the opening and pierPlan drops it, and the two jamb piers
+  // stand half a section either side of where it was.
   //
-  // What it costs is two HALF BAYS, one either side: the wall's piers stand at
-  // every 5.0, the jambs land at 12.5 and 17.5, so the bay between the last
-  // ordinary pier and the gate pier is 2.5 rather than 5.0. That reads as a
-  // gateway having been cut into a wall that was already built, which is what
-  // happened.
+  // What that buys, in order of how much it matters:
+  //
+  //   * The gate is CENTRED on its wall, because the wall's midpoint is a
+  //     boundary. A pair of gates on opposite sides therefore gives one
+  //     straight spine through the middle of the arena and through the spawn at
+  //     (0, 0), which is what the owner asked them for -- somewhere to start
+  //     the paths. An opening at 10..15 instead would leave 10 of wall one side
+  //     and 15 the other, and read as a mistake from anywhere in the level.
+  //   * The editor needs no new coordinate. An author picks a section boundary,
+  //     which is a thing the wall panel already draws, and `at` is that
+  //     boundary's distance. See mainGateFault().
+  //   * A style change written at the same boundary lands inside the opening,
+  //     where there is no wall to change, which is the correct thing for it to
+  //     do rather than an edge case to handle.
+  //
+  // What it costs is two HALF BAYS, one either side: the jambs land at 12.5 and
+  // 17.5 on a 30 unit side, so the bay between the last ordinary pier and the
+  // gate pier is 2.5 rather than 5.0. That reads as a gateway cut into a wall
+  // that was already standing, which is what it is.
   width: 5.0,
 
   // What the two piers leave between them, which is what the leaves fill.
@@ -181,11 +206,11 @@ const PIER_HALF = WALL.pier.width / 2;             // 0.43
 const JAMB = MAINGATE.width / 2 - PIER_HALF;       // 2.07, the pier's inner face
 
 // The leaf frame.
-const BAR = 0.105;          // the main verticals, square across the flats
+const BAR = 0.092;          // the main verticals, across the corners
 const BAR_SIDES = 6;        // hexagonal: round enough to roll the light at 3 px
 const STILE_HANG = 0.095;   // the leaf's hinge edge, the heaviest member
 const STILE_MEET = 0.082;   // where the two leaves come together
-const DOG = 0.055;          // the short bars in the bottom panel
+const DOG = 0.050;          // the short bars in the bottom panel
 
 const LEAF_AIR = 0.02;      // between the hanging stile's face and the pier's
 const HANG_X = JAMB - LEAF_AIR - STILE_HANG / 2;   // 2.0025
@@ -222,7 +247,7 @@ const CROSS_H = 0.36;
 // game's framing: enough that the camber's apex has a visible step in it and
 // the two rows of spear tips do not line up, which is what "out of true" has to
 // look like at this size. The far leaf has dropped 122 mm and its bottom corner
-// is 22 mm INTO the threshold stone, which is the picture of a gate that has
+// is 24 mm INTO the threshold stone, which is the picture of a gate that has
 // stopped being a gate.
 const DROOP = [0.022, 0.062];
 const LEAN = 0.009;                // and how far the whole gate leans, shared
@@ -604,11 +629,12 @@ function leafPieces(dir, droop, out) {
 
   // --- the bars -------------------------------------------------------------
   // Between the two stiles' inner faces, evenly, then the spear head on top of
-  // each. Seven of them: see the aliasing note at the top of the file for why
-  // that number and not eleven.
+  // each. SIX of them, and the table at the top of this file is why: seven
+  // leaves 1.2 px of hole between 6.2 px of bar at the game's framing, which is
+  // a black panel, and the gaps are the whole reason this prop is geometry.
   const a = HANG_X - STILE_HANG / 2;
   const b = MEET_X + STILE_MEET / 2;
-  const count = 7;
+  const count = 6;
   const ring = ngon(BAR / 2, BAR_SIDES);
   for (let i = 1; i <= count; i++) {
     const x = X(b + ((a - b) * i) / (count + 1));
@@ -923,6 +949,70 @@ export function mainGateAt(points, at) {
     z: leg.a.z + (leg.b.z - leg.a.z) * t,
     yaw: Math.atan2(-dz, dx),
   };
+}
+
+// Where a main gate MAY go, as the reason it may not rather than a boolean.
+//
+// This lives here rather than in the level format because every rule in it is a
+// fact about the geometry, and the geometry is here. An editor that wants to
+// grey out a section, and a loader that wants to drop an opening a hand-edited
+// file asked for, both want the same four answers.
+//
+// Returns [] when every distance is fine, otherwise one { at, why } per fault.
+export function mainGateFault(points, ats) {
+  const step = WALL.pier.spacing;
+  const half = MAINGATE.width / 2;
+  const faults = [];
+
+  // Leg lengths, and where each one starts, so an opening can be checked
+  // against the leg it falls in.
+  const legs = [];
+  let total = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    if (len < 1e-9) continue;
+    legs.push({ at: total, len });
+    total += len;
+  }
+
+  const sorted = [...ats].sort((p, q) => p - q);
+  for (let i = 0; i < sorted.length; i++) {
+    const at = sorted[i];
+    const say = (why) => faults.push({ at, why });
+
+    // 1. ON THE SECTION LATTICE. Off it, the gate is no longer centred on a
+    //    pier, the editor has no control that can express it, and the two half
+    //    bays either side come out different lengths.
+    if (Math.abs(at / step - Math.round(at / step)) > 1e-6) {
+      say(`not on the ${step} unit section lattice`);
+    }
+
+    // 2. INSIDE ONE STRAIGHT LEG. A gateway across a corner would need the
+    //    jamb piers mitred to each other and the leaves hung out of plane, and
+    //    neither this nor wall.js can do it.
+    const leg = legs.find((l) => at >= l.at - 1e-6 && at <= l.at + l.len + 1e-6);
+    if (!leg) say('past the end of the wall');
+    else if (at - half < leg.at - 1e-6 || at + half > leg.at + leg.len + 1e-6) {
+      say('the opening runs round a corner');
+    } else if (at - half < leg.at + WALL.pier.width || at + half > leg.at + leg.len - WALL.pier.width) {
+      // 3. CLEAR OF THE CORNER PIER. A jamb pier standing within a pier's width
+      //    of the corner one shares stone with it, and a corner pier is bigger
+      //    (WALL.pier.cornerScale), so the two interpenetrate rather than meet.
+      say('too near a corner for the jamb pier to stand clear of the corner one');
+    }
+
+    // 4. CLEAR OF THE NEXT GATE. Two openings closer than a pier's width apart
+    //    would want one pier to be both their jambs, which pierPlan will
+    //    happily build and which leaves a two metre island of wall between two
+    //    gateways.
+    const next = sorted[i + 1];
+    if (next !== undefined && next - at < MAINGATE.width + WALL.pier.width) {
+      say('too near the next gate');
+    }
+  }
+  return faults;
 }
 
 // Both gates for one enclosure, placed and pointed, sharing one material so the

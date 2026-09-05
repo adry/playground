@@ -181,6 +181,103 @@ export function flattenByMaterial(root, { onlyStatic = true } = {}) {
   return { merged, kept, geometries };
 }
 
+// Merging WITHIN each node of a rig, which is the version an animated figure
+// can use.
+//
+// flattenByMaterial above collapses a whole subtree into root space, and that
+// is exactly wrong for something with joints: the moment a knee bends, the
+// shin's vertices have to move and the femur's must not. What is still true of
+// a rig is that everything parented to ONE node moves as that node moves, so
+// the meshes under a single bone can be merged with no change to how it
+// animates and no change to a pixel.
+//
+// The skeleton is built the way a skeleton should be authored, out of small
+// primitives: a rod, two condyles, a tuberosity, a cap. It arrives as 544
+// meshes across 72 nodes and 3 materials, which is 544 draw calls per figure
+// and 2,720 for the five the game keeps. Merged per node it is 75, and the
+// triangle count is identical because nothing has been removed.
+//
+// What this deliberately does NOT do:
+//
+//   It never merges ACROSS nodes, so a joint still bends and a node that
+//   perform.js sheds -- a rib group, a finger -- is still there to be detached
+//   whole, with its own children merged underneath it.
+//
+//   It never merges meshes that differ in anything but geometry. The key is the
+//   same one flattenByMaterial uses, so a clipped material, a different shadow
+//   flag or a different layer keeps its own mesh.
+//
+//   It leaves a node holding a single mesh completely alone. That mesh is
+//   already one draw call and rebuilding it would only churn buffers.
+//
+// The originals are detached but NOT disposed. A rig may reuse one geometry
+// across several bones -- the same rod, the same condyle -- and disposing it
+// here would take it out from under whichever bone still draws it. The parts
+// that built them own them and free them in their own dispose(); what this
+// creates is handed back in `geometries` so the caller can free that too.
+//
+// Returns { before, after, geometries }, so a caller can assert the win rather
+// than trust it.
+export function mergeWithinNodes(root) {
+  const nodes = [];
+  root.traverse((o) => { if (o.children.some((c) => c.isMesh)) nodes.push(o); });
+
+  let before = 0;
+  let after = 0;
+  const geometries = [];
+  const m = new THREE.Matrix4();
+
+  for (const node of nodes) {
+    const kids = node.children.filter((c) => c.isMesh);
+    before += kids.length;
+
+    const groups = new Map();
+    for (const mesh of kids) {
+      const bad = mesh.isSkinnedMesh || mesh.isInstancedMesh || mesh.isBatchedMesh
+        || Array.isArray(mesh.material)
+        || (mesh.geometry.groups && mesh.geometry.groups.length > 1)
+        || mesh.morphTargetInfluences
+        || mesh.children.length > 0      // a mesh with a child is a JOINT as well as a mesh
+        || mesh.userData.animated === true;
+      if (bad) { after += 1; continue; }
+      const key = [
+        mesh.material.uuid, mesh.castShadow, mesh.receiveShadow, mesh.renderOrder,
+        mesh.frustumCulled, mesh.visible, mesh.layers.mask,
+      ].join('|');
+      let g = groups.get(key);
+      if (!g) { g = []; groups.set(key, g); }
+      g.push(mesh);
+    }
+
+    for (const list of groups.values()) {
+      after += 1;
+      if (list.length < 2) continue;
+      const entries = list.map((mesh) => {
+        mesh.updateMatrix();
+        return { geometry: mesh.geometry, matrix: m.copy(mesh.matrix).clone() };
+      });
+      const geo = mergeGeometries(entries);
+      if (!geo) { after += list.length - 1; continue; }
+      geometries.push(geo);
+      const one = new THREE.Mesh(geo, list[0].material);
+      one.castShadow = list[0].castShadow;
+      one.receiveShadow = list[0].receiveShadow;
+      one.renderOrder = list[0].renderOrder;
+      one.frustumCulled = list[0].frustumCulled;
+      one.visible = list[0].visible;
+      one.layers.mask = list[0].layers.mask;
+      // The name of the first piece, so a traversal that logs or looks for a
+      // region still finds something recognisable where it used to be.
+      one.name = list[0].name;
+      for (const mesh of list) node.remove(mesh);
+      node.add(one);
+    }
+  }
+
+  root.updateMatrixWorld(true);
+  return { before, after, geometries };
+}
+
 // A single geometry with a transform baked in, without going through the merge
 // path. Used when a material has exactly one mesh under it, which is the common
 // case for a stone's one extra piece.

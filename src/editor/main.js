@@ -82,6 +82,7 @@ import {
 } from '../game/level/validate.js';
 import { checkFairness, FAIR_MESSAGES } from '../game/level/fairness.js';
 import { PALETTE, levelFootprint } from '../game/level/catalogue.js';
+import { spawnZone, spawnFault } from '../game/world/spawn.js';
 import { LEVEL_SIZE } from '../game/world/field.js';
 // THE ONLINE HALF: an account, the levels in it, and the choice to make one
 // public. All of it lives in src/net/online.js, which owns the requests, the
@@ -259,6 +260,31 @@ function cells() {
   return paintCells;
 }
 
+// WHERE A SKELETON COULD CLIMB OUT, and where it could not and why.
+//
+// A headstone is a spawn marker if the ground in front of it is clear, and the
+// piece of ground it needs is 2.14 by 2.65, which is bigger than it looks: the
+// measured demo had eight of its twelve markers blocked, all of them by other
+// headstones in tidy rows. An author cannot see that and cannot be told it in a
+// sentence, so it is drawn.
+//
+// Not all of them all the time: twenty three rectangles is the floor. The
+// selected stone always, and the whole set when the space overlay is on.
+function spawnZoneOverlay() {
+  if (!world) return [];
+  const ctx = {
+    props: world.props(), barriers: world.barriers(), gates: world.gates(), box: world.bounds,
+  };
+  const out = [];
+  for (const p of world.props()) {
+    const z = spawnZone(p);
+    if (!z) continue;
+    if (!showFootprints && !selection.has(p.id)) continue;
+    out.push({ ...z, fault: spawnFault(z, ctx) });
+  }
+  return out;
+}
+
 // Everything the overlay draws, in one place, so the three callers below
 // cannot each show a different set of it.
 function overlayOpts(extra = {}) {
@@ -282,6 +308,10 @@ function overlayOpts(extra = {}) {
     // THE FENCE ABOUT TO BE DRAWN. Green or red, and a ring on whatever the
     // point has attached itself to, because a snap the author cannot see is a
     // snap that fights them.
+    // The ground in front of every headstone, and whether a skeleton could
+    // actually come up there. Only while something is selected or the space
+    // overlay is on, because twenty three green rectangles is the whole floor.
+    spawnZones: spawnZoneOverlay(),
     fence: tool === 'fence' && hover ? (() => {
       const look = fencePreview(hover.x, hover.z, altDown);
       return look && { ...look, to: look.at.to };
@@ -2125,7 +2155,7 @@ function inspector(id) {
   // two things you might want to do to one that is already there: turn the
   // heap of earth round, or take the whole plot out.
   if (k === 'grave') {
-    rows.push(el('p', { class: 'note', text: 'an open grave from an older level. Skeletons climb out in front of headstones now, so nothing new places these.' }));
+    rows.push(el('p', { class: 'note', text: 'an open grave from an older level. It is scenery: a skeleton climbs out in front of a headstone now, so this hole is a hole.' }));
     rows.push(el('div', { class: 'row' }, [
       el('button', {
         class: 'grow',
@@ -2247,8 +2277,14 @@ function drawStatus() {
   const apart = world ? world._derived.flies.spacing.toFixed(0) : 0;
   const checking = review.stale || fair.stale;
   const wrong = errors + (review.stale ? 0 : review.errors.length) + unfair;
+  // HOW MANY HEADSTONES A SKELETON CAN ACTUALLY CLIMB OUT OF. This is the
+  // number an author most needs and would never guess: a stone only counts if
+  // the ground in front of it is clear, and stones in a tidy row two metres
+  // apart block each other. A beautiful graveyard with no monsters in it is the
+  // failure this line exists to prevent.
+  const spawns = world ? world.spawns().length : 0;
   statusEl.innerHTML = [
-    `<b>${doc.props.length}</b> things · <b>${world ? world._derived.gates.length : 0}</b> gates · `
+    `<b>${doc.props.length}</b> things · <b>${spawns}</b> stones a skeleton can climb out of · `
       + `<b>${flies}</b> fireflies, ${apart} apart`,
     checking ? 'checking whether it can be played...'
       : wrong
@@ -2298,21 +2334,13 @@ showKeys(keysWanted === '1');
 // picked is neither. It does not live here at all any more: a group is drawn in
 // chunks off a timer when it is opened. See drawGroupThumbs.
 //
-// What remains is the ground brush, which only does anything while the brush is
-// down, and the spawn badges, which are DOM and only move when the camera does.
-// The scene renders on demand now, so a frame in which neither is true costs a
-// comparison and returns.
-let badgeSig = '';
+// What remains is the ground brush, and it only does anything while the brush
+// is down. The spawn badges used to be here too and are gone with the thing
+// they named. So on a frame in which nothing is being painted this costs a
+// property read and returns, and the scene itself only draws when something
+// has changed.
 scene.onFrame = () => {
   if (paintDirty) flushPaint();
-  if (!world) return;
-  const t = scene.target;
-  // Only the camera, because everything else that moves a badge -- a grave
-  // added, moved or taken out -- goes through refresh, and sync() draws them.
-  const sig = `${t.x.toFixed(2)},${t.z.toFixed(2)},${scene.view.toFixed(2)},${scene.mode}`;
-  if (sig === badgeSig) return;
-  badgeSig = sig;
-  scene.syncBadges(world);
 };
 
 refresh();

@@ -6,16 +6,18 @@ import {
   attachWind, disposeWind, updateWind,
 } from './wind.js';
 import {
-  ballProfile, coneProfile, profileGeometry, insetProfile, boxField, cutField,
-  insetField, fieldGeometry, napSites, buildNap,
+  ballProfile, coneProfile, profileGeometry, insetProfile, boxField, hedgeField,
+  cutField, insetField, fieldGeometry, napSites, buildNap,
 } from './clipped.js';
 
 // The graveyard's planting: four bushes off one set of parts.
 //
-//   ball   a clipped topiary ball, low and slightly wider than tall
-//   cone   a clipped cone, straight flank, rounded apex
-//   box    a clipped box, generous fillet on every arris
-//   wild   the overgrown shrub this file started as
+//   ball      a clipped topiary ball, low and slightly wider than tall
+//   cone      a clipped cone, straight flank, rounded apex
+//   box       a clipped box, generous fillet on every arris
+//   hedge     a segment of clipped hedge, flat ends, built to tile
+//   hedgecap  the same, with the +x end rounded off for the end of a run
+//   wild      the overgrown shrub this file started as
 //
 // Three of them are CUT and one is not, and everything below follows from that
 // one distinction. A cemetery has both: clipped yew standing along the path and
@@ -77,7 +79,7 @@ import {
 // nearly twice the skin of a 0.9 ball. Building one costs 40 to 76 ms, nearly
 // all of it in scattering the leaf clusters.
 
-export const BUSH_VARIANTS = ['ball', 'cone', 'box', 'wild'];
+export const BUSH_VARIANTS = ['ball', 'cone', 'box', 'hedge', 'hedgecap', 'wild'];
 
 // What an unknown variant becomes. Levels written before the topiary existed
 // name the prop `bush` with variant `bush` or with no variant at all, and they
@@ -324,7 +326,77 @@ const CLIPPED = {
       }),
     };
   },
+
+  // A segment of hedge, and the segment that ends a run. See hedgeField in
+  // clipped.js for the shape and why the box could not do this job.
+  hedge: (rand) => hedgeSpec({ capPlus: false }),
+  hedgecap: (rand) => hedgeSpec({ capPlus: true }),
 };
+
+// NOTHING HERE IS SEEDED, and that is the point of a tiling piece.
+//
+// Every other variant jitters its size by a few per cent per seed so that two
+// of them are not the same object twice. A hedge cannot: the run has to line
+// up. A length that varied would leave a gap or an overlap at every join, and
+// a height that varied would step the top line up and down along the run,
+// which is precisely the regular-period artefact this variant exists to
+// remove. So the block is fixed and ALL of the variety comes from the leaf
+// layer, which is scattered from the prop's own seed and is different on every
+// segment. The lean is zero for the same reason: 0.02 radians is invisible on
+// a ball and is a visible wedge at a shared face.
+//
+// The pitch is ONE UNIT exactly, which is the number an author can work in: a
+// four-unit grid cell takes four segments.
+const HEDGE = {
+  pitch: 1.0,
+  thick: 0.60,
+  height: 0.78,
+  buried: 0.06,
+};
+
+function hedgeSpec({ capPlus }) {
+  const half = HEDGE.pitch / 2;
+  const fillet = FILLET * HEDGE.thick / 2;
+  const cy = (HEDGE.height - HEDGE.buried) / 2;
+  const field = (inset) => cutField(hedgeField({
+    half,
+    hy: (HEDGE.height + HEDGE.buried) / 2,
+    hz: HEDGE.thick / 2,
+    cy,
+    fillet,
+    batter: 0.045,
+    capPlus,
+    inset,
+  }), -HEDGE.buried);
+  return {
+    height: HEDGE.height,
+    lean: 0,
+    // No leaf on a flat end. It is inside the neighbour on a tiled run, so it
+    // is triangles nobody can see, and on the last segment of a run it is a
+    // cut face that should look cut. The clusters on the LONG faces are left
+    // alone deliberately: they overhang the tile plane by up to their own
+    // radius, and two segments' overhangs interleaving is what makes the join
+    // disappear. They are opaque solids of one colour, so overlapping them
+    // costs nothing and shows nothing.
+    // Rejected by NORMAL and not by position, and the threshold is 0.9 rather
+    // than something comfortable like 0.5 on purpose. The end face's normal is
+    // exactly +x; the arris where it meets the top and the side faces has a
+    // blended one, and at 0.5 that whole arris was rejected too. What that
+    // left was a cluster-sized hole at the top corner of every join, which on
+    // this camera is on the silhouette, so the hedge showed a notch of
+    // daylight at every metre. The band right at the arris is the band that
+    // has to be planted.
+    napKeep: (p, n) => capPlus || n.x < 0.9
+      || Math.abs(p.z) > HEDGE.thick / 2 - LEAF * 1.3
+      || p.y > HEDGE.height - LEAF * 1.3,
+    mass: (inset) => fieldGeometry({
+      detail: 15,
+      field: field(inset),
+      origin: [0, cy, 0],
+      reach: 4 * HEDGE.pitch,
+    }),
+  };
+}
 
 // The fillet on the box, as a fraction of its half width.
 //
@@ -359,6 +431,7 @@ function clippedBush(kind, rand) {
     rand,
     spacing: SPACING,
     sizeAt: spec.napSize || null,
+    keep: spec.napKeep || null,
     limit: 1600,
     yMin: 0.015,
   });
@@ -418,7 +491,7 @@ function clippedBush(kind, rand) {
       lag: 0.20,
       scatter: 0.24,
     },
-    lean: 0.020,
+    lean: spec.lean === undefined ? 0.020 : spec.lean,
     size: { height: top, width: size.width, depth: size.depth },
   };
 }

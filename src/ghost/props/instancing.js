@@ -192,8 +192,17 @@ function cloneRig(src) {
   walk(src, dst);
   const map = new Map(pairs);
   for (const [a, b] of pairs) {
-    if (!a.isLight || !a.target?.isObject3D) continue;
-    b.target = map.get(a.target) || a.target;
+    if (!a.isLight) continue;
+    if (a.target?.isObject3D) b.target = map.get(a.target) || a.target;
+    // AND THE PROJECTED TEXTURE, which three's SpotLight.copy() does not carry
+    // across at all: the constructor sets `map` to null and copy() never
+    // mentions it, so a cloned spotlight silently loses its gobo. For a
+    // jack-o'-lantern the gobo IS the carving -- the three beams that leave
+    // through the eyes and the grin -- and without it the prop throws a plain
+    // round cone of light, which is the difference between a lit pumpkin and a
+    // torch lying on the grass. The texture is shared rather than copied, which
+    // is right: every placement of one template throws the same carving.
+    if (a.isSpotLight && a.map) b.map = a.map;
   }
   return dst;
 }

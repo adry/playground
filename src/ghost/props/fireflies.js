@@ -392,10 +392,25 @@ const FRAGMENT = /* glsl */`
  *   dispose: () => void,
  * }}
  */
-export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
+export function createFireflies({ seed = 1, points = [], scale = 1, capacity = 0 } = {}) {
   const rng = mulberry32(Math.imul(seed >>> 0, 2654435761) + 12345);
-  const count = points.length;
-  const n = Math.max(1, count); // buffers of length zero upset some drivers
+  let count = points.length;
+  // CAPACITY IS NOT THE SAME AS COUNT, and the difference is what lets a
+  // firefly move.
+  //
+  // The field used to be exactly the level's own list, built once and never
+  // changed, which was right while a firefly was a fixed thing at a fixed spot.
+  // It is not right now: the rules top the board back up from a pool and invent
+  // a spot when the pool cannot supply one, so a firefly can appear somewhere
+  // the level never listed. A field that can only draw the original list has
+  // no bead for it, and the player walks into a firefly that is not there while
+  // the one they can see does nothing.
+  //
+  // So the buffers are sized to `capacity`, every slot gets its own phases up
+  // front, and `place` moves a slot to wherever the rules put a firefly. Slots
+  // past `count` are simply not drawn, because mesh.count is the live number.
+  const slots = Math.max(count, capacity | 0);
+  const n = Math.max(1, slots); // buffers of length zero upset some drivers
 
   // Two triangles. A quad 2 by 2 in local space so its corners land at
   // plus and minus one and the fragment shader's radius is a clean fraction.
@@ -412,8 +427,11 @@ export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
   // radius, so the anchor is the honest centre of the thing and a pellet does
   // not become easier or harder to take depending on which way it happens to
   // be leaning.
-  const positions = new Float32Array(count * 3);
-  const collected = new Uint8Array(count);
+  const positions = new Float32Array(n * 3);
+  const collected = new Uint8Array(n);
+  // The hover height each slot drew, kept so a slot that moves keeps its own
+  // height rather than snapping to whatever the last occupant had.
+  const hover = new Float32Array(n);
 
   const uniforms = {
     // Fog uniforms have to be present by name, because the renderer refreshes
@@ -453,9 +471,13 @@ export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
   const mesh = new THREE.InstancedMesh(geometry, material, n);
   const m = new THREE.Matrix4();
 
-  for (let i = 0; i < count; i++) {
-    const p = points[i];
+  // Every SLOT is given its look, not every point. The rng stream is therefore
+  // the same for slot i whatever is standing in it, so a firefly that moves does
+  // not change how the ones beside it pulse.
+  for (let i = 0; i < n; i++) {
+    const p = points[i] || { x: 0, z: 0 };
     const y = HOVER.min + (HOVER.max - HOVER.min) * rng();
+    hover[i] = y;
     positions[i * 3 + 0] = p.x;
     positions[i * 3 + 1] = y;
     positions[i * 3 + 2] = p.z;
@@ -489,6 +511,13 @@ export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
     offsetAttr[i * 4 + 2] = rng();
     offsetAttr[i * 4 + 3] = rng();
   }
+  // Slots the level did not fill start OUT. mesh.count is the live number, so
+  // they would not normally be drawn at all, but `place` can raise it past a
+  // slot that nothing has been put in yet, and a bead sitting at the origin is
+  // worse than no bead. Marking them taken in the past makes them invisible
+  // from the first frame and `place` clears it.
+  for (let i = count; i < n; i++) { collected[i] = 1; takenAttr[i] = -1e6; }
+
   mesh.count = count;
   mesh.instanceMatrix.needsUpdate = true;
 
@@ -517,7 +546,9 @@ export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
 
   return {
     group,
-    count,
+    // Live, because `place` can extend it. It used to be a plain number and a
+    // caller reading it after a place would have got the old one.
+    get count() { return count; },
     positions,
     collected,
 
@@ -532,7 +563,7 @@ export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
     // Take one. Returns false if the index is not a live firefly, so the rules
     // layer can call it on a proximity hit without tracking state twice.
     collect(index) {
-      if (!(index >= 0) || index >= count || collected[index]) return false;
+      if (!(index >= 0) || index >= slots || collected[index]) return false;
       collected[index] = 1;
       takenAttr[index] = now;
       taken.needsUpdate = true;
@@ -547,6 +578,48 @@ export function createFireflies({ seed = 1, points = [], scale = 1 } = {}) {
 
     isCollected(index) {
       return collected[index] === 1;
+    },
+
+    // How many slots there are, live or not. `count` above is how many are
+    // drawn; this is how many `place` may address.
+    capacity: slots,
+
+    // How long a collect takes to play out, so a caller that recycles slots
+    // knows when the bead has finished going out.
+    collectTime: COLLECT_TIME,
+
+    // Move a slot to a new anchor and light it. This is the whole of what the
+    // rules need from the field: they decide where a firefly is, and the field
+    // draws a bead there.
+    //
+    // The slot keeps its own phases and its own hover height, so a recycled
+    // slot is not a copy of the firefly that was there before. Placing clears
+    // the take: the slot is alive again from this moment.
+    place(index, x, z) {
+      if (!(index >= 0) || index >= slots) return false;
+      positions[index * 3 + 0] = x;
+      positions[index * 3 + 1] = hover[index];
+      positions[index * 3 + 2] = z;
+      m.makeTranslation(x, hover[index], z);
+      mesh.setMatrixAt(index, m);
+      mesh.instanceMatrix.needsUpdate = true;
+      collected[index] = 0;
+      takenAttr[index] = -1;
+      taken.needsUpdate = true;
+      if (index >= count) { count = index + 1; mesh.count = count; }
+      return true;
+    },
+
+    // Take a slot out of the field with no animation, for a bead that should
+    // simply not be there any more. `collect` is the one that plays the flash.
+    hide(index) {
+      if (!(index >= 0) || index >= slots || collected[index]) return false;
+      collected[index] = 1;
+      // Far enough in the past that the shader's take has already finished, so
+      // the bead is gone on the very next frame rather than flashing first.
+      takenAttr[index] = now - COLLECT_TIME * 2;
+      taken.needsUpdate = true;
+      return true;
     },
 
     remaining() {

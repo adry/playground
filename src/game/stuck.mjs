@@ -3,16 +3,22 @@
 //   node src/game/stuck.mjs                          public/levels/demo.json
 //   node src/game/stuck.mjs --level public/levels/x.json
 //   node src/game/stuck.mjs --seed 7                 a generated arena instead
+//   node src/game/stuck.mjs --stand                  the five centimetre net
+//   node src/game/stuck.mjs --jump                   every landing the rules allow
+//   node src/game/stuck.mjs --seats                  the geometry-only sweep
 //   node src/game/stuck.mjs --cell 0.2 --dirs 16     a finer net
 //   node src/game/stuck.mjs --map out/stuck.txt      write the ascii map too
-//   node src/game/stuck.mjs --seats                  the geometry-only sweep
+//   node src/game/stuck.mjs --nav old/nav.js         measure a different resolver
 //
 // The report was "the ghost gets stuck in some places where nothing happens",
 // which is a report about geometry rather than about a moment, so it is
 // answered with a MAP and not with a repro of one incident. The rules run
 // headless with no renderer, so the whole arena can be walked.
 //
-// TWO SWEEPS, AND ONLY THE FIRST ONE IS THE BUG.
+// FOUR SWEEPS. There are only three ways the ghost can arrive anywhere -- it
+// walks, it lands a jump, or the resolver seats it -- and there is one sweep
+// for each, plus the fine net that catches what a quarter unit lattice steps
+// over.
 //
 //   THE WALK (default). Stand the ghost on every open quarter unit, hold the
 //   stick in each of eight directions, and watch for it to STALL: a second and
@@ -23,12 +29,25 @@
 //   probe walked in from open ground the finding comes with the recipe that
 //   produced it: stand here, hold this, and the run is over.
 //
+//   THE FINE NET (--stand). The same escape test at five centimetres, over
+//   every open cell that is touching two colliders at once. A cycling resolver
+//   fails at a POINT and not over a region, so the quarter unit lattice walks
+//   straight past it: the one trap in the shipped level sits a tenth of a unit
+//   off the nearest quarter unit cell and every coarse sweep called the level
+//   clean.
+//
+//   THE JUMP (--jump). Every landing rules.js tryJump would permit, from every
+//   piece of ground the ghost can stand on. A vault is allowed to cross a fence
+//   and rule 6 only asks that the landing FITS, which is not the same as being
+//   somewhere the ghost can leave.
+//
 //   THE SEATS (--seats). Every cell in the arena, resolved the way the game
 //   resolves a body that has ended up there, then the same escape test. This
-//   finds sealed pockets whether or not anything can walk into one, which is a
+//   finds sealed pockets whether or not anything can reach one, which is a
 //   different fault: a pocket nothing can reach is the AUTHOR's problem (see
 //   world/repair.js findWedges, which is the tool for it) and not the
-//   resolver's. Reported separately for exactly that reason.
+//   resolver's. Reported separately for exactly that reason, and every one it
+//   reports carries a `reach:` line saying whether a player can get into it.
 //
 // Each trap is reported with the colliders responsible, and responsibility is
 // MEASURED rather than guessed: every collider near the trap is taken out of
@@ -579,6 +598,42 @@ export function selftest(world) {
   return { from, real, mine, err, ok: err < 1e-6 };
 }
 
+// --- the colliders that should not exist ------------------------------------
+//
+// A zero-length barrier has no normal and a zero-radius prop has no surface, so
+// both of them ask the resolver to divide by zero, and a single NaN in a
+// position never comes back out: it propagates into the velocity, the camera
+// and the cloth, and what the player sees is a ghost that has stopped for ever.
+// An author cannot draw a zero-length fence in the editor today. That is a
+// reason to check rather than a reason not to.
+export function degenerate() {
+  const bad = {
+    bounds: { minX: -10, maxX: 10, minZ: -10, maxZ: 10 },
+    spawn: { x: 0, z: 0 },
+    gates: () => [],
+    barriers: () => [
+      { id: 'zero', x0: 1, z0: 1, x1: 1, z1: 1, half: 0.0775 },
+      { id: 'nanhalf', x0: -2, z0: 0, x1: -2, z1: 2, half: NaN },
+    ],
+    props: () => [
+      { id: 'point', kind: 'stone', x: 0, z: 2, radius: 0, solid: true },
+      { id: 'nan', kind: 'stone', x: 2, z: 2, radius: NaN, solid: true },
+      { id: 'real', kind: 'stone', x: -1, z: -1, radius: 0.5, solid: true },
+    ],
+  };
+  const nav = createNav(bad);
+  const cases = [
+    [1, 1], [1.0001, 1], [0, 2], [2, 2], [-2, 1], [-1, -1], [NaN, 0], [0, Infinity],
+  ];
+  const out = [];
+  for (const [x, z] of cases) {
+    nav.focus(Number.isFinite(x) ? x : 0, Number.isFinite(z) ? z : 0);
+    const r = nav.resolveDisc(x, z, T.ghostRadius);
+    out.push({ from: [x, z], to: [r.x, r.z], ok: Number.isFinite(r.x) && Number.isFinite(r.z) });
+  }
+  return { ok: out.every((c) => c.ok), cases: out };
+}
+
 async function loadWorld(args) {
   if (args.seed) {
     const { createWorld } = await import('./world/index.js');
@@ -601,6 +656,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const st = selftest(world);
     console.log(`mirror against rules.js: err ${st.err.toExponential(2)} ${st.ok ? 'ok' : 'DRIFTED'}`);
   }
+  const dg = degenerate();
+  console.log(`degenerate colliders: ${dg.ok ? 'all finite' : 'NaN ESCAPED'}`
+    + `${dg.ok ? '' : ` ${JSON.stringify(dg.cases.filter((c) => !c.ok))}`}`);
   console.log(`${args.seed ? `seed ${args.seed}` : (args.level || 'public/levels/demo.json')}`
     + `  cell ${cell}, ${dirs} directions, a clear second is ${freeRun().toFixed(2)} units`);
   const res = args.seats ? sweepSeats(world, { cell, dirs })

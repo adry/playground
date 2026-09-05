@@ -31,7 +31,7 @@ export const PALETTE = {
   // warm ivory, so a zombie rib next to a skeleton rib is clearly a dirtier
   // one, and because a warm ivory against the red flesh went pink.
   bone: '#ddd2b8',
-  tooth: '#e8e1cc',
+  tooth: '#efe8d2',
   // Not black. Pure black at this scale flattens into a hole with no form at
   // all; a very dark warm grey still takes a little bounce off the cheek and
   // keeps the socket looking deep rather than punched out.
@@ -55,7 +55,7 @@ export function zombieMaterials() {
     flesh: mk(PALETTE.flesh, 0.72),   // wet, so a touch less rough than skin
     muscle: mk(PALETTE.muscle, 0.70),
     bone: mk(PALETTE.bone, 0.74),
-    tooth: mk(PALETTE.tooth, 0.62),
+    tooth: mk(PALETTE.tooth, 0.55),
     socket: mk(PALETTE.socket, 0.95),
     jacket: mk(PALETTE.jacket, 0.94),  // cloth, the roughest thing on the model
     jacketDark: mk(PALETTE.jacketDark, 0.94),
@@ -118,7 +118,19 @@ export function gridSurface({
         if (!keepQuad(uc, vc)) continue;
       }
       const a = at(i, j), b = at(i + 1, j), c = at(i + 1, j + 1), d = at(i, j + 1);
-      idx.push(a, b, c, a, c, d);
+      // Wound so the face normal is d(u) cross d(v) NEGATED, that is, OUTWARD.
+      //
+      // Worth stating, because it was wrong for a whole build and the renders
+      // did not obviously say so. Every surface here is parameterised as
+      // (cos a, y, sin a) with a = 2 pi u, so increasing u runs +X toward +Z
+      // and du cross dv points INTO the solid. Wound the naive way, every
+      // shape on this model was inside out: three culls the true outside, you
+      // see the far wall lit by its own flipped normal, and a ball still looks
+      // like a ball. It only shows the moment you cut a hole in something, at
+      // which point you look through the hole and see the inside of the back
+      // of the object instead of what you put behind it. That is exactly how
+      // it was found, on the mouth.
+      idx.push(a, c, b, a, d, c);
     }
   }
   return { geometry: mesh(flat(pts), idx), pts, at, uN, vN };
@@ -186,10 +198,12 @@ export function shell2({
         if (!keepQuad(uc, vc)) continue;
       }
       kept.add(`${i},${j}`);
+      // Same outward convention as gridSurface above; the inner sheet is the
+      // mirror of it, so a garment is solid from both sides.
       const a = at(0, i, j), b = at(0, i + 1, j), c = at(0, i + 1, j + 1), d = at(0, i, j + 1);
-      idx.push(a, b, c, a, c, d);
+      idx.push(a, c, b, a, d, c);
       const A = at(1, i, j), B = at(1, i + 1, j), C = at(1, i + 1, j + 1), D = at(1, i, j + 1);
-      idx.push(A, C, B, A, D, C);
+      idx.push(A, B, C, A, C, D);
     }
   }
   // Rim every directed edge whose neighbouring quad is absent.
@@ -212,7 +226,7 @@ export function shell2({
         const [bi, bj] = corners[(e + 1) % 4];
         const oA = at(0, ai, aj), oB = at(0, bi, bj);
         const iA = at(1, ai, aj), iB = at(1, bi, bj);
-        idx.push(oA, iA, iB, oA, iB, oB);
+        idx.push(oA, iB, iA, oA, oB, iB);
       }
     }
   }
@@ -275,7 +289,10 @@ export function limb(a, b, r0, r1, {
       const j2 = (j + 1) % radial;
       const a2 = s * radial + j, b2 = s * radial + j2;
       const c2 = (s + 1) * radial + j2, d2 = (s + 1) * radial + j;
-      idx.push(a2, b2, c2, a2, c2, d2);
+      // Outward, for the same reason as gridSurface: the ring runs
+      // (cos a * side + sin a * up) with side = tangent cross up, so going
+      // round the ring and then along the shaft gives an INWARD cross product.
+      idx.push(a2, c2, b2, a2, d2, c2);
     }
   }
   return mesh(flat(pts), idx);

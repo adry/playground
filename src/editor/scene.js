@@ -603,6 +603,7 @@ export function createEditorScene({ canvas }) {
   function syncOverlay(world, doc, {
     selection = new Set(), flagged = new Set(), hover = null, brush = null, wedges = [],
     gizmo = null, ghost = null, wallHover = null, wallMarks = [], fence = null,
+    spawnZones = [],
   } = {}) {
     clearOverlay();
     const d = world._derived;
@@ -651,18 +652,26 @@ export function createEditorScene({ canvas }) {
       if (bad) overlay.add(ringOf(p.x, p.z, p.radius + 0.12, 0xd23b3b, 0.85));
     }
 
-    for (const g of d.graves) {
-      overlay.add(ringOf(g.x, g.z, 1.35, selection.has(g.id) ? 0x1f6fe0 : 0x8a5bd0, 0.9));
-      overlay.add(lineOf([[g.x, g.z], [g.x + Math.sin(g.yaw) * 1.5, g.z + Math.cos(g.yaw) * 1.5]], 0x8a5bd0, 0.7));
-    }
-    // The spawn order, drawn as the line a wave of skeletons comes out in.
-    const ordered = [...d.graves].sort((a, b) => a.order - b.order);
-    for (let i = 0; i + 1 < ordered.length; i++) {
-      overlay.add(lineOf([[ordered[i].x, ordered[i].z], [ordered[i + 1].x, ordered[i + 1].z]], 0x8a5bd0, 0.4));
+    // WHERE A SKELETON CAN COME OUT. A stone qualifies only if the ground in
+    // front of it is clear, and the zone is 2.14 by 2.65, which is bigger than
+    // most authors would guess: stones in a tidy row two metres apart block
+    // each other and the graveyard comes out with almost nothing living in it.
+    // So the ground is drawn -- green where a skeleton can climb out, red where
+    // something is in the way -- and there is nothing else on screen that could
+    // tell an author why their level is empty.
+    for (const z of spawnZones) {
+      const colour = z.fault ? 0xd23b3b : 0x2f9e5f;
+      overlay.add(footprintOutline(z, colour, z.fault ? 0.5 : 0.95));
+      if (!z.fault) overlay.add(ringOf(z.at.x, z.at.z, 0.42, colour, 0.9));
     }
 
+    // The graves and the pellets of a level written before either stopped
+    // meaning anything. Drawn so they can be found and taken out.
+    for (const g of d.graves) {
+      overlay.add(ringOf(g.x, g.z, 1.35, selection.has(g.id) ? 0x1f6fe0 : 0x6b7383, 0.7));
+    }
     for (const p of d.powerups) {
-      overlay.add(ringOf(p.x, p.z, p.radius + 0.2, selection.has(p.id) ? 0x1f6fe0 : 0xd8a33a, 0.85));
+      overlay.add(ringOf(p.x, p.z, p.radius + 0.2, selection.has(p.id) ? 0x1f6fe0 : 0x6b7383, 0.7));
     }
 
     overlay.add(ringOf(doc.spawn.x, doc.spawn.z, 0.55, 0x2f3542, 0.9));
@@ -768,33 +777,9 @@ export function createEditorScene({ canvas }) {
     ? { shape: 'disc', r: f.r + by }
     : { shape: 'box', halfU: f.halfU + by, halfV: f.halfV + by });
 
-  // --- the badges ---------------------------------------------------------------
-  //
-  // Which skeleton climbs out of which hole, and in what order. This is DOM
-  // rather than geometry on purpose: it has to be legible at every zoom, and a
-  // plane in the scene is not.
-
-  const badgeLayer = document.createElement('div');
-  badgeLayer.className = 'badges';
-  canvas.parentElement.appendChild(badgeLayer);
-
-  function syncBadges(world) {
-    if (!world) return;
-    const graves = world._derived.graves;
-    while (badgeLayer.children.length > graves.length) badgeLayer.lastChild.remove();
-    while (badgeLayer.children.length < graves.length) {
-      const el = document.createElement('div');
-      el.className = 'badge';
-      badgeLayer.appendChild(el);
-    }
-    graves.forEach((g, i) => {
-      const el = badgeLayer.children[i];
-      const s = toScreen(g.x, g.z);
-      el.style.transform = `translate(${s.x}px, ${s.y}px)`;
-      el.textContent = `${g.order + 1} ${g.personality}`;
-      el.dataset.personality = g.personality;
-    });
-  }
+  // THE BADGES ARE GONE with the thing they named: which skeleton climbed out
+  // of which hole, and in what order. A skeleton comes out in front of
+  // whichever headstone the game picks now, so there is nothing to number.
 
   // --- the public face --------------------------------------------------------
 
@@ -806,7 +791,6 @@ export function createEditorScene({ canvas }) {
     syncProps(world);
     syncFlies(world);
     syncOverlay(world, doc, opts);
-    syncBadges(world);
     // A sync is the geometric change, so the shadow map goes with it.
     invalidate(true);
   }
@@ -995,7 +979,6 @@ export function createEditorScene({ canvas }) {
     // redraw the brush ring and nothing else, and a full sync would rebuild
     // the world and revalidate it sixty times a second to move a circle.
     overlayOnly(w, d, opts) { syncOverlay(w, d, opts); invalidate(); },
-    syncBadges,
     groundAt,
     pickAt,
     toScreen,

@@ -129,6 +129,17 @@ function makeIndex(items, extentOf) {
       const a1 = Math.floor(maxX / BUCKET);
       const b0 = Math.floor(minZ / BUCKET);
       const b1 = Math.floor(maxZ / BUCKET);
+      // A box that is not a box. An infinite coordinate makes b0 and b1 both
+      // Infinity, and `for (let b = Infinity; b <= Infinity; b++)` never
+      // advances: the loop below runs for ever, filling `out` until the tab
+      // dies. The oversize test above does not catch it, because
+      // Infinity - Infinity is NaN and NaN > 4096 is false. Everything upstream
+      // of here should be keeping NaN and Infinity out of a position, and this
+      // is the line that says so if one gets through.
+      if (!Number.isFinite(a0) || !Number.isFinite(a1) || !Number.isFinite(b0) || !Number.isFinite(b1)) {
+        for (const it of items) out.push(it);
+        return out;
+      }
       // A big query would visit more buckets than there are items; fall back.
       if ((a1 - a0 + 1) * (b1 - b0 + 1) > 4096) { for (const it of items) out.push(it); return out; }
       for (let b = b0; b <= b1; b++) {

@@ -256,6 +256,68 @@ export function boxField({ hx, hy, hz, cy, fillet, batter = 0 }) {
   };
 }
 
+// --- the hedge ---------------------------------------------------------------
+//
+// A segment of clipped hedge: the same box, but built to TILE.
+//
+// Three boxes set edge to edge do not read as a hedge, they read as three
+// boxes touching, and the fillet is why. Each box rounds its own vertical
+// arris, so at every join the two curves leave a dip 0.109 deep over a 0.22
+// span, which is 14% of the bush's height, four pixels deep at the size the
+// yard shows it, and it repeats on a regular pitch. A regular period is the
+// one thing the eye never misses. No amount of tuning the box fixes it,
+// because the fillet is exactly what makes the box good standing on its own.
+//
+// So a hedge segment is a different shape and not a differently sized box:
+//
+//   - The cross section is a rounded rectangle, so the two long top arrises
+//     roll over exactly as the box's do.
+//   - The ENDS ARE FLAT, square and unfilleted, cut on the tile plane. Two
+//     segments meet along the whole of that plane. The two coincident faces do
+//     not fight: each is front-facing away from the other, so the near
+//     segment's body hides its neighbour's end face by depth alone.
+//   - The BATTER is on the thickness only. A hedge is cut a few per cent
+//     narrower at the top like everything else here, but battering the length
+//     as well would tilt the tile plane and open a wedge at every join.
+//   - An end that has no neighbour is CAPPED instead: the same fillet, rolled
+//     round the end, inside the same tile length so a capped segment still
+//     occupies exactly its pitch and still lines up on the grid.
+//
+// The last of those is what the two booleans are for. Where an end is capped
+// the core is pulled in by the fillet and the rounding puts it back; where it
+// is not, the core runs out to the tile plane and a half space cuts it there,
+// which leaves the full rounded-rectangle cross section as a flat face.
+// `inset` is taken here rather than by insetField outside, and that is the
+// whole difference between a hedge and a row of blocks with daylight between
+// them. The leaf layer stands on a mass that is inset by its own depth, and
+// pushing the TILE PLANE in with everything else leaves two of those depths of
+// slot at every join: eight millimetres each side, which does not sound like
+// anything and is a bright line of background straight through the hedge. So
+// the body is inset and the end planes are not. Two segments' end faces are
+// then coincident, and the clusters on the long faces overhang them from both
+// sides and close the join.
+export function hedgeField({
+  half, hy, hz, cy, fillet, batter = 0, capMinus = false, capPlus = false, inset = 0,
+}) {
+  const by = Math.max(1e-4, hy - fillet);
+  const bz = Math.max(1e-4, hz - fillet);
+  const loX = -half + (capMinus ? fillet : 0);
+  const hiX = half - (capPlus ? fillet : 0);
+  const y0 = cy - hy;
+  const span = Math.max(1e-4, 2 * hy);
+  return (x, y, z) => {
+    const u = Math.max(0, Math.min(1, (y - y0) / span));
+    const qx = Math.max(loX - x, x - hiX);
+    const qy = Math.abs(y - cy) - by;
+    const qz = Math.abs(z) - bz * (1 - batter * u);
+    const mx = Math.max(qx, 0), my = Math.max(qy, 0), mz = Math.max(qz, 0);
+    let d = Math.hypot(mx, my, mz) + Math.min(Math.max(qx, qy, qz), 0) - fillet + inset;
+    if (!capMinus) d = Math.max(d, -half - x);
+    if (!capPlus) d = Math.max(d, x - half);
+    return d;
+  };
+}
+
 // The same field, cut off flat below y = cut. Used to bury the base: the bottom
 // fillet of a box hedge is underground and the vertices spent on it are not
 // worth carrying.
@@ -354,6 +416,7 @@ export function napSites(geo, {
   jitter = 0.25,        // tangential nudge after the choice, in spacings
   yMin = 0.02,          // nothing below this: it is underground
   faceDown = -0.45,     // nor nothing pointing further down than this
+  keep = null,          // nor anywhere this says no: (point, normal) => boolean
 }) {
   const pos = geo.getAttribute('position');
   const nor = geo.getAttribute('normal');
@@ -473,7 +536,8 @@ export function napSites(geo, {
       na.y * w + nb.y * u + nc.y * v,
       na.z * w + nb.z * u + nc.z * v,
     ).normalize();
-    return nv.y >= faceDown;
+    if (nv.y < faceDown) return false;
+    return keep ? keep(p, nv) : true;
   };
 
   // How many batches in a row may fail before the surface is called full. One

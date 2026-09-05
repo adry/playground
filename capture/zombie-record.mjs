@@ -75,6 +75,8 @@ const show = [
   ['halfStep', 4], ['liftBehind', 4], ['stepLength', 4], ['duty', 3],
   ['cadence', 3], ['topSpeed', 4], ['bob', 4], ['sway', 4], ['list', 4],
   ['footLift', 4], ['maxHeel', 3], ['stopRange', 3], ['stiffSide', 0],
+  ['strideVsMetrics', 3],
+  ['reachMargin', 4], ['headRelMax', 3], ['headPitchCap', 3], ['headGain', 4],
 ];
 for (const [k, d] of show) {
   const v = derived[k];
@@ -90,19 +92,14 @@ if (numbersOnly) {
   // handful, and reports the phase timeline as it goes.
   const total = Number(args.seconds || 45);
   const out = await lab.page.evaluate(async (o) => {
-    const marks = [];
-    let last = null;
-    const frames = Math.round(o.total * 60);
-    for (let f = 0; f < frames; f++) {
-      window.__zlab.step(1 / 60);
-      const s = window.__zlab.state();
-      if (s !== last) { marks.push([s, +(f / 60).toFixed(2)]); last = s; }
-    }
+    const marks = window.__zlab.run(Math.round(o.total * 60));
     const m = window.__zlab.metrics();
     return {
       marks,
       slip: window.__zlab.slip(),
       cost: window.__zlab.cost(),
+      bench: window.__zlab.bench(3000),
+      drawMs: window.__zlab.time(2),
       travel: m.travel,
       speed: m.speed,
       short: m.short,
@@ -116,18 +113,52 @@ if (numbersOnly) {
   console.log(`  worst within one stance   ${out.slip.worstStanceMm} mm`);
   console.log(`  worst in a single frame   ${out.slip.worstFrameMm} mm`);
   console.log(`  mean over ${String(out.slip.stances).padStart(3)} stances      ${out.slip.meanStanceMm} mm`);
+  console.log(`  toe vs where it was put   ${out.slip.worstAbsMm} mm worst, ${out.slip.meanAbsMm} mm mean`);
   console.log('\n--- reach and limits -------------------------------------------');
   console.log(`  IK out of reach  L ${out.short.L.toFixed(5)}  R ${out.short.R.toFixed(5)} m`);
   console.log(`  past joint stop  ${out.overLimit.toFixed(5)} rad`);
   console.log('\n--- cost -------------------------------------------------------');
-  console.log(`  update()  ${out.cost.updateUs} us/frame over ${out.cost.frames} frames`);
-  console.log(`  draw      ${out.cost.triangles} triangles, ${out.cost.calls} calls`);
+  console.log(`  update()  ${out.bench} us/frame (bench, 3000 frames, nothing else in the loop)`);
+  console.log(`  update()  ${out.cost.updateUs} us/frame (in the harness loop, which also samples slip)`);
+  console.log(`  five of them  ${(out.bench * 5 / 1000).toFixed(2)} ms/frame of a 16.7 ms budget`);
+  console.log(`  draw      ${out.cost.triangles} triangles, ${out.cost.calls} calls, ${out.drawMs} ms on this rasteriser`);
   console.log(`  travelled ${out.travel.toFixed(2)} m at ${out.speed.toFixed(3)} m/s`);
   await lab.close();
   process.exit(0);
 }
 
 await mkdir('out', { recursive: true });
+
+// A contact sheet of the climb. Seeks to a list of moments with no draw in
+// between and tiles what it finds, which is how the emergence gets judged
+// before anybody spends twenty minutes of software rasteriser on a video.
+if (args.sheet) {
+  const times = String(args.sheet === true ? '0.0,0.5,1.0,1.5,2.0,2.5,3.0,3.5,4.2,5.0,6.0,8.0' : args.sheet)
+    .split(',').map(Number);
+  const tmp = 'out/.zombie-sheet';
+  await mkdir(tmp, { recursive: true });
+  const { writeFile } = await import('node:fs/promises');
+  for (let i = 0; i < times.length; i++) {
+    await lab.page.evaluate((o) => window.__zlab.seek(o.t), { t: times[i] });
+    await writeFile(path.join(tmp, `s${String(i).padStart(2, '0')}.png`),
+      await grabPNG(lab.page));
+    process.stdout.write(`\r  frame ${i + 1}/${times.length} at t=${times[i]}s   `);
+  }
+  const cols = Math.ceil(times.length / 2);
+  await new Promise((res, rej) => {
+    const ff = spawn(ffmpegPath, [
+      '-y', '-framerate', '1', '-i', path.join(tmp, 's%02d.png'),
+      '-filter_complex', `tile=${cols}x2:padding=4:margin=4:color=0x3a3f47`,
+      '-frames:v', '1', args.sheetOut || 'out/zombie-rise-sheet.png',
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = '';
+    ff.stderr.on('data', (d) => { err += d.toString(); });
+    ff.on('close', (c) => (c === 0 ? res() : rej(new Error(`ffmpeg ${c}\n${err.slice(-1200)}`))));
+  });
+  console.log(`\n  -> ${args.sheetOut || 'out/zombie-rise-sheet.png'}  at t = ${times.join(', ')}s`);
+  await lab.close();
+  process.exit(0);
+}
 
 if (doStrip) {
   // The gait as poses. Seeks to the walk with no draw, then grabs `stripTiles`

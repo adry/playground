@@ -639,13 +639,31 @@ export async function startGame({ canvas, params }) {
 
     // One field for the whole level: one draw call however many there are.
     //
-    // The rules now identify a firefly by a STABLE ID rather than by its index,
-    // because in the world's own terms a firefly belongs to a level and not to
-    // an array. The prop indexes by array position, so the map between them is
-    // built once here rather than searched every time one is eaten.
+    // THE FIELD IS RECONCILED AGAINST THE RULES, NOT DRIVEN BY EVENTS. See
+    // syncFlies below for why, and what it cost to find out.
+    //
+    // The capacity is the level's own spots plus room for the refill to invent
+    // some, which it does whenever the pool cannot supply a spot far enough
+    // from the player. Sixteen is well past anything the rules will hold on the
+    // board at once and costs nothing: an unlit slot is not drawn, and the
+    // per-slot attributes are four floats each.
     const flyList = lay.fireflies(lay.bounds);
-    built.flyIndex = new Map(flyList.map((f, i) => [f.id, i]));
-    built.flies = createFireflies({ seed: 5, points: flyList });
+    built.flies = createFireflies({
+      seed: 5,
+      points: flyList,
+      capacity: Math.max(16, flyList.length + 10),
+    });
+    // id -> slot, for the fireflies currently lit. Empty at build time: the
+    // first frame's sync fills it from whatever the rules say is on the board.
+    built.flySlot = new Map();
+    // Slots whose bead is going out, with the clock at which they may be used
+    // again. A slot handed straight back would cut the flash off.
+    built.flyFree = [];
+    // Which slots are standing in for a firefly right now. Kept beside the map
+    // rather than derived from it, because the answer is wanted once per new
+    // firefly and deriving it is a scan. On the world, not on the module, so a
+    // new level starts with every slot free.
+    built.flyUsed = new Set();
     flyBucket.add(built.flies.group);
 
     charge('flies');
@@ -929,6 +947,68 @@ export async function startGame({ canvas, params }) {
     key.target.updateMatrixWorld();
   }
 
+  // --- the fireflies the rules actually have on the board ---------------------
+  //
+  // THIS USED TO LISTEN FOR THE EATEN EVENT AND IT WAS WRONG, in a way that had
+  // the owner reporting the game as "stuck when eating a firefly" twice.
+  //
+  // The scene built one bead per spot the LEVEL lists and mapped the level's
+  // ids onto them once. The rules do not work that way any more: refillFlies
+  // tops the board back up from a pool of those spots, drops the pool spot's id
+  // and mints its own, and invents a spot outright whenever the pool cannot
+  // supply one far enough from the player. Measured over a full run, seed 1: 22
+  // fireflies eaten, 16 of them naming a bead that did not exist, 4 putting out
+  // a bead somewhere else entirely, 2 correct. So the player ate a firefly, the
+  // score moved, and the thing they ate was still glowing in front of them.
+  //
+  // Reconciling instead of listening cannot drift, whatever the rules do with
+  // ids, and the rules are still being changed. The whole contract is now: the
+  // rules say where the fireflies are, and the field draws a bead at each.
+  //
+  // The cost is a loop over at most a handful of entries per frame and two Map
+  // lookups each, against a list that changes a few times a minute.
+  function syncFlies(st) {
+    const flies = world.flies;
+    const slotOf = world.flySlot;
+    const freed = world.flyFree;
+    const usedSlots = world.flyUsed;
+    const live = st.fireflies || [];
+
+    // Anything on the board that has no bead yet gets one. A slot is reused
+    // only once its take has finished playing, or the flash would be cut off
+    // mid-flight by the next firefly appearing in the same slot.
+    for (const f of live) {
+      if (slotOf.has(f.id)) continue;
+      let slot = -1;
+      for (let i = 0; i < freed.length; i++) {
+        if (freed[i].at <= time) { slot = freed[i].slot; freed.splice(i, 1); break; }
+      }
+      if (slot < 0) {
+        // A slot nothing is standing in. Past the level's own list this is a
+        // fresh one, which is exactly the case the capacity exists for.
+        for (let i = 0; i < flies.capacity; i++) {
+          if (!usedSlots.has(i)) { slot = i; break; }
+        }
+      }
+      if (slot < 0) continue;   // out of slots, which the capacity is chosen to prevent
+      usedSlots.add(slot);
+      slotOf.set(f.id, slot);
+      flies.place(slot, f.x, f.z);
+    }
+
+    // And anything with a bead that the rules no longer have is out. Eaten or
+    // simply withdrawn, the picture is the same: the bead goes.
+    if (slotOf.size > live.length) {
+      const onBoard = new Set(live.map((f) => f.id));
+      for (const [id, slot] of slotOf) {
+        if (onBoard.has(id)) continue;
+        flies.collect(slot);
+        slotOf.delete(id);
+        usedSlots.delete(slot);
+        freed.push({ slot, at: time + flies.collectTime });
+      }
+    }
+  }
   let time = 0;
   let scripted = null;
   function advance(dt) {
@@ -971,6 +1051,21 @@ export async function startGame({ canvas, params }) {
         r.homeX = s.home.x;
         r.homeZ = s.home.z;
       }
+      // A DORMANT SKELETON IS NOT SUBMITTED AT ALL.
+      //
+      // 'buried' snaps the figure to BURIED_Y and turns on the floor clip
+      // plane, so it was still being drawn every frame, both passes, and then
+      // discarded by the clipper. That is 82 draw calls and 531,364 triangles
+      // per buried figure for nothing, and at the start of a run all five are
+      // buried. three's projectObject returns on an invisible node before it
+      // descends, so this drops the whole subtree from both the camera pass and
+      // the shadow pass, while updateMatrixWorld still runs and the performance
+      // keeps its state.
+      //
+      // It is keyed off the RULES' state rather than the performance's own
+      // phase because setPhase('buried') snaps rather than eases, so the two
+      // agree on the same frame and nothing pops.
+      r.rig.group.visible = s.state !== 'dormant';
       r.perf.setPhase(PHASE[s.state] || 'chasing');
       r.set({ x: s.x, z: s.z, yaw: s.yaw, dist: Math.hypot(s.x - st.ghost.x, s.z - st.ghost.z) });
       r.perf.update(dt, null);
@@ -982,12 +1077,10 @@ export async function startGame({ canvas, params }) {
     // are added up. Reading them off `state` at the end would lose everything
     // that happened in a maze that was cleared and thrown away.
     for (const e of st.events) {
-      if (e.type === 'firefly') {
-        const i = world.flyIndex.get(e.id);
-        if (i !== undefined) world.flies.collect(i);
-        run.fireflies += 1;
-      } else if (e.type === 'death') run.caughtBy = e.by;
+      if (e.type === 'firefly') run.fireflies += 1;
+      else if (e.type === 'death') run.caughtBy = e.by;
     }
+    syncFlies(st);
 
     // Any prop template this wave still owes. Costs nothing once the level is
     // complete, which after the first wave transition is almost always.
@@ -1071,6 +1164,20 @@ export async function startGame({ canvas, params }) {
     pending: () => world?.field?.pending ?? 0,
     // The named buckets buildWorld parents its work under.
     buckets: () => world?.buckets || {},
+    // Every bead the field is currently showing, against every firefly the
+    // rules currently have on the board. The whole point of syncFlies is that
+    // these two lists agree, and a probe should be able to assert it rather
+    // than take a screenshot and squint.
+    flies: () => {
+      const f = world.flies;
+      const lit = [];
+      for (let i = 0; i < f.count; i++) {
+        if (f.isCollected(i)) continue;
+        lit.push({ slot: i, x: +f.positions[i * 3].toFixed(3), z: +f.positions[i * 3 + 2].toFixed(3) });
+      }
+      const want = (game.state.fireflies || []).map((x) => ({ id: x.id, x: +x.x.toFixed(3), z: +x.z.toFixed(3) }));
+      return { lit, want };
+    },
     // Frame times, hitch counts and where the worst frame went. The same
     // numbers the on-screen readout shows, for a headless probe to read.
     frames: () => fperf.stats(),

@@ -119,13 +119,13 @@ export const M = {
     neck: f(0.640),           // neck pivot. See the note under `neck` below.
     chin: f(0.670),
     atlas: f(0.700),          // head pivot, at the base of the skull ball
-    grin: f(0.758),           // centre line of the mouth
+    grin: f(0.745),           // centre line of the mouth
     // The jaw hinge, well above the mouth and behind it, where a real condyle
     // sits under the ear. Putting it at the mouth makes an opening jaw slide
     // rather than swing, which reads as the teeth falling off.
     jawHinge: f(0.790),
-    brow: f(0.858),           // centre line of the eye sockets
-    ear: f(0.855),
+    brow: f(0.872),           // centre line of the eye sockets
+    ear: f(0.862),
     crown: f(1.000),
   },
 
@@ -151,7 +151,7 @@ export const M = {
     depth: f(0.318),
     // How far the brow shelf stands proud of the ball. This is small in
     // absolute terms and does most of the shading work on the upper face.
-    browJut: f(0.017),
+    browJut: f(0.022),
     // How far behind the head's centre plane the jaw condyle sits.
     jawHingeZ: f(-0.026),
     // How much narrower the head is at the chin than at the cheekbones, as a
@@ -187,9 +187,9 @@ export const M = {
   // contrast is the whole reason the grin survives to 34 px.
   grin: {
     width: f(0.170),          // 0.567 of head width
-    height: f(0.055),
-    depth: f(0.022),
-    curve: 0.30,              // how far the corners rise, as a fraction of height
+    height: f(0.062),
+    depth: f(0.030),
+    curve: 0.55,              // how far the corners rise, as a fraction of height
     // Fewer teeth, bigger teeth. Ten uneven teeth at this size is a grey
     // dither; five is five white blocks and a gap you can actually see.
     teeth: { upper: 5, lower: 4, gapUpper: 3, gapLower: 1 },
@@ -205,8 +205,8 @@ export const M = {
   // length is set by LEGIBILITY, not by the reference: 4.4 px at 720p is the
   // shortest mark that still reads as a line rather than a speck.
   stitch: {
-    length: f(0.036),
-    thickness: f(0.0042),
+    length: f(0.030),
+    thickness: f(0.0034),
     forehead: 3,
     cheek: 2,
   },

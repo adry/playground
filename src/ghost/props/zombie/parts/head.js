@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import M from '../metrics.js';
-import { mesh, gridSurface, softBox, ball, limb, put, v, smoothstep } from './skin.js';
+import { gridSurface, softBox, ball, limb, tube, put, v, smoothstep } from './skin.js';
 
 // The head. A third of the whole figure, so it is the character: everything
 // else on this model is supporting cast.
@@ -52,10 +52,6 @@ const SOCK_HH = M.socket.height / 2;
 const GRIN_HW = M.grin.width / 2;
 const GRIN_HH = M.grin.height / 2;
 
-// Where the mandible cap's recess ends, in head-local y. The cap runs from
-// just under the mouth down over the chin.
-const CHIN_RECESS_Y = CHIN + M.head.height * 0.115;
-
 // Concentrate grid samples near `at`. The derivative is 1 - k cos(2 pi (t-at)),
 // so k = 0.55 puts 2.2x the samples on the face.
 const concentrate = (t, at, k) => t - (k / (2 * Math.PI)) * Math.sin(2 * Math.PI * (t - at));
@@ -85,6 +81,22 @@ function unitDir(u, vv) {
   return new THREE.Vector3(cb * Math.cos(a), Math.sin(b), cb * Math.sin(a));
 }
 
+// How far a head-local point is from the centre of the mouth, in units of the
+// grin's own half-size: 0 at the middle, 1 on its outline. One function, used
+// by the dent, by the hole cut in the shell and by the dark behind it, so the
+// three can never disagree about where the mouth is.
+function grinR(x, y) {
+  const lift = M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(x) / GRIN_HW), 2);
+  return Math.hypot(x / GRIN_HW, (y - (GRIN_Y + lift)) / GRIN_HH);
+}
+
+// The same, for one eye socket. `side` is +1 for the figure's left.
+function socketR(x, y, side) {
+  const dx = x - side * SOCK_X;
+  const dy = (y - BROW_Y) + M.socket.slant * (-side * dx);
+  return Math.hypot(dx / SOCK_HW, dy / SOCK_HH);
+}
+
 function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
   const d = unitDir(u, vv);
 
@@ -111,9 +123,9 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
   // proud. This is the single most valuable piece of form on the model: it is
   // what puts the sockets in shadow under a key light coming from above.
   {
-    const dy = (p.y - (BROW_Y + SOCK_HH * 0.95)) / (M.head.height * 0.085);
+    const dy = (p.y - (BROW_Y + SOCK_HH * 1.05)) / (M.head.height * 0.075);
     const band = Math.exp(-dy * dy);
-    const across = smoothstep(RX * 1.05, RX * 0.35, Math.abs(p.x));
+    const across = smoothstep(RX * 1.10, RX * 0.30, Math.abs(p.x));
     p.addScaledVector(n, M.head.browJut * band * across * front);
   }
 
@@ -127,6 +139,19 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
     p.addScaledVector(n, M.head.browJut * 0.55 * band * across * front);
   }
 
+  // --- 4b. the cheeks. A soft pad under each socket. It is not in the
+  // reference, which is a smooth ball with holes in it, but a smooth ball
+  // under this key light gives the whole lower face one flat value, and the
+  // socket then has nothing to be dark AGAINST. Half a millimetre of cheek is
+  // what separates them.
+  {
+    for (const side of [1, -1]) {
+      const dx = (p.x - side * SOCK_X * 1.10) / (M.head.width * 0.20);
+      const dy = (p.y - (BROW_Y - M.head.height * 0.185)) / (M.head.height * 0.11);
+      p.addScaledVector(n, M.head.browJut * 0.38 * Math.exp(-(dx * dx + dy * dy)) * front);
+    }
+  }
+
   // --- 2. the sockets. Deep, steep-walled, and EMPTY.
   //
   // The falloff runs 0.80 to 1.02 rather than 0 to 1, so four fifths of the
@@ -134,31 +159,17 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
   // fills with bounce light and turns grey; this one holds its own shadow.
   if (sockets) {
     for (const side of [1, -1]) {
-      const dx = p.x - side * SOCK_X;
-      const dxIn = -side * dx;                       // positive toward the nose
-      const dy = (p.y - BROW_Y) + M.socket.slant * dxIn;
-      const r = Math.hypot(dx / SOCK_HW, dy / SOCK_HH);
-      const k = 1 - smoothstep(0.80, 1.02, r);
+      const k = 1 - smoothstep(0.80, 1.02, socketR(p.x, p.y, side));
       if (k > 0) p.addScaledVector(n, -M.socket.depth * k * front);
     }
   }
 
-  // --- the mouth. A lipless slot: a lens-shaped trough whose corners rise,
-  // continued downward as a shallower recess over the chin. The mandible cap
-  // fills the lower part of that recess at rest and swings out of it when the
-  // jaw opens.
+  // --- the mouth. A lipless slot: a lens-shaped trough whose corners rise.
+  // Nothing below it: the chin belongs to the cranium and stays put. See the
+  // note on the jaw below for why the mandible is not a separate shell.
   if (mouth) {
-    const dx = p.x;
-    const lift = M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(dx) / GRIN_HW), 2);
-    const dy = p.y - (GRIN_Y + lift);
-    const r = Math.hypot(dx / GRIN_HW, dy / GRIN_HH);
-    const slot = 1 - smoothstep(0.72, 1.02, r);
-
-    // the chin recess below it
-    const below = smoothstep(GRIN_Y - GRIN_HH * 0.2, CHIN_RECESS_Y, p.y) *
-                  (1 - smoothstep(GRIN_HW * 0.92, GRIN_HW * 1.25, Math.abs(dx)));
-    const depth = Math.max(slot, below * 0.62);
-    if (depth > 0) p.addScaledVector(n, -M.grin.depth * depth * front);
+    const slot = 1 - smoothstep(0.72, 1.02, grinR(p.x, p.y));
+    if (slot > 0) p.addScaledVector(n, -M.grin.depth * slot * front);
   }
 
   return p;
@@ -192,10 +203,20 @@ function surfaceNormal(u, vv, opts) {
 // at a given height. Bisection, because the surface has a taper, a brow shelf
 // and a mouth trough in it and there is no closed form.
 function uForX(targetX, y) {
-  let lo = U_FRONT, hi = U_FRONT + 0.245;
+  // u = 0.25 faces +Z and u DECREASES toward +X: at u = 0 the surface point is
+  // at x = +RX. Searching the other way is the sign error that put the first
+  // pass's teeth on the wrong side of the face and outside the jaw.
   const xAt = (u) => surfacePoint(u, vAtHeight(y), { mouth: true }).x;
   const sgn = Math.sign(targetX) || 1;
-  if (sgn < 0) { lo = U_FRONT; hi = U_FRONT - 0.245; }
+  // The search is capped at 56 degrees off the centre line. Below the cheek
+  // the head tapers hard, so an x that is reachable at the brow is simply not
+  // reachable at the chin, and an uncapped bisection then runs all the way to
+  // the side of the head and returns it. That is what turned the mandible cap
+  // into a flat plate wrapped a quarter of the way round the skull.
+  const LIMIT = 0.155;
+  const lim = U_FRONT - sgn * LIMIT;
+  if (Math.abs(xAt(lim)) <= Math.abs(targetX)) return lim;
+  let lo = U_FRONT, hi = lim;
   for (let i = 0; i < 28; i++) {
     const mid = (lo + hi) / 2;
     if (Math.abs(xAt(mid)) < Math.abs(targetX)) lo = mid; else hi = mid;
@@ -210,47 +231,6 @@ function vAtHeight(y) {
   return 0.5 + Math.asin(s) / Math.PI;
 }
 
-// A two-sided patch of surface: an outer sheet, an inner sheet, and a rim
-// stitched all the way round. Both sheets come from the same (u, v) patch, so
-// they cannot drift apart at the edges.
-function patchShell(uA, uB, vA, vB, uSteps, vSteps, outer, inner) {
-  const pts = [];
-  const at = (layer, i, j) => layer * (uSteps + 1) * (vSteps + 1) + i * (vSteps + 1) + j;
-  for (const fn of [outer, inner]) {
-    for (let i = 0; i <= uSteps; i++) {
-      const u = uA + (uB - uA) * (i / uSteps);
-      for (let j = 0; j <= vSteps; j++) {
-        const vv = vA + (vB - vA) * (j / vSteps);
-        pts.push(fn(u, vv));
-      }
-    }
-  }
-  const idx = [];
-  for (let i = 0; i < uSteps; i++) {
-    for (let j = 0; j < vSteps; j++) {
-      idx.push(at(0, i, j), at(0, i + 1, j), at(0, i + 1, j + 1));
-      idx.push(at(0, i, j), at(0, i + 1, j + 1), at(0, i, j + 1));
-      idx.push(at(1, i, j), at(1, i + 1, j + 1), at(1, i + 1, j));
-      idx.push(at(1, i, j), at(1, i, j + 1), at(1, i + 1, j + 1));
-    }
-  }
-  // rim, all four edges
-  const edge = [];
-  for (let i = 0; i <= uSteps; i++) edge.push([i, 0]);
-  for (let j = 1; j <= vSteps; j++) edge.push([uSteps, j]);
-  for (let i = uSteps - 1; i >= 0; i--) edge.push([i, vSteps]);
-  for (let j = vSteps - 1; j >= 1; j--) edge.push([0, j]);
-  for (let e = 0; e < edge.length; e++) {
-    const [i0, j0] = edge[e];
-    const [i1, j1] = edge[(e + 1) % edge.length];
-    idx.push(at(0, i0, j0), at(1, i0, j0), at(1, i1, j1));
-    idx.push(at(0, i0, j0), at(1, i1, j1), at(0, i1, j1));
-  }
-  const arr = new Float32Array(pts.length * 3);
-  pts.forEach((p, k) => { arr[k * 3] = p.x; arr[k * 3 + 1] = p.y; arr[k * 3 + 2] = p.z; });
-  return mesh(arr, idx);
-}
-
 // --- teeth --------------------------------------------------------------------
 //
 // Five up, four down, and the gaps are deliberate. Ten teeth in a 0.31 unit
@@ -260,29 +240,35 @@ function patchShell(uA, uB, vA, vB, uSteps, vSteps, outer, inner) {
 function toothRow(parent, material, { count, gap, up, seed }) {
   let s = seed;
   const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-  const span = M.grin.width * 0.86;
+  const span = M.grin.width * 0.78;
   // Teeth are placed by AZIMUTH, not by a target x, and this is the bug the
   // first pass had. Solving for an x and then putting a block there works on
   // the middle of the face and fails at the corners of the grin, because the
   // head is tapering hard by then: the outer teeth were asked to sit at an x
   // the surface no longer reaches, and came out floating outside the jaw.
-  const uEnd = uForX(span / 2, GRIN_Y);
   for (let i = 0; i < count; i++) {
     if (i === gap) continue;                        // a missing tooth
     const t = count === 1 ? 0.5 : i / (count - 1);
-    const uu0 = U_FRONT + (t - 0.5) * 2 * (uEnd - U_FRONT);
-    const x = surfacePoint(uu0, vAtHeight(GRIN_Y), { mouth: true }).x;
+    const targetX = (t - 0.5) * span;
+    const w = (span / count) * (0.56 + rnd() * 0.20);
+    const h = M.grin.height * (up ? 0.40 : 0.33) * (0.78 + rnd() * 0.42);
+    // Two passes. The head tapers hard down here, so the azimuth that reaches
+    // a given x at the mouth's centre line reaches a noticeably LARGER x a
+    // couple of millimetres higher up, which is what walked the first pass's
+    // outer teeth out of the mouth and onto the cheeks. Solve at the tooth's
+    // own height, then again once the corner lift is known.
+    let y = GRIN_Y + (up ? 1 : -1) * (M.grin.height * 0.05 + h / 2);
+    let uu = uForX(targetX, y);
+    const x = surfacePoint(uu, vAtHeight(y), { mouth: true }).x;
     const lift = M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(x) / GRIN_HW), 2);
-    const w = (span / count) * (0.62 + rnd() * 0.20);
-    const h = M.grin.height * (up ? 0.46 : 0.38) * (0.78 + rnd() * 0.42);
-    const y = GRIN_Y + lift + (up ? 1 : -1) * (M.grin.height * 0.05 + h / 2);
-    const uu = uu0;
+    y = GRIN_Y + lift + (up ? 1 : -1) * (M.grin.height * 0.05 + h / 2);
+    uu = uForX(targetX, y);
     const vv = vAtHeight(y);
     const floor = surfacePoint(uu, vv, { mouth: true });
     const n = surfaceNormal(uu, vv, { mouth: true });
     const g = softBox(w, h, M.grin.depth * 1.15, { round: 0.42, uSteps: 8, vSteps: 6 });
     const m = put(parent, g, material, {
-      pos: floor.clone().addScaledVector(n, M.grin.depth * 0.44),
+      pos: floor.clone().addScaledVector(n, M.grin.depth * 0.52),
     });
     m.quaternion.setFromUnitVectors(v(0, 0, 1), n);
     m.rotateZ((rnd() - 0.5) * 0.34);                // uneven
@@ -349,6 +335,25 @@ export function buildHead({ materials }) {
     uAt: (i) => concentrate(i / U, U_FRONT, 0.55),
     vAt: (j) => vWarp(j / V, V_FACE, 0.45),
     point: (u, vv) => surfacePoint(u, vv),
+    // THE MOUTH IS A REAL HOLE. The trough alone was not enough: a dark shell
+    // placed behind an intact trough is behind opaque skin and never shows,
+    // and placed in front of it reads as a sticker. So the middle of the lens
+    // is cut out of the cranium, exactly as the chest cavity is cut out of the
+    // torso, and the dark below is what you see through it. Same rule, same
+    // reason: no alpha anywhere, so an opening has to be an opening.
+    keepQuad: (u, vv) => {
+      const p = surfacePoint(u, vv);
+      if (p.z <= 0) return true;
+      if (grinR(p.x, p.y) <= 0.74) return false;
+      // The sockets are holes as well, for the same reason the mouth is. A
+      // dent alone is lit: its floor faces the same way the face does, takes
+      // the same key light, and comes back a mid green with a dark speck in
+      // the middle of it. A hole with a dark wall a socket-depth behind it is
+      // black from every angle the fixed camera can reach, which is what "no
+      // eyeball, just shadow" actually needs.
+      for (const side of [1, -1]) if (socketR(p.x, p.y, side) <= 0.68) return false;
+      return true;
+    },
   });
   put(group, shell.geometry, materials.skin);
 
@@ -362,34 +367,39 @@ export function buildHead({ materials }) {
   // is not RZ deep, it is RZ times the cosine of the latitude times the jaw
   // taper, and the dent then takes another socket.depth out of it.
   for (const side of [1, -1]) {
-    const [u0, v0] = frontUV(side * SOCK_X, BROW_Y);
-    const floor = surfacePoint(u0, v0);
-    const n = surfaceNormal(u0, v0);
-    // Flat, and NOT turned to face along the normal. Turning it tilts the dark
-    // outward with the cheek and the pair come out leaning like eyebrows,
-    // which is the difference between a blank stare and a scowl. Flat also
-    // kills the highlight: a curved dark ball catches a bright streak off the
-    // hemisphere light and the socket stops looking empty.
-    const half = M.socket.depth * 0.32;
-    const g = ball(SOCK_HW * 0.94, SOCK_HH * 0.94, half, 16);
-    put(group, g, materials.socket, {
-      pos: floor.clone().addScaledVector(n, -half + M.head.height * 0.005),
-    });
+    const uA = uForX(side * (SOCK_X - SOCK_HW * 1.45), BROW_Y);
+    const uB = uForX(side * (SOCK_X + SOCK_HW * 1.45), BROW_Y);
+    const vLo = vAtHeight(BROW_Y - SOCK_HH * 1.5);
+    const vHi = vAtHeight(BROW_Y + SOCK_HH * 1.5);
+    put(group, gridSurface({
+      uSteps: 14, vSteps: 12, closedU: false,
+      uAt: (i) => uA + (uB - uA) * (i / 14),
+      vAt: (j) => vLo + (vHi - vLo) * (j / 12),
+      point: (u, vv) => surfacePoint(u, vv)
+        .addScaledVector(surfaceNormal(u, vv), -M.socket.depth * 0.60),
+    }).geometry, materials.socket);
   }
 
-  // The dark inside the mouth. Seated on the mouth trough's own floor, and
-  // deep enough that when the jaw swings open there is a throat behind it
-  // rather than a green wall.
+  // The dark inside the mouth.
+  //
+  // Not a ball. A ball seated at the middle of the grin is only flush there:
+  // an ellipsoid falls away from its own pole faster than the face does, so
+  // the corners and the bottom of the trough came out green and the dark read
+  // as a moustache floating above the teeth. This is a PATCH OF THE FACE
+  // ITSELF, the mouth trough's own floor pushed a further grin.depth back
+  // along its own normal, so it is exactly parallel to the trough everywhere
+  // and the whole slot is dark from every angle.
   {
-    const [u0, v0] = frontUV(0, GRIN_Y);
-    const floor = surfacePoint(u0, v0);
-    const n = surfaceNormal(u0, v0);
-    const half = M.grin.depth * 1.10;
-    const g = ball(GRIN_HW * 1.02, GRIN_HH * 1.45, half, 16);
-    put(group, g, materials.socket, {
-      pos: floor.clone().addScaledVector(n, -half + M.head.height * 0.005)
-        .add(v(0, -GRIN_HH * 0.15, 0)),
-    });
+    const uM = Math.abs(uForX(GRIN_HW * 1.18, GRIN_Y) - U_FRONT);
+    const vLo = vAtHeight(GRIN_Y - GRIN_HH * 1.55);
+    const vHi = vAtHeight(GRIN_Y + GRIN_HH * 1.55);
+    put(group, gridSurface({
+      uSteps: 20, vSteps: 12, closedU: false,
+      uAt: (i) => U_FRONT - uM + (2 * uM) * (i / 20),
+      vAt: (j) => vLo + (vHi - vLo) * (j / 12),
+      point: (u, vv) => surfacePoint(u, vv)
+        .addScaledVector(surfaceNormal(u, vv), -M.grin.depth * 0.85),
+    }).geometry, materials.socket);
   }
 
   // Upper teeth ride on the cranium.
@@ -406,32 +416,46 @@ export function buildHead({ materials }) {
   jaw.position.set(0, HINGE_Y, M.head.jawHingeZ);
   group.add(jaw);
 
-  // The cap: the piece of head the mouth recess carved away, put back. Built
-  // from the same surface function with the mouth switched off, so its outer
-  // face continues the cranium exactly, and with the mouth switched on for its
-  // inner face, so it seats in the recess.
-  {
-    // vLo is clamped well clear of the bottom pole. The first pass let it run
-    // to v = 0, where every u sample collapses onto one point, and the patch
-    // came out as a fan of slivers that read as a shelf hanging off the chin.
-    const vLo = Math.max(0.09, vAtHeight(CHIN_RECESS_Y - M.head.height * 0.045));
-    const vHi = vAtHeight(GRIN_Y - GRIN_HH * 0.10);
-    const uHalf = Math.abs(uForX(GRIN_HW * 1.10, (GRIN_Y + CHIN_RECESS_Y) / 2) - U_FRONT);
-    const outer = (u, vv) => {
-      const p = surfacePoint(u, vv, { mouth: false });
-      return p.clone().add(p.clone().sub(v(0, CENTRE_Y, 0)).normalize().multiplyScalar(M.head.height * 0.004));
-    };
-    const inner = (u, vv) => surfacePoint(u, vv, { mouth: true });
-    const cap = patchShell(U_FRONT - uHalf, U_FRONT + uHalf, vLo, vHi, 18, 10, outer, inner);
-    cap.translate(0, -HINGE_Y, -M.head.jawHingeZ);
-    put(jaw, cap, materials.skin);
-  }
-
-  // Lower teeth ride on the cap.
+  // WHAT THE JAW CARRIES, and what it does not.
+  //
+  // It carries the lower tooth row and the gum bar under it. It does NOT carry
+  // a piece of the chin.
+  //
+  // The first build made the mandible a real shell: the patch of cranium the
+  // mouth recess carved away, put back on the hinge, so an opening jaw dropped
+  // the chin with it. It is the anatomically right answer and it is what the
+  // skeleton does. Here it was wrong twice over. The head tapers so hard below
+  // the cheek that the patch could not be given a sensible width without
+  // wrapping round the skull, and once it fitted, its stitched rim read as a
+  // boxy shelf glued to the face from every angle. And the payoff is nil: at
+  // 34 px of head, a dropped chin and a dropped tooth row look identical,
+  // because what the viewer resolves is the DARK BAND GETTING TALLER and
+  // nothing else.
+  //
+  // So the cranium keeps its chin, the trough behind the teeth is deep enough
+  // to swallow them, and the jaw swings the teeth and the gum down into it.
   const lower = new THREE.Group();
   lower.position.set(0, -HINGE_Y, -M.head.jawHingeZ);
   jaw.add(lower);
   toothRow(lower, materials.tooth, { count: M.grin.teeth.lower, gap: M.grin.teeth.gapLower, up: false, seed: 23 });
+
+  // The gum bar: a slim ridge along the bottom of the trough, so the lower
+  // teeth stand on something and the mouth does not read as teeth floating in
+  // a hole.
+  {
+    const yGum = GRIN_Y - GRIN_HH * 0.72;
+    const uEdge = Math.abs(uForX(M.grin.width * 0.44, yGum) - U_FRONT);
+    const pts = [];
+    for (let i = 0; i <= 10; i++) {
+      const u = U_FRONT - uEdge + (2 * uEdge) * (i / 10);
+      const x = surfacePoint(u, vAtHeight(yGum)).x;
+      const lift = M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(x) / GRIN_HW), 2);
+      const vv = vAtHeight(yGum + lift);
+      pts.push(surfacePoint(u, vv).addScaledVector(surfaceNormal(u, vv), M.grin.depth * 0.10));
+    }
+    put(lower, tube(new THREE.CatmullRomCurve3(pts), M.grin.height * 0.115, M.grin.height * 0.115,
+      { radial: 8, segments: 16 }), materials.flesh);
+  }
 
   // --- ears ---------------------------------------------------------------
   // Small and round, and pressed flat against the head. They matter less for
@@ -466,9 +490,9 @@ export function buildHead({ materials }) {
     const b = onHead(U_FRONT + 0.088, vAtHeight(BROW_Y + M.head.height * 0.25), M.stitch.thickness * 0.4);
     stitchScar(scars, materials.stitch, { from: a, to: b, count: M.stitch.forehead, thickness: M.stitch.thickness });
 
-    const cheekV = vAtHeight(BROW_Y - M.head.height * 0.22);
-    const c = onHead(U_FRONT - 0.062, cheekV, M.stitch.thickness * 0.4);
-    const d = onHead(U_FRONT - 0.098, vAtHeight(BROW_Y - M.head.height * 0.32), M.stitch.thickness * 0.4);
+    const cheekV = vAtHeight(BROW_Y - M.head.height * 0.16);
+    const c = onHead(U_FRONT - 0.055, cheekV, M.stitch.thickness * 0.4);
+    const d = onHead(U_FRONT - 0.082, vAtHeight(BROW_Y - M.head.height * 0.25), M.stitch.thickness * 0.4);
     stitchScar(scars, materials.stitch, { from: c, to: d, count: M.stitch.cheek, thickness: M.stitch.thickness });
   }
 
