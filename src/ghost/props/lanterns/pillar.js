@@ -935,7 +935,12 @@ varying float vYaw;`)
   // all. Measured both, kept neither. At decay 1 the same six to one range
   // costs six to one, the cornice sits at about 2.1 against a key of 2.1 and
   // the pool on the floor is still plainly there two-thirds of a unit out.
-  const light = new THREE.PointLight(FLAME.clone(), 0, 2.8 * scale, 1);
+  // AT REST, NOT AT ZERO. See pumpkin.js: update() sets this every frame, so a
+  // light built at zero is invisible only for as long as something is calling
+  // update(), and a prop that is instanced (its light CLONED rather than
+  // stepped) or placed by a page with no clock is simply dark. Dark reads as
+  // broken, and it took a bug report to find the last one.
+  const light = new THREE.PointLight(FLAME.clone(), ((LAMP.min + LAMP.max) / 2) * scale, 2.8 * scale, 1);
   light.position.set(0, BOX_Y + 0.155, 0);
   light.castShadow = false;
   const lightHome = light.position.clone();

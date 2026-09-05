@@ -804,7 +804,12 @@ export function createGroundLantern({ seed = 1, scale = 1 } = {}) {
   // clear glass throws light in every direction, and the only thing a cone
   // could add here is the cap's shadow on the ground, which is a black ring the
   // size of a coin.
-  const lamp = new THREE.PointLight(FLAME.clone(), 0, 2.4 * scale, 2);
+  // AT REST, NOT AT ZERO, and for the reason pumpkin.js now carries in full:
+  // update() sets this every frame, so a prop nobody steps -- one that has been
+  // instanced and had its light CLONED rather than driven, or one placed by a
+  // page with no clock -- is simply dark, and dark is indistinguishable from
+  // broken. Every other level in this file is built at the middle of its swing.
+  const lamp = new THREE.PointLight(FLAME.clone(), ((LAMP.min + LAMP.max) / 2) * scale, 2.4 * scale, 2);
   // Sat at the flame's upper body rather than at its foot, and that is a cheat
   // with a reason. three has no sphere light, so a point source two centimetres
   // under the wax shoulder sits in an inverse-square singularity and burns the

@@ -69,6 +69,7 @@ import path from 'node:path';
 import { createNav as defaultNav } from './nav.js';
 import { TUNING, createGame } from './rules.js';
 import { createLevelWorld, normalizeLevel } from './level/format.js';
+import { gap } from './layout/geom.js';
 
 const T = TUNING;
 
@@ -227,6 +228,20 @@ function pointSegD2(px, pz, ax, az, bx, bz) {
 
 // --- the sweeps --------------------------------------------------------------
 
+// How this one was arrived at, in words a person can follow at the keyboard.
+function reproOf(h) {
+  if (h.standing) return `stand at (${h.x.toFixed(2)}, ${h.z.toFixed(2)}) -- it is clear ground and nothing moves off it`;
+  if (h.speed !== undefined) {
+    return `run at (${h.speed.toFixed(2)} units a second) from (${h.from.x.toFixed(2)}, ${h.from.z.toFixed(2)}) `
+      + `along (${h.dir[0].toFixed(2)}, ${h.dir[1].toFixed(2)}) and jump`;
+  }
+  if (h.from) {
+    return `stand at (${h.from.x.toFixed(2)}, ${h.from.z.toFixed(2)}) and hold `
+      + `(${h.dir[0].toFixed(2)}, ${h.dir[1].toFixed(2)}) for ${(h.after ?? 0).toFixed(2)}s`;
+  }
+  return 'seated by the resolver';
+}
+
 // One entry per place, not per quarter unit square.
 function cluster(list, cell) {
   const out = [];
@@ -382,10 +397,14 @@ export function sweepJump(world, { cell = 0.25, dirs = 16, speeds = 8 } = {}) {
           const lx = x + dx * sp * airTime;
           const lz = z + dz * sp * airTime;
           nav.focus(x, z);
-          // Exactly rules.js tryJump's three refusals, in its order.
+          // Exactly rules.js tryJump's refusals, in its order. `roomAt` is
+          // guarded so the sweep can still be pointed at an older resolver
+          // that does not have it, which is how the before and after of this
+          // very rule were measured.
           if (nav.crossesProp(x, z, lx, lz, r)) continue;
           if (!nav.discClear(lx, lz, r)) continue;
           if (nav.crossesWall(x, z, lx, lz, 0)) continue;
+          if (nav.roomAt && !nav.roomAt(lx, lz, r)) continue;
           legal++;
           // Landed off the ground it took off from. Not yet a bug: a vault into
           // a pen is exactly this and is the point of the mechanic.
@@ -548,6 +567,13 @@ export function reachable(world, target, { radius = 4, cell = 0.25, dirs = 16, h
 export function report(world, res, { dirs = 8, verbose = true } = {}) {
   const dir = dirsOf(dirs);
   const groups = cluster(res.hits, res.cell);
+  // Ground the ghost can actually reach on foot. A finding on ground that is
+  // NOT joined to the spawn is a pocket in the level rather than a trap the
+  // player can walk into, and the two want different fixes: one moves a prop,
+  // the other changes the resolver. It is also the honest answer to a body that
+  // can shuffle about inside a sealed corner: the escape test says it moved,
+  // and this says it moved nowhere.
+  const free = openSpace(world, { cell: 0.05 });
   return groups.map((g) => {
     const x = g.reduce((s, e) => s + e.x, 0) / g.length;
     const z = g.reduce((s, e) => s + e.z, 0) / g.length;
@@ -557,14 +583,10 @@ export function report(world, res, { dirs = 8, verbose = true } = {}) {
       z: +z.toFixed(2),
       hits: g.length,
       nan: g.some((e) => e.nan),
+      joined: free(g[0].x, g[0].z),
       culprits: who.culprits,
       near: who.near,
-      repro: g[0].standing
-        ? `stand at (${g[0].x.toFixed(2)}, ${g[0].z.toFixed(2)}) -- it is clear ground and nothing moves off it`
-        : g[0].from
-          ? `stand at (${g[0].from.x.toFixed(2)}, ${g[0].from.z.toFixed(2)}) and hold `
-            + `(${g[0].dir[0].toFixed(2)}, ${g[0].dir[1].toFixed(2)}) for ${g[0].after.toFixed(2)}s`
-          : 'seated by the resolver',
+      repro: reproOf(g[0]),
     };
   }).sort((a, b) => b.hits - a.hits);
 }
@@ -645,6 +667,48 @@ export function degenerate() {
   return { ok: out.every((c) => c.ok), cases: out };
 }
 
+// --- the collider is the shape you can see ------------------------------------
+//
+// nav.js collides the ghost against a prop's oriented box, and layout/geom.js
+// measures the same box for the placement rules. Two implementations of one
+// shape is exactly the arrangement that drifts, so this checks them against
+// each other over random poses: the sign of the distance, the resolver landing
+// on a point that really is clear, and the swept test never missing a box the
+// line goes through.
+export function shapes(n = 4000) {
+  let rng = 12345;
+  const rnd = () => ((rng = (Math.imul(rng, 1103515245) + 12345) >>> 0) / 4294967296);
+  const r = T.ghostRadius;
+  let disagreements = 0;
+  let residual = 0;
+  let overlapping = 0;
+  for (let t = 0; t < n; t++) {
+    const p = {
+      id: 'p', kind: 'stone', solid: true,
+      x: (rnd() - 0.5) * 4, z: (rnd() - 0.5) * 4, yaw: rnd() * Math.PI * 2,
+      foot: { shape: 'box', halfU: 0.15 + rnd() * 0.9, halfV: 0.1 + rnd() * 0.6 },
+    };
+    p.radius = Math.hypot(p.foot.halfU, p.foot.halfV);
+    const box = { shape: 'box', x: p.x, z: p.z, yaw: p.yaw, halfU: p.foot.halfU, halfV: p.foot.halfV };
+    const nav = createNav({
+      bounds: { minX: -20, maxX: 20, minZ: -20, maxZ: 20 },
+      spawn: { x: 0, z: 0 },
+      barriers: () => [], gates: () => [], props: () => [p],
+    });
+    const x = (rnd() - 0.5) * 6;
+    const z = (rnd() - 0.5) * 6;
+    nav.focus(x, z);
+    const g = gap({ shape: 'disc', x, z, r }, box);
+    if (g < 0) overlapping++;
+    if (nav.discClear(x, z, r) !== (g >= -1e-6)) disagreements++;
+    const f = nav.resolveDisc(x, z, r);
+    const after = gap({ shape: 'disc', x: f.x, z: f.z, r }, box);
+    if (after < -1e-6) { disagreements++; if (-after > residual) residual = -after; }
+    if (!nav.crossesProp(x, z, p.x, p.z, r)) disagreements++;
+  }
+  return { ok: disagreements === 0, disagreements, residual, overlapping, tests: n * 3 };
+}
+
 async function loadWorld(args) {
   if (args.seed) {
     const { createWorld } = await import('./world/index.js');
@@ -667,6 +731,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const st = selftest(world);
     console.log(`mirror against rules.js: err ${st.err.toExponential(2)} ${st.ok ? 'ok' : 'DRIFTED'}`);
   }
+  const sh = shapes();
+  console.log(`box colliders against layout/geom.js: ${sh.tests} tests, `
+    + `${sh.ok ? 'no disagreement' : `${sh.disagreements} DISAGREEMENTS, worst residual overlap ${sh.residual.toFixed(4)}`}`);
   const dg = degenerate();
   console.log(`degenerate colliders: ${dg.ok ? 'all finite' : 'NaN ESCAPED'}`
     + `${dg.ok ? '' : ` ${JSON.stringify(dg.cases.filter((c) => !c.ok))}`}`);
@@ -693,7 +760,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   const found = report(world, res, { dirs });
   for (const f of found) {
-    console.log(`  (${f.x}, ${f.z})  ${String(f.hits).padStart(4)} hits${f.nan ? '  NaN' : ''}`);
+    console.log(`  (${f.x}, ${f.z})  ${String(f.hits).padStart(4)} hits${f.nan ? '  NaN' : ''}`
+      + `  ${f.joined ? 'ON THE GHOST\'S OWN GROUND' : 'on ground cut off from the spawn'}`);
     console.log(`      blame: ${f.culprits.length ? f.culprits.join(' + ') : 'no single collider or pair frees it'}`);
     console.log(`      near:  ${f.near.join(', ')}`);
     console.log(`      repro: ${f.repro}`);

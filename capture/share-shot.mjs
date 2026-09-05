@@ -104,7 +104,10 @@ while (t < maxSeconds && !over) {
         const dx = foe.x - st.ghost.x;
         const dz = foe.z - st.ghost.z;
         const L = Math.hypot(dx, dz) || 1;
-        axis = { x: dx / L, y: dz / L };
+        // Close enough: STAND STILL and be walked into. Charging the last two
+        // units is how a ghost at 3.05 skids past a catch radius of 0.85 and
+        // ends up on the far side, over and over. Standing has one outcome.
+        axis = L < 2.2 ? { x: 0, y: 0 } : { x: dx / L, y: dz / L };
       }
       if (D.wander > 0) D.wander--;
       // A hop every second or so. Refused when there is no run-up, which costs
@@ -113,7 +116,12 @@ while (t < maxSeconds && !over) {
       window.__game.step(dt, axis);
     }
     const r = window.__game.run();
-    return { over: r.over, lives: window.__game.state().lives, score: r.score, flies: r.fireflies, t: r.time };
+    const st = window.__game.state();
+    return {
+      over: r.over, lives: st.lives, score: r.score, flies: r.fireflies, t: r.time,
+      phase: st.phase,
+      sk: st.skeletons.map((s) => `${s.name}:${s.state}:${Math.hypot(s.x - st.ghost.x, s.z - st.ghost.z).toFixed(1)}`).join(' '),
+    };
   }, { coarse: COARSE, fine: FINE, chunk: CHUNK });
   frames += CHUNK;
   // The run's own clock rather than a count of steps, since the steps are two
@@ -127,8 +135,8 @@ while (t < maxSeconds && !over) {
     big = true;
     console.log(`  t=${t.toFixed(0)}s last life, canvas up to ${width}x${height}`);
   }
-  if (frames % 50 === 0) {
-    console.log(`  ${frames} frames, t=${t.toFixed(0)}s lives=${res.lives} score=${res.score} fireflies=${res.flies}`);
+  if (frames % 30 === 0) {
+    console.log(`  ${frames} frames, t=${t.toFixed(0)}s lives=${res.lives} ${res.phase} score=${res.score} flies=${res.flies} | ${res.sk}`);
   }
 }
 if (!over) { console.log('run did not end inside --max seconds'); await lab.close(); process.exit(1); }

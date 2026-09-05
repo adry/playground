@@ -58,7 +58,16 @@ function uidFromToken(token) {
 // 002-accounts.sql: the tables from schema.sql and not one column more. It
 // exists so the sentence the owner sees in that window can be checked, because
 // that window is real and they are the only person who can close it.
-export function makeFake({ rejectKey = false, legacy = false } = {}) {
+// `legacy` is the project before a migration has been run, and there are two of
+// them because there are two migrations the owner runs by hand:
+//
+//   legacy: true          schema.sql only. No owner, no is_public on levels.
+//   legacyScores: true    002 but not 003. No rules_version, seed or caught_by.
+//
+// Both windows are real, both are as long as it takes somebody to open the SQL
+// editor, and in both of them the site has to keep working. They are modelled
+// here because that is the only place they can be.
+export function makeFake({ rejectKey = false, legacy = false, legacyScores = false } = {}) {
   const levels = [];
   const scores = [];
   const seen = [];
@@ -346,6 +355,14 @@ export function makeFake({ rejectKey = false, legacy = false } = {}) {
         if (bySlug) rows = rows.filter((r) => r.level_slug === bySlug);
         const gt = url.searchParams.get('score');
         if (gt) rows = rows.filter((r) => r.score > Number(gt.replace(/^gt\./, '')));
+        const version = url.searchParams.get('rules_version');
+        if (version !== null) {
+          if (legacy || legacyScores) {
+            send(400, { code: '42703', message: 'column scores.rules_version does not exist' });
+            return;
+          }
+          rows = rows.filter((r) => r.rules_version === Number(version.replace(/^eq\./, '')));
+        }
         const order = url.searchParams.get('order');
         if (order === 'score.desc,created_at.asc') {
           rows.sort((a, b) => b.score - a.score || a.created_at.localeCompare(b.created_at));
@@ -367,11 +384,15 @@ export function makeFake({ rejectKey = false, legacy = false } = {}) {
       if (req.method === 'POST' && table === 'scores') {
         const row = body || {};
         const bad = (c, m) => send(400, { code: c, message: m, details: null, hint: null });
+        const scoreColumns = ['name', 'score', 'fireflies', 'seconds', 'level_slug'];
+        if (!legacy) scoreColumns.push('owner');
+        if (!legacy && !legacyScores) scoreColumns.push('rules_version', 'seed', 'caught_by');
         for (const c of Object.keys(row)) {
-          if (!['name', 'score', 'fireflies', 'seconds', 'level_slug', 'owner'].includes(c)) {
+          if (!scoreColumns.includes(c)) {
             return bad('PGRST204', `Column '${c}' of relation 'scores' does not exist`);
           }
         }
+        if (row.caught_by != null && String(row.caught_by).length > 40) return bad('23514', 'scores_caught_by_check');
         // The score policy: a guest may post with no owner, a signed in player
         // only as themselves. Note there is no `to authenticated` on it, which
         // is what keeps the board open to a passer-by.
@@ -386,7 +407,15 @@ export function makeFake({ rejectKey = false, legacy = false } = {}) {
         if (row.level_slug != null && !levels.some((l) => l.slug === row.level_slug)) {
           return bad('23503', 'insert or update on table "scores" violates foreign key constraint "scores_level_slug_fkey"');
         }
-        scores.push({ id: `s-${scores.length}`, owner: null, created_at: new Date().toISOString(), ...row });
+        scores.push({
+          id: `s-${scores.length}`,
+          owner: null,
+          rules_version: legacyScores ? undefined : 3,
+          seed: null,
+          caught_by: null,
+          created_at: new Date().toISOString(),
+          ...row,
+        });
         if (wantsRow) send(201, [scores[scores.length - 1]]);
         else { res.writeHead(201, { 'content-type': 'application/json' }); res.end(); }
         return;

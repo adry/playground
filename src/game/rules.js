@@ -635,6 +635,24 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
       state.events.push({ type: 'jumpRefused', why: 'wall' });
       return false;
     }
+    // AND THE LANDING HAS TO HAVE SOMEWHERE TO GO, which is the half of rule 6
+    // that was missing. Fitting is not the same as being able to leave: a vault
+    // is the one move that crosses a fence, so it is the only way the ghost can
+    // reach ground that walking cannot, and a patch of ground walking cannot
+    // reach is a patch walking cannot leave either. The corner of a pen with a
+    // headstone across its mouth is a real example and src/game/stuck.mjs
+    // --jump finds it by enumerating every landing this function permits.
+    //
+    // The test is nav.roomAt: can a body at the landing point travel one body
+    // diameter in ANY direction. That is a little more than the run-up the jump
+    // itself needs, so anywhere that passes is somewhere the ghost can build a
+    // jump and get out again, and a pen you can vault into is still a pen you
+    // can vault out of. See nav.js for why it is a straight march rather than a
+    // flood, and which way it errs.
+    if (!nav.roomAt(lx, lz, T.ghostRadius)) {
+      state.events.push({ type: 'jumpRefused', why: 'noRoom' });
+      return false;
+    }
     ghost.air = true;
     ghost.airT = airTime;
     ghost.airY = 0;

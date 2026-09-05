@@ -1130,7 +1130,12 @@ varying float vYaw;`)
   // which inverse square turns into eighty to one. There is no intensity that
   // survives that. At decay 1 the wall takes a warm wash, the cap's underside
   // is lit rather than blown, and there is still something on the ground.
-  const light = new THREE.PointLight(FLAME.clone(), 0, 2.4 * scale, 1);
+  // AT REST, NOT AT ZERO. See pumpkin.js: update() sets this every frame, so a
+  // light built at zero is invisible only for as long as something is calling
+  // update(), and a prop that is instanced (its light CLONED rather than
+  // stepped) or placed by a page with no clock is simply dark. Dark reads as
+  // broken, and it took a bug report to find the last one.
+  const light = new THREE.PointLight(FLAME.clone(), ((LAMP.min + LAMP.max) / 2) * scale, 2.4 * scale, 1);
   light.position.set(0, LIGHT_AT - EYE_Y, 0);
   light.castShadow = false;
   const lightHome = light.position.clone();

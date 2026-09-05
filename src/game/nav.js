@@ -102,6 +102,135 @@ function segSegD2(ax, az, bx, bz, cx, cz, dx, dz) {
   return m;
 }
 
+// ---------------------------------------------------------------------------
+// WHAT A PROP ACTUALLY TAKES UP ON THE FLOOR
+//
+// A prop record publishes two things: `radius`, the circle that CONTAINS its
+// footprint, and `foot`, the footprint itself. Everything that decides WHERE
+// PROPS GO has always used `foot` -- layout/geom.js, the placer, the audit, the
+// repair pass, the editor's placement indicator, the keep-clear zone in front
+// of a headstone -- and the one thing that decided WHERE THE GHOST MAY GO used
+// `radius`. So the game collided against a circle drawn round a box the level
+// was authored against, and the two disagreed by the corner of every box:
+//
+//   scroll    0.834 circle around a 1.62 by 0.41 stone: 0.63 of nothing
+//   chest     0.922 around 1.67 by 0.79:                0.53 of nothing
+//   twin      0.777 around 1.48 by 0.48:                0.54 of nothing
+//   kerb      2.196 around a 0.93 wide plot border:     1.73 of nothing
+//
+// Over the shipped level that is 38.6 square units of collision against 23.4 of
+// authored footprint, 65% more, and it is what the owner was reporting: the
+// ghost stopping half a metre in front of a headstone with nothing there. It is
+// also what MANUFACTURED the two sealed pockets in the pen, since a chest's
+// 0.53 of phantom radius is most of what closes that corner.
+//
+// So a prop with a box footprint is now collided against as an oriented box.
+// The circle stays for anything genuinely round (pumpkins, lanterns, the
+// fountain) and for any world that publishes no `foot` at all, which is the
+// honest fallback: a caller that cannot say what shape a prop is gets the
+// conservative answer it always got.
+//
+// THE FRAME. `halfU` runs along the prop's local X and `halfV` along its local
+// Z, and a three.js yaw about Y puts local (u, v) at world
+// (u*cos + v*sin, -u*sin + v*cos). That is the same convention as
+// layout/geom.js discBox and the same one scene.js applies to the mesh, which
+// is the whole point: the collider is now the shape you can see. stuck.mjs
+// checks the two implementations against each other so they cannot drift.
+//
+// THE HEDGE gets this for free and needs it most. Two hedge segments are meant
+// to touch along their own U axis with no gap at all (`abut: 'u'`, see
+// layout/footprints.js), and a run of them is meant to be a wall. As circles
+// their keep-out bulged 0.27 beyond the leaves on both faces of the run; as
+// boxes an abutting pair is one continuous wall exactly as wide as the hedge.
+const boxFoot = (p) => {
+  const f = p.foot;
+  return f && f.shape === 'box' && f.halfU > 0 && f.halfV > 0 ? f : null;
+};
+
+// The prop's own frame. Written into these rather than returned, because this
+// runs a few million times in the overnight check and an object per call is the
+// only allocation in the whole resolver.
+let locU = 0;
+let locV = 0;
+let locC = 1;
+let locS = 0;
+function intoProp(p, x, z) {
+  locC = Math.cos(p.yaw || 0);
+  locS = Math.sin(p.yaw || 0);
+  const dx = x - p.x;
+  const dz = z - p.z;
+  locU = dx * locC - dz * locS;
+  locV = dx * locS + dz * locC;
+}
+
+// Squared distance from a point to an axis-aligned rectangle centred at the
+// origin. Zero inside it.
+function pointRectD2(u, v, hu, hv) {
+  const du = Math.abs(u) - hu;
+  const dv = Math.abs(v) - hv;
+  const au = du > 0 ? du : 0;
+  const av = dv > 0 ? dv : 0;
+  return au * au + av * av;
+}
+
+// Does the segment touch the rectangle? The slab test, unrolled.
+function segRectHits(au, av, bu, bv, hu, hv) {
+  const du = bu - au;
+  const dv = bv - av;
+  let t0 = 0;
+  let t1 = 1;
+  if (du > -1e-12 && du < 1e-12) {
+    if (au < -hu || au > hu) return false;
+  } else {
+    let ta = (-hu - au) / du;
+    let tb = (hu - au) / du;
+    if (ta > tb) { const t = ta; ta = tb; tb = t; }
+    if (ta > t0) t0 = ta;
+    if (tb < t1) t1 = tb;
+    if (t0 > t1) return false;
+  }
+  if (dv > -1e-12 && dv < 1e-12) {
+    if (av < -hv || av > hv) return false;
+  } else {
+    let ta = (-hv - av) / dv;
+    let tb = (hv - av) / dv;
+    if (ta > tb) { const t = ta; ta = tb; tb = t; }
+    if (ta > t0) t0 = ta;
+    if (tb < t1) t1 = tb;
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+// Squared distance from a segment to a prop's box. Exact: for two disjoint
+// convex sets the closest pair always has a vertex at one end, so it is the
+// smallest of the two endpoints against the rectangle and the four corners
+// against the segment.
+function segPropD2(p, f, ax, az, bx, bz) {
+  intoProp(p, ax, az);
+  const au = locU;
+  const av = locV;
+  const c = locC;
+  const s = locS;
+  const dx = bx - p.x;
+  const dz = bz - p.z;
+  const bu = dx * c - dz * s;
+  const bv = dx * s + dz * c;
+  const hu = f.halfU;
+  const hv = f.halfV;
+  if (segRectHits(au, av, bu, bv, hu, hv)) return 0;
+  let best = pointRectD2(au, av, hu, hv);
+  const other = pointRectD2(bu, bv, hu, hv);
+  if (other < best) best = other;
+  for (let i = 0; i < 4; i++) {
+    const cu = i === 0 || i === 3 ? -hu : hu;
+    const cv = i < 2 ? -hv : hv;
+    const d = pointSegD2(cu, cv, au, av, bu, bv);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 function makeIndex(items, extentOf) {
   const map = new Map();
   for (const it of items) {
@@ -269,8 +398,13 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     const maxZ = Math.max(az, bz) + r + 1.2;
     propIx.query(minX, minZ, maxX, maxZ, scratch2);
     for (const p of scratch2) {
-      const lim = p.radius + r;
-      if (pointSegD2(p.x, p.z, ax, az, bx, bz) < lim * lim - 1e-9) return true;
+      const f = boxFoot(p);
+      if (f) {
+        if (segPropD2(p, f, ax, az, bx, bz) < r * r - 1e-9) return true;
+      } else {
+        const lim = p.radius + r;
+        if (pointSegD2(p.x, p.z, ax, az, bx, bz) < lim * lim - 1e-9) return true;
+      }
     }
     return false;
   }
@@ -349,6 +483,48 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     }
     propIx.query(x - r - 1.2, z - r - 1.2, x + r + 1.2, z + r + 1.2, scratch2);
     for (const p of scratch2) {
+      const f = boxFoot(p);
+      if (f) {
+        intoProp(p, x, z);
+        const hu = f.halfU;
+        const hv = f.halfV;
+        // The nearest point of the rectangle, in the prop's own frame.
+        const qu = locU < -hu ? -hu : locU > hu ? hu : locU;
+        const qv = locV < -hv ? -hv : locV > hv ? hv : locV;
+        const eu = locU - qu;
+        const ev = locV - qv;
+        const d = Math.hypot(eu, ev);
+        let tu;
+        let tv;
+        let deep;
+        if (d > 1e-9) {
+          if (d >= r - 1e-9) continue;    // outside the box and clear of it
+          deep = r - d;
+          tu = qu + (eu / d) * r;
+          tv = qv + (ev / d) * r;
+        } else {
+          // The centre is INSIDE the box, which one frame of movement cannot
+          // do to a body but a spawn or a moved prop can. Out by the nearest
+          // face, because leaving a box by its long axis when the short one is
+          // a hand's breadth away is a teleport.
+          const du = hu - Math.abs(locU);
+          const dv = hv - Math.abs(locV);
+          if (du <= dv) {
+            deep = du + r;
+            tu = (locU >= 0 ? 1 : -1) * (hu + r);
+            tv = locV;
+          } else {
+            deep = dv + r;
+            tu = locU;
+            tv = (locV >= 0 ? 1 : -1) * (hv + r);
+          }
+        }
+        if (deep <= depth) continue;
+        depth = deep;
+        pushX = p.x + tu * locC + tv * locS;
+        pushZ = p.z - tu * locS + tv * locC;
+        continue;
+      }
       const lim = p.radius + r;
       if (!(lim > 0)) continue;   // a prop with no footprint, or a NaN one
       let nx = x - p.x;
@@ -440,10 +616,55 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     }
     propIx.query(x - r - 1.2, z - r - 1.2, x + r + 1.2, z + r + 1.2, scratch2);
     for (const p of scratch2) {
+      const f = boxFoot(p);
+      if (f) {
+        intoProp(p, x, z);
+        if (pointRectD2(locU, locV, f.halfU, f.halfV) < r * r - 1e-6) return false;
+        continue;
+      }
       const lim = p.radius + r;
       if ((x - p.x) ** 2 + (z - p.z) ** 2 < lim * lim - 1e-6) return false;
     }
     return true;
+  }
+
+  // IS THERE ANYWHERE TO GO FROM HERE?
+  //
+  // Fitting and being somewhere you can leave are not the same question, and
+  // rule 6 only ever asked the first one. A vault is allowed to cross a fence,
+  // so it is the one move that can put the ghost somewhere walking never could:
+  // the corner of a pen with a headstone across its mouth is a patch of ground
+  // the body fits on, cannot walk into, and having landed on, can never walk
+  // out of. Measured on the shipped level, the north-west corner of the pen is
+  // a 13 centimetre island of exactly that, and src/game/stuck.mjs --jump gives
+  // the recipe: run at 3.19 units a second from (2.25, -4.75) along
+  // (0.92, 0.38) and jump.
+  //
+  // `need` is one body diameter, and it is not an arbitrary number: it is a
+  // little more than the run-up the jump itself demands. Takeoff is refused
+  // below 2.0 units a second, which from rest takes 0.095 s and 0.11 units of
+  // ground, so anywhere the ghost can travel 1.10 units is somewhere it can
+  // build a jump and leave again. Anywhere it cannot is a dead end whichever
+  // way you look at it.
+  //
+  // A straight march rather than a flood, which is the conservative direction:
+  // a pocket that is passable but BENDS inside 1.10 units reads as a dead end
+  // and the jump into it is refused. That is a jump not taken; the alternative
+  // is a run lost.
+  function roomAt(x, z, r, need = 1.10, spokes = 16, step = 0.15) {
+    const steps = Math.ceil(need / step);
+    for (let s = 0; s < spokes; s++) {
+      const a = (s / spokes) * Math.PI * 2;
+      const dx = Math.cos(a);
+      const dz = Math.sin(a);
+      let ok = true;
+      for (let k = 1; k <= steps; k++) {
+        const d = Math.min(need, k * step);
+        if (!discClear(x + dx * d, z + dz * d, r)) { ok = false; break; }
+      }
+      if (ok) return true;
+    }
+    return false;
   }
 
   // --- passages -------------------------------------------------------------
@@ -764,6 +985,7 @@ export function createNav(world, { window: win = WINDOW } = {}) {
     resolveDisc,
     resolveWalker,
     discClear,
+    roomAt,
     passages,
     passagesNear,
     makeGrid,

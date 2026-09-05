@@ -941,7 +941,12 @@ varying float vGT;`)
   disposables.push(glassGeo, glassMat);
 
   // --- the one light --------------------------------------------------------
-  const lamp = new THREE.PointLight(FLAME.clone(), 0, 2.6 * scale, 2);
+  // AT REST, NOT AT ZERO. See pumpkin.js: update() sets this every frame, so a
+  // light built at zero is invisible only for as long as something is calling
+  // update(), and a prop that is instanced (its light CLONED rather than
+  // stepped) or placed by a page with no clock is simply dark. Dark reads as
+  // broken, and it took a bug report to find the last one.
+  const lamp = new THREE.PointLight(FLAME.clone(), (LAMP.min + LAMP.max) / 2, 2.6 * scale, 2);
   // At the flame's TIP, not its foot. three has no sphere light, so a point
   // source down in the wick sits in an inverse-square singularity: it burns the
   // deflector 45mm away to flat white long before the ground 180mm away sees

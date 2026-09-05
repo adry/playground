@@ -244,7 +244,17 @@ export function createOnlinePanel({
       note(`this level is ${Math.round(size / 1024)} KB and the limit is ${MAX_DOC_BYTES / 1024} KB. Save a json file instead.`, true);
       return null;
     }
-    if (!state.user) { open(); intent = () => saveCurrent({ makePublic }); return null; }
+    if (!state.user) {
+      // ASKED, NOT WORKED AROUND. The save button is the primary action and it
+      // now means "into your account", so signed out it says so in one line and
+      // opens the panel on the sign in step. What was going to be saved is
+      // remembered and saved the moment there is somebody to save it for, and
+      // the level is untouched if they change their mind.
+      open();
+      intent = () => saveCurrent({ makePublic });
+      note('a level lives in your account now, so save needs you signed in. Download a copy needs nobody.');
+      return null;
+    }
     // THE SAME GUARD AS SAVE AND PLAY. A level that cannot be finished is far
     // worse in somebody else's hands than in its author's: they have no editor
     // to see the wedge in and no reason to think the fault is not theirs.

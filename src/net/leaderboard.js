@@ -136,7 +136,7 @@ function mount(card, { run, levelSlug, api }) {
     // What the run was, for anybody who later wants to check whether it
     // happened. Passed through untouched: which skeleton ended a run is the
     // rules half's fact and this file does not have an opinion about it.
-    seed: Number.isFinite(Number(run && run.seed)) ? Math.floor(Number(run.seed)) : null,
+    seed: run && run.seed != null && Number.isFinite(Number(run.seed)) ? Math.floor(Number(run.seed)) : null,
     caughtBy: run && typeof run.caughtBy === 'string' ? run.caughtBy : null,
   };
 

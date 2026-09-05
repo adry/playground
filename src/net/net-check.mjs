@@ -150,17 +150,33 @@ async function wireChecks() {
   ok(!impostor.ok, "nobody may write a level into somebody else's account");
   eq(impostor.reason, 'that is not yours to change', 'the with check refuses it');
 
-  console.log('\nprivate by default');
+  console.log('\nprivate by default, and the read that must not leak it');
+  //
+  // THE ONE MISTAKE HERE THAT WOULD PUBLISH EVERYBODY'S DRAFTS. The read this
+  // client sends for a level is `?slug=eq.X` with no `is_public` filter on it,
+  // deliberately, because an author has to be able to open and test their own
+  // unpublished level. Nothing in the request distinguishes a private level
+  // from a public one. What keeps a draft private is the SELECT policy in
+  // 002-accounts.sql, `using (is_public or owner = auth.uid())`, and nothing
+  // else. So this checks the exact case: the same URL, with only the
+  // publishable key, must come back empty.
   const hidden = await guest.fetchLevel(pub.slug);
-  ok(!hidden.ok, 'a private level is invisible to everybody else');
+  ok(!hidden.ok, 'a private level is invisible to a request carrying only the publishable key');
   eq(hidden.reason, 'no level has that code, or it is not public',
     'and the sentence covers both reasons, because the database will not say which');
+  const guestRead = fake.seen[fake.seen.length - 1];
+  eq(guestRead.headers.authorization, `Bearer ${KEY}`, 'that request was anonymous, which is what a player sends');
+  eq(guestRead.uid, null, 'so auth.uid() is null and the owner half of the policy cannot match');
+
   const mine = await ada.fetchLevel(pub.slug);
   ok(mine.ok, 'its owner can still open it');
   eq(mine.level.doc.seed, 7, 'and gets the document back');
   const readReq = fake.seen[fake.seen.length - 1];
   eq(readReq.path, `/rest/v1/levels?slug=eq.${pub.slug}&select=slug,name,author,doc&limit=1`,
     'the read asks for the code and only the columns it needs');
+  eq(readReq.path, guestRead.path,
+    'and it is the SAME request the guest sent: the policy decides, not the URL');
+  ok(!(await bea.fetchLevel(pub.slug)).ok, "and being signed in as somebody else is no better than being nobody");
 
   console.log('\nmaking it public');
   const opened = await ada.setPublic(pub.slug, true);
@@ -225,14 +241,17 @@ async function wireChecks() {
   eq(fake.levels.length, before + 1, 'exactly one more level');
 
   console.log('\nposting a score, as a guest');
-  const posted = await guest.postScore({ name: 'Ada', score: 14200, fireflies: 31, seconds: 214, levelSlug: pub.slug });
+  const posted = await guest.postScore({
+    name: 'Ada', score: 14200, fireflies: 31, seconds: 214, levelSlug: pub.slug, rulesVersion: 3,
+  });
   ok(posted.ok, 'a passer-by can still post a score', posted.reason);
   const sreq = fake.seen[fake.seen.length - 1];
   eq(sreq.path, '/rest/v1/scores', 'to /rest/v1/scores');
   eq(sreq.headers.authorization, `Bearer ${KEY}`, 'with the publishable key as the bearer, because nobody is signed in');
   eq(sreq.headers.prefer, 'return=minimal', 'and asks for nothing back');
-  eq(JSON.stringify(sreq.body), JSON.stringify({ name: 'Ada', score: 14200, fireflies: 31, seconds: 214, level_slug: pub.slug }),
-    'the row is five columns, and owner is not one of them');
+  eq(JSON.stringify(sreq.body), JSON.stringify({
+    name: 'Ada', score: 14200, fireflies: 31, seconds: 214, level_slug: pub.slug, rules_version: 3,
+  }), 'the row is what the game knows, and owner is not part of it');
   ok(!('owner' in sreq.body),
     'owner is OMITTED rather than sent as null, so the board still works on a project where 002 has not been run');
 
@@ -246,6 +265,21 @@ async function wireChecks() {
   ok(!orphan.ok, 'a score on a level nobody published is refused');
   eq(orphan.reason, 'that level is not published', 'by the foreign key, and it is said in English');
 
+  console.log('\nwhat the score was set in');
+  const withRun = await guest.postScore({
+    name: 'Ada', score: 700, fireflies: 2, seconds: 45,
+    rulesVersion: 3, seed: 123456, caughtBy: 'flanker',
+  });
+  ok(withRun.ok, 'a score carries what it was set in', withRun.reason);
+  const prov = fake.seen[fake.seen.length - 1].body;
+  eq(prov.rules_version, 3, 'the rules version, which is the one that matters');
+  eq(prov.seed, 123456, 'the run seed, so it can be replayed one day');
+  eq(prov.caught_by, 'flanker', 'and what ended it');
+  eq((await guest.postScore({ name: 'Ada', score: 1, fireflies: 0, seconds: 9 })).ok, true,
+    'and a score with none of that is still a score');
+  ok(!('rules_version' in fake.seen[fake.seen.length - 1].body),
+    'nothing invented: what the caller did not say is not sent');
+
   console.log('\nreading the board');
   const many = [
     ['Ada', 90000], ['Bea', 80000], ['Cy', 70000], ['Dot', 60000], ['Eve', 50000],
@@ -255,14 +289,15 @@ async function wireChecks() {
   for (const [name, score] of many) {
     await guest.postScore({ name, score, fireflies: 10, seconds: 600 });
   }
-  const top = await guest.topScores({ limit: 10 });
+  const top = await guest.topScores({ limit: 10, rulesVersion: 3 });
   ok(top.ok, 'the board reads');
   eq(top.rows.length, 10, 'ten rows and no more');
   eq(top.rows[0].name, 'Ada', 'highest first');
   const treq = fake.seen[fake.seen.length - 1];
   eq(treq.path,
-    '/rest/v1/scores?select=name,score,fireflies,seconds,level_slug,created_at&order=score.desc,created_at.asc&limit=10',
-    'ordered by score, ties broken by who got there first');
+    '/rest/v1/scores?select=name,score,fireflies,seconds,level_slug,created_at&rules_version=eq.3'
+    + '&order=score.desc,created_at.asc&limit=10',
+    'ordered by score, ties broken by who got there first, and only this version of the game');
 
   const levelBoard = await guest.topScores({ levelSlug: pub.slug, limit: 10 });
   eq(levelBoard.rows.length, 1, "a published level's board has only its own runs");
@@ -270,13 +305,15 @@ async function wireChecks() {
   ok(lreq.path.includes(`level_slug=eq.${pub.slug}`), 'filtered by the level');
 
   console.log('\nwhere a score that missed the board came');
-  const rank = await guest.rankOf({ score: 7000 });
+  const rank = await guest.rankOf({ score: 7000, rulesVersion: 3 });
   ok(rank.ok, 'a placing comes back', rank.reason);
   eq(rank.rank, 13, 'twelve rows are better, so it is thirteenth');
   const rreq = fake.seen[fake.seen.length - 1];
   eq(rreq.headers.prefer, 'count=exact', 'the count is asked for');
   ok(rreq.path.startsWith('/rest/v1/scores?select=id&score=gt.7000'), 'by counting the rows above it', rreq.path);
-  eq((await guest.rankOf({ score: 999999 })).rank, 1, 'the best score is first');
+  ok(rreq.path.includes('rules_version=eq.3'),
+    'over the same set the board is drawn from, or the placing is a number from a different leaderboard');
+  eq((await guest.rankOf({ score: 999999, rulesVersion: 3 })).rank, 1, 'the best score is first');
 
   console.log('\nthe key being refused');
   const wrong = createClient({ url: `http://127.0.0.1:${port}`, key: 'sb_publishable_WRONG' });
@@ -299,6 +336,33 @@ async function wireChecks() {
   const stillPosts = await oldApi.postScore({ name: 'Ada', score: 10, fireflies: 1, seconds: 30 });
   ok(stillPosts.ok, 'while the leaderboard keeps working, because a guest score names no new column');
   old.server.close();
+
+  console.log('\na project where 003 has not been run either');
+  // The second window, between deploying this and the owner running
+  // 003-score-provenance.sql. The game always sends a rules version now, so
+  // every score would be refused and every board would be empty. The client
+  // notices the refusal once and carries on without it.
+  const noProv = makeFake({ legacyScores: true });
+  const noProvPort = await listen(noProv.server);
+  const shy = createClient({ url: `http://127.0.0.1:${noProvPort}`, key: KEY });
+  const first = await shy.postScore({ name: 'Ada', score: 500, fireflies: 2, seconds: 30, rulesVersion: 3, seed: 9 });
+  ok(first.ok, 'a score still posts on a database with no provenance columns', first.reason);
+  const attempts = noProv.seen.filter((r) => r.method === 'POST');
+  eq(attempts.length, 2, 'it took two tries: the full row, refused, then the row the table can hold');
+  ok('rules_version' in attempts[0].body, 'the first attempt said everything it knew');
+  ok(!('rules_version' in attempts[1].body), 'the second said only what the table has');
+  eq(noProv.scores.length, 1, 'and exactly one score landed, not two');
+
+  const shyBoard = await shy.topScores({ limit: 10, rulesVersion: 3 });
+  ok(shyBoard.ok, 'the board reads too', shyBoard.reason);
+  eq(shyBoard.rows.length, 1, 'with the score that was just posted on it');
+  const shyReads = noProv.seen.filter((r) => r.method === 'GET');
+  ok(!shyReads[shyReads.length - 1].path.includes('rules_version'),
+    'and it stopped asking for a column the table does not have, rather than asking every time');
+  const before2 = noProv.seen.length;
+  await shy.postScore({ name: 'Bea', score: 400, fireflies: 1, seconds: 30, rulesVersion: 3 });
+  eq(noProv.seen.length - before2, 1, 'the next post is one request, because it learned');
+  noProv.server.close();
 
   fake.server.close();
 

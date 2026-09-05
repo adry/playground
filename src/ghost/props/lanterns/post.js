@@ -1040,7 +1040,14 @@ export function createPostLantern({ seed = 1, scale = 1 } = {}) {
   // clipping, and the pool is still a pool. The cutoff then does the far end of
   // the job: the wash is gone by two metres rather than trailing across the
   // graveyard the way a 1/d falloff would on its own.
-  const lamp = new THREE.PointLight(new THREE.Color(PALETTE.glow), 0, 2.4, 1);
+  // AT REST, NOT AT ZERO. update() sets this every frame, so the zero was
+  // invisible for as long as something was calling update(); a prop that is
+  // ever placed without one, or that is INSTANCED and has its light cloned
+  // rather than stepped, is simply dark. The pumpkin had the same line and it
+  // is what made a jack-o'-lantern light nothing beside it. Build every light
+  // at the middle of its own swing and the failure mode is a steady flame
+  // instead of no flame.
+  const lamp = new THREE.PointLight(new THREE.Color(PALETTE.glow), (LAMP.min + LAMP.max) / 2, 2.4, 1);
   lamp.position.set(0, FLAME_Y, 0);
   lamp.castShadow = false;
 

@@ -229,8 +229,13 @@ export function scoreRow({
   // and decide whether the score is real. Nothing reads them today. They are
   // recorded now so that the day somebody builds that, the rows already there
   // are not all worthless.
-  if (Number.isFinite(Number(rulesVersion))) row.rules_version = Math.floor(Number(rulesVersion));
-  if (Number.isFinite(Number(seed))) row.seed = Math.floor(Number(seed));
+  // `!= null` before the number check, and it is load bearing: Number(null) is
+  // 0 and Number.isFinite(0) is true, so testing the number alone turns "the
+  // caller said nothing" into "version zero, seed zero" and writes both.
+  if (rulesVersion != null && Number.isFinite(Number(rulesVersion))) {
+    row.rules_version = Math.floor(Number(rulesVersion));
+  }
+  if (seed != null && Number.isFinite(Number(seed))) row.seed = Math.floor(Number(seed));
   if (typeof caughtBy === 'string' && caughtBy) row.caught_by = caughtBy.slice(0, 40);
 
   if (row.score > 1000000) return { ok: false, problem: 'that score is past what the board can hold' };
@@ -610,7 +615,10 @@ export function createClient({
         // The version filter is what stops the board being two boards printed
         // on top of each other. It is dropped, with the columns, on a database
         // that has not had 003 run against it.
-        const version = hasProvenance && Number.isFinite(Number(rulesVersion))
+        // `!= null` first: Number(null) is 0, so testing the number alone asks
+        // the board for version zero, which nothing has ever been, and returns
+        // an empty leaderboard that looks exactly like a quiet one.
+        const version = hasProvenance && rulesVersion != null && Number.isFinite(Number(rulesVersion))
           ? `&rules_version=eq.${Math.floor(Number(rulesVersion))}` : '';
         return request(
           `/scores?select=name,score,fireflies,seconds,level_slug,created_at${filter}${version}`
@@ -636,7 +644,7 @@ export function createClient({
       // Counted over the SAME set the board is drawn from, or the placing is a
       // number from one leaderboard printed under a list from another.
       const ask = async () => {
-        const version = hasProvenance && Number.isFinite(Number(rulesVersion))
+        const version = hasProvenance && rulesVersion != null && Number.isFinite(Number(rulesVersion))
           ? `&rules_version=eq.${Math.floor(Number(rulesVersion))}` : '';
         return request(
           `/scores?select=id&score=gt.${n}${filter}${version}&limit=1`,

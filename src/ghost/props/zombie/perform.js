@@ -614,7 +614,15 @@ export function createZombiePerformance({
   // The forward reach guard, applied to the longer of the two sides.
   {
     const hipAtLanding = HIP_STALK - BOB - ANKLE_Y;
-    const reach = SPAN * 0.97;
+    // 0.99 and not 0.97, and the skeleton is what settled it. At 0.97 this
+    // guard quietly shortened the skeleton's own stride from 0.360 to 0.300,
+    // a 17% cut to a number perform.js has hand-tuned, and it did it silently
+    // because a guard that bites looks exactly like a guard that does not. The
+    // skeleton's real touchdown sits at 98.5% of full extension, which is
+    // tighter than 0.97 allows and is nevertheless fine: the solver is off its
+    // clamp, measured, with ikShort at zero for the whole walk. A guard has to
+    // be looser than the thing it is guarding or it becomes the thing.
+    const reach = SPAN * 0.99;
     const maxAhead = Math.sqrt(Math.max(reach * reach - hipAtLanding * hipAtLanding, 1e-6));
     HALF_STEP = Math.min(HALF_STEP, maxAhead);
     // STEP_LENGTH is deliberately NOT recomputed if this bites. It is the
@@ -1182,7 +1190,23 @@ export function createZombiePerformance({
   // The springs and the hand solver still run on real dt, so a faster target
   // just means they lag further behind it, which reads as more effort and not
   // as a fast-forward.
-  const WARP = [[0, 0], [0.6, 1.6], [3.5, EMERGE_END]];
+  // 3.4 IS NOT A ROUND NUMBER, it is src/game/chase.js's EMERGE_TIME.
+  //
+  // The rules hold a figure in their 'emerging' state for exactly that long and
+  // then move it to 'hunting', and scene.js's PHASE map sends 'hunting' to
+  // 'chasing'. There is no rules state that maps to 'rising' at all. So in the
+  // game the climb gets 3.4 seconds and then the walk starts, whatever the
+  // performance thinks it is in the middle of, and a climb authored to any
+  // other length is one that gets cut off at 3.4 and hands over from a pose
+  // nobody chose. Ending the warp exactly there means the handover happens at
+  // the last frame of the last beat: hips at the crouch, both feet planted,
+  // legBlend at 1 and the hands already let go.
+  //
+  // 'rising' still exists and still plays, in the autonomous scene and in the
+  // lab, which is also where it is worth watching. In the game the lift spring
+  // carries the hips out of the crouch while the first two steps bring the feet
+  // under, which is a shorter stand but not a broken one.
+  const WARP = [[0, 0], [0.6, 1.6], [3.4, EMERGE_END]];
   function emergeTime(real) {
     for (let i = 1; i < WARP.length; i++) {
       const [r0, t0] = WARP[i - 1];
@@ -1452,9 +1476,16 @@ export function createZombiePerformance({
 
     strain = 0.12 + 0.1 * moving;
     // The deferred replant, here because this is the first point in the frame
-    // where `pos` and `yaw` are settled and legBlend is about to go to 1.
+    // where `pos` and `yaw` are settled and legBlend is about to come up.
     if (needReplant) replantFeet();
-    legBlend = 1;
+    // RAMPED, not slammed to 1. Coming out of the climb or off the rise this is
+    // already 1 and the ramp is a no-op. Coming from anywhere else, which the
+    // game's rules can do, legBlend jumping from 0 to 1 in one frame swings the
+    // whole leg from its authored hanging angles onto the IK answer between two
+    // frames: measured on the driven path, a 12mm jump of the contact point in
+    // a single frame, once, at the handover. An eighth of a second of blend
+    // costs nothing and there is nothing left to see.
+    legBlend = Math.min(1, legBlend + dt * 8);
     stepFeet(dt);
 
     // Closer means hungrier. The gape and snap near the ghost is the only
@@ -2439,6 +2470,11 @@ export function createZombiePerformance({
     // The rig-derived step over the one metrics.js asks for. 1.0 is perfect
     // agreement; anything outside about 0.8 to 1.25 is the two halves of this
     // character disagreeing about how far it walks and wants routing.
+    //
+    // Only meaningful when the rig IS the figure metrics.js describes. Point
+    // this file at a skeleton and it compares a skeleton's stride against a
+    // chibi's published one and reports 2.6, which is arithmetic rather than
+    // news.
     strideVsMetrics,
     duty: DUTY,
     cadence: CADENCE,

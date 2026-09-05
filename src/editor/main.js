@@ -1306,7 +1306,6 @@ function playLevel() {
 const VERBS = {
   play: ['Play', 'played'],
   save: ['Save', 'saved'],
-  publish: ['Publish', 'published'],
 };
 
 function guardPasses(verb) {
@@ -1347,14 +1346,18 @@ const online = createOnlinePanel({
 
 // WHERE A LEVEL GOES WHEN IT IS SAVED, and the one function that decides.
 //
-// Today that is a file the browser downloads, because a file is the only place
-// there is. A database is being built and when it lands this is where it plugs
-// in: the button says "save", the author's levels are the author's, and the
-// download becomes what it already is here, a copy for getting a level out of
-// the browser and into the site. Nothing else in this file knows where a level
-// goes, which is the point of routing it all through here.
+// It goes to the author's account. That is what the owner asked accounts for:
+// levels are theirs, they follow them between machines, and they are private
+// until they say otherwise. The download beside it is what it says, a copy, for
+// getting a level out of the browser and into the site.
+//
+// SIGNED OUT, THIS ASKS. It does not quietly write a file instead. A primary
+// action that means two different things depending on a state the person may
+// not have noticed is worse than one that stops and says which state it is in,
+// and the panel it opens is one click from being signed in. Everything else in
+// the tool keeps working while they decide: building, playing, and the download.
 function saveLevel() {
-  saveFile();
+  online.save();
 }
 
 function saveFile({ anyway = false, copy = false } = {}) {
@@ -2008,7 +2011,11 @@ function drawRight() {
       // a level goes, so when the database lands it changes there and the button
       // does not move.
       el('div', { class: 'row' }, [
-        el('button', { class: 'grow', text: 'save', title: 'Keep this level.', onclick: saveLevel }),
+        el('button', {
+          class: 'grow', text: 'save',
+          title: 'Keep this level in your account. Private until you choose to share it.',
+          onclick: saveLevel,
+        }),
         el('button', { class: 'grow', text: 'open', title: 'Read a level file back in.', onclick: pickFile }),
       ]),
       el('div', { class: 'row' }, [
@@ -2019,12 +2026,6 @@ function drawRight() {
         }),
       ]),
       el('div', { class: 'row' }, [
-        el('button', {
-          class: 'grow',
-          text: 'save online',
-          title: 'Keep this level in your account. Private until you make it public. The file on disk is still how a level is kept; this is how it follows you between machines.',
-          onclick: () => online.save(),
-        }),
         el('button', {
           class: 'grow',
           text: 'my levels',

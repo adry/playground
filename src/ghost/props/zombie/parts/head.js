@@ -77,6 +77,17 @@ const V_FACE = 0.445;
 // what guarantees the cap sits flush in the recess it fills: it is literally
 // the piece of head that was carved away, put back.
 
+// The direction every feature on this head is displaced along: the outward
+// normal of the BASE ellipsoid, before any feature has moved anything. It is
+// smooth by construction, which is exactly why the dents use it, and anything
+// that has to sit in a dent has to use the same one.
+function baseNormal(u, vv) {
+  const d = unitDir(u, vv);
+  const backK = d.z < 0 ? Math.pow(-d.z, 1.4) : 0;
+  const rzHere = RZ * (1 - (1 - M.head.occiputFlat) * backK);
+  return new THREE.Vector3(d.x / RX, d.y / RY, d.z / rzHere).normalize();
+}
+
 function unitDir(u, vv) {
   const a = u * Math.PI * 2;
   const b = (vv - 0.5) * Math.PI;
@@ -113,39 +124,57 @@ function socketR(x, y, side) {
   return Math.hypot(dx, dy) / lobes(Math.atan2(dy, dx), M.socket.wobble, side > 0 ? 0.9 : 2.3);
 }
 
-// The nasal aperture: a CARDIOID, cusp at the top.
+// The nasal aperture: an inverted teardrop, point UP.
 //
-// A skull's nasal opening is a pear or an inverted teardrop, and a cardioid is
-// exactly that curve for free: r = (1 - cos phi) with phi measured from the
-// cusp direction is a point at the top opening out to two full lobes at the
-// bottom. The first attempt built it from a half-width profile and a max(),
-// which gives flat top and bottom edges, and it rendered as a dark diamond.
+// This is the third shape here and the first two are worth recording. Built
+// from a half-width profile with a hard max() it came out a flat-topped
+// diamond. Built as a CARDIOID with its cusp at the top it came out a spade:
+// r = 1 - cos(phi) is widest a third of the way down and closes to a point at
+// the BOTTOM, which is upside down for a nasal aperture and read as a beak.
 //
-// The cusp sits at the TOP of the aperture, so the whole shape hangs below it.
-const NOSE_CUSP_Y = () => NOSE_Y + NOSE_HH;
-
-// Polar radius of the outline at an angle measured from straight up.
-function noseEdge(phi) {
-  return Math.max(0.03, (1 - Math.cos(phi)) / 2) * lobes(phi + 1.4, 0.07, 0.9);
+// What a skull actually has is narrow and pointed between the orbits, opening
+// downward to two lobes that flare just above the tooth line, with the nasal
+// spine notching the bottom edge up between them. So: an explicit half-width
+// profile whose widest point sits at 54 per cent BELOW centre, and a notch cut
+// up into the bottom edge.
+function noseHalfWidth(t) {                 // t: -1 at the bottom, +1 at the top
+  const up = Math.min(1, Math.max(0, (t + 1) / 2));
+  const w = Math.pow(1 - up, 0.18) * Math.pow(up, 0.60);
+  // normalised so the widest point is exactly 1
+  const PEAK = 0.5387;                      // solves d/dt log w = 0
+  const peak = Math.pow(1 - PEAK, 0.18) * Math.pow(PEAK, 0.60);
+  return Math.max(0.02, w / peak);
 }
 
-// A cardioid's widest point is at phi = 2pi/3, where x is 0.65 of the vertical
-// extent, so the x scale is chosen to make M.nose.width the true full width.
-const NOSE_XS = 0.65;
+// The bottom edge rides UP in the middle: that is the nasal spine, and it is
+// what turns one dark drop into two lobes.
+function noseFloor(x) {
+  return 0.34 * Math.exp(-Math.pow(x / (M.nose.width * 0.16), 2));
+}
 
 function noseR(x, y) {
-  const dy = (y - NOSE_CUSP_Y()) / (2 * NOSE_HH);
-  const dx = x / (NOSE_HW * 2 * NOSE_XS);
-  const rho = Math.hypot(dx, dy);
-  if (rho < 1e-6) return 0;
-  return rho / noseEdge(Math.atan2(dx, dy));
+  let t = (y - NOSE_Y) / NOSE_HH;
+  if (t < 0) t -= noseFloor(x) * (1 + t);   // lift the floor toward the middle
+  if (Math.abs(t) >= 1) return Math.abs(t);
+  const w = NOSE_HW * noseHalfWidth(t) * lobes(t * 2.4, 0.07, 1.1);
+  return Math.max(Math.abs(t), Math.abs(x) / w);
 }
 
-// The same outline, sampled, for the dark disc that sits in it.
-function nosePoint(t, r) {                  // t 0..1 round the outline, r 0..1
-  const phi = (t - 0.5) * 2 * Math.PI;
-  const rho = r * noseEdge(phi);
-  return [Math.sin(phi) * rho * NOSE_HW * 2 * NOSE_XS, NOSE_CUSP_Y() + Math.cos(phi) * rho * 2 * NOSE_HH];
+// The same outline, sampled, so the dark disc that sits in the aperture is
+// exactly the shape of the hole. Rings shrink toward the centroid rather than
+// toward the axis, or the inner rings collapse onto a line.
+const NOSE_CENTROID_T = -0.30;
+function nosePoint(s, r) {
+  // Down the figure's RIGHT side first, then back up its left, so the ring
+  // winds the same way as every other patch on this model. Wound the other way
+  // three culls it and the aperture renders as a crease with no dark in it.
+  const half = s < 0.5 ? -1 : 1;
+  const q = s < 0.5 ? s * 2 : (1 - s) * 2;
+  const t = 1 - 2 * q;
+  const ex = half * NOSE_HW * noseHalfWidth(t) * lobes(t * 2.4, 0.07, 1.1);
+  const ey = t - (t < 0 ? noseFloor(ex) * (1 + t) : 0);
+  const cx = 0, cy = NOSE_CENTROID_T;
+  return [cx + (ex - cx) * r, NOSE_Y + NOSE_HH * (cy + (ey - cy) * r)];
 }
 
 function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
@@ -200,7 +229,11 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
   // proud. This is the single most valuable piece of form on the model: it is
   // what puts the sockets in shadow under a key light coming from above.
   {
-    const dy = (p.y - (BROW_Y + SOCK_HH * 1.05)) / (M.head.height * 0.075);
+    // Centred WELL clear of the socket's top edge. At 1.05 the shelf's peak sat
+    // exactly on the rim and pressed the top of the orbit down, which flattened
+    // two round sockets into two almonds. A brow has to overhang the eye, not
+    // squash it.
+    const dy = (p.y - (BROW_Y + SOCK_HH * 1.55)) / (M.head.height * 0.080);
     const band = Math.exp(-dy * dy);
     const across = smoothstep(RX * 1.10, RX * 0.30, Math.abs(p.x));
     p.addScaledVector(n, M.head.browJut * band * across * front);
@@ -212,8 +245,11 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
   {
     const dy = (p.y - (BROW_Y - M.head.height * 0.10)) / (M.head.height * 0.20);
     const band = Math.exp(-dy * dy);
-    const across = Math.exp(-Math.pow(p.x / (RX * 0.20), 2));
-    p.addScaledVector(n, M.head.browJut * 0.55 * band * across * front);
+    // Narrow. At RX * 0.20 this ridge reached the inner edge of both sockets
+    // and pushed the dark back out of their lower inner corners, which is what
+    // turned two round orbits into two teardrops pointing at the nose.
+    const across = Math.exp(-Math.pow(p.x / (RX * 0.115), 2));
+    p.addScaledVector(n, M.head.browJut * 0.34 * band * across * front);
   }
 
   // --- 4b. the cheeks. A soft pad under each socket. It is not in the
@@ -224,7 +260,7 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
   {
     for (const side of [1, -1]) {
       const dx = (p.x - side * SOCK_X * 1.10) / (M.head.width * 0.20);
-      const dy = (p.y - (BROW_Y - M.head.height * 0.185)) / (M.head.height * 0.11);
+      const dy = (p.y - (BROW_Y - M.head.height * 0.255)) / (M.head.height * 0.090);
       p.addScaledVector(n, M.head.browJut * 0.24 * Math.exp(-(dx * dx + dy * dy)) * front);
     }
   }
@@ -234,32 +270,47 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
   // The falloff runs 0.80 to 1.02 rather than 0 to 1, so four fifths of the
   // socket is at full depth and the wall is nearly vertical. A gentle dish
   // fills with bounce light and turns grey; this one holds its own shadow.
-  if (sockets) {
-    for (const side of [1, -1]) {
-      const r = socketR(p.x, p.y, side);
-      // THE ORBITAL RIM, first: a raised ring all the way round the socket.
-      // The brow shelf above was doing this job on the top edge only, so the
-      // socket had a brow and no lid, no lower rim and no outer corner, and it
-      // read as a hole punched in a smooth ball. A full ring gives the eye an
-      // edge to be sunk behind from every direction, which is what makes the
-      // shadow inside it look like depth instead of paint.
-      const ring = Math.exp(-Math.pow((r - M.socket.rimAt) / 0.30, 2));
-      p.addScaledVector(n, M.head.browJut * M.socket.rim * ring * front);
-      const k = 1 - smoothstep(0.80, 1.02, r);
-      if (k > 0) p.addScaledVector(n, -M.socket.depth * k * front);
-    }
-  }
-
-  // --- 7. the nasal aperture.
+  // --- 2 and 7. the sockets and the nasal aperture.
+  //
+  // THE RECESSES ARE COMBINED WITH max(), NOT ADDED. The orbits and the
+  // aperture are close enough that their falloffs overlap, and summed, the
+  // strip of face between them got hollowed out twice: the surface dropped
+  // below the dark discs sitting in either hole and they came through it as
+  // black spikes reaching for each other. Taking the deepest recess at each
+  // point is also what a skull does, since two holes that meet are one hole.
+  //
+  // The rims are still added, because two rims meeting SHOULD build up: that
+  // ridge between the orbit and the aperture is a real piece of bone.
   {
-    const r = noseR(p.x, p.y);
-    // A small rim, kept small: at 0.30 of browJut it was pushing up into the
-    // inner-lower corner of each socket and biting a notch out of the dark,
-    // which is what made the sockets read as teardrops.
-    const ring = Math.exp(-Math.pow((r - 1.34) / 0.30, 2));
-    p.addScaledVector(n, M.head.browJut * 0.16 * ring * front);
-    const k = 1 - smoothstep(0.78, 1.02, r);
-    if (k > 0) p.addScaledVector(n, -M.nose.depth * k * front);
+    let recess = 0;
+    if (sockets) {
+      for (const side of [1, -1]) {
+        const r = socketR(p.x, p.y, side);
+        // THE ORBITAL RIM: a raised ring all the way round the socket. The
+        // brow shelf above was doing this job on the top edge only, so the
+        // socket had a brow and no lid, no lower rim and no outer corner, and
+        // it read as a hole punched in a smooth ball. A full ring gives the
+        // eye an edge to be sunk behind from every direction, which is what
+        // makes the shadow inside it look like depth instead of paint.
+        const ring = Math.exp(-Math.pow((r - M.socket.rimAt) / M.socket.rimWide, 2));
+        p.addScaledVector(n, M.head.browJut * M.socket.rim * ring * front);
+        // The wall is SHORT and steep: full depth all the way out to the
+        // outline, then over in a tenth. A long ramp plus a wide rim is a
+        // shallow crater, and a crater with a small dark bead in it is what
+        // this looked like for three rounds.
+        recess = Math.max(recess, socketDepthAt(r));
+      }
+    }
+    {
+      const r = noseR(p.x, p.y);
+      const ring = Math.exp(-Math.pow((r - 1.40) / 0.24, 2));
+      p.addScaledVector(n, M.head.browJut * 0.14 * ring * front);
+      // The flat floor runs almost to the outline. A short flat floor and a
+      // long ramp means the dark disc that sits in the aperture is over
+      // sloping ground for most of its area and pokes through in slivers.
+      recess = Math.max(recess, noseDepthAt(r));
+    }
+    if (recess > 0) p.addScaledVector(n, -recess * front);
   }
 
   // --- 8. irregularity.
@@ -345,51 +396,102 @@ function vAtHeight(y) {
   return 0.5 + Math.asin(s) / Math.PI;
 }
 
-// A dark disc laid IN a dent, following the dent's own floor and standing a
-// hair proud of it, with a smooth analytic outline.
+// The socket's depth profile, shared by the shell that cuts the hollow and by
+// the cup that lines it. Written once so the two can never disagree.
+const socketDepthAt = (r) => M.socket.depth * (1 - smoothstep(1.00, 1.10, r));
+// How deep the shell is recessed at a point, for one socket.
 //
-// This is the third answer to "how do you make a socket black", and the first
-// two are worth recording because both are the obvious thing to try.
+// The cup that lines the hollow calls THIS, with the SAME point the shell
+// used. That is the only way the two can agree, and getting it wrong is the
+// entire history of this feature:
 //
-//  - A dark BALL seated in the dent. An ellipsoid falls away from its own pole
-//    faster than the face does, so it is flush only at the very middle and the
-//    rest of the socket stays green. That is the version that looked like two
-//    coffee beans.
-//  - CUTTING A HOLE in the cranium with a dark wall behind it, the way the
-//    chest cavity works. The darkness is perfect and the edge is not: a quad
-//    grid can only cut on its own cell boundaries, so a socket comes out as a
-//    ragged star. On the chest that is fixed by a lip ribbon following the
-//    true outline, but a socket has no lip to hide behind, and a torn-looking
-//    eye is a different character.
+//  - a cup whose depth came from its own polar parameter drifted against a
+//    shell whose depth comes from the displaced surface position, because
+//    frontUV inverts the base ellipsoid and the real surface has a brow, a
+//    cheek and a crown swell on top of it. The two crossed in a fan of dark
+//    spikes round the rim.
+//  - a version that folded the ORBITAL RIM in here as a negative recess was
+//    worse. The shell combines the two sockets and the nose with max(), and
+//    max() throws every negative away: the shell ended up with no rim at all
+//    while the cup was still compensating for one.
 //
-// So: a disc, parameterised in the SOCKET's own polar coordinates rather than
-// the head's, mapped onto the face through frontUV and then displaced along
-// one fixed axis. Polar means the outline is a smooth ellipse at any
-// resolution. One fixed axis, rather than the local surface normal, because
-// the normal swings wildly across the steep wall of a dent and a patch pushed
-// along it comes through the skin in fingers.
+// So the rim stays where it is, added separately by the shell, and this
+// returns the recess alone. The rim then simply clips the cup's outer edge,
+// which is what tucking it under the skin means.
+function socketRecessAt(x, y, side) {
+  return socketDepthAt(socketR(x, y, side));
+}
+const noseDepthAt = (r) => M.nose.depth * (1 - smoothstep(0.88, 1.03, r));
+
+// A dark sheet laid IN a dent.
+//
+// This is the fourth answer to "how do you make a socket black", and the three
+// before it are all worth recording because each is the obvious next thing.
+//
+//  1. A dark BALL seated in the dent. An ellipsoid falls away from its own pole
+//     faster than the face does, so it is flush only at the very middle and the
+//     rest of the socket stays green. Two coffee beans.
+//  2. CUTTING A HOLE with a dark wall behind it, the way the chest cavity
+//     works. Perfect darkness, ragged edge: a quad grid can only cut on its own
+//     cell boundaries. On the chest a lip ribbon hides that; a socket has no
+//     lip, and a torn eye is a different character.
+//  3. A patch sampled off THE SURFACE AS BUILT and pushed a little proud of it.
+//     Correct in principle and it fails on noise: the shell carries an outline
+//     wobble and three octaves of lumps, and the patch resamples them at
+//     slightly different (u, v) through frontUV, so the two disagree by a
+//     fraction of a millimetre and the disc comes through the skin in black
+//     slivers all round the rim.
+//
+// What works is to build the disc against the surface WITHOUT the feature in
+// it, then drop it by most of the feature's depth. That gives a smooth dish
+// parallel to the face, sitting proud of the dent's floor and behind its
+// walls, so the shell itself decides where the dark stops. The silhouette is
+// then the intersection of two smooth surfaces and cannot be ragged, and
+// `proud` is the clearance that keeps the noise from mattering.
 function dentDisc({
-  cx, cy, hw, hh, slant = 0, side = 1, scale = 0.95, offset, lift = null,
-  sectors = 20, rings = 5, wobble = 0, phase = 0, widthAt = null,
+  cx, cy, hw, hh, slant = 0, side = 1, scale = 1.05, rFrom = 0,
+  depth, proud = 0.15, depthOf = null, lift = null, sectors = 24, rings = 5,
+  wobble = 0, phase = 0, outline = null,
 }) {
-  const [uc, vc] = frontUV(cx, cy);
-  const axis = surfaceNormal(uc, vc, { mouth: false, sockets: false });
+  const bare = { mouth: false, sockets: false };
   return gridSurface({
     uSteps: sectors, vSteps: rings, closedU: true,
-    point: (a, r) => {
-      const th = a * Math.PI * 2;
-      // The SAME wobble the dent itself uses. Left off, the disc is a clean
-      // ellipse sitting in a lumpy hollow and pokes out of it wherever the
-      // hollow is shallow, which is what made the sockets look like teardrops
-      // with a bite out of one side.
-      const k = scale * r * lobes(th, wobble, phase);
-      const ex = hw * k * Math.cos(th) * (widthAt ? widthAt(Math.sin(th) * k) : 1);
-      const ey = hh * k * Math.sin(th);
-      const x = cx + ex;
-      // Undo the slant shear, so the disc matches the dent it sits in.
-      const y = cy + ey + slant * side * ex + (lift ? lift(x) : 0);
+    point: (a, t) => {
+      const r = rFrom + (scale - rFrom) * t;
+      // (drop is computed below, once the surface point is known)
+      let x, y;
+      if (outline) {
+        [x, y] = outline(a, r);
+      } else {
+        const th = a * Math.PI * 2;
+        // The SAME wobble the dent itself uses, so the two outlines agree.
+        const k = r * lobes(th, wobble, phase);
+        x = cx + hw * k * Math.cos(th);
+        y = cy + hh * k * Math.sin(th) + slant * side * (hw * k * Math.cos(th));
+      }
+      if (lift) y += lift(x);
       const [u, vv] = frontUV(x, y);
-      return surfacePoint(u, vv).addScaledVector(axis, offset);
+      const p0 = surfacePoint(u, vv, bare);
+      // Two ways to place the sheet.
+      //
+      // A FLAT disc at one depth (`proud`) is right for a shallow feature and
+      // wrong for a deep one: the shell's wall climbs out of the hollow and
+      // crosses in front of it, so the dark stops well short of the opening
+      // and you get a big lit crater with a small dark bead at the bottom.
+      // That is what the sockets looked like for three rounds.
+      //
+      // A CUP asks the shell how far IT has moved at this very point and sits
+      // a constant clearance in front of that, so it lines the whole hollow,
+      // walls included, and the two can never cross. The clearance fades to
+      // slightly negative at the last ring, so the cup tucks under the skin at
+      // its edge rather than standing proud of it as a dark halo.
+      const drop = depthOf
+        ? -(depthOf(p0) - depth * (0.10 * (1 - t) - 0.04 * t))
+        : -depth * (1 - proud);
+      // Along the LOCAL base normal, not one axis taken at the feature's
+      // centre: over a socket's width that direction swings twenty degrees,
+      // and a sheet pushed along a single axis slides out of its own hollow.
+      return p0.addScaledVector(baseNormal(u, vv), drop);
     },
   }).geometry;
 }
@@ -486,8 +588,10 @@ export function buildHead({ materials }) {
   const group = new THREE.Group();
   group.userData.outwardX = 1;
 
-  const U = 88;
-  const V = 56;
+  // 104 x 64. The socket wall is the steepest thing on the model and at 88 x
+  // 56 its u samples showed as a fan of facets round the rim.
+  const U = 104;
+  const V = 64;
 
   // The shell. Non-uniform in both directions: dense across the face, dense
   // through the band that carries the sockets and the mouth.
@@ -512,41 +616,39 @@ export function buildHead({ materials }) {
   // taper, and the dent then takes another socket.depth out of it.
   for (const side of [1, -1]) {
     const phase = side > 0 ? 0.9 : 2.3;
+    // An ANNULUS of red-purple with a darker disc filling the middle. Two
+    // values inside one hole is what makes it look like a hole rather than a
+    // sticker, and they are laid side by side rather than stacked, because a
+    // second disc placed in front of the first is either invisible or fighting
+    // it for the same depth.
     put(group, dentDisc({
-      cx: side * SOCK_X, cy: BROW_Y,
-      hw: SOCK_HW, hh: SOCK_HH,
+      cx: side * SOCK_X, cy: BROW_Y, hw: SOCK_HW, hh: SOCK_HH,
       slant: M.socket.slant, side,
-      scale: 0.90, offset: M.socket.depth * 0.08,
-      wobble: M.socket.wobble, phase,
+      depth: M.socket.depth, depthOf: (p) => socketRecessAt(p.x, p.y, side), scale: 1.04,
+      wobble: M.socket.wobble, phase, sectors: 32, rings: 7,
     }), materials.socket);
-    // A second, smaller disc deeper in. One flat colour across a socket is a
-    // disc of paint; two, with the darker one set back and off centre, is a
-    // hollow with something behind it.
+    // A darker disc in the middle of the cup, set back and off centre. One
+    // flat colour across a socket is a disc of paint; two is a hollow with
+    // something behind it.
     put(group, dentDisc({
       cx: side * SOCK_X - side * SOCK_HW * 0.10, cy: BROW_Y - SOCK_HH * 0.12,
-      hw: SOCK_HW * 0.60, hh: SOCK_HH * 0.58,
+      hw: SOCK_HW * 0.58, hh: SOCK_HH * 0.56,
       slant: M.socket.slant, side,
-      scale: 0.90, offset: M.socket.depth * 0.22,
+      depth: M.socket.depth, depthOf: (p) => socketRecessAt(p.x, p.y, side) - M.socket.depth * 0.05, scale: 1.02,
       wobble: M.socket.wobble * 1.6, phase: phase + 1.1,
-      sectors: 16, rings: 3,
+      sectors: 24, rings: 3,
     }), materials.socketDeep);
   }
 
   // --- the nasal aperture's dark ------------------------------------------
   // Same construction as the sockets, with the teardrop's own width profile
   // fed in, so the dark is exactly the shape of the hole.
-  {
-    const [uc, vc] = frontUV(0, NOSE_Y);
-    const axis = surfaceNormal(uc, vc, { mouth: false, sockets: false });
-    put(group, gridSurface({
-      uSteps: 22, vSteps: 4, closedU: true,
-      point: (t, r) => {
-        const [x, y] = nosePoint(t, r * 0.90);
-        const [u, vv] = frontUV(x, y);
-        return surfacePoint(u, vv).addScaledVector(axis, M.nose.depth * 0.10);
-      },
-    }).geometry, materials.socket);
-  }
+  put(group, dentDisc({
+    cx: 0, cy: NOSE_Y, hw: NOSE_HW, hh: NOSE_HH,
+    depth: M.nose.depth, depthOf: (p) => noseDepthAt(noseR(p.x, p.y)), scale: 1.00,
+    outline: (a, r) => nosePoint(a, r),
+    sectors: 26, rings: 6,
+  }), materials.socket);
 
   // The dark inside the mouth.
   //
@@ -561,10 +663,10 @@ export function buildHead({ materials }) {
     put(group, dentDisc({
       cx: 0, cy: GRIN_Y,
       hw: GRIN_HW, hh: GRIN_HH,
-      scale: 0.94, offset: M.grin.depth * 0.08,
+      depth: M.grin.depth, proud: 0.14, scale: 1.08,
       lift: (x) => M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(x) / GRIN_HW), 2),
       wobble: M.grin.wobble, phase: 0.4,
-      sectors: 24, rings: 5,
+      sectors: 26, rings: 5,
     }), materials.socketDeep);
   }
 

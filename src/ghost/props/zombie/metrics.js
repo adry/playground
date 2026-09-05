@@ -128,8 +128,8 @@ export const M = {
     // High and small, because that is where a skull's is and because the only
     // room for it is between the sockets: put it any lower and it merges with
     // the grin into one dark smear at game scale.
-    nose: f(0.822),
-    brow: f(0.868),           // centre line of the eye sockets
+    nose: f(0.796),
+    brow: f(0.874),           // centre line of the eye sockets
     ear: f(0.858),
     crown: f(1.000),
   },
@@ -191,14 +191,20 @@ export const M = {
     // cheek pushing the bottom up they came out as angular almonds: a Roswell
     // grey, not a corpse. Round, deep, with a rim all the way round and a
     // colour inside that is not black.
-    width: f(0.088),
-    height: f(0.088),
+    width: f(0.092),
+    height: f(0.092),
     depth: f(0.044),
     // The orbital rim: a raised ring around the socket, as a fraction of
     // browJut. This is what gives the eye a lid and a brow that overhangs it
     // rather than a hole punched in a smooth ball.
-    rim: 0.55,
-    rimAt: 1.22,              // where the ring sits, in socketR units
+    rim: 0.45,
+    // Where the ring sits, in socketR units, and how tight it is. It was at
+    // 1.22 with a wide falloff and the raised ground reached out to 1.6 socket
+    // radii: what that reads as is a big shallow crater with a small dark bead
+    // at the bottom of it, which is not an eye socket. Pulled in tight against
+    // the opening it reads as a rim.
+    rimAt: 1.18,
+    rimWide: 0.14,
     // The outline is not a clean ellipse. A small three-lobed wobble is the
     // difference between a moulded eyepiece and a hole where something rotted
     // away, and it costs nothing.
@@ -207,7 +213,7 @@ export const M = {
     // within 0.02 of touching over the bridge, which read as one wide dark
     // band rather than two eyes. Pushed out until there is a clear strip of
     // green between them at game scale.
-    separation: f(0.146),
+    separation: f(0.152),
     // How far the upper rim cuts down toward the nose. The skeleton's note
     // applies verbatim: 0.60 is a glare, this is a stare. Change knowingly.
     // Zero. Any slant at all turns two round sockets into two angry eyebrows,
@@ -222,8 +228,8 @@ export const M = {
   // alien. Small, because there is only the gap between the sockets to put it
   // in, and dark inside for the same reason the sockets are.
   nose: {
-    width: f(0.068),
-    height: f(0.070),
+    width: f(0.060),
+    height: f(0.062),
     depth: f(0.038),
     // Where the widest part of the pear sits, as a fraction of the aperture's
     // height measured from the bottom. Below the middle: that is what makes it

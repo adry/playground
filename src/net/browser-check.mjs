@@ -190,12 +190,21 @@ try {
     const dialogs = [];
     page.on('dialog', (d) => { dialogs.push(d.message()); d.accept(); });
     await page.goto(`${ORIGIN}/editor/`, { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('button:text-is("save online")');
+    await page.waitForSelector('button:text-is("my levels")');
 
     // The editor is a tool before it is an account.
     ok(await page.isVisible('#view'), 'the editor opens without anybody signing in');
-    ok(await page.isVisible('button:text-is("save")'), 'and the file save is there, as it always was');
-    ok(await page.isVisible('button:text-is("download a copy")'), 'and so is the download');
+    ok(await page.isVisible('button:text-is("download a copy")'), 'and the download is there, as it always was');
+    eq(await page.locator('button:text-is("save")').count(), 1, 'one save button, not two');
+
+    // SAVE, SIGNED OUT. It asks, in one line, and does not quietly write a file
+    // instead. What was going to be saved is remembered.
+    await page.click('button:text-is("save")');
+    await page.waitForSelector('.go input[type="email"]');
+    ok(/save needs you signed in/.test(await page.textContent('.go')),
+      'pressing save signed out asks, and says why in a line', await page.textContent('.go p.bad, .go p.ok'));
+    eq(fake.levels.length, 0, 'and nothing was written anywhere');
+    await page.keyboard.press('Escape');
 
     await signIn(page);
     eq(fake.users.size, 1, 'creating an account makes one');
@@ -312,6 +321,37 @@ try {
       return res.slug || null;
     }, { email: 'bea@example.com', password: 'another-long-password' });
     ok(secondSlug, 'a second person saves a level of their own', String(secondSlug));
+
+    // THE READ THAT MUST NOT LEAK A DRAFT, asked directly and in a browser.
+    //
+    // The client's level read is `?slug=eq.X` with no is_public filter on it,
+    // because an author has to be able to open their own unpublished level.
+    // Nothing about the request says which kind of level it is: the SELECT
+    // policy in 002-accounts.sql is the only thing standing between a private
+    // level and anybody who guesses its code. So the same page asks twice, once
+    // as the person who owns it and once with nothing but the publishable key,
+    // and the answers have to differ.
+    const twoWays = await page.evaluate(async ({ slug }) => {
+      const sb = await import('/src/net/supabase.js');
+      const asOwner = await sb.client().fetchLevel(slug);
+      // A second client with no token at all: exactly what /lab/ holds.
+      const anon = sb.createClient({ url: window.GRAVEYARD_SUPABASE.url, key: window.GRAVEYARD_SUPABASE.key });
+      const asStranger = await anon.fetchLevel(slug);
+      return {
+        owner: asOwner.ok,
+        stranger: asStranger.ok,
+        strangerSaid: asStranger.reason || null,
+      };
+    }, { slug: secondSlug });
+    ok(twoWays.owner, 'its owner reads their own private level');
+    ok(!twoWays.stranger, 'and the publishable key alone reads nothing at all');
+    eq(twoWays.strangerSaid, 'no level has that code, or it is not public',
+      'with a sentence that does not say whether it exists');
+    const bySlug = fake.seen.filter((r) => r.method === 'GET' && r.path.includes(`slug=eq.${secondSlug}`));
+    eq(bySlug.length, 2, 'both asked the database, so neither answer was decided in the page');
+    eq(bySlug[0].path, bySlug[1].path, 'and they sent the identical request');
+    ok(bySlug[0].uid && !bySlug[1].uid, 'the only difference was who was holding it');
+
     await ctx.close();
 
     const { ctx: ctx2, page: p2 } = await open({ board: BOARD });
@@ -348,7 +388,7 @@ try {
     const dialogs = [];
     page.on('dialog', (d) => { dialogs.push(d.message()); d.dismiss(); });
     await page.goto(`${ORIGIN}/editor/`, { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('button:text-is("save online")');
+    await page.waitForSelector('button:text-is("my levels")');
     await signIn(page, { create: false });
     const before = fake.levels.length;
     await page.click('.go button:text-is("save to my account")');
@@ -404,7 +444,8 @@ try {
     eq(posted.level_slug, publicSlug, 'and the level it was set on');
     const scoreReq = fake.seen.filter((r) => r.method === 'POST' && r.path === '/rest/v1/scores').pop();
     eq(scoreReq.headers.authorization, `Bearer ${KEY}`, 'posted as a guest, because the game asks nobody to sign in');
-    ok(!('owner' in scoreReq.body), 'and with no owner column, so it works before 002 as well as after');
+    ok(!('owner' in scoreReq.body), 'and with no owner column, because a guest has none');
+    eq(scoreReq.body.rules_version, 3, 'carrying which version of the game it was set in');
 
     // The placing, which is the part CORS can silently break.
     // Twelve better scores, so the one just posted is outside the top ten and
@@ -506,7 +547,7 @@ try {
     const { ctx, page, errors } = await open({ board: DEAD, name: 'Ada' });
     page.on('dialog', (d) => d.accept());
     await page.goto(`${ORIGIN}/editor/`, { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('button:text-is("save online")');
+    await page.waitForSelector('button:text-is("my levels")');
     ok(await page.isVisible('#view'), 'the editor opens');
 
     await page.click('button:text-is("my levels")');
