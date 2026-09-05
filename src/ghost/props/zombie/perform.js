@@ -888,6 +888,8 @@ export function createZombiePerformance({
   let travel = 0;
   // The gait's vertical, applied around the lift spring rather than through it.
   let liftOffset = 0;
+  // Set when the walk is entered without the climb having planted the feet.
+  let needReplant = false;
 
   // The x a foot sits at when the leg is straight down. Taken off the rig, so
   // walking straight needs no lateral correction at the hip at all and the
@@ -1033,14 +1035,20 @@ export function createZombiePerformance({
   // Put both feet flat under their own hips, wherever the body is standing now.
   // The gait's first step then swings from a sane pose instead of from whatever
   // the last plant happened to be.
+  //
+  // Worked from `pos` and `yaw` rather than from the group's matrix, which is
+  // the difference between this being exact and being a frame late. The matrix
+  // is only written once a frame, at the bottom of update(), AFTER the phase
+  // has run: a replant that reads it is placing the feet where the body was
+  // before the driver moved it. It is a centimetre at a walk and it is the
+  // whole distance on the teleport this is mostly here for.
   function replantFeet() {
-    group.updateWorldMatrix(true, false);
+    const cy = Math.cos(yaw);
+    const sy = Math.sin(yaw);
     for (const side of ['L', 'R']) {
       const f = feet[side];
-      f.plant.copy(group.localToWorld(
-        v1.set(FOOT_X[side], -group.position.y / scale, 0),
-      ));
-      f.plant.y = 0;
+      const fx = FOOT_X[side] * scale;
+      f.plant.set(pos.x + fx * cy, 0, pos.z - fx * sy);
       f.yaw = yaw;
       f.fromYaw = yaw;
       f.swing = 1;
@@ -1048,6 +1056,7 @@ export function createZombiePerformance({
       ankleOnPlant(f, 0, f.fromAnkle);
     }
     cursorFix = 0;
+    needReplant = false;
   }
 
   function enter(next) {
@@ -1144,7 +1153,10 @@ export function createZombiePerformance({
       // legBlend to 1 on its first frame with both plants still at the origin:
       // the solver is then asked to reach a point wherever the figure was
       // constructed and the legs go straight out behind it.
-      if (legBlend < 0.5) replantFeet();
+      //
+      // Deferred to the first frame of the walk rather than done here, because
+      // here the driver has not yet said where the body is this frame.
+      if (legBlend < 0.5) needReplant = true;
     }
   }
 
@@ -1439,6 +1451,9 @@ export function createZombiePerformance({
     T.spreadR = T.spreadL;
 
     strain = 0.12 + 0.1 * moving;
+    // The deferred replant, here because this is the first point in the frame
+    // where `pos` and `yaw` are settled and legBlend is about to go to 1.
+    if (needReplant) replantFeet();
     legBlend = 1;
     stepFeet(dt);
 
@@ -1529,10 +1544,8 @@ export function createZombiePerformance({
         // straight out behind the figure, and it stayed that way until the gait
         // happened to step each foot.
         //
-        // pos has already been written above, so the group's matrix is one
-        // frame stale; replantFeet refreshes it before it uses it.
-        group.position.set(pos.x, group.position.y, pos.z);
-        group.rotation.y = nextYaw;
+        // pos and yaw are already this frame's, and replantFeet works from
+        // them rather than from the group matrix, so this lands exactly.
         replantFeet();
       } else {
         travel += moved;

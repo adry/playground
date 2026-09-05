@@ -185,7 +185,10 @@ export function cleanName(raw, max = MAX_NAME) {
 // are floored rather than rounded because seconds is the denominator of the
 // plausibility check in the schema and rounding it up would let a run past that
 // the constraint means to catch.
-export function scoreRow({ name, score, fireflies, seconds, levelSlug = null, owner = null }) {
+export function scoreRow({
+  name, score, fireflies, seconds, levelSlug = null, owner = null,
+  rulesVersion = null, seed = null, caughtBy = null,
+}) {
   const who = cleanName(name, MAX_NAME);
   if (!who) return { ok: false, problem: 'a name, first' };
 
@@ -212,6 +215,23 @@ export function scoreRow({ name, score, fireflies, seconds, levelSlug = null, ow
   // project where 002 has not been run yet, and starts carrying who set what
   // the moment it has.
   if (typeof owner === 'string' && owner) row.owner = owner;
+
+  // WHAT THE SCORE WAS SET IN, from 003-score-provenance.sql.
+  //
+  // rules_version is the one that matters and it is not decoration: run.js has
+  // changed the game three times and says in its own comment that a board
+  // mixing versions is a board that lies. A version 2 run ended when the arena
+  // ran out of fireflies; a version 3 run is unbounded. Putting them in one
+  // list is not a leaderboard, it is two leaderboards printed on top of each
+  // other, so every read below filters on this as well.
+  //
+  // seed and caught_by are what an edge function would need to replay the run
+  // and decide whether the score is real. Nothing reads them today. They are
+  // recorded now so that the day somebody builds that, the rows already there
+  // are not all worthless.
+  if (Number.isFinite(Number(rulesVersion))) row.rules_version = Math.floor(Number(rulesVersion));
+  if (Number.isFinite(Number(seed))) row.seed = Math.floor(Number(seed));
+  if (typeof caughtBy === 'string' && caughtBy) row.caught_by = caughtBy.slice(0, 40);
 
   if (row.score > 1000000) return { ok: false, problem: 'that score is past what the board can hold' };
   if (row.fireflies > 100000) return { ok: false, problem: 'that many fireflies is past what the board can hold' };
@@ -314,6 +334,22 @@ export function createClient({
     Authorization: `Bearer ${key}`,
     Accept: 'application/json',
   };
+
+  // HAS 003-score-provenance.sql BEEN RUN?
+  //
+  // Assumed yes, and unlearned the first time the database says otherwise. The
+  // owner runs each migration by hand, in their own time, and between a deploy
+  // and that moment every request naming a new column is a 400. The columns in
+  // question carry which version of the rules a score was set in: useful, and
+  // not worth a dead leaderboard for a day. So the first refusal turns them off
+  // for the life of the page and the request is sent again without them.
+  //
+  // This is not a fallback that hides a bug. The two error codes it reacts to
+  // mean exactly one thing on this site, the shape of the request is otherwise
+  // identical, and the moment the migration runs the next page load is back to
+  // recording everything.
+  let hasProvenance = true;
+  const missingColumn = (res) => res.code === '42703' || res.code === 'PGRST204';
 
   async function bearer() {
     if (typeof token !== 'function') return null;
@@ -567,13 +603,22 @@ export function createClient({
     // score keeps the higher row. Sorting by score alone leaves ties in
     // whatever order the index hands back, which means a board that reshuffles
     // itself between two loads for no reason the reader can see.
-    async topScores({ levelSlug = null, limit = 10 } = {}) {
+    async topScores({ levelSlug = null, limit = 10, rulesVersion = null } = {}) {
       const n = Math.max(1, Math.min(100, Math.floor(limit) || 10));
       const filter = isLevelSlug(levelSlug) ? `&level_slug=eq.${encodeURIComponent(levelSlug)}` : '';
-      const res = await request(
-        `/scores?select=name,score,fireflies,seconds,level_slug,created_at${filter}`
-        + `&order=score.desc,created_at.asc&limit=${n}`,
-      );
+      const ask = async () => {
+        // The version filter is what stops the board being two boards printed
+        // on top of each other. It is dropped, with the columns, on a database
+        // that has not had 003 run against it.
+        const version = hasProvenance && Number.isFinite(Number(rulesVersion))
+          ? `&rules_version=eq.${Math.floor(Number(rulesVersion))}` : '';
+        return request(
+          `/scores?select=name,score,fireflies,seconds,level_slug,created_at${filter}${version}`
+          + `&order=score.desc,created_at.asc&limit=${n}`,
+        );
+      };
+      let res = await ask();
+      if (!res.ok && hasProvenance && missingColumn(res)) { hasProvenance = false; res = await ask(); }
       if (!res.ok) return res;
       return { ok: true, rows: Array.isArray(res.data) ? res.data : [] };
     },
@@ -584,14 +629,22 @@ export function createClient({
     // row of payload whatever the board's size, and it is the same arithmetic
     // the board itself does. `Prefer: count=exact` is what makes PostgREST put
     // the total in Content-Range.
-    async rankOf({ score, levelSlug = null }) {
+    async rankOf({ score, levelSlug = null, rulesVersion = null }) {
       const n = Math.floor(Number(score));
       if (!Number.isFinite(n)) return { ok: false, reason: 'no score to place' };
       const filter = isLevelSlug(levelSlug) ? `&level_slug=eq.${encodeURIComponent(levelSlug)}` : '';
-      const res = await request(
-        `/scores?select=id&score=gt.${n}${filter}&limit=1`,
-        { prefer: 'count=exact' },
-      );
+      // Counted over the SAME set the board is drawn from, or the placing is a
+      // number from one leaderboard printed under a list from another.
+      const ask = async () => {
+        const version = hasProvenance && Number.isFinite(Number(rulesVersion))
+          ? `&rules_version=eq.${Math.floor(Number(rulesVersion))}` : '';
+        return request(
+          `/scores?select=id&score=gt.${n}${filter}${version}&limit=1`,
+          { prefer: 'count=exact' },
+        );
+      };
+      let res = await ask();
+      if (!res.ok && hasProvenance && missingColumn(res)) { hasProvenance = false; res = await ask(); }
       if (!res.ok) return res;
       const above = countFrom(res);
       if (above === null) return { ok: false, reason: 'the board did not say' };
@@ -602,16 +655,26 @@ export function createClient({
     // row is exactly what was sent, and where it landed on the board is a
     // different question answered by rankOf.
     async postScore(fields) {
-      const built = scoreRow(fields);
-      if (!built.ok) return { ok: false, reason: built.problem };
-      const res = await request('/scores', {
-        method: 'POST',
-        body: built.row,
-        prefer: 'return=minimal',
-        timeout: writeTimeout,
-      });
-      if (!res.ok) return res;
-      return { ok: true, row: built.row };
+      const send = async () => {
+        const built = scoreRow(hasProvenance ? fields : { ...fields, rulesVersion: null, seed: null, caughtBy: null });
+        if (!built.ok) return { ok: false, reason: built.problem, built };
+        const res = await request('/scores', {
+          method: 'POST',
+          body: built.row,
+          prefer: 'return=minimal',
+          timeout: writeTimeout,
+        });
+        return { ...res, built };
+      };
+
+      let res = await send();
+      if (!res.ok && hasProvenance && missingColumn(res)) {
+        // The migration has not been run. The score itself is still a score.
+        hasProvenance = false;
+        res = await send();
+      }
+      if (!res.ok) return { ok: false, status: res.status, code: res.code, reason: res.reason };
+      return { ok: true, row: res.built.row };
     },
   };
 

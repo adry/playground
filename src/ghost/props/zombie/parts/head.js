@@ -113,28 +113,39 @@ function socketR(x, y, side) {
   return Math.hypot(dx, dy) / lobes(Math.atan2(dy, dx), M.socket.wobble, side > 0 ? 0.9 : 2.3);
 }
 
-// The nasal aperture: a teardrop, point up. `w` is the half-width at a given
-// height, normalised, and it is what makes the shape a pear rather than a
-// lens: it goes to nothing at the top, and its widest point sits a third of
-// the way up from the bottom.
-function noseHalfWidth(t) {                 // t: -1 at the bottom, +1 at the top
-  const up = Math.min(1, Math.max(0, (t + 1) / 2));
-  const w = Math.pow(1 - up, 0.42) * Math.pow(up, 0.30);
-  // normalised so the widest point is exactly 1
-  const b = M.nose.bulge;
-  const peak = Math.pow(1 - b, 0.42) * Math.pow(b, 0.30);
-  return Math.max(0.10, w / peak);
+// The nasal aperture: a CARDIOID, cusp at the top.
+//
+// A skull's nasal opening is a pear or an inverted teardrop, and a cardioid is
+// exactly that curve for free: r = (1 - cos phi) with phi measured from the
+// cusp direction is a point at the top opening out to two full lobes at the
+// bottom. The first attempt built it from a half-width profile and a max(),
+// which gives flat top and bottom edges, and it rendered as a dark diamond.
+//
+// The cusp sits at the TOP of the aperture, so the whole shape hangs below it.
+const NOSE_CUSP_Y = () => NOSE_Y + NOSE_HH;
+
+// Polar radius of the outline at an angle measured from straight up.
+function noseEdge(phi) {
+  return Math.max(0.03, (1 - Math.cos(phi)) / 2) * lobes(phi + 1.4, 0.07, 0.9);
 }
 
+// A cardioid's widest point is at phi = 2pi/3, where x is 0.65 of the vertical
+// extent, so the x scale is chosen to make M.nose.width the true full width.
+const NOSE_XS = 0.65;
+
 function noseR(x, y) {
-  const t = (y - NOSE_Y) / NOSE_HH;
-  if (t > 1.02) return 2 + (t - 1);
-  const w = NOSE_HW * noseHalfWidth(Math.min(1, Math.max(-1, t)));
-  // The bottom of a nasal aperture is two lobes with a spine between them, so
-  // the low centre is pushed back out. Cheap, and it is the detail that stops
-  // the hole reading as a plain drop of ink.
-  const notch = t < -0.45 ? 1 - 0.45 * Math.exp(-Math.pow(x / (NOSE_HW * 0.30), 2)) : 1;
-  return Math.max(Math.abs(t), Math.abs(x) / (w * notch));
+  const dy = (y - NOSE_CUSP_Y()) / (2 * NOSE_HH);
+  const dx = x / (NOSE_HW * 2 * NOSE_XS);
+  const rho = Math.hypot(dx, dy);
+  if (rho < 1e-6) return 0;
+  return rho / noseEdge(Math.atan2(dx, dy));
+}
+
+// The same outline, sampled, for the dark disc that sits in it.
+function nosePoint(t, r) {                  // t 0..1 round the outline, r 0..1
+  const phi = (t - 0.5) * 2 * Math.PI;
+  const rho = r * noseEdge(phi);
+  return [Math.sin(phi) * rho * NOSE_HW * 2 * NOSE_XS, NOSE_CUSP_Y() + Math.cos(phi) * rho * 2 * NOSE_HH];
 }
 
 function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
@@ -214,7 +225,7 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
     for (const side of [1, -1]) {
       const dx = (p.x - side * SOCK_X * 1.10) / (M.head.width * 0.20);
       const dy = (p.y - (BROW_Y - M.head.height * 0.185)) / (M.head.height * 0.11);
-      p.addScaledVector(n, M.head.browJut * 0.38 * Math.exp(-(dx * dx + dy * dy)) * front);
+      p.addScaledVector(n, M.head.browJut * 0.24 * Math.exp(-(dx * dx + dy * dy)) * front);
     }
   }
 
@@ -242,8 +253,11 @@ function surfacePoint(u, vv, { mouth = true, sockets = true } = {}) {
   // --- 7. the nasal aperture.
   {
     const r = noseR(p.x, p.y);
-    const ring = Math.exp(-Math.pow((r - 1.30) / 0.34, 2));
-    p.addScaledVector(n, M.head.browJut * 0.30 * ring * front);
+    // A small rim, kept small: at 0.30 of browJut it was pushing up into the
+    // inner-lower corner of each socket and biting a notch out of the dark,
+    // which is what made the sockets read as teardrops.
+    const ring = Math.exp(-Math.pow((r - 1.34) / 0.30, 2));
+    p.addScaledVector(n, M.head.browJut * 0.16 * ring * front);
     const k = 1 - smoothstep(0.78, 1.02, r);
     if (k > 0) p.addScaledVector(n, -M.nose.depth * k * front);
   }
@@ -389,7 +403,7 @@ function dentDisc({
 function toothRow(parent, material, { count, gap, up, seed }) {
   let s = seed;
   const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-  const span = M.grin.width * 0.70;
+  const span = M.grin.width * 0.80;
   // Teeth are placed by AZIMUTH, not by a target x, and this is the bug the
   // first pass had. Solving for an x and then putting a block there works on
   // the middle of the face and fails at the corners of the grin, because the
@@ -399,8 +413,8 @@ function toothRow(parent, material, { count, gap, up, seed }) {
     if (i === gap) continue;                        // a missing tooth
     const t = count === 1 ? 0.5 : i / (count - 1);
     const targetX = (t - 0.5) * span;
-    const w = (span / count) * (0.56 + rnd() * 0.20);
-    const h = M.grin.height * (up ? 0.36 : 0.30) * (0.78 + rnd() * 0.42);
+    const w = (span / count) * (0.74 + rnd() * 0.16);
+    const h = M.grin.height * (up ? 0.30 : 0.26) * (0.82 + rnd() * 0.32);
     // Two passes. The head tapers hard down here, so the azimuth that reaches
     // a given x at the mouth's centre line reaches a noticeably LARGER x a
     // couple of millimetres higher up, which is what walked the first pass's
@@ -420,8 +434,8 @@ function toothRow(parent, material, { count, gap, up, seed }) {
       pos: floor.clone().addScaledVector(n, M.grin.depth * 0.40),
     });
     m.quaternion.setFromUnitVectors(v(0, 0, 1), n);
-    m.rotateZ((rnd() - 0.5) * 0.34);                // uneven
-    m.rotateX((rnd() - 0.5) * 0.20);
+    m.rotateZ((rnd() - 0.5) * 0.22);                // uneven
+    m.rotateX((rnd() - 0.5) * 0.14);
   }
 }
 
@@ -521,12 +535,18 @@ export function buildHead({ materials }) {
   // --- the nasal aperture's dark ------------------------------------------
   // Same construction as the sockets, with the teardrop's own width profile
   // fed in, so the dark is exactly the shape of the hole.
-  put(group, dentDisc({
-    cx: 0, cy: NOSE_Y, hw: NOSE_HW, hh: NOSE_HH,
-    scale: 0.90, offset: M.nose.depth * 0.10,
-    widthAt: (t) => noseHalfWidth(Math.min(1, Math.max(-1, t))),
-    sectors: 20, rings: 4,
-  }), materials.socket);
+  {
+    const [uc, vc] = frontUV(0, NOSE_Y);
+    const axis = surfaceNormal(uc, vc, { mouth: false, sockets: false });
+    put(group, gridSurface({
+      uSteps: 22, vSteps: 4, closedU: true,
+      point: (t, r) => {
+        const [x, y] = nosePoint(t, r * 0.90);
+        const [u, vv] = frontUV(x, y);
+        return surfacePoint(u, vv).addScaledVector(axis, M.nose.depth * 0.10);
+      },
+    }).geometry, materials.socket);
+  }
 
   // The dark inside the mouth.
   //
@@ -597,9 +617,9 @@ export function buildHead({ materials }) {
       const x = surfacePoint(u, vAtHeight(yGum)).x;
       const lift = M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(x) / GRIN_HW), 2);
       const vv = vAtHeight(yGum + lift);
-      pts.push(surfacePoint(u, vv).addScaledVector(surfaceNormal(u, vv), M.grin.depth * 0.10));
+      pts.push(surfacePoint(u, vv).addScaledVector(surfaceNormal(u, vv), -M.grin.depth * 0.10));
     }
-    put(lower, tube(new THREE.CatmullRomCurve3(pts), M.grin.height * 0.115, M.grin.height * 0.115,
+    put(lower, tube(new THREE.CatmullRomCurve3(pts), M.grin.height * 0.085, M.grin.height * 0.085,
       { radial: 8, segments: 16 }), materials.flesh);
   }
 
@@ -637,8 +657,8 @@ export function buildHead({ materials }) {
     stitchScar(scars, materials.stitch, { from: a, to: b, count: M.stitch.forehead, thickness: M.stitch.thickness });
 
     const cheekV = vAtHeight(BROW_Y - M.head.height * 0.16);
-    const c = onHead(U_FRONT - 0.055, cheekV, M.stitch.thickness * 0.4);
-    const d = onHead(U_FRONT - 0.082, vAtHeight(BROW_Y - M.head.height * 0.25), M.stitch.thickness * 0.4);
+    const c = onHead(U_FRONT - 0.078, cheekV, M.stitch.thickness * 0.4);
+    const d = onHead(U_FRONT - 0.104, vAtHeight(BROW_Y - M.head.height * 0.26), M.stitch.thickness * 0.4);
     stitchScar(scars, materials.stitch, { from: c, to: d, count: M.stitch.cheek, thickness: M.stitch.thickness });
   }
 

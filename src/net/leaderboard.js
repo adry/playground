@@ -31,6 +31,13 @@
 //   it is a bigger job than this file.
 
 import { client, readName, writeName, cleanName, isLevelSlug } from './supabase.js';
+// The one thing this file takes from the rules half, and it takes the number
+// rather than deciding it. RULES_VERSION is bumped whenever a change to the
+// game makes old scores incomparable, and run.js says in its own comment that a
+// board mixing versions is a board that lies. The shared board obeys the same
+// rule as the local one: every read below is filtered to this version, and
+// every row written carries it.
+import { RULES_VERSION } from '../game/run.js';
 
 export const BOARD_LIMIT = 10;
 
@@ -126,6 +133,11 @@ function mount(card, { run, levelSlug, api }) {
     score: Math.max(0, Math.floor(Number(run && run.score) || 0)),
     fireflies: Math.max(0, Math.floor(Number(run && run.fireflies) || 0)),
     seconds: Math.max(0, Math.floor(Number(run && run.seconds) || 0)),
+    // What the run was, for anybody who later wants to check whether it
+    // happened. Passed through untouched: which skeleton ended a run is the
+    // rules half's fact and this file does not have an opinion about it.
+    seed: Number.isFinite(Number(run && run.seed)) ? Math.floor(Number(run.seed)) : null,
+    caughtBy: run && typeof run.caughtBy === 'string' ? run.caughtBy : null,
   };
 
   const box = doc.createElement('div');
@@ -274,6 +286,7 @@ function mount(card, { run, levelSlug, api }) {
     const res = await api.topScores({
       levelSlug: at === 'level' ? slug : null,
       limit: BOARD_LIMIT,
+      rulesVersion: RULES_VERSION,
     });
     bucket.loading = false;
     if (!live()) return;
@@ -293,7 +306,11 @@ function mount(card, { run, levelSlug, api }) {
     if (!state.posted || bucket.rank || !bucket.rows) return;
     const inBoard = bucket.rows.some((r) => r.score === mine.score && cleanName(r.name) === cleanName(readName()));
     if (inBoard) return;
-    const res = await api.rankOf({ score: mine.score, levelSlug: at === 'level' ? slug : null });
+    const res = await api.rankOf({
+      score: mine.score,
+      levelSlug: at === 'level' ? slug : null,
+      rulesVersion: RULES_VERSION,
+    });
     if (!live() || !res.ok) return;
     bucket.rank = res.rank;
     if (scope === at) drawRows();
@@ -311,6 +328,9 @@ function mount(card, { run, levelSlug, api }) {
       fireflies: mine.fireflies,
       seconds: mine.seconds,
       levelSlug: slug,
+      rulesVersion: RULES_VERSION,
+      seed: mine.seed,
+      caughtBy: mine.caughtBy,
     });
     state.posting = false;
     if (!live()) return;

@@ -49,6 +49,21 @@ await setSize(small, Math.round(small * height / width));
 
 // The driver. A player who walks INTO the thing chasing them, which is the
 // fastest honest way to a third death and therefore to a picture.
+//
+// It needs two things beyond "walk at the skeleton", and both were learned by
+// watching it fail to terminate:
+//
+//   THE FENCE. A ghost holding a constant stick into a fence with the skeleton
+//   on the far side stands there for ever, and the skeleton walks the fence
+//   looking for a gate. So the driver JUMPS, which is the game's own answer to
+//   a fence and needs the run-up a charging ghost already has, and if it finds
+//   itself not actually moving it wanders for a moment to break the hold.
+//
+//   THE CIRCLE. Anything off the straight line does not terminate either: a
+//   ghost at 3.05 running tangentially outpaces a skeleton at 2.15 closing
+//   radially. So the line is straight, and the picture is unharmed -- a second
+//   before contact the two are about two units apart, which is exactly the gap
+//   share.js is looking for.
 const COARSE = 1 / 5;
 const FINE = 1 / 12;
 const CHUNK = 10;
@@ -60,6 +75,7 @@ let over = false;
 let big = false;
 while (t < maxSeconds && !over) {
   const res = await lab.page.evaluate((o) => {
+    const D = (window.__drive = window.__drive || { lastX: 0, lastZ: 0, stuck: 0, wander: 0, n: 0 });
     const foeOf = (st) => {
       let best = null;
       let bd = Infinity;
@@ -72,26 +88,33 @@ while (t < maxSeconds && !over) {
     };
     for (let i = 0; i < o.chunk; i++) {
       const st = window.__game.state();
+      const dt = st.lives <= 1 ? o.fine : o.coarse;
+      D.n++;
+      // Not moving means held against something. Six samples of standing still
+      // buys twenty of wandering, which is enough to come off a fence.
+      const moved = Math.hypot(st.ghost.x - D.lastX, st.ghost.z - D.lastZ);
+      D.lastX = st.ghost.x;
+      D.lastZ = st.ghost.z;
+      D.stuck = moved < 0.03 ? D.stuck + 1 : 0;
+      if (D.stuck > 6) { D.wander = 20; D.stuck = 0; }
+
       const foe = foeOf(st);
-      let axis = { x: Math.cos((o.t + i) * 0.37), y: Math.sin((o.t + i) * 0.23) };
-      if (foe) {
+      let axis = { x: Math.cos(D.n * 0.37), y: Math.sin(D.n * 0.23) };
+      if (foe && D.wander <= 0) {
         const dx = foe.x - st.ghost.x;
         const dz = foe.z - st.ghost.z;
         const L = Math.hypot(dx, dz) || 1;
-        // STRAIGHT AT IT, on every life including the last. Anything off the
-        // straight line was tried and does not terminate: a ghost at 3.05
-        // running tangentially outpaces a skeleton at 2.15 closing radially,
-        // so it circles for ever and the run never ends. The frames the ring
-        // keeps are a chase either way -- a second before contact the two are
-        // about two units apart, which is exactly the gap share.js is looking
-        // for -- so the straight line costs the picture nothing.
         axis = { x: dx / L, y: dz / L };
       }
-      window.__game.step(st.lives <= 1 ? o.fine : o.coarse, axis);
+      if (D.wander > 0) D.wander--;
+      // A hop every second or so. Refused when there is no run-up, which costs
+      // nothing, and over a fence when there is, which is the point.
+      axis.jump = D.n % Math.max(1, Math.round(1 / dt)) === 0;
+      window.__game.step(dt, axis);
     }
     const r = window.__game.run();
     return { over: r.over, lives: window.__game.state().lives, score: r.score, flies: r.fireflies, t: r.time };
-  }, { t, coarse: COARSE, fine: FINE, chunk: CHUNK });
+  }, { coarse: COARSE, fine: FINE, chunk: CHUNK });
   frames += CHUNK;
   // The run's own clock rather than a count of steps, since the steps are two
   // different lengths.

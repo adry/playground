@@ -647,6 +647,12 @@ export async function startGame({ canvas, params }) {
     built.parts.push(field);
     built.field = field;
 
+    // A pumpkin an author places is INSTANCED, so its flame lives on a clone of
+    // the template's lights and the template's own update() cannot reach it.
+    // The field steps every clone it made; a field with no lit prop in it has an
+    // empty list and this costs one call a frame.
+    if (field.alive) built.animated.push({ update: (t) => field.update(t) });
+
     charge('prop');
 
     // One field for the whole level: one draw call however many there are.
@@ -875,7 +881,14 @@ export async function startGame({ canvas, params }) {
       ol.className = 'board';
       for (const row of board) {
         const li = document.createElement('li');
-        li.textContent = `${row.score.toLocaleString('en-US')}   maze ${row.wave}`;
+        // NOT `maze ${row.wave}`, which is what this said until the waves went:
+        // a row has carried no wave since a run stopped being a sequence of
+        // mazes, so every line on the local board read "maze undefined". How
+        // long the run lasted is the fact that is still true and still worth
+        // knowing beside the score.
+        const secs = Math.max(0, Math.floor(row.duration || 0));
+        const lasted = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m`;
+        li.textContent = `${row.score.toLocaleString('en-US')}   ${lasted}`;
         // The row just played is marked rather than the top one, because the
         // question a player has is "where did THIS go", not "what is the best".
         if (row.at === board.find((r) => r.seed === run.seed && r.duration === Math.round(run.time))?.at) {
@@ -912,7 +925,15 @@ export async function startGame({ canvas, params }) {
     // is exactly the card it was before. A run on a published level carries its
     // code, so that level gets a board of its own as well as the global one.
     boards.attach(card, {
-      run: { score: run.score, fireflies: run.fireflies, seconds: Math.round(run.time) },
+      run: {
+        score: run.score,
+        fireflies: run.fireflies,
+        seconds: Math.round(run.time),
+        // The run's identity, so a score on the shared board can be checked
+        // against the rules later. Both are already here; neither is worked out.
+        seed: run.seed,
+        caughtBy: run.caughtBy,
+      },
       levelSlug: isLevelSlug(levelUrl) ? levelUrl : null,
     });
 
