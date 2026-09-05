@@ -162,3 +162,45 @@ as cute when it is tidy: stones in rows facing the same way, paths that go
 somewhere, a bench looking at something, lanterns spaced evenly enough to look
 placed rather than dropped. Randomness should vary WHICH prop and its small
 jitter, never whether the arrangement makes sense.
+
+
+## Two decisions recorded, so they are not re-litigated
+
+**The arena is WORLD-ALIGNED and is not rotated onto the screen axes.** Measured,
+a screen-aligned arena hides 12.1% of its ground behind the near wall against a
+world-aligned one's 16.4%, so the gain is 4.3 percentage points and not the
+"a quarter less" ratio it is easy to quote. Against that: the owner sized the
+arena as 6 by 6 of the floor grid's major squares, and that grid is world
+aligned in `src/ghost/ground.js`, so rotating divorces the arena from the thing
+it was measured with. `world.bounds` would also stop being the arena and become
+merely its enclosing box, and the level editor is written against that field.
+This is a "not now" rather than a "no": `world.wall` already expresses four
+diagonal barriers correctly, so the renderer side is cheap whenever it is worth
+the 4.3 points.
+
+**A fairness check must be flat across its raster before its number means
+anything.** This was learned three times in one night, by three different pieces
+of code, and each time the symptom was a number that looked authoritative:
+
+- the F3 check let the ghost's vault reach scale with the cell size, so a coarse
+  raster invented failures. It read 24.0, 23.3, 21.3, 12.0 and 3.3 percent at
+  steps 0.6 down to 0.25: falling the whole way, so measuring itself.
+- the same check called a cell blocked when its CENTRE was blocked, so a real
+  two unit gap between two headstones was invisible to the flood.
+- the generator's repair pass then made that second mistake again, one level
+  down, in the code written to catch it: it asked whether a body fits at a
+  cell's centre, and a wedge 1.26 across can hold a body and contain no cell
+  centre of a quarter-unit lattice. It reported a clean sheet over two arenas
+  that each had a place the player could stand and be safe for ever.
+
+The shape of the answer is **generous then exact**: flag on a mask that cannot
+miss (ask whether a body fits ANYWHERE in the cell, by shrinking the radius by
+the cell's half diagonal), then confirm every flagged cell in continuous
+geometry. Neither aliasing direction then survives. And run the whole thing at
+three raster steps before believing any of it.
+
+One consequence for anything holding a threshold: **count area, not cells.** The
+soak's leak threshold is in cells, so a lip of fixed physical size grows in cell
+count as the raster refines and the rule tightens roughly sixfold between step
+0.5 and step 0.2 on the same world. That is how a converging world can look like
+a diverging one.
