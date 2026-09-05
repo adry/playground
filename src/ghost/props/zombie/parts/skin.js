@@ -32,10 +32,15 @@ export const PALETTE = {
   // one, and because a warm ivory against the red flesh went pink.
   bone: '#ddd2b8',
   tooth: '#efe8d2',
-  // Not black. Pure black at this scale flattens into a hole with no form at
-  // all; a very dark warm grey still takes a little bounce off the cheek and
-  // keeps the socket looking deep rather than punched out.
-  socket: '#17141a',
+  // NOT BLACK, and not grey either. Flat black inside a big round socket is a
+  // Roswell grey, not a corpse: the eye reads void, and void is a sci-fi cue.
+  // Dark red-purple is what is actually in an empty orbit, it takes the key
+  // light as a colour rather than as a value, and it ties the face to the red
+  // in the open chest. It is still dark enough to read as a hole at 34 px.
+  socket: '#2e1a24',
+  // Deeper into the socket and into the throat, where even that should fall
+  // away. Two values inside one hole is what makes it look like a hole.
+  socketDeep: '#1b0f16',
   jacket: '#aba08a',
   jacketDark: '#7d745f',
   shorts: '#7d8365',
@@ -57,6 +62,7 @@ export function zombieMaterials() {
     bone: mk(PALETTE.bone, 0.74),
     tooth: mk(PALETTE.tooth, 0.55),
     socket: mk(PALETTE.socket, 1.0),
+    socketDeep: mk(PALETTE.socketDeep, 1.0),
     jacket: mk(PALETTE.jacket, 0.94),  // cloth, the roughest thing on the model
     jacketDark: mk(PALETTE.jacketDark, 0.94),
     shorts: mk(PALETTE.shorts, 0.94),

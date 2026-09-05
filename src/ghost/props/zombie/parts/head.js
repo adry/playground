@@ -354,15 +354,23 @@ function vAtHeight(y) {
 // resolution. One fixed axis, rather than the local surface normal, because
 // the normal swings wildly across the steep wall of a dent and a patch pushed
 // along it comes through the skin in fingers.
-function dentDisc({ cx, cy, hw, hh, slant = 0, side = 1, scale = 0.95, offset, lift = null, sectors = 20, rings = 5 }) {
+function dentDisc({
+  cx, cy, hw, hh, slant = 0, side = 1, scale = 0.95, offset, lift = null,
+  sectors = 20, rings = 5, wobble = 0, phase = 0, widthAt = null,
+}) {
   const [uc, vc] = frontUV(cx, cy);
   const axis = surfaceNormal(uc, vc, { mouth: false, sockets: false });
   return gridSurface({
     uSteps: sectors, vSteps: rings, closedU: true,
     point: (a, r) => {
       const th = a * Math.PI * 2;
-      const ex = scale * hw * r * Math.cos(th);
-      const ey = scale * hh * r * Math.sin(th);
+      // The SAME wobble the dent itself uses. Left off, the disc is a clean
+      // ellipse sitting in a lumpy hollow and pokes out of it wherever the
+      // hollow is shallow, which is what made the sockets look like teardrops
+      // with a bite out of one side.
+      const k = scale * r * lobes(th, wobble, phase);
+      const ex = hw * k * Math.cos(th) * (widthAt ? widthAt(Math.sin(th) * k) : 1);
+      const ey = hh * k * Math.sin(th);
       const x = cx + ex;
       // Undo the slant shear, so the disc matches the dent it sits in.
       const y = cy + ey + slant * side * ex + (lift ? lift(x) : 0);
@@ -381,7 +389,7 @@ function dentDisc({ cx, cy, hw, hh, slant = 0, side = 1, scale = 0.95, offset, l
 function toothRow(parent, material, { count, gap, up, seed }) {
   let s = seed;
   const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-  const span = M.grin.width * 0.78;
+  const span = M.grin.width * 0.70;
   // Teeth are placed by AZIMUTH, not by a target x, and this is the bug the
   // first pass had. Solving for an x and then putting a block there works on
   // the middle of the face and fails at the corners of the grin, because the
@@ -392,7 +400,7 @@ function toothRow(parent, material, { count, gap, up, seed }) {
     const t = count === 1 ? 0.5 : i / (count - 1);
     const targetX = (t - 0.5) * span;
     const w = (span / count) * (0.56 + rnd() * 0.20);
-    const h = M.grin.height * (up ? 0.40 : 0.33) * (0.78 + rnd() * 0.42);
+    const h = M.grin.height * (up ? 0.36 : 0.30) * (0.78 + rnd() * 0.42);
     // Two passes. The head tapers hard down here, so the azimuth that reaches
     // a given x at the mouth's centre line reaches a noticeably LARGER x a
     // couple of millimetres higher up, which is what walked the first pass's
@@ -409,7 +417,7 @@ function toothRow(parent, material, { count, gap, up, seed }) {
     const n = surfaceNormal(uu, vv, { mouth: true });
     const g = softBox(w, h, M.grin.depth * 1.15, { round: 0.42, uSteps: 8, vSteps: 6 });
     const m = put(parent, g, material, {
-      pos: floor.clone().addScaledVector(n, M.grin.depth * 0.52),
+      pos: floor.clone().addScaledVector(n, M.grin.depth * 0.40),
     });
     m.quaternion.setFromUnitVectors(v(0, 0, 1), n);
     m.rotateZ((rnd() - 0.5) * 0.34);                // uneven
@@ -489,13 +497,36 @@ export function buildHead({ materials }) {
   // is not RZ deep, it is RZ times the cosine of the latitude times the jaw
   // taper, and the dent then takes another socket.depth out of it.
   for (const side of [1, -1]) {
+    const phase = side > 0 ? 0.9 : 2.3;
     put(group, dentDisc({
       cx: side * SOCK_X, cy: BROW_Y,
       hw: SOCK_HW, hh: SOCK_HH,
       slant: M.socket.slant, side,
-      scale: 0.88, offset: M.socket.depth * 0.10,
+      scale: 0.90, offset: M.socket.depth * 0.08,
+      wobble: M.socket.wobble, phase,
     }), materials.socket);
+    // A second, smaller disc deeper in. One flat colour across a socket is a
+    // disc of paint; two, with the darker one set back and off centre, is a
+    // hollow with something behind it.
+    put(group, dentDisc({
+      cx: side * SOCK_X - side * SOCK_HW * 0.10, cy: BROW_Y - SOCK_HH * 0.12,
+      hw: SOCK_HW * 0.60, hh: SOCK_HH * 0.58,
+      slant: M.socket.slant, side,
+      scale: 0.90, offset: M.socket.depth * 0.22,
+      wobble: M.socket.wobble * 1.6, phase: phase + 1.1,
+      sectors: 16, rings: 3,
+    }), materials.socketDeep);
   }
+
+  // --- the nasal aperture's dark ------------------------------------------
+  // Same construction as the sockets, with the teardrop's own width profile
+  // fed in, so the dark is exactly the shape of the hole.
+  put(group, dentDisc({
+    cx: 0, cy: NOSE_Y, hw: NOSE_HW, hh: NOSE_HH,
+    scale: 0.90, offset: M.nose.depth * 0.10,
+    widthAt: (t) => noseHalfWidth(Math.min(1, Math.max(-1, t))),
+    sectors: 20, rings: 4,
+  }), materials.socket);
 
   // The dark inside the mouth.
   //
@@ -510,10 +541,11 @@ export function buildHead({ materials }) {
     put(group, dentDisc({
       cx: 0, cy: GRIN_Y,
       hw: GRIN_HW, hh: GRIN_HH,
-      scale: 0.92, offset: M.grin.depth * 0.10,
+      scale: 0.94, offset: M.grin.depth * 0.08,
       lift: (x) => M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(x) / GRIN_HW), 2),
+      wobble: M.grin.wobble, phase: 0.4,
       sectors: 24, rings: 5,
-    }), materials.socket);
+    }), materials.socketDeep);
   }
 
   // Upper teeth ride on the cranium.

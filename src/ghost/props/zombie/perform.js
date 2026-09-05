@@ -1030,9 +1030,50 @@ export function createZombiePerformance({
   // PHASES
   // ===========================================================================
 
+  // Put both feet flat under their own hips, wherever the body is standing now.
+  // The gait's first step then swings from a sane pose instead of from whatever
+  // the last plant happened to be.
+  function replantFeet() {
+    group.updateWorldMatrix(true, false);
+    for (const side of ['L', 'R']) {
+      const f = feet[side];
+      f.plant.copy(group.localToWorld(
+        v1.set(FOOT_X[side], -group.position.y / scale, 0),
+      ));
+      f.plant.y = 0;
+      f.yaw = yaw;
+      f.fromYaw = yaw;
+      f.swing = 1;
+      f.liftPitch = 0;
+      ankleOnPlant(f, 0, f.fromAnkle);
+    }
+    cursorFix = 0;
+  }
+
   function enter(next) {
     phase = next;
     phaseTime = 0;
+
+    // THE HANDS ONLY BELONG TO THE CLIMB, and this line is here because the
+    // game can leave that phase from anywhere.
+    //
+    // armBlend fades itself out over the last 0.6 of a normal emerge, so in the
+    // autonomous scene it is always zero by the time anything else runs and
+    // this looks like dead code. The game does not play the climb to the end:
+    // its rules own the state machine, they call setPhase every single frame,
+    // and they are free to move a figure from 'emerging' to 'hunting' whenever
+    // they like. When that happens mid-climb, armBlend is stranded at whatever
+    // it had reached and applyPose keeps solving both arms onto a HAND PLANT
+    // that was put on the ground seconds ago and metres away. Measured on the
+    // driven path before this line existed: both shoulders pinned at -105
+    // degrees with 8 degrees of travel over a whole walk, against the -14 they
+    // were asked for. The figure shambles along with its arms locked out behind
+    // it, and nothing in an autonomous clip shows it.
+    if (next !== 'emerging') {
+      armBlend = 0;
+      handsDown = false;
+    }
+
     if (next === 'buried') {
       setClipping(true);
       armBlend = 0;
@@ -1095,7 +1136,16 @@ export function createZombiePerformance({
       S.head.velocity -= 9.0;
       chatter = 1;
     }
-    if (next === 'chasing') lostFor = 0;
+    if (next === 'chasing') {
+      lostFor = 0;
+      // The walk needs feet on the floor and the climb is what normally puts
+      // them there, at table time 4.05. Arrive here without having played that
+      // far, which the game's rules are entitled to do, and shamble sets
+      // legBlend to 1 on its first frame with both plants still at the origin:
+      // the solver is then asked to reach a point wherever the figure was
+      // constructed and the legs go straight out behind it.
+      if (legBlend < 0.5) replantFeet();
+    }
   }
 
   // Buried. Not a switched-off object: it is listening, and what wakes it is
@@ -1468,7 +1518,23 @@ export function createZombiePerformance({
       yawVel = cut || dt <= 0 ? 0 : clamp(dyaw / dt, -MAX_YAW_RATE, MAX_YAW_RATE);
       yaw = nextYaw;
       speed = cut ? 0 : raw;
-      if (!cut) {
+      if (cut) {
+        // AND THE FEET COME WITH IT. The skeleton's driven path detects the
+        // teleport and zeroes the speed so the gait does not blow up, which is
+        // half the job: the plants are world points and they stay exactly where
+        // they were, so the body arrives at its new home with both feet still
+        // standing at the old one. Measured on the driven path before this
+        // line, over one dormant-and-respawn cycle: the contact ended up 10.2
+        // metres from where the solver was reaching for it, the legs went
+        // straight out behind the figure, and it stayed that way until the gait
+        // happened to step each foot.
+        //
+        // pos has already been written above, so the group's matrix is one
+        // frame stale; replantFeet refreshes it before it uses it.
+        group.position.set(pos.x, group.position.y, pos.z);
+        group.rotation.y = nextYaw;
+        replantFeet();
+      } else {
         travel += moved;
         cursor += moved / STEP_LENGTH;
       }

@@ -191,23 +191,23 @@ export const M = {
     // cheek pushing the bottom up they came out as angular almonds: a Roswell
     // grey, not a corpse. Round, deep, with a rim all the way round and a
     // colour inside that is not black.
-    width: f(0.094),
-    height: f(0.094),
-    depth: f(0.046),
+    width: f(0.088),
+    height: f(0.088),
+    depth: f(0.044),
     // The orbital rim: a raised ring around the socket, as a fraction of
     // browJut. This is what gives the eye a lid and a brow that overhangs it
     // rather than a hole punched in a smooth ball.
-    rim: 0.62,
+    rim: 0.55,
     rimAt: 1.22,              // where the ring sits, in socketR units
     // The outline is not a clean ellipse. A small three-lobed wobble is the
     // difference between a moulded eyepiece and a hole where something rotted
     // away, and it costs nothing.
-    wobble: 0.075,
+    wobble: 0.050,
     // Centre to centre. f(0.115) was the first pass and the two sockets came
     // within 0.02 of touching over the bridge, which read as one wide dark
     // band rather than two eyes. Pushed out until there is a clear strip of
     // green between them at game scale.
-    separation: f(0.152),
+    separation: f(0.146),
     // How far the upper rim cuts down toward the nose. The skeleton's note
     // applies verbatim: 0.60 is a glare, this is a stare. Change knowingly.
     // Zero. Any slant at all turns two round sockets into two angry eyebrows,
@@ -222,9 +222,9 @@ export const M = {
   // alien. Small, because there is only the gap between the sockets to put it
   // in, and dark inside for the same reason the sockets are.
   nose: {
-    width: f(0.058),
-    height: f(0.052),
-    depth: f(0.036),
+    width: f(0.068),
+    height: f(0.070),
+    depth: f(0.038),
     // Where the widest part of the pear sits, as a fraction of the aperture's
     // height measured from the bottom. Below the middle: that is what makes it
     // a teardrop rather than a lens.
