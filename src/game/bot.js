@@ -63,17 +63,22 @@ const SKILLS = {
   jumpTrigger: 2.2,
 
   // --- planning ---------------------------------------------------------------
-  // 8 Hz over a 52 by 52 window at 1.25. The window has to hold two or three
-  // fireflies at a spacing of 18 so the near-and-dangerous versus far-and-safe
-  // choice actually has two candidates in it, and it has to stay small enough
-  // that the Dijkstra over it can run eight times a second for a few hundred
-  // simulated minutes. 26 and 1.25 is 1764 cells, which is both.
+  // THE PLANNING WINDOW, and the derivation matters because getting it wrong
+  // was worth four fifths of the bot's score.
+  //
+  // The raster is centred where it was last BUILT, not where the ghost is, so
+  // the horizon the bot can actually see forward is `half - regrid`. That has
+  // to comfortably exceed the firefly spacing of 18 or the bot spends its life
+  // with no candidate in front of it, dithering between things behind it. At
+  // half 26 and regrid 10 the horizon is 16, just under the spacing, and the
+  // bot collected 14 fireflies in five minutes. At half 34 and regrid 8 the
+  // horizon is 26 and it collects 60. One number, four times the score, and it
+  // is exactly the failure mode the header warns about: the bot looked like a
+  // bad player and the game looked like a hard game.
   think: 0.125,
-  half: 26,
-  cell: 1.25,
-  // Rebuild the occupancy raster only after the ghost has moved this far. The
-  // raster is the expensive part; the Dijkstra over it is not.
-  regrid: 10,
+  half: 34,
+  cell: 1.5,
+  regrid: 8,
   // Pure-pursuit lookahead, the corner cut, unchanged in value and in reason.
   cut: 1.8,
   // Do not abandon the firefly you are already going to unless the new one is
@@ -84,15 +89,33 @@ const SKILLS = {
   panicPower: 26,
 };
 
+// A binary heap on typed arrays. It GROWS, and it has to: an out of bounds
+// write to a typed array is a silent no-op, so a heap that overflows does not
+// throw, it quietly drops the entry and returns a worse route. The first
+// version of this was sized at four entries a cell, a Dijkstra with eight
+// neighbours and four jump edges can push twelve, and the result was a bot
+// whose score fell by four fifths when the planning window got BIGGER. Nothing
+// in the output said anything was wrong.
 function makeHeap(n) {
-  const node = new Int32Array(n + 1);
-  const cost = new Float64Array(n + 1);
+  let cap = n + 1;
+  let node = new Int32Array(cap);
+  let cost = new Float64Array(cap);
   let size = 0;
+  function grow() {
+    cap *= 2;
+    const nn = new Int32Array(cap);
+    nn.set(node);
+    node = nn;
+    const nc = new Float64Array(cap);
+    nc.set(cost);
+    cost = nc;
+  }
   return {
     clear() { size = 0; },
     get size() { return size; },
     push(v, c) {
       let i = ++size;
+      if (size >= cap) grow();
       node[i] = v; cost[i] = c;
       while (i > 1 && cost[i >> 1] > cost[i]) {
         const tn = node[i >> 1]; const tc = cost[i >> 1];
@@ -133,9 +156,9 @@ export function createBot(game, opts = {}) {
   let dist = null;
   let prev = null;
   let prevJump = null;
+  let want = null;
   let skelD = null;
   let heap = null;
-  let queue = null;
 
   let cool = 0;
   let route = [];          // cell indices, ghost first
@@ -158,9 +181,9 @@ export function createBot(game, opts = {}) {
       dist = new Float64Array(N);
       prev = new Int32Array(N);
       prevJump = new Uint8Array(N);
+      want = new Uint8Array(N);
       skelD = new Float64Array(N);
-      heap = makeHeap(N * 4);
-      queue = new Int32Array(N * 8);
+      heap = makeHeap(N * 12);
     }
   }
 
@@ -206,16 +229,37 @@ export function createBot(game, opts = {}) {
   // cell it enters, so risk is integrated along the whole journey rather than
   // sampled at the end of it. A fence crossing is an extra edge at jumpCost
   // times the same length.
-  function plan(from) {
+  // Everything worth going to, as cells, so the Dijkstra can stop once it has
+  // settled all of them rather than filling the whole window. In open ground
+  // that is most of the saving there is, and the soak runs tens of millions of
+  // frames.
+  function wantedCells(state) {
+    const out = [];
+    const push = (x, z) => {
+      const c = grid.index(x, z);
+      if (c < 0) return;
+      const cell = grid.blocked[c] ? grid.nearestOpen(x, z) : c;
+      if (cell >= 0) out.push(cell);
+    };
+    if (state.power) for (const s of game.herd.list) if (s.state === 'frightened') push(s.x, s.z);
+    for (const p of state.powerups) push(p.x, p.z);
+    for (const f of state.fireflies) push(f.x, f.z);
+    return out;
+  }
+
+  function plan(from, wanted) {
     dist.fill(Infinity);
     prev.fill(-1);
     prevJump.fill(0);
     dist[from] = 0;
     heap.clear();
     heap.push(from, 0);
+    let left = 0;
+    if (wanted && wanted.length) { want.fill(0); for (const c of wanted) if (!want[c]) { want[c] = 1; left++; } }
     while (heap.size) {
       const n = heap.pop();
       const dn = dist[n];
+      if (left && want[n]) { want[n] = 0; if (--left === 0) break; }
       for (let d = 0; d < 8; d++) {
         const [dx, dz] = grid.DIR8[d];
         const m = n + dz * grid.n + dx;
@@ -324,7 +368,7 @@ export function createBot(game, opts = {}) {
       const here = grid.nearestOpen(g.x, g.z);
       if (here < 0) { stats.stuck++; return { x: 0, y: 0, jump: false }; }
       dangerField(solid);
-      plan(here);
+      plan(here, wantedCells(state));
       const goal = chooseGoal(state, nearest);
       if (!goal) {
         // Nothing worth going to inside the window. Walk away from the nearest
