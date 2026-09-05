@@ -43,14 +43,30 @@ import { registerStone, inkText, inkCross } from '../tombstones.js';
 //    four traffic bollards. Jittering the plane distances cannot fix it, since
 //    every jitter is still a convex body sitting on its widest section.
 //
-//    Three things fix it, and all three are structural rather than surface:
+//    Four things fix it, and all four are structural rather than surface:
 //
-//      THE FOOT IS TUCKED. Three planes at about -26 degrees of elevation cut
-//      the base in to roughly half the waist, so the widest section of the
-//      stone is 35 to 45 percent of the way up it and the flanks OVERHANG the
-//      ground below them. Measured on the screen outline over sixteen seeds:
-//      the widest point sits at 0.38 of the height on average and never below
-//      0.24, and the outline pushes outward as it rises by 40 to 90 mm.
+//      IT IS NOT CONVEX. This is the one that matters most and it took two
+//      passes to see, because it is a property of the machinery rather than of
+//      the numbers fed to it: an intersection of half spaces is convex, and a
+//      convex body has a convex OUTLINE from every angle. No plane table and no
+//      jitter can put a notch in it. Real rock is full of notches, because that
+//      is what a conchoidal fracture leaves. So the radial function has two or
+//      three SCOOPS subtracted from it: broad shallow dishes, 45 to 95 mm deep
+//      and 180 to 420 mm across, in seeded directions. A radial function stays
+//      single valued whatever is subtracted from it while it stays positive, so
+//      the surface still cannot self intersect and everything downstream --
+//      normals, seating, the pocket's clearance bisection -- goes on working
+//      unaltered. What changes is that the outline now has bites out of it.
+//      They also give the shading something honest to do: a dish and the
+//      inscription's pocket are the only two places this body occludes itself
+//      at all.
+//
+//      THE FOOT IS TUCKED. Five planes at about -18 degrees of elevation, one
+//      in five dropped per seed, cut the base in to about two thirds of the
+//      waist, so the widest section of the stone is well above the floor and
+//      the flanks OVERHANG the ground below them. Five and not three: see the
+//      note on the table itself, since three was tried and did not reach the
+//      outline.
 //
 //      THE TOP IS A BREAK, NOT AN APEX. One big slanted plane whose azimuth
 //      swings 45 degrees either way per seed, plus two smaller ones that snap a
@@ -60,6 +76,23 @@ import { registerStone, inkText, inkCross } from '../tombstones.js';
 //      IT IS NOT PLUMB. Up to eight degrees of roll and a little pitch, seeded.
 //      A found stone was shoved into a hole, not set by a mason, and the axis
 //      being off vertical is most of what says so at a glance.
+//
+//    Measured over sixteen seeds, against the version that was rejected, on the
+//    outline the camera actually sees (boulder-lab's silhouette() probe):
+//
+//                       rejected                 this
+//      widest section   0.05 of the height       0.40, from 0.10 to 0.73
+//      widest / base    1.007, sd 0.017          1.125, sd 0.096, up to 1.34
+//      same in plan     1.011, sd 0.026          1.129, sd 0.144, up to 1.57
+//      outward travel   0.043                    0.141
+//      height/width     0.99                     1.13
+//
+//    The first two lines are the whole argument. A stone with a batter is 1.00
+//    by definition and the rejected one measured 1.007 with a standard
+//    deviation of 0.017, which is to say it was that stone on every seed. The
+//    third line is the same question asked of the solid rather than of one view
+//    of it, and its standard deviation going from 0.026 to 0.144 is where the
+//    four seeds stopped being four of the same object.
 //
 // 3. THE DRESSED PANEL IS A POCKET, NOT A DECAL. It is milled into the rock
 //    along the panel normal: a flat floor 32 mm below the dressed face, a 10 mm
@@ -152,33 +185,57 @@ const OUT_K = 3.2;
 // which faces the stone HAS. Only the corner cuts and the foot planes may go;
 // the six dominant faces are always there or the body stops being closed.
 //
+// The horizontal distances were raised ten percent and the vertical ones cut
+// thirteen on the last pass, and the reason is worth keeping: tucking the foot
+// narrows a stone without shortening it, so the first version of the tuck took
+// the outline's height over its width from 0.99 to 1.39 and the piece stopped
+// being the squat one of the set, which is half of why it is here.
+//
 // The list is not a regular solid either, and two passes that went that way
 // came back as a moulded doorstop. What a broken fieldstone has is a few
 // DOMINANT faces and then a scatter of small ones that only cut a corner off,
-// so the distances run from 0.35 to 0.62 and the near ones are the corner cuts.
-// A plane at 0.35 between the front and a flank leaves a wide chamfer where the
+// so the distances run from 0.38 to 0.52 and the near ones are the corner cuts.
+// A plane at 0.385 between the front and a flank leaves a wide chamfer where the
 // two would otherwise meet in one long arris, and that chamfer is most of what
 // says "this broke" rather than "this was moulded".
 const PLANES = [
   // the dominant faces
-  { az: 196, el: 0, d: 0.415 },                        // back
-  { az: -86, el: 6, d: 0.455 },                        // left flank
-  { az: 94, el: -4, d: 0.470 },                        // right flank
-  { az: 0, el: -88, d: 0.560 },                        // the bottom it stands on
-  { az: 128, el: 54, d: 0.640, spin: 90 },             // the top, one big slanted break
+  { az: 196, el: 0, d: 0.457 },                        // back
+  { az: -86, el: 6, d: 0.501 },                        // left flank
+  { az: 94, el: -4, d: 0.517 },                        // right flank
+  { az: 0, el: -88, d: 0.487 },                        // the bottom it stands on
+  { az: 128, el: 46, d: 0.522, spin: 90, elspin: 34 }, // the top, one big slanted break
   // the foot. These are what put the widest section of the stone ABOVE the
-  // ground and give the flanks something to overhang: at -26 degrees they cut
-  // the base to about half the waist over the 300 mm below it.
-  { az: 20, el: -26, d: 0.430, spin: 44, drop: 0.30 },
-  { az: -100, el: -30, d: 0.415, spin: 44, drop: 0.30 },
-  { az: 205, el: -22, d: 0.445, spin: 44, drop: 0.45 },
+  // ground and give the flanks something to overhang, and there are five of
+  // them, evenly round, because three scattered ones did not work. A plane only
+  // narrows the base in ITS OWN direction, and the outline you see is set by
+  // the two azimuths square to the camera; with three tucks at random azimuths
+  // the odds are against either of those being one of them, and the measured
+  // flare came back 1.02, which is a stone with a batter. Five at 60 degree
+  // spacing, with a fifth of them dropped per seed, narrow the base from every
+  // side while still leaving the undercut lopsided.
+  //
+  // -18 degrees rather than the -26 tried first: the shallower the plane, the
+  // higher up the stone it stops binding, and the height of the widest section
+  // is the whole point. At -18 and 0.42 the base comes in to about two thirds
+  // of the waist and the waist lands near 0.35 of the height.
+  //
+  // None of them is in front. The dressed face is one plane running the full
+  // height of the stone, which is what a mason planing one side of a boulder
+  // actually leaves, and a tuck under it would both cut into the panel's
+  // clearance and make the face lean out over its own foot.
+  { az: 65, el: -18, d: 0.468, spin: 22, drop: 0.22 },
+  { az: 125, el: -16, d: 0.457, spin: 22, drop: 0.22 },
+  { az: 180, el: -21, d: 0.484, spin: 22, drop: 0.22 },
+  { az: 235, el: -19, d: 0.462, spin: 22, drop: 0.22 },
+  { az: 295, el: -17, d: 0.446, spin: 22, drop: 0.22 },
   // the corner cuts
-  { az: 48, el: 16, d: 0.365, spin: 22, drop: 0.15 },  // front to right flank
-  { az: -40, el: 10, d: 0.350, spin: 22, drop: 0.15 }, // front to left flank
-  { az: -138, el: 14, d: 0.410, spin: 26, drop: 0.30 },
-  { az: 142, el: 10, d: 0.430, spin: 26, drop: 0.30 },
-  { az: -34, el: 62, d: 0.570, spin: 56, drop: 0.25 }, // snaps the top left corner off
-  { az: 68, el: 70, d: 0.600, spin: 56, drop: 0.35 },  // and nicks the top right
+  { az: 48, el: 16, d: 0.402, spin: 22, drop: 0.15 },  // front to right flank
+  { az: -40, el: 10, d: 0.385, spin: 22, drop: 0.15 }, // front to left flank
+  { az: -138, el: 14, d: 0.451, spin: 26, drop: 0.30 },
+  { az: 142, el: 10, d: 0.473, spin: 26, drop: 0.30 },
+  { az: -34, el: 62, d: 0.496, spin: 56, drop: 0.25 }, // snaps the top left corner off
+  { az: 68, el: 70, d: 0.522, spin: 56, drop: 0.35 },  // and nicks the top right
 ];
 
 // The fillet the smooth min puts on an arris, in world units, and it is two
@@ -210,6 +267,17 @@ const PLANES = [
 const SMIN_K = 0.017;
 const SMIN_PANEL = 0.012;
 
+// The scoops: how many, how deep, how wide. Width is the half angle of the
+// dish measured from the rock's centre, so at a radius near 0.45 a scoop of
+// 0.40 rad is about 190 mm across and one of 0.80 rad about 420 mm. Kept
+// SHALLOW relative to that: a dish deeper than about a seventh of its width
+// stops reading as a fracture scar and starts reading as a bite out of an
+// apple, which is cracked.js's territory and not this stone's.
+const SCOOP_MIN = 2;
+const SCOOP_MAX = 3;
+const SCOOP_DEEP = [0.045, 0.095];
+const SCOOP_WIDE = [0.38, 0.82];
+
 // A very slow swell over the rough surface, three waves in DIRECTION rather
 // than in position, so the whole thing stays a single valued radial function.
 // 9 mm on a stone a metre tall: enough that a facet is not a machined plane,
@@ -226,8 +294,11 @@ const SWELL = 0.009;
 // then scaled by the ratio, twice, which is exact because the surface is
 // homogeneous in the plane distances. So height stays a deliberate variable
 // with a known range instead of being whatever the jitter happened to produce.
+// These are LOCAL heights, before the tilt shortens the piece and the sink
+// takes 100 mm off it; measured on the finished prop over twelve seeds they
+// come out between 1.00 and 1.19, which is the band the brief asked for.
 const TARGET_LO = 1.08;
-const TARGET_HI = 1.30;
+const TARGET_HI = 1.26;
 
 const SEG_A = 96;   // columns round the piece
 const SEG_R = 46;   // rings from the pocket rim round to the back
@@ -296,17 +367,22 @@ const FOOT_MAX = 6;
 // The dressed face is exempt from the arris term and carries its own slightly
 // LIGHTER tone. It was worked, so it is fresher stone than the broken faces
 // round it, and it is also the one surface on the piece the eye has to read.
-const TONE_SPREAD = 0.085;
+const TONE_SPREAD = 0.160;
 const PANEL_TONE = 1.06;
-const ARRIS_DARK = 0.17;
+const ARRIS_DARK = 0.24;
 const SKY_DARK = 0.15;
 const GROUND_DARK = 0.20;
 const GROUND_REACH = 0.24;
 // Inside the pocket. Its floor is occluded by its own wall, most at the edges,
-// and the wall itself is occluded most at the bottom. This is honest occlusion
-// rather than a nudge: the pocket is the one concavity on a convex body.
+// and the wall itself is occluded most at the bottom. This one and the scoop
+// term below are honest occlusion rather than nudges: they are the two places
+// the surface is genuinely concave.
 const POCKET_EDGE = 0.12;
 const POCKET_WALL = 0.26;
+// And in a scoop, which is the other concavity and the honest one: the floor of
+// a dish sees a good deal less of the sky than the facet round it. Scaled by
+// how deep into the dish the point is, against the deepest a dish can be.
+const SCOOP_DARK = 0.26;
 
 // Initials rather than a phrase. A field boulder is the marker a parish put on
 // a grave it could not afford a mason for, and two letters is what those carry.
@@ -343,13 +419,32 @@ function makeRock(rng) {
     const roll = rng();
     if (p.drop && roll < p.drop) continue;
     planes.push({
-      n: dir(p.az + (rng() - 0.5) * (p.spin ?? 14), p.el + (rng() - 0.5) * 12),
+      n: dir(p.az + (rng() - 0.5) * (p.spin ?? 14), p.el + (rng() - 0.5) * (p.elspin ?? 12)),
       d: p.d * (0.88 + rng() * 0.24),
       tone: 1 + (rng() - 0.5) * 2 * TONE_SPREAD,
     });
   }
   const ph = [rng() * 6.283, rng() * 6.283, rng() * 6.283];
   const frame = panelFrame((rng() - 0.5) * 0.20, (rng() - 0.5) * 0.10);
+
+  // The scoops, in directions drawn away from the dressed face. Away, because
+  // the face was worked flat and because a dish reaching into it would eat the
+  // clearance the pocket needs; the same reason the swell is faded off it.
+  const scoops = [];
+  const nScoop = SCOOP_MIN + Math.floor(rng() * (SCOOP_MAX - SCOOP_MIN + 1));
+  for (let i = 0; i < nScoop; i++) {
+    // No rejection loop needed: an azimuth at least 75 degrees off the face's,
+    // at any elevation, is always clear of it.
+    const away = PANEL_AZ / DEG + (rng() < 0.5 ? -1 : 1) * (75 + rng() * 105);
+    // The first one is held near the horizon, where the outline is: a dish up
+    // on the shoulder shades nicely and does nothing at all to the silhouette.
+    const el = i === 0 ? -14 + rng() * 34 : -50 + rng() * 115;
+    scoops.push({
+      n: dir(away, el),
+      depth: SCOOP_DEEP[0] + rng() * (SCOOP_DEEP[1] - SCOOP_DEEP[0]),
+      w: SCOOP_WIDE[0] + rng() * (SCOOP_WIDE[1] - SCOOP_WIDE[0]),
+    });
+  }
   // The dressed face is one of the rock's own bounding planes and it has to be
   // there: left out, the front of the mass is bounded by whatever is next to
   // it, the panel plane ends up a couple of hundred millimetres inside the
@@ -361,6 +456,7 @@ function makeRock(rng) {
     planes,
     ph,
     frame,
+    scoops,
     hits: new Float64Array(planes.length),
     who: new Int32Array(planes.length),
   };
@@ -395,8 +491,25 @@ function measureH(rock) {
   return top - bot;
 }
 
+// How deep into a scoop a direction is, 0 outside every dish and 1 at the
+// bottom of one. The falloff is (1 - (a/w)^2)^2, which is flat at the middle,
+// tangent to zero at the rim and has no corner anywhere, so the dish blends
+// into the facet it is cut out of instead of ending on a crease.
+function scoopAt(u, rock) {
+  let s = 0;
+  for (const sc of rock.scoops) {
+    const c = u.dot(sc.n);
+    if (c <= 0) continue;
+    const a = Math.acos(Math.min(1, c)) / sc.w;
+    if (a >= 1) continue;
+    const t = 1 - a * a;
+    s += t * t * sc.depth;
+  }
+  return s;
+}
+
 // Radius of the surface in a direction. The dressed face is exempt from the
-// swell, which is why this takes the frame.
+// swell and from the scoops, which is why this takes the frame.
 function radius(u, rock) {
   // Ray distance to every rough plane the ray can actually reach, then the
   // smooth min of them, offset by the smallest so the exponentials cannot
@@ -432,7 +545,7 @@ function radius(u, rock) {
     0.48 * Math.sin(2.7 * u.x + ph[0]) +
     0.27 * Math.sin(2.3 * u.y + ph[1]) +
     0.25 * Math.sin(3.1 * u.z + ph[2]);
-  return r + SWELL * swell * worked;
+  return r + SWELL * swell * worked - scoopAt(u, rock) * worked;
 }
 
 // Which face a direction belongs to, and how much of an arris it is standing
@@ -773,7 +886,15 @@ function buildBoulder(rock, wob, slabUV) {
       const p = surfacePoint(u, rock, new THREE.Vector3());
       const n = surfaceNormal(u, rock, new THREE.Vector3());
       const s = faceShade(u, rock);
-      return { p, n, u: j / SEG_A, v: 0, face: false, k: s.tone * (1 - ARRIS_DARK * Math.min(1, s.arris * 2)) };
+      const dip = clamp01(scoopAt(u, rock) / SCOOP_DEEP[1]);
+      return {
+        p,
+        n,
+        u: j / SEG_A,
+        v: 0,
+        face: false,
+        k: s.tone * (1 - ARRIS_DARK * Math.min(1, s.arris * 2)) * (1 - SCOOP_DARK * dip),
+      };
     }));
   }
 
@@ -803,6 +924,7 @@ function footStone(rng, seg, ringN) {
     planes,
     ph: [rng() * 6.283, rng() * 6.283, rng() * 6.283],
     frame: { e3: new THREE.Vector3(0, 1, 0) },
+    scoops: [],   // a stone this size does not need one, and radius() wants the array
     hits: new Float64Array(planes.length),
     who: new Int32Array(planes.length),
   };

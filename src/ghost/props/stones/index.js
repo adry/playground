@@ -11,6 +11,7 @@
 import '../tombstones.js';
 
 import './heart.js';      // 1.08, the smallest
+import './boulder.js';    // 1.10, a found stone with one dressed face
 import './scroll.js';     // 0.93 tall, 1.46 wide, the only one wider than tall
 import './ledger.js';     // lying down
 import './bench.js';      // 0.81, furniture

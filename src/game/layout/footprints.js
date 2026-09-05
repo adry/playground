@@ -30,7 +30,7 @@
 
 // --- headstones ------------------------------------------------------------
 //
-// All 28 registered variants, in the order stones/index.js loads them, which is
+// All 29 registered variants, in the order stones/index.js loads them, which is
 // small to large. `face` is what the inscription faces: local +Z, so a stone
 // yawed to face the camera is at PI/4 in the screen frame.
 //
@@ -41,6 +41,10 @@ export const STONES = {
   bat:     { halfU: 0.579, halfV: 0.228, height: 1.521 },
   fred:    { halfU: 0.448, halfV: 0.193, height: 1.098 },
   heart:   { halfU: 0.388, halfV: 0.182, height: 1.080 },
+  // Nearly square in plan and wider than it is tall, because the box takes in
+  // the foot stones scattered round its base. Like vault, a yaw does not
+  // shrink it.
+  boulder: { halfU: 0.744, halfV: 0.762, height: 1.144 },
   scroll:  { halfU: 0.809, halfV: 0.203, height: 0.983 },
   ledger:  { halfU: 0.797, halfV: 0.452, height: 0.336 },
   bench:   { halfU: 0.730, halfV: 0.290, height: 0.833 },
@@ -79,7 +83,7 @@ export const STONES = {
 // height, because a row is laid out short at the front and tall at the back and
 // the motifs walk this list rather than sorting one of their own.
 export const UPRIGHT = [
-  'heart', 'fred', 'sundial', 'pyramid', 'stump', 'cracked', 'column', 'wheel',
+  'heart', 'boulder', 'fred', 'sundial', 'pyramid', 'stump', 'cracked', 'column', 'wheel',
   'twin', 'bat', 'wings', 'urn', 'cross', 'draped', 'celtic', 'gothic', 'stele',
   'vault', 'calvary', 'obelisk',
 ];
