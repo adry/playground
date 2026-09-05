@@ -90,8 +90,10 @@ function make2D(w, h) {
 }
 
 // A skeleton that is underground is not in the picture, whatever the rules say
-// its coordinates are.
-const ABOVE_GROUND = new Set(['leaving', 'hunting', 'emerging']);
+// its coordinates are. Ranked rather than a flat set: a figure that is only
+// half out of its grave is visible but it is not a chase, so it is the foe of
+// last resort and a walking one anywhere on screen beats it.
+const FOE_RANK = { hunting: 2, leaving: 2, emerging: 1 };
 
 export function createShareRecorder({ canvas, camera, state }) {
   // Sized on first sample, from whatever the canvas's backing store turns out
@@ -121,10 +123,12 @@ export function createShareRecorder({ canvas, camera, state }) {
     const g = st.ghost;
     let foe = null;
     let gap = Infinity;
+    let rank = 0;
     for (const s of st.skeletons) {
-      if (!ABOVE_GROUND.has(s.state)) continue;
+      const r = FOE_RANK[s.state] || 0;
+      if (!r) continue;
       const d = Math.hypot(s.x - g.x, s.z - g.z);
-      if (d < gap) { gap = d; foe = s; }
+      if (r > rank || (r === rank && d < gap)) { rank = r; gap = d; foe = s; }
     }
 
     // The crop, in source pixels: 16:9, holding CROP_SPAN of the camera's
@@ -290,8 +294,10 @@ export function composeShareImage({ frame, run = null, best = false, caption = n
     badge: best ? 'BEST RUN' : 'CAUGHT',
     headline: lines[0] || 'A run in the graveyard.',
     // Line 1 of the share text is the points and the fireflies, which the stat
-    // row says better. Line 2, when there is one, is the near miss, and that is
-    // the line worth keeping.
+    // row below says better, so it is skipped. Anything AFTER it is colour the
+    // stats cannot carry -- there is none today, since the near miss went with
+    // the arena that could be cleared, but the slot is kept because the static
+    // card uses it and because the next characterful line will land there.
     subline: lines[2] || '',
     stats: run ? [
       ['SCORE', run.score.toLocaleString('en-US')],

@@ -48,7 +48,7 @@ while (t < maxSeconds && !over) {
   t += 30 * DT;
   if (Math.round(t) % 20 === 0) {
     const r = await lab.page.evaluate(() => window.__game.run());
-    console.log(`  t=${t.toFixed(0)}s wave=${r.wave} score=${r.score} lives=${r.lives}`);
+    console.log(`  t=${t.toFixed(0)}s score=${r.score} fireflies=${r.fireflies} lives=${r.lives}`);
   }
 }
 if (!over) { console.log('run did not end inside --max seconds'); await lab.close(); process.exit(1); }
@@ -86,7 +86,7 @@ if (a.card) {
       caption: {
         badge: 'GRAVEYARD',
         headline: 'Sweep the graveyard before the dead find you.',
-        subline: 'Four skeletons, one sheet, and a fence you can jump.',
+        subline: 'One skeleton at first. Five once you are any good at it.',
         stats: null,
       },
     });
