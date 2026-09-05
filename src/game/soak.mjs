@@ -151,11 +151,29 @@
 //
 // SELF TEST, all 20 checks and load-bearing rules fired on their own case.
 //
-// KNOWN DEFECT, not fixed and not hidden: `skeleton-stalled` still fires in
-// about one arena in twenty, which is the same thing as the arenas a
-// motionless player survives. The steering has a wedge case left in it.
-// chase.js's five second give-up caps how long any one instance lasts; the
-// check is what will say when it is gone.
+// THE DEFECT THAT WAS KNOWN HERE IS FIXED, and what it turned out to be is
+// worth more than the fix. `skeleton-stalled` fired in about one arena in
+// twenty, was written down as "the steering has a wedge case left in it", and
+// later read 38 in 60, which looked like the wedge case getting worse.
+//
+// It was two separate things wearing one number.
+//
+//   THE MEASUREMENT. The check was a stopwatch: did any skeleton ever go
+//   nowhere for twelve seconds. An endless run is six times longer than the
+//   forty-second run this was calibrated on, and a "did it ever" flag scales
+//   with exposure, so six times the run is six times the rate. The same build
+//   measured at forty-five seconds still read 2 in 20. It is a SHARE now and
+//   the run length cannot move it.
+//
+//   THE DEFECT. A real one, and not the wedge case: a skeleton SLIDING along a
+//   wall. chase.js's give-up watched whether the resolver was fighting the
+//   mover, and a slide keeps almost all of its step, so a skeleton could pace a
+//   wall at full speed for as long as you left it. It cost 4.6% of all time
+//   above ground. chase.js now watches net displacement instead and retires one
+//   that has not moved two units in nine seconds.
+//
+// Measured after both: 1.7% of time above ground, and the check fires in one
+// arena in sixty at the two extreme frame times and none at all at 1.0 s.
 
 // THE ONE LINE. `createArena` is the stand-in this half wrote to unblock
 // itself; `createLevel` is the real generator. Both satisfy the same contract

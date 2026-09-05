@@ -1,5 +1,11 @@
 # Chibi zombie rig contract
 
+> **The body is being rebuilt.** Read `POSTMORTEM.md` in this folder first: it
+> lists the three things that must survive the redo (this file's joint map and
+> the `REST` assertion, the signed-Euler `LIMITS` correction, and the
+> proportion reasoning in `metrics.js`) and records what has already been tried
+> and failed. Everything else in `parts/` is up for replacement.
+
 Two agents build this character in parallel, one the body and one the
 animation, so the seam between them is fixed here. Nobody changes this file
 or `metrics.js` without saying so: they are the only things keeping the two
