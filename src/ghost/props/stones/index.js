@@ -16,6 +16,7 @@ import './ledger.js';     // lying down
 import './bench.js';      // 0.81, furniture
 import './book.js';       // 0.81, an open volume on a lectern wedge
 import './chest.js';     // 0.85 tall and 1.63 long, a closed box tomb
+import './lamb.js';       // 0.87, a child's grave, and the only animal
 import './cairn.js';      // 0.90, a heap of field stones and a leaned plaque
 import './kerb.js';      // a 2.35 by 0.90 plot, the largest footprint
 import './sundial.js';    // 1.15, the only piece whose face points at the sky
