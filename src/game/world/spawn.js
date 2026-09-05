@@ -295,14 +295,19 @@ export function zoneInBounds(z, box) {
 // other. That is the whole of "no headstone is silently exempt": the exemption
 // has a name and both halves read it off the same call.
 //
-//   'prop'      something solid stands in the zone. THE FAILURE: an author put
-//               a fountain in front of a headstone and can move it.
-//   'fence'     a fence or the arena wall crosses the zone.
+//   'prop'      something solid stands in the zone. An author put a bench in
+//               front of a headstone, and can move it.
+//   'fence'     a fence crosses the zone.
+//   'wall'      the stone faces the arena's perimeter with its plot in it.
 //   'gate'      a gate leaf sweeps through it.
 //   'bounds'    part of it is outside the arena.
+//
+// The order is the order an author can act on: the thing they can move first,
+// then the thing they would have to redraw, then the thing they would have to
+// move the stone away from.
 export function spawnFault(z, { props = [], barriers = [], gates = [], box = null } = {}) {
   for (const p of props) if (propInZone(z, p)) return 'prop';
-  for (const b of barriers) if (barrierInZone(z, b)) return 'fence';
+  for (const b of barriers) if (barrierInZone(z, b)) return b.kind === 'wall' ? 'wall' : 'fence';
   for (const g of gates) if (gateInZone(z, g)) return 'gate';
   if (box && !zoneInBounds(z, box)) return 'bounds';
   return null;

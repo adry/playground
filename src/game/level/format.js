@@ -13,7 +13,7 @@
 //
 // That is the whole design constraint. A caller that holds `world` and asks
 // `world.barriers(box)`, `world.gates(box)`, `world.props(box)`,
-// `world.fireflies(box)`, `world.powerups(box)`, `world.graves(box)`,
+// `world.fireflies(box)`, `world.spawns(box)`,
 // `world.paths(box)` or `world.blocks(...)` cannot tell whether it was handed a
 // seed or a file. Where the generator publishes an extra field, this publishes
 // it too: `kind` and `jumpable` on every barrier, the CAPSULE `clear` on every
@@ -99,10 +99,19 @@
 //   "graves": [
 //     { "id": "g0", "x": 3, "z": -2, "yaw": 0.78, "order": 0,
 //       "personality": "chaser", "pile": 1, "head": 1, "headstone": "cross" }
-//                                 THE SPAWN ORDER. `order` is which skeleton
-//                                 climbs out and when: 0 first. At most four,
-//                                 because ground.js cuts at most four holes
-//                                 and rules.js runs four personalities.
+//                                 A DUG GRAVE, AND NO LONGER A SPAWN. Skeletons
+//                                 climb out in front of HEADSTONES now, any of
+//                                 them, chosen at random: see world/spawn.js.
+//                                 So a grave is three props in a pose and
+//                                 nothing else, and its `order` and
+//                                 `personality` are dead fields that a file
+//                                 written before the change still carries. They
+//                                 are read, kept and written back untouched so
+//                                 that an old file round-trips and the editor
+//                                 can still show what it has; nothing in the
+//                                 game reads either of them. At most four,
+//                                 because ground.js still cuts at most four
+//                                 holes.
 //
 //                                 A GRAVE IS THREE PROPS AND THE FILE STORES
 //                                 ONE POSE. The mouth, the spoil heap and the
@@ -119,6 +128,13 @@
 //   ],
 //
 //   "powerups": [ { "id": "jack0", "x": 8, "z": 8 } ],
+//                                 LEGACY, and read for the same reason. The lit
+//                                 jack-o'-lantern was the power pellet and the
+//                                 owner has taken the pellet out, so nothing in
+//                                 the game collects one and no world query
+//                                 publishes them. A file that has some still
+//                                 opens, still keeps them, and the editor can
+//                                 still delete them.
 //
 //   "ground": {                   the painted ground cover; see groundcover.js
 //     "cell": 0.5, "minX": -15, "minZ": -15, "w": 60, "h": 60,
@@ -170,6 +186,7 @@ import { GATE } from '../layout/gate.js';
 import { LEVEL_SIZE, WALL_HALF, WALL_HEIGHT, PATH_HALF } from '../world/field.js';
 import { WALL, MAX_STYLES } from '../../ghost/props/fence/wall.js';
 import { levelFootprint, boundingRadius, isSolid, MAX_SPAWNS, PERSONALITIES } from './catalogue.js';
+import { spawnPoints } from '../world/spawn.js';
 import { placeFireflies, DEFAULT_FLY_RULE } from './fireflies.js';
 
 export const LEVEL_FORMAT = 'graveyard-level';
@@ -699,7 +716,11 @@ export function deriveLevel(doc) {
   const flies = placeFireflies({
     box, barriers, gates, props, paths, spawn: doc.spawn, rule: doc.fireflies,
   });
-  return { box, wall, runs, barriers, gates, props, paths, graves, powerups, flies };
+  // Every headstone with a face and a clear plot in front of it. Worked out
+  // here rather than stored, for the reason the fireflies are: a spawn point in
+  // a file is a spawn point that goes stale the moment a bench moves.
+  const spawns = spawnPoints({ props, barriers, gates, box });
+  return { box, wall, runs, barriers, gates, props, paths, graves, powerups, spawns, flies };
 }
 
 // The world, shaped exactly as createWorld() shapes one.
@@ -740,9 +761,8 @@ export function createLevelWorld(input) {
       if (!q) return d.gates;
       return d.gates.filter((g) => boxesOverlap(g.box, q));
     },
-    graves: (q) => clip(d.graves, q),
     fireflies: (q) => clip(d.flies.points, q),
-    powerups: (q) => clip(d.powerups, q),
+    spawns: (q) => clip(d.spawns, q),
     paths(q) {
       if (!q) return d.paths;
       const pad = padBox(q, PROP_REACH);
@@ -763,7 +783,10 @@ export function createLevelWorld(input) {
     release: () => 0,
 
     ground: doc.ground,
-    stats: { props: d.props.length, gates: d.gates.length, fireflies: d.flies.points.length },
+    stats: {
+      props: d.props.length, gates: d.gates.length,
+      fireflies: d.flies.points.length, spawns: d.spawns.length,
+    },
     _derived: d,
   };
 }

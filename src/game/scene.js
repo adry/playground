@@ -163,7 +163,6 @@ export async function startGame({ canvas, params }) {
     score: 0,
     lives: TUNING.lives,
     fireflies: 0,
-    eaten: 0,
     time: 0,
     caughtBy: null,
     over: false,
@@ -339,22 +338,11 @@ export async function startGame({ canvas, params }) {
   // a wave that builds fifty-seven of them spends half a minute doing it. Waves
   // two onward now build none.
   //
-  // The power pellets live here for the same reason as the skeleton rigs:
-  // built once for the run and moved between waves. Parented straight to the
-  // scene, so a wave's teardown cannot take them with it.
-  const lanternHome = new THREE.Group();
-  lanternHome.userData.perf = 'lantern';
-  scene.add(lanternHome);
-  const lanterns = [];
-  function ensureLanterns(n) {
-    while (lanterns.length < n) {
-      // createPumpkin has no unlit mode: every one carries its candle, which is
-      // exactly what a power pellet wants.
-      const made = createPumpkin({ variant: 'classic', seed: 40 + lanterns.length });
-      lanternHome.add(made.group);
-      lanterns.push(made);
-    }
-  }
+  // THE FOUR LIT JACK-O'-LANTERNS USED TO LIVE HERE, built once for the run and
+  // moved between waves for the same reason the skeleton rigs are. They were
+  // the power pellet and the owner has taken the pellet out of the game, so
+  // there is nothing to build and nothing to move. A pumpkin an author places
+  // by hand is an ordinary prop and goes through buildLevelProp with the rest.
 
   // SLOTS is the compromise and it should be read as one. Two props sharing a
   // key are bit-identical -- same lean, same mottle, same worn letters -- so
@@ -438,7 +426,7 @@ export async function startGame({ canvas, params }) {
     const t0 = performance.now();
     const group = new THREE.Group();
     scene.add(group);
-    const built = { group, flies: null, lanterns: [], holes: [], parts: [], animated: [], buildMs: 0 };
+    const built = { group, flies: null, holes: [], parts: [], animated: [], buildMs: 0 };
     // Named buckets so the perf probe can attribute a draw call to a thing
     // rather than to the scene as a whole. They cost one Group each and nothing
     // per frame; the alternative is guessing which half of 1229 is the fence.
@@ -452,16 +440,13 @@ export async function startGame({ canvas, params }) {
     const pathBucket = bucket('path');
     const propBucket = bucket('prop');
     const flyBucket = bucket('flies');
-    // The lanterns are the run's, not the wave's, so their group is not one of
-    // this wave's children. It is still named here so the probe can charge
-    // their draw calls to them.
     built.buckets = {
-      fence: fenceBucket, path: pathBucket, prop: propBucket, flies: flyBucket, lantern: lanternHome,
+      fence: fenceBucket, path: pathBucket, prop: propBucket, flies: flyBucket,
     };
     // Per-bucket build cost. A chunk that streams in mid-run is a hitch or it
     // is not, and knowing which of these five is the hitch is the difference
     // between fixing it and rewriting all of it.
-    const spent = { fence: 0, path: 0, prop: 0, flies: 0, lantern: 0 };
+    const spent = { fence: 0, path: 0, prop: 0, flies: 0 };
     let mark = performance.now();
     const charge = (name) => { const t = performance.now(); spent[name] += t - mark; mark = t; };
     built.spent = spent;
@@ -663,22 +648,6 @@ export async function startGame({ canvas, params }) {
 
     charge('flies');
 
-    // The power pellets, moved rather than rebuilt. A lit jack-o'-lantern is
-    // the brightest object in the scene, which is the joke and also why they
-    // read from across a level -- and it is three seconds of building, every
-    // one of which the player would watch again at every wave for four objects
-    // that are the same four objects. Same argument as the skeleton rigs above.
-    const powerList = lay.powerups(lay.bounds);
-    built.powerIndex = new Map(powerList.map((p, i) => [p.id, i]));
-    ensureLanterns(powerList.length);
-    for (let i = 0; i < lanterns.length; i++) {
-      const p = powerList[i];
-      lanterns[i].group.visible = !!p;
-      if (p) lanterns[i].group.position.set(p.x, 0, p.z);
-    }
-    built.lanterns = lanterns.slice(0, powerList.length);
-
-    charge('lantern');
     built.buildMs = performance.now() - t0;
     return built;
   }
@@ -696,7 +665,6 @@ export async function startGame({ canvas, params }) {
     const holes = new Set(w.holes);
     for (const p of w.parts) if (!holes.has(p)) p.dispose?.();
     w.flies?.dispose?.();
-    // NOT the lanterns. They belong to the run and the next wave moves them.
     scene.remove(w.group);
   }
 
@@ -742,7 +710,10 @@ export async function startGame({ canvas, params }) {
       const perf = createSkeletonPerformance({
         rig, scene, renderer, seed: 5 + i, driver: () => want,
       });
-      rigs.push({ rig, perf, set: (w) => { want = w; } });
+      rigs.push({
+        rig, perf, set: (w) => { want = w; },
+        homeId: null, homeX: NaN, homeZ: NaN,
+      });
     }
   }
 
@@ -753,8 +724,6 @@ export async function startGame({ canvas, params }) {
     emerging: 'emerging',
     leaving: 'chasing',
     hunting: 'chasing',
-    frightened: 'chasing',
-    eaten: 'chasing',
     sinking: 'settling',
   };
 
@@ -771,7 +740,7 @@ export async function startGame({ canvas, params }) {
     // level in the file and inventing a second one from a seed would be the
     // generator coming back in through the door the owner closed; what a wave
     // still changes is waveTuning, so wave four of a hand-made arena is the
-    // same graveyard with faster skeletons and a shorter fright.
+    // same graveyard with faster skeletons and less scatter.
     if (authored) {
       layout = authored.pending || authored.createLevelWorld(authored.doc);
       authored.pending = null;
@@ -787,8 +756,15 @@ export async function startGame({ canvas, params }) {
     ensureRigs(game.state.skeletons.length);
     for (let i = 0; i < game.state.skeletons.length; i++) {
       const s = game.state.skeletons[i];
+      // The marker's own yaw, so the figure climbs out with its back to the
+      // stone and its face to the yard. It used to be 0 because a grave had no
+      // meaningful facing and the hole was round on screen; a headstone has one
+      // and the whole point of the zone is that the climb happens off its face.
       rigs[i].perf.reset();
-      rigs[i].perf.moveHome(s.grave.x, s.grave.z, 0);
+      rigs[i].perf.moveHome(s.home.x, s.home.z, s.home.yaw);
+      rigs[i].homeId = s.home.id;
+      rigs[i].homeX = s.home.x;
+      rigs[i].homeZ = s.home.z;
     }
 
     ghost.pos.set(layout.spawn.x, ghost.pos.y, layout.spawn.z);
@@ -815,8 +791,7 @@ export async function startGame({ canvas, params }) {
     // a number go backwards because a new maze started.
     const score = run.score + st.score;
     const line = `WAVE ${run.wave}   ${score.toLocaleString('en-US')}   ${'\u25cf'.repeat(Math.max(0, st.lives))}   ${st.flyRemaining} left`;
-    const text = st.power ? `${line}   POWER` : line;
-    if (text !== lastHud) { hud.textContent = text; lastHud = text; }
+    if (line !== lastHud) { hud.textContent = line; lastHud = line; }
   }
 
   function showCard() {
@@ -825,7 +800,6 @@ export async function startGame({ canvas, params }) {
       wave: run.wave,
       cleared: run.cleared,
       fireflies: run.fireflies,
-      eaten: run.eaten,
       seed: run.seed,
       duration: Math.round(run.time),
       caughtBy: run.caughtBy,
@@ -891,7 +865,6 @@ export async function startGame({ canvas, params }) {
     run.score = 0;
     run.lives = TUNING.lives;
     run.fireflies = 0;
-    run.eaten = 0;
     run.time = 0;
     run.caughtBy = null;
     run.over = false;
@@ -947,6 +920,24 @@ export async function startGame({ canvas, params }) {
       const s = st.skeletons[i];
       const r = rigs[i];
       if (!r) continue;
+      // WHERE IT CLIMBS OUT OF, pushed across whenever the rules change it.
+      //
+      // The performance's buried and emerging phases play at `home`, which the
+      // driver does not touch: the driver only steers a skeleton that is
+      // already above ground. So a skeleton that goes under and comes back up
+      // somewhere else has to be told, or the climb plays where it climbed out
+      // last time while the rules have it somewhere else entirely.
+      //
+      // This was survivable when there were four graves and a re-home often
+      // picked the same one. It is not survivable now: a skeleton comes up in
+      // front of a headstone chosen at random out of as many as twenty, so
+      // almost every re-home is a different place and a different facing.
+      if (r.homeId !== s.home.id || r.homeX !== s.home.x || r.homeZ !== s.home.z) {
+        r.perf.moveHome(s.home.x, s.home.z, s.home.yaw);
+        r.homeId = s.home.id;
+        r.homeX = s.home.x;
+        r.homeZ = s.home.z;
+      }
       r.perf.setPhase(PHASE[s.state] || 'chasing');
       r.set({ x: s.x, z: s.z, yaw: s.yaw, dist: Math.hypot(s.x - st.ghost.x, s.z - st.ghost.z) });
       r.perf.update(dt, null);
@@ -961,12 +952,7 @@ export async function startGame({ canvas, params }) {
         const i = world.flyIndex.get(e.id);
         if (i !== undefined) world.flies.collect(i);
         run.fireflies += 1;
-      } else if (e.type === 'power') {
-        const i = world.powerIndex.get(e.id);
-        if (i !== undefined && world.lanterns[i]) world.lanterns[i].group.visible = false;
-      }
-      else if (e.type === 'eat') run.eaten += 1;
-      else if (e.type === 'death') run.caughtBy = e.by;
+      } else if (e.type === 'death') run.caughtBy = e.by;
     }
 
     // Any prop template this wave still owes. Costs nothing once the level is
@@ -974,7 +960,6 @@ export async function startGame({ canvas, params }) {
     if (world.field?.pending) world.field.pump(BAKE_BUDGET_MS);
 
     world.flies.update(time, dt);
-    for (const l of world.lanterns) l.update?.(time, dt);
     // An authored level's own props: the fountain's water, a lantern's flame.
     // Empty on a generated level, so this costs a loop over nothing.
     for (const a of world.animated) a.update(time, dt);

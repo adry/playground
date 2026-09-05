@@ -13,7 +13,9 @@
 // is layout/plot.js's own sheet and is the level generator's view. `chase-N.png`
 // is one level with a minute of play drawn on top of it: the ghost's track in
 // pale blue and each skeleton's in its Pac-Man colour, plus a ring where the
-// player died and a cross where a skeleton was eaten.
+// player died. There used to be a cross where a skeleton was EATEN too; that
+// went with the power pellet, and so did the faint stroke a frightened leg was
+// drawn in.
 //
 // No canvas, no renderer, no three. It is the same pixel buffer and the same
 // deflate the layout package already uses.
@@ -46,6 +48,10 @@ const TRACK = {
 const GHOST_TRACK = [255, 255, 255, 255];
 
 function record(seed, { seconds = SECONDS, passive = false } = {}) {
+  // NOTE: this hands createGame a LAYOUT where it wants a WORLD, and has done
+  // since world/ replaced layout/. It throws on the first call. Left as it is
+  // rather than fixed in passing, because pointing it at world/index.js is a
+  // change to what the picture is OF and not a typo.
   const layout = createLayout({ seed });
   const game = createGame({ layout, seed });
   const bot = passive ? passiveBot(game) : createBot(game);
@@ -53,7 +59,6 @@ function record(seed, { seconds = SECONDS, passive = false } = {}) {
   const ghost = [];
   const skels = [];
   const deaths = [];
-  const eats = [];
   let s = game.state;
   for (let i = 0; i < Math.round(seconds / dt); i++) {
     s = game.update(dt, bot.step(s, dt));
@@ -68,14 +73,10 @@ function record(seed, { seconds = SECONDS, passive = false } = {}) {
     }
     for (const e of s.events) {
       if (e.type === 'death') deaths.push([s.ghost.u, s.ghost.v]);
-      if (e.type === 'eat') {
-        const k = s.skeletons[e.skeleton];
-        eats.push([k.u, k.v]);
-      }
     }
     if (s.phase === 'cleared' || s.phase === 'over') break;
   }
-  return { layout, game, state: s, ghost, skels, deaths, eats };
+  return { layout, game, state: s, ghost, skels, deaths };
 }
 
 function drawChase(seed, opts = {}) {
@@ -99,10 +100,7 @@ function drawChase(seed, opts = {}) {
       const [u0, v0, st0] = k.pts[i - 1];
       const [u1, v1, st1] = k.pts[i];
       if (st0 === 'buried' || st1 === 'buried') continue;
-      // A frightened leg is drawn faint, so the picture shows when the chase
-      // turned round without needing a second image.
-      const a = st1 === 'frightened' ? 0.25 : st1 === 'eaten' ? 0.18 : 0.72;
-      surface.line(X(u0), Y(v0), X(u1), Y(v1), c, a);
+      surface.line(X(u0), Y(v0), X(u1), Y(v1), c, 0.72);
     }
     const last = k.pts[k.pts.length - 1];
     if (last) surface.disc(X(last[0]), Y(last[1]), SCALE * 0.34, c, 1);
@@ -116,10 +114,6 @@ function drawChase(seed, opts = {}) {
   for (const [u, v] of r.deaths) {
     surface.ring(X(u), Y(v), SCALE * 0.9, [255, 90, 90, 255]);
     surface.ring(X(u), Y(v), SCALE * 1.25, [255, 90, 90, 255]);
-  }
-  for (const [u, v] of r.eats) {
-    surface.line(X(u) - SCALE * 0.6, Y(v) - SCALE * 0.6, X(u) + SCALE * 0.6, Y(v) + SCALE * 0.6, [180, 255, 180, 255]);
-    surface.line(X(u) - SCALE * 0.6, Y(v) + SCALE * 0.6, X(u) + SCALE * 0.6, Y(v) - SCALE * 0.6, [180, 255, 180, 255]);
   }
   const last = r.ghost[r.ghost.length - 1];
   if (last) surface.disc(X(last[0]), Y(last[1]), SCALE * 0.42, GHOST_TRACK, 1);
@@ -139,7 +133,7 @@ function drawChase(seed, opts = {}) {
   const file = `${OUT}/chase-${opts.passive ? 'passive-' : ''}${seed}.png`;
   fs.writeFileSync(file, toPNG(surface));
   const s = r.state;
-  console.log(`${file}  ${s.phase} at ${s.time.toFixed(0)}s, ${s.fireflies.total - s.fireflies.remaining}/${s.fireflies.total} fireflies, ${r.deaths.length} deaths, ${r.eats.length} eaten, score ${s.score}`);
+  console.log(`${file}  ${s.phase} at ${s.time.toFixed(0)}s, ${s.fireflies.total - s.fireflies.remaining}/${s.fireflies.total} fireflies, ${r.deaths.length} deaths, score ${s.score}`);
 }
 
 // Positional numbers are seeds, but the value of a --flag is not one.

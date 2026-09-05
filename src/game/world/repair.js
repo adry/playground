@@ -70,7 +70,9 @@
 // can walk through and steps over a pocket a body can stand in, and it does the
 // second more often than the first. So the repair is done at the finest raster
 // anybody measures at, and it costs about forty milliseconds a level.
-import { spawnZones, propsInZone } from './spawn.js';
+import {
+  spawnZones, propsInZone, barrierInZone, gateInZone, zoneInBounds, SPAWN_FLOOR,
+} from './spawn.js';
 
 export const NAV_CELL = 0.25;
 // THE BODY, PLUS A MARGIN, AND THE MARGIN IS THE POINT.
@@ -601,41 +603,54 @@ export function repairLevel({ box, barriers, gates, spawn, placer, rounds = 40 }
       continue;
     }
 
-    // 2. NOTHING SOLID IN A HEADSTONE'S KEEP-CLEAR ZONE.
+    // 2. THE YARD HAS SOMEWHERE FOR THE SKELETONS TO COME FROM.
     //
     // This is what the grave step used to be. It asked that each of the four
     // hand-placed graves admitted a skeleton, which was a disc of SKEL_R at one
-    // point; the spawn is any marker in the yard now, and what has to be clear
-    // is the 2.14 by 2.65 rectangle in front of its face that the climb
+    // point. The spawn is any headstone in the yard now, and what has to be
+    // clear is the 2.14 by 2.65 rectangle in front of its face that the climb
     // actually uses. See spawn.js.
     //
-    // Only PROPS are cleared. A marker whose zone is crossed by a fence, or
-    // hangs over the wall, or sits in a gate's sweep, is demoted to an ordinary
-    // headstone by spawnPoints() and nothing is removed for it: a stone against
-    // a fence is a good thing to place and this pass has no business pulling
-    // the fence down. Measured over twenty seeds, 24% of markers had a prop in
-    // the zone and 27% had a fence across it, and after this step every arena
-    // is left with at least four usable markers, which is what audit.js asks
-    // for and what rules.js's four personalities need.
+    // IT ONLY RUNS WHEN THE LEVEL IS SHORT, and that is the whole difference
+    // between this and the version before it. A headstone with the next
+    // headstone in its plot is not an error: it is a row, it is what a
+    // graveyard looks like, and the level simply spawns from the stone at the
+    // end of the row instead. Clearing every zone cost about two props an arena
+    // to buy spawn points nothing needed. So the pass counts the usable markers
+    // and only takes something out when there are fewer than SPAWN_FLOOR of
+    // them, which over sixty seeds is one arena in twelve.
+    //
+    // Only PROPS ever come out. A marker whose zone is crossed by a fence, or
+    // hangs over the wall, or sits in a gate's sweep, is demoted and nothing is
+    // removed for it: a stone against a fence is a good thing to place and this
+    // pass has no business pulling the fence down.
     let fixed = false;
-    for (const z of spawnZones(props)) {
+    const zones = spawnZones(props);
+    const blocked = [];
+    let usable = 0;
+    for (const z of zones) {
       const inside = propsInZone(z, props);
-      if (!inside.length) continue;
-      // The blockers, unless they are a grave's own three, which are placed
-      // with `keep` and are guaranteed by the level and cannot come out. When
-      // every blocker is one of those the MARKER goes instead: one headstone
-      // out of a yard of twenty-five is invisible, and a headstone whose front
-      // is permanently blocked is a rule this level cannot satisfy while it
-      // stands there. Measured, that is one stone in about four arenas.
-      const bad = inside.filter((q) => !q.keep);
-      const drop = bad.length ? bad : (z.prop.keep ? [] : [z.prop]);
-      if (!drop.length) continue;
-      placer.drop(drop);
-      forget();
-      report.removed += drop.length;
-      report.zone++;
-      fixed = true;
-      break;
+      const fenced = barriers.some((b) => barrierInZone(z, b)) || gates.some((g) => gateInZone(z, g));
+      if (!inside.length && !fenced && zoneInBounds(z, box)) { usable++; continue; }
+      if (inside.length && !fenced && zoneInBounds(z, box)) blocked.push({ z, inside });
+    }
+    if (usable < SPAWN_FLOOR) {
+      for (const { z, inside } of blocked) {
+        // A grave's own three props are placed with `keep` and cannot come out.
+        // When they are the whole of the blockage the MARKER goes instead, and
+        // only because the level is already below the floor: one headstone out
+        // of a yard of twenty-five is invisible and a level with nowhere for
+        // the herd to come from is not.
+        const bad = inside.filter((q) => !q.keep);
+        const drop = bad.length ? bad : (z.prop.keep ? [] : [z.prop]);
+        if (!drop.length) continue;
+        placer.drop(drop);
+        forget();
+        report.removed += drop.length;
+        report.zone++;
+        fixed = true;
+        break;
+      }
     }
     if (fixed) continue;
 

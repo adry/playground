@@ -27,17 +27,18 @@
 // THE EIGHT, in the soak's own words and its own order:
 //
 //   spawn        the ghost's own disc fits where it starts
-//   F1graveCut   every grave is in the ghost's jump-free component, so a
-//                skeleton that climbs out of it can reach the player
-//   F2sealed     no pocket with no way out at all holds the spawn, a firefly,
-//                a pellet or a grave
+//   F1spawnCut   every headstone a skeleton comes out of is in the ghost's
+//                jump-free component, so a skeleton that climbs out of it can
+//                reach the player
+//   F2sealed     no pocket with no way out at all holds the ghost's start, a
+//                firefly or a spawn marker
 //   F3safeSpot   G is a subset of S: everywhere the ghost can reach WITH a
 //                jump, a skeleton can reach WITHOUT one. THE ONE THAT MATTERS
 //   F4pin        no single gate is the only way out of a region: plug each
 //                gate in turn and the ghost's reachable set must not split
 //   flyReach     every firefly is within a pick radius of ground the ghost can
 //                stand on
-//   graveClear   every grave admits the skeleton's disc
+//   spawnClear   every spawn marker admits the skeleton's disc
 //   gateWide     every gate's approach corridor admits a 0.60 body, two units
 //                either side of the opening
 //
@@ -61,12 +62,12 @@ export const FAIR_RADIUS = Math.max(TUNING.ghostRadius, SKEL_RADIUS + 0.08);
 // What each failure means, in one line an author can act on.
 export const FAIR_MESSAGES = {
   spawn: 'the ghost does not fit where it starts',
-  F1graveCut: 'a grave is cut off from the ghost: a skeleton climbing out of it can never reach the player',
+  F1spawnCut: 'a headstone is cut off from the ghost: a skeleton climbing out in front of it can never reach the player',
   F2sealed: 'something the game asks a player to go to is in a pocket with no way out at all',
   F3safeSpot: 'THE SAFE SPOT: the ghost can vault somewhere no skeleton can follow, and the player will stand there for ever',
   F4pin: 'one gate is the only way out of a region, so a skeleton standing in it pins the player',
   flyReach: 'a firefly is not within reach of ground the ghost can stand on',
-  graveClear: 'a grave has no room for a skeleton to climb out of it',
+  spawnClear: 'a headstone has no room in front of it for a skeleton to climb out',
   gateWide: 'a gate cannot be approached: something is blocking the corridor through it',
 };
 
@@ -142,8 +143,7 @@ export function checkFairness(world) {
   const box = { minX: at.x - judge, minZ: at.z - judge, maxX: at.x + judge, maxZ: at.z + judge };
   const inBox = (p) => p.x > box.minX && p.x < box.maxX && p.z > box.minZ && p.z < box.maxZ;
   const fireflies = world.fireflies(box).filter(inBox);
-  const powerups = world.powerups(box).filter(inBox);
-  const graves = world.graves(box).filter(inBox);
+  const spawns = world.spawns(box).filter(inBox);
   const gates = world.gates(box).filter(inBox);
 
   const fail = [];
@@ -187,20 +187,20 @@ export function checkFairness(world) {
 
   const ghostSet = new Uint8Array(N);
   flood(grid, [spawnCell], true, ghostSet);
-  const graveCells = graves.map((g) => grid.nearestOpen(g.x, g.z)).filter((c) => c >= 0);
+  const spawnCells = spawns.map((g) => grid.nearestOpen(g.x, g.z)).filter((c) => c >= 0);
   const skelSet = new Uint8Array(N);
-  flood(grid, graveCells, false, skelSet);
+  flood(grid, spawnCells, false, skelSet);
 
   // F1.
   const spawnComp = label[spawnCell];
-  for (let i = 0; i < graveCells.length; i++) {
-    const c = graveCells[i];
-    if (label[c] !== spawnComp && !(open[label[c]] && open[spawnComp])) { note('F1graveCut', graves[i]); break; }
+  for (let i = 0; i < spawnCells.length; i++) {
+    const c = spawnCells[i];
+    if (label[c] !== spawnComp && !(open[label[c]] && open[spawnComp])) { note('F1spawnCut', spawns[i]); break; }
   }
 
   // F2.
   const wanted = new Map();
-  for (const p of [...fireflies, ...powerups, ...graves]) {
+  for (const p of [...fireflies, ...spawns]) {
     const c = grid.nearestOpen(p.x, p.z);
     if (c >= 0 && !wanted.has(label[c])) wanted.set(label[c], p);
   }
@@ -275,7 +275,7 @@ export function checkFairness(world) {
       break;
     }
   }
-  for (const g of graves) if (!nav.discClear(g.x, g.z, SKEL_RADIUS)) { note('graveClear', g); break; }
+  for (const g of spawns) if (!nav.discClear(g.x, g.z, SKEL_RADIUS)) { note('spawnClear', g); break; }
   for (const g of gates) {
     let plugged = false;
     for (let t = -2.0; t <= 2.0 + 1e-9; t += 0.5) {

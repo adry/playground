@@ -19,7 +19,7 @@
 //     makes the jump-versus-gate asymmetry exist at all;
 //   - gates as literal gaps in the segment list (G3), so crossing test is pure;
 //   - one firefly roughly every FLY_SPACING units, so a firefly is a journey;
-//   - graves dense enough that the pen can follow the player;
+//   - spawn markers dense enough that the spawn band can follow the player;
 //   - determinism by chunk hash, so a query depends only on the box.
 //
 // The one piece of real generation discipline it does keep is the rejection
@@ -111,7 +111,7 @@ function rawChunk(seed, cx, cz, spacing, fence) {
   const r = mulberry32(hashInt(seed ^ 0x5bf03635, cx, cz));
   const ox = cx * CHUNK;
   const oz = cz * CHUNK;
-  const out = { barriers: [], gates: [], props: [], fireflies: [], powerups: [], graves: [] };
+  const out = { barriers: [], gates: [], props: [], fireflies: [], spawns: [] };
   const tag = `${cx},${cz}`;
 
   // --- fences ---------------------------------------------------------------
@@ -198,14 +198,14 @@ function rawChunk(seed, cx, cz, spacing, fence) {
     out.fireflies.push({ id: `${tag}:f${i}`, x: ox + r() * CHUNK, z: oz + r() * CHUNK });
   }
 
-  // --- lanterns and graves --------------------------------------------------
-  // One lantern per 64x64 is 0.14 of a chunk; one grave per 32x32 is 0.56, and
-  // the floor has to hold for EVERY box and not on average, so it is rounded up
-  // to one a chunk with a second sometimes.
-  if (r() < 0.16) out.powerups.push({ id: `${tag}:l`, x: ox + 2 + r() * (CHUNK - 4), z: oz + 2 + r() * (CHUNK - 4) });
-  const graves = r() < 0.35 ? 2 : 1;
-  for (let i = 0; i < graves; i++) {
-    out.graves.push({
+  // --- the spawn markers ----------------------------------------------------
+  // One marker per 32x32 is 0.56 of a chunk, and the floor has to hold for
+  // EVERY box and not on average, so it is rounded up to one a chunk with a
+  // second sometimes. `yaw` is the way the headstone faces and therefore the
+  // way the figure faces as it climbs out: see world/spawn.js.
+  const marks = r() < 0.35 ? 2 : 1;
+  for (let i = 0; i < marks; i++) {
+    out.spawns.push({
       id: `${tag}:v${i}`,
       x: ox + 2 + r() * (CHUNK - 4), z: oz + 2 + r() * (CHUNK - 4),
       yaw: r() * Math.PI * 2,
@@ -241,7 +241,7 @@ export function createArena({ seed = 1, size = 30, lane = 3.5, wallHalf = 0.35, 
   const r = mulberry32(hashInt(seed ^ 0x1a7e91, 7, 13));
   const h = size / 2;
   const bounds = { minX: -h, minZ: -h, maxX: h, maxZ: h };
-  const out = { barriers: [], gates: [], props: [], fireflies: [], powerups: [], graves: [] };
+  const out = { barriers: [], gates: [], props: [], fireflies: [], spawns: [] };
 
   // The perimeter. Four segments, `wall: true`, ends flagged as joints so none
   // of them is ever mistaken for a fence run you can walk round the end of.
@@ -335,10 +335,8 @@ export function createArena({ seed = 1, size = 30, lane = 3.5, wallHalf = 0.35, 
   out.props.forEach((p, i) => { p.id = `s${i}`; });
   place(out.fireflies, 0.70, fireflies);
   out.fireflies.forEach((f, i) => { f.id = `f${i}`; });
-  place(out.powerups, 0.85, 2);
-  out.powerups.forEach((p, i) => { p.id = `l${i}`; });
-  place(out.graves, 0.80, 4, (rr) => ({ yaw: rr() * 6.28 }));
-  out.graves.forEach((g, i) => { g.id = `v${i}`; });
+  place(out.spawns, 0.80, 4, (rr) => ({ yaw: rr() * 6.28 }));
+  out.spawns.forEach((g, i) => { g.id = `v${i}`; });
 
   let spawn = { x: 0, z: 0 };
   for (let i = 0; i < 60 && !clear(spawn.x, spawn.z, 0.62); i++) {
@@ -353,8 +351,7 @@ export function createArena({ seed = 1, size = 30, lane = 3.5, wallHalf = 0.35, 
     gates: all('gates'),
     props: all('props'),
     fireflies: all('fireflies'),
-    powerups: all('powerups'),
-    graves: all('graves'),
+    spawns: all('spawns'),
   };
 }
 
@@ -453,10 +450,9 @@ export function createWorld({ seed = 1, spacing = FLY_SPACING, fence = 1 } = {})
       // A firefly must be somewhere the ghost's own disc can reach it, so it
       // needs the pick radius of room and not merely its own point.
       fireflies: me.fireflies.filter((f) => clearOf(f.x, f.z, 0.62) && !inGate(f.x, f.z, 0.2)),
-      powerups: me.powerups.filter((p) => clearOf(p.x, p.z, 0.75)),
-      // A grave must admit the skeleton's body, or something climbs out of the
-      // ground already stuck.
-      graves: me.graves.filter((g) => clearOf(g.x, g.z, 0.70) && !inGate(g.x, g.z, 0.4)),
+      // A marker must admit the skeleton's body, or something climbs out of
+      // the ground already stuck.
+      spawns: me.spawns.filter((g) => clearOf(g.x, g.z, 0.70) && !inGate(g.x, g.z, 0.4)),
     };
     chunks.set(key, c);
     return c;
@@ -514,8 +510,7 @@ export function createWorld({ seed = 1, spacing = FLY_SPACING, fence = 1 } = {})
     gates: (box) => collect(box, 'gates', true),
     props: (box) => collect(box, 'props', true),
     fireflies: (box) => collect(box, 'fireflies', true),
-    powerups: (box) => collect(box, 'powerups', true),
-    graves: (box) => collect(box, 'graves', true),
+    spawns: (box) => collect(box, 'spawns', true),
   };
 }
 

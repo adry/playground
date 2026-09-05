@@ -85,8 +85,6 @@ const SKILLS = {
   // this much better. With one pickup per screen, dithering between two of them
   // is the single most expensive thing a player can do.
   switchMargin: 0.75,
-  huntRange: 30,
-  panicPower: 26,
 };
 
 // A binary heap on typed arrays. It GROWS, and it has to: an out of bounds
@@ -278,8 +276,6 @@ export function createBot(game, opts = {}) {
       const cell = grid.blocked[c] ? grid.nearestOpen(x, z) : c;
       if (cell >= 0) out.push(cell);
     };
-    if (state.power) for (const s of game.herd.list) if (s.state === 'frightened') push(s.x, s.z);
-    for (const p of state.powerups) push(p.x, p.z);
     for (const f of state.fireflies) push(f.x, f.z);
     return out;
   }
@@ -368,14 +364,6 @@ export function createBot(game, opts = {}) {
       if (cost < bestC) { bestC = cost; best = { key, cell, x, z }; }
     };
 
-    if (state.power) {
-      for (const s of game.herd.list) {
-        if (s.state !== 'frightened') continue;
-        consider(`s${s.id}`, s.x, s.z, S.huntRange);
-      }
-      if (best) { goalKey = best.key; goalCost = bestC; goalPt = best; return best; }
-    }
-    for (const p of state.powerups) consider(`p${p.id}`, p.x, p.z, threat < 12 ? S.panicPower : 6);
     for (const f of state.fireflies) consider(`f${f.id}`, f.x, f.z, 0);
     if (!best) { goalKey = null; goalPt = null; return null; }
 
@@ -385,17 +373,16 @@ export function createBot(game, opts = {}) {
     if (goalKey && goalKey !== best.key && goalPt) {
       const c = grid.index(goalPt.x, goalPt.z);
       const cell = c >= 0 && grid.blocked[c] ? grid.nearestOpen(goalPt.x, goalPt.z) : c;
-      // A goal is only still there if the THING is still there. `s` goals are
-      // frightened skeletons, and the unconditional `|| goalKey[0] === 's'`
-      // that used to be here meant that when the lantern burned out the bot
-      // kept chasing the memory of one: it walked to the spot where the
-      // skeleton had been, arrived, found nothing, and stood on it for the rest
-      // of the run because the hysteresis would not let it change its mind.
-      // That was two thirds of the arena's fireflies left uncollected.
-      const stillThere = (goalKey[0] === 'f' && state.fireflies.some((f) => `f${f.id}` === goalKey))
-        || (goalKey[0] === 'p' && state.powerups.some((p) => `p${p.id}` === goalKey))
-        || (goalKey[0] === 's' && state.power
-          && game.herd.list.some((k) => `s${k.id}` === goalKey && k.state === 'frightened'));
+      // A goal is only still there if the THING is still there. There used to
+      // be three kinds of goal -- a firefly, a lantern and a frightened
+      // skeleton -- and the last two went with the power pellet. The lesson
+      // they left is worth keeping: an unconditional `|| goalKey[0] === 's'`
+      // here meant that when the lantern burned out the bot kept chasing the
+      // memory of a skeleton, walked to where it had been, found nothing and
+      // stood on the spot for the rest of the run, because the hysteresis would
+      // not let it change its mind. Whatever a goal is, ask whether it is
+      // still there.
+      const stillThere = goalKey[0] === 'f' && state.fireflies.some((f) => `f${f.id}` === goalKey);
       if (stillThere && cell >= 0 && dist[cell] < Infinity && dist[cell] < bestC + S.switchMargin * Math.abs(bestC)) {
         goalCost = dist[cell];
         return { key: goalKey, cell, x: goalPt.x, z: goalPt.z };
@@ -409,7 +396,7 @@ export function createBot(game, opts = {}) {
 
   function step(state, dt) {
     const g = state.ghost;
-    const solid = game.herd.list.filter((s) => game.herd.isSolid(s) && s.state !== 'frightened');
+    const solid = game.herd.list.filter((s) => game.herd.isSolid(s));
     const nearest = solid.length ? Math.min(...solid.map((s) => Math.hypot(s.x - g.x, s.z - g.z))) : 999;
     if (nearest < 8) stats.threatTime += dt;
     if (nearest < 4) stats.panicTime += dt;
@@ -565,7 +552,7 @@ export function passiveBot(game) {
     stats,
     step: (state, dt) => {
       const g = state.ghost;
-      const solid = game.herd.list.filter((s) => game.herd.isSolid(s) && s.state !== 'frightened');
+      const solid = game.herd.list.filter((s) => game.herd.isSolid(s));
       const near = solid.length ? Math.min(...solid.map((s) => Math.hypot(s.x - g.x, s.z - g.z))) : 999;
       if (near < 8) stats.threatTime += dt;
       if (near < 4) stats.panicTime += dt;
@@ -581,7 +568,7 @@ export function passiveBot(game) {
 // two is how much the game rewards playing well, and a setting where that gap
 // is zero is a setting with no game in it.
 export function recklessBot(game) {
-  return createBot(game, { caution: 0, wall: 1, wallAt: 0, scare: 1, panicPower: 4, think: 0.16, switchMargin: 0 });
+  return createBot(game, { caution: 0, wall: 1, wallAt: 0, scare: 1, think: 0.16, switchMargin: 0 });
 }
 
 // The third player, and the one that answers the owner's question directly: the

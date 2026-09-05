@@ -51,15 +51,19 @@ export const LANTERN_VARIANTS = [
 ];
 export const GRASS_VARIANTS = ['patch', 'tuft'];
 
-// The four personalities rules.js runs, in the order it names them. A grave
-// carries one of these, which is what makes "which skeleton climbs out of
-// which hole" an authored decision rather than an accident of list order.
+// The four personalities rules.js runs, in the order it names them.
+//
+// A grave in a level file still carries one, and it no longer means anything: a
+// skeleton climbs out in front of a HEADSTONE chosen at random now, so which
+// personality comes out of which hole is not a thing anybody can author. The
+// list survives because rules.js still names its four skeletons with it and
+// because an old file still round-trips its `personality` field untouched.
 export const PERSONALITIES = ['chaser', 'ambusher', 'flanker', 'loner'];
 
 // The floor takes four cuts and throws at the fifth (MAX_GROUND_HOLES in
-// src/ghost/ground.js), and rules.js runs exactly four personalities. The two
-// numbers agree, which is why the editor can refuse a fifth spawn with one
-// sentence instead of an explanation.
+// src/ghost/ground.js), so a level may hold at most four DUG GRAVES. It used to
+// be the same number as the skeletons, which is why it was called a spawn cap;
+// it is an engine limit on holes in the floor and nothing else.
 export const MAX_SPAWNS = 4;
 
 // What a footprint is for a kind the editor may place. Never throws: an

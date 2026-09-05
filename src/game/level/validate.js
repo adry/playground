@@ -30,12 +30,18 @@
 //   RUN GAP        Two fence runs closer than the body can pass between are a
 //                  pocket closed BETWEEN two runs, which is the generator's
 //                  rule 3.
-//   SPAWNS         At most four graves, because src/ghost/ground.js cuts at
-//                  most four holes and throws at the fifth, and rules.js runs
-//                  exactly four personalities.
+//   GRAVES         At most four dug graves, because src/ghost/ground.js cuts at
+//                  most four holes and throws at the fifth. A grave is
+//                  DECORATION now and not a spawn: skeletons climb out in front
+//                  of headstones, which world/spawn.js decides and the audit
+//                  counts.
+//   SPAWNS         How many headstones a skeleton can actually come out of, and
+//                  a warning well before the audit's hard floor, because
+//                  "your yard has two spawn points left" is something an author
+//                  wants to hear while there is still room to fix it.
 //   REACHABLE      A flood fill at body radius from the ghost's spawn. Anything
 //                  a body cannot walk to is called out: a firefly there is
-//                  uncollectable and a grave there strands a skeleton.
+//                  uncollectable and a spawn marker there strands a skeleton.
 //
 // Severity is honest. An `error` makes the level unplayable; a `warn` makes it
 // worse than it should be.
@@ -67,6 +73,7 @@
 // fairness guarantee.
 
 import { BODY, propRecord, graveProps } from './format.js';
+import { spawnZones, spawnFault, SPAWN_FLOOR } from '../world/spawn.js';
 import { isSolid } from './catalogue.js';
 import {
   auditFindings, shapeOf as auditShape, gapBetween, barrierPoly, pointPoly, pathPoints,
@@ -370,23 +377,39 @@ export function validateLevel(doc, world, { deep = true } = {}) {
     }
   }
 
-  // --- the spawns ------------------------------------------------------------
+  // --- the dug graves, which are decoration ----------------------------------
   if (doc.graves.length > 4) {
-    add('error', 'spawns', 'at most four skeleton spawns: the floor cuts four holes and throws at the fifth', null);
+    add('error', 'graves', 'at most four dug graves: the floor cuts four holes and throws at the fifth', null);
   }
-  const orders = doc.graves.map((g) => g.order).sort((a, b) => a - b);
-  if (orders.some((o, i) => o !== i)) {
-    add('warn', 'order', 'the spawn order is not a clean run from 0', null);
-  }
-  const seenPersonality = new Set();
-  for (const g of doc.graves) {
-    if (seenPersonality.has(g.personality)) {
-      add('warn', 'personality', `two spawns are both the ${g.personality}`, g, [g.id]);
+
+  // --- where the skeletons come out ------------------------------------------
+  //
+  // The count only, and the reason for each stone that is not on the list. The
+  // audit's `spawn` rule is the hard floor; this is the same question asked
+  // cheaply and answered as a warning while there is still room to fix it. See
+  // world/spawn.js: both call spawnFault, so this cannot disagree with the
+  // audit about whether a stone is usable.
+  {
+    const zones = spawnZones(d.props);
+    const faults = { prop: 0, fence: 0, wall: 0, gate: 0, bounds: 0 };
+    let usable = 0;
+    for (const z of zones) {
+      const why = spawnFault(z, { props: d.props, barriers: d.barriers, gates: d.gates, box });
+      if (why) faults[why]++;
+      else usable++;
     }
-    seenPersonality.add(g.personality);
-  }
-  if (doc.graves.length && doc.graves.length < 4) {
-    add('warn', 'spawns', `${doc.graves.length} of 4 skeleton spawns placed`, null);
+    const lost = [];
+    if (faults.prop) lost.push(`${faults.prop} with something solid in the plot`);
+    if (faults.fence) lost.push(`${faults.fence} fenced in`);
+    if (faults.wall) lost.push(`${faults.wall} facing the arena wall`);
+    if (faults.gate) lost.push(`${faults.gate} in a gate's sweep`);
+    if (faults.bounds) lost.push(`${faults.bounds} over the wall`);
+    const tail = lost.length ? ` (${lost.join(', ')})` : '';
+    if (usable < SPAWN_FLOOR) {
+      add('error', 'spawns', `${usable} headstones a skeleton can climb out in front of, the game needs ${SPAWN_FLOOR}${tail}`, null);
+    } else if (usable < SPAWN_FLOOR + 2) {
+      add('warn', 'spawns', `only ${usable} headstones a skeleton can climb out in front of${tail}`, null);
+    }
   }
 
   if (d.flies.missed > 0) {
@@ -400,19 +423,14 @@ export function validateLevel(doc, world, { deep = true } = {}) {
     if (!nav.open(doc.spawn.x, doc.spawn.z)) {
       add('error', 'spawn', 'the ghost starts inside something', doc.spawn);
     }
-    for (const g of d.graves) {
+    for (const g of d.spawns) {
       if (!nav.reachable(g.x, g.z)) {
-        add('error', 'unreachable', `grave ${g.order + 1} is somewhere a body cannot walk to`, g, [g.id]);
+        add('error', 'unreachable', `a skeleton would climb out in front of the ${g.variant} somewhere a body cannot walk to`, g, [g.stone]);
       }
     }
     for (const f of d.flies.points) {
       if (!nav.reachable(f.x, f.z)) {
         add('warn', 'unreachable', 'a firefly landed somewhere a body cannot walk to', f);
-      }
-    }
-    for (const p of d.powerups) {
-      if (!nav.reachable(p.x, p.z)) {
-        add('error', 'unreachable', 'a pellet is somewhere a body cannot walk to', p, [p.id]);
       }
     }
   }
@@ -538,9 +556,10 @@ export function reviewLevel(world) {
 //               the floor where it is. THE INDICATOR CANNOT SEE A WEDGE AND
 //               MUST NOT PRETEND TO.
 //   gateless    rules 8, 10, 12 and 13 are about the level as a whole -- how
-//   wall        many graves, how many pellets, whether a pen has a way in --
-//   holes       and adding one prop cannot decide any of them.
-//   floor
+//   wall        many dug graves, how many headstones a skeleton can come out
+//   holes       of, whether a pen has a way in -- and adding one prop cannot
+//   floor       decide any of them.
+//   spawn
 //
 // So the indicator is the LOCAL half of the audit, exactly, and the slow pass
 // remains the whole of it. A green preview means "nothing about this spot is

@@ -158,17 +158,15 @@ export function drawRegion(world, {
     s.ring(X(c1.u), Y(c1.v), gate.clear.r * scale, C.sweep, 0.4);
   }
 
-  // Graves, power pellets and fireflies. The fireflies get a halo because there
+  // The spawn markers and the fireflies. The fireflies get a halo because there
   // are so few of them that a single pixel would be a lie about how much they
-  // matter.
-  for (const gr of world.graves(box)) {
-    const q = G(gr.x, gr.z);
+  // matter; a marker gets a stalk showing which way it faces, because a spawn
+  // is directional now and a ring alone would not say so.
+  for (const sp of world.spawns(box)) {
+    const q = G(sp.x, sp.z);
     s.ring(X(q.u), Y(q.v), Math.max(3, scale * 0.8), C.grave, 0.9);
-  }
-  for (const p of world.powerups(box)) {
-    const q = G(p.x, p.z);
-    s.disc(X(q.u), Y(q.v), Math.max(3, scale * 0.42), C.jack);
-    s.ring(X(q.u), Y(q.v), Math.max(6, scale * 0.9), C.jack, 0.4);
+    const back = G(sp.x - Math.sin(sp.yaw) * 0.9, sp.z - Math.cos(sp.yaw) * 0.9);
+    s.line(X(back.u), Y(back.v), X(q.u), Y(q.v), C.grave, 0.6);
   }
   for (const f of world.fireflies(box)) {
     const q = G(f.x, f.z);

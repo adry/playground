@@ -137,8 +137,49 @@
 // it: length alone is a flat distribution, and length times cleanliness is not.
 // soak.mjs prints the distribution rather than asserting it is good.
 //
-// A lantern pays 500 because it is now one of the few things worth deliberately
-// travelling to, and eating a frightened skeleton keeps Pac-Man's doubling.
+// ===========================================================================
+// THE POWER PELLET IS GONE, AND WHAT THAT COSTS
+// ===========================================================================
+//
+// The lit jack-o'-lantern was Pac-Man's power pellet: four to an arena, ten
+// seconds of frightened skeletons, 200/400/800/1600 for eating them, and the
+// mode schedule paused while it burned. The owner has taken it out. What went
+// with it, in this file, is `powerTime`, `powerScore`, `powerRadius`,
+// `eatScore`, `state.power`, `state.powerUntil`, `state.eatenChain`, the
+// `powerups` pickup list and the two events 'power' and 'powerEnd'; in
+// chase.js, the frightened flee, the eaten-and-return loop and two speeds.
+//
+// WHAT THE GAME LOSES, stated plainly rather than left to be discovered.
+//
+// The pellet was the only move in the game that let a cornered player turn on
+// the chasers. Without it every single encounter is avoidance: there is no
+// state in which walking towards a skeleton is correct, no reason to save
+// anything for later, and nothing the player can do about being cornered except
+// not be cornered. Three specific things follow.
+//
+//   1. THE CORNER IS NOW TERMINAL. A player pinned between a fence and two
+//      skeletons had one out, which was to have left a lantern within reach.
+//      They now have the jump, which rule 4 above deliberately makes useless as
+//      an escape. The design's answer to "what do I do when it goes wrong" is
+//      currently "you die", and that is a real answer, it is just a harsher
+//      game than the one that was measured.
+//   2. THE SCORE LOSES ITS TOP END. Eating four skeletons on one lantern paid
+//      3000 plus the lantern's 500, which is thirty fireflies, so a run's
+//      ceiling was set by how well the player used them. The ceiling is now the
+//      streak alone, and a leaderboard on a single mechanic is a flatter one.
+//   3. THERE IS NO PAUSE. The pellet stopped the mode schedule while it burned,
+//      so a run had a rhythm: chase, ten seconds of the board belonging to the
+//      player, chase. The schedule now runs unbroken from ready to death, and
+//      past 208 s it is permanent chase with Cruise Elroy wound up on top.
+//
+// Every one of those may be what the owner wants -- a pure evasion game is a
+// coherent thing to build, and it is the game the jump was designed for. It
+// should be a decision and not a side effect, which is why it is written here.
+//
+// BRINGING IT BACK is four constants, one pickup loop, one contact branch and
+// two functions on the herd, and every one of them is named in the paragraph
+// above. Nothing was renamed or restructured to make room, so the diff that
+// removed it reverses cleanly.
 
 import { createNav } from './nav.js';
 import { createHerd, DEFAULT_SPEEDS, DEFAULT_CHASE, EMERGE_TIME, PERSONALITIES, SKEL_RADIUS } from './chase.js';
@@ -165,7 +206,6 @@ export const TUNING = {
   // still generous because arriving at a thing and not taking it is the worst
   // feeling a pickup can produce.
   pickRadius: 1.00,
-  powerRadius: 1.10,
 
   // --- the mode schedule, unchanged -----------------------------------------
   //
@@ -184,16 +224,10 @@ export const TUNING = {
     { mode: 'scatter', t: 3 }, { mode: 'chase', t: Infinity },
   ],
 
-  // --- the power pellet -----------------------------------------------------
-  // 10.0 s, picked on skeletons eaten per lantern. Re-measured against the new
-  // spacing in soak.mjs, because a lantern forty units away is a different
-  // object from one four units away.
-  powerTime: 10.0,
-  eatScore: [200, 400, 800, 1600],
+  // --- scoring --------------------------------------------------------------
   fireflyScore: 100,
   streakStep: 5,
   streakCap: 8,
-  powerScore: 500,
   // Only paid in a bounded world, and multiplied by the streak. 1000 at a
   // streak multiplier of 8 is 8000, which is about what nine fireflies pay, so
   // clearing an arena cleanly is worth doing it twice.
@@ -238,7 +272,6 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
   // enough for it to matter, it is prunable by distance from the ghost, since
   // the world outside the window is not published.
   const takenFly = new Set();
-  const takenPower = new Set();
 
   // A BOUNDED world is a level, and a level can be cleared. The endless plane
   // could not be, so there was no 'cleared' phase in it; an arena of 30 by 30
@@ -271,9 +304,6 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     mode: 'scatter',
     modeIndex: 0,
     modeLeft: 0,
-    powerUntil: 0,
-    power: false,
-    eatenChain: 0,
     // Only meaningful in a bounded world; 0 and 0 in an endless one.
     flyTotal: 0,
     flyRemaining: 0,
@@ -297,7 +327,6 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     // renderer instantiates from these lists and the ids are the world's, so a
     // firefly that leaves the list and comes back is the same firefly.
     fireflies: [],
-    powerups: [],
     skeletons: [],
     events: [],
     readyLeft: 0,
@@ -308,16 +337,12 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
   let pubX = NaN;
   let pubZ = NaN;
   let flyPool = [];
-  let powerPool = [];
   function refreshPickups(force) {
     if (!force && Math.hypot(ghost.x - pubX, ghost.z - pubZ) < 8) return;
     pubX = ghost.x;
     pubZ = ghost.z;
-    const r = T.publishRange;
-    flyPool = nav.near(pubX, pubZ, r, 'fireflies').filter((f) => !takenFly.has(f.id));
-    powerPool = nav.near(pubX, pubZ, r, 'powerups').filter((p) => !takenPower.has(p.id));
+    flyPool = nav.near(pubX, pubZ, T.publishRange, 'fireflies').filter((f) => !takenFly.has(f.id));
     state.fireflies = flyPool;
-    state.powerups = powerPool;
   }
 
   function startWaves() {
@@ -330,7 +355,8 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
   // A death does NOT move the ghost. In an endless world there is nowhere to
   // put it back to, and the cloth solves in world space so it may not be
   // teleported anyway. What resets is the herd, which goes underground and
-  // re-homes to graves in the pen band around wherever the ghost now is.
+  // comes back up in front of headstones in the spawn band around wherever the
+  // ghost now is.
   function resetRound() {
     ghost.vx = 0;
     ghost.vz = 0;
@@ -344,9 +370,6 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     ghost.z = fixed.z;
     herd.reset(ghost);
     startWaves();
-    state.power = false;
-    state.powerUntil = 0;
-    state.eatenChain = 0;
     state.lifeTime = 0;
     state.streak = 0;
     state.multiplier = 1;
@@ -370,14 +393,19 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     state.ghost.canJump = !ghost.air && ghost.cool <= 0 && state.ghost.speed >= T.jumpMinSpeed;
     for (let i = 0; i < herd.list.length; i++) {
       const s = herd.list[i];
-      const out = state.skeletons[i] || (state.skeletons[i] = { id: s.id, name: s.name, grave: { x: 0, z: 0 } });
+      const out = state.skeletons[i]
+        || (state.skeletons[i] = { id: s.id, name: s.name, home: { x: 0, z: 0, yaw: 0, id: null } });
       out.state = s.state;
       out.x = s.x;
       out.z = s.z;
-      out.grave.x = s.grave.x;
-      out.grave.z = s.grave.z;
+      // The marker it is coming out of, and the way that marker faces. The
+      // renderer puts the figure there and turns it, so a skeleton climbs out
+      // with its back to the stone: see world/spawn.js.
+      out.home.x = s.home.x;
+      out.home.z = s.home.z;
+      out.home.yaw = s.home.yaw;
+      out.home.id = s.home.id;
       out.speed = s.speed;
-      out.frightened = s.state === 'frightened';
       out.yaw = Math.atan2(s.hx, s.hz);
       out.emergeProgress = s.state === 'emerging' ? 1 - s.timer / EMERGE_TIME
         : s.state === 'buried' ? 0 : 1;
@@ -499,19 +527,6 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
       state.score += paid;
       state.events.push({ type: 'firefly', id: f.id, x: f.x, z: f.z, score: paid, multiplier: state.multiplier });
     }
-    const pr2 = T.powerRadius ** 2;
-    for (let i = powerPool.length - 1; i >= 0; i--) {
-      const p = powerPool[i];
-      if ((p.x - ghost.x) ** 2 + (p.z - ghost.z) ** 2 > pr2) continue;
-      takenPower.add(p.id);
-      powerPool.splice(i, 1);
-      state.score += T.powerScore;
-      state.power = true;
-      state.powerUntil = state.time + T.powerTime;
-      state.eatenChain = 0;
-      herd.frighten();
-      state.events.push({ type: 'power', id: p.id, x: p.x, z: p.z });
-    }
   }
 
   function contacts() {
@@ -521,28 +536,16 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     for (const s of herd.list) {
       if (!herd.isSolid(s)) continue;
       if ((s.x - ghost.x) ** 2 + (s.z - ghost.z) ** 2 > r2) continue;
-      if (s.state === 'frightened') {
-        herd.eat(s);
-        const chain = Math.min(state.eatenChain, T.eatScore.length - 1);
-        state.score += T.eatScore[chain];
-        state.eatenChain++;
-        state.events.push({ type: 'eat', skeleton: s.id, score: T.eatScore[chain] });
-        continue;
-      }
       state.lives--;
       state.events.push({ type: 'death', skeleton: s.id, by: s.name, streak: state.streak });
       state.phase = state.lives > 0 ? 'dying' : 'over';
       state.dyingLeft = T.deathPause;
-      state.power = false;
-      state.powerUntil = 0;
-      herd.unfrighten();
       return true;
     }
     return false;
   }
 
   function advanceModes(h) {
-    if (state.power) return;   // the schedule is paused while the lantern burns
     state.modeLeft -= h;
     while (state.modeLeft <= 0 && state.modeIndex < T.waves.length - 1) {
       state.modeIndex++;
@@ -564,8 +567,7 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
       ghost,
       heading,
       chaser: chaser && herd.isSolid(chaser) ? chaser : null,
-      mode: state.power ? 'chase' : state.mode,
-      power: state.power,
+      mode: state.mode,
       lifeTime: state.lifeTime,
       time: state.time,
     };
@@ -588,12 +590,6 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
     if (state.phase !== 'play') return;
 
     state.lifeTime += h;
-    if (state.power && state.time >= state.powerUntil) {
-      state.power = false;
-      state.eatenChain = 0;
-      herd.unfrighten();
-      state.events.push({ type: 'powerEnd' });
-    }
     advanceModes(h);
     if (input.jump) tryJump();
     moveGhost(h, input);
@@ -624,7 +620,7 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
       state.events.length = 0;
       let remain = Number.isFinite(dt) ? Math.max(0, Math.min(dt, 5)) : 0;
       const axis = clampAxis(input);
-      const fastest = Math.max(T.ghostSpeed, T.speeds.eaten, T.speeds.walk * 1.3);
+      const fastest = Math.max(T.ghostSpeed, T.speeds.walk * 1.3);
       const cap = T.maxStep / fastest;
       let guard = 0;
       // The jump edge belongs to the first substep only, or one press across a
@@ -639,7 +635,7 @@ export function createGame({ world, seed = 1, tuning = {}, skeletons = 4 } = {})
       }
       return publish();
     },
-    debug: { ghost, heading, takenFly, takenPower, T, PERSONALITIES, SKEL_RADIUS },
+    debug: { ghost, heading, takenFly, T, PERSONALITIES, SKEL_RADIUS },
   };
 }
 

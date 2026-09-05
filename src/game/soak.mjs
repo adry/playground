@@ -8,7 +8,6 @@
 //   node src/game/soak.mjs --jump              the vault-versus-gate sweep
 //   node src/game/soak.mjs --leg               the skeleton decision cadence
 //   node src/game/soak.mjs --ghostsweep        the speed ratio
-//   node src/game/soak.mjs --power             the lantern duration
 //   node src/game/soak.mjs --schedule          the mode schedule controls
 //   node src/game/soak.mjs --score             the leaderboard distribution
 //   node src/game/soak.mjs --arena ...         any of the above, in the arena
@@ -26,12 +25,13 @@
 // with barriers, gates and a ghost that can vault.
 //
 // Write G for the set of points the ghost can reach from its spawn USING
-// JUMPS, and S for the set a skeleton can reach from a grave WITHOUT them.
+// JUMPS, and S for the set a skeleton can reach from a SPAWN MARKER WITHOUT
+// them.
 // Both are computed by flood fill over the same occupancy raster the bot plans
 // on, at 0.75 units, so a claim proved here is a claim about the geometry the
 // characters actually move in, at that resolution and no finer.
 //
-//   F1  THE CHASE EXISTS. Every grave in the region lies in the same
+//   F1  THE CHASE EXISTS. Every spawn marker in the region lies in the same
 //       jump-free component as the ghost's spawn. A skeleton that climbs out
 //       inside a sealed pen can never reach the player and the game is not a
 //       chase any more, it is a walk.
@@ -65,7 +65,7 @@
 //
 // And four that carried over unchanged in spirit: the spawn admits the ghost's
 // own disc, every firefly is within a pick radius of somewhere the ghost can
-// stand, every grave admits the skeleton's disc, and every gate admits a disc
+// stand, every spawn marker admits the skeleton's disc, and every gate admits a disc
 // of 0.60. The last of those is the world's own G5 guarantee, checked here on
 // the thing that ships rather than trusted as a promise.
 //
@@ -100,12 +100,12 @@
 // part worth reading:
 //
 //   spawn         8.0%    the ghost's own disc does not fit at (0, 0)
-//   F1graveCut    0 to 2%
+//   F1spawnCut    0 to 2%
 //   F2sealed      0.3%
 //   F3safeSpot    18 to 20%   THE ONE THAT MATTERS
 //   F4pin         0%
 //   flyReach      1 to 5%
-//   graveClear    0 to 1.3%
+//   spawnClear    0 to 1.3%
 //   gateWide      1.3%
 //
 //   careful bot   95% cleared, median 54 s, 0.35 deaths, 23.9% of the run
@@ -247,8 +247,7 @@ export function fixedWorld(w) {
     gates: all('gates'),
     props: all('props'),
     fireflies: all('fireflies'),
-    powerups: all('powerups'),
-    graves: all('graves'),
+    spawns: all('spawns'),
   };
 }
 
@@ -390,8 +389,7 @@ function fairOne(world, at) {
   const box = { minX: at.x - judge, minZ: at.z - judge, maxX: at.x + judge, maxZ: at.z + judge };
   const inBox = (p) => p.x > box.minX && p.x < box.maxX && p.z > box.minZ && p.z < box.maxZ;
   const fireflies = world.fireflies(box).filter(inBox);
-  const powerups = world.powerups(box).filter(inBox);
-  const graves = world.graves(box).filter(inBox);
+  const spawns = world.spawns(box).filter(inBox);
   const gates = world.gates(box).filter(inBox);
 
   const fail = [];
@@ -443,18 +441,18 @@ function fairOne(world, at) {
 
   const ghostSet = new Uint8Array(N);
   flood(grid, [spawnCell], true, ghostSet);
-  const graveCells = graves.map((g) => grid.nearestOpen(g.x, g.z)).filter((c) => c >= 0);
+  const graveCells = spawns.map((g) => grid.nearestOpen(g.x, g.z)).filter((c) => c >= 0);
   const skelSet = new Uint8Array(N);
   flood(grid, graveCells, false, skelSet);
 
-  // F1. Every grave is in the ghost's own walk component, so a skeleton that
+  // F1. Every marker is in the ghost's own walk component, so a skeleton that
   // climbs out of it can reach the player without a jump it cannot make.
   const spawnComp = label[spawnCell];
-  for (const c of graveCells) if (label[c] !== spawnComp && !(open[label[c]] && open[spawnComp])) { fail.push('F1graveCut'); break; }
+  for (const c of graveCells) if (label[c] !== spawnComp && !(open[label[c]] && open[spawnComp])) { fail.push('F1spawnCut'); break; }
 
   // F2. No sealed pocket holds anything the game asks anybody to go to.
   const wanted = new Set();
-  for (const p of [...fireflies, ...powerups, ...graves]) {
+  for (const p of [...fireflies, ...spawns]) {
     const c = grid.nearestOpen(p.x, p.z);
     if (c >= 0) wanted.add(label[c]);
   }
@@ -538,7 +536,7 @@ function fairOne(world, at) {
     const c = grid.nearestOpen(f.x, f.z);
     if (c < 0 || !ghostSet[c] || Math.hypot(grid.wx(c) - f.x, grid.wz(c) - f.z) > TUNING.pickRadius) { fail.push('flyReach'); break; }
   }
-  for (const g of graves) if (!nav.discClear(g.x, g.z, SKEL_RADIUS)) { fail.push('graveClear'); break; }
+  for (const g of spawns) if (!nav.discClear(g.x, g.z, SKEL_RADIUS)) { fail.push('spawnClear'); break; }
   // Not only the opening: the CORRIDOR through it, two units either side. A
   // gate a body cannot approach is not a gate, and a prop just outside the
   // mouth is exactly how that happens.
@@ -554,7 +552,7 @@ function fairOne(world, at) {
 }
 
 function fairness(seeds) {
-  const keys = ['spawn', 'F1graveCut', 'F2sealed', 'F3safeSpot', 'F4pin', 'flyReach', 'graveClear', 'gateWide'];
+  const keys = ['spawn', 'F1spawnCut', 'F2sealed', 'F3safeSpot', 'F4pin', 'flyReach', 'spawnClear', 'gateWide'];
   const fail = Object.fromEntries(keys.map((k) => [k, []]));
   let barriers = 0;
   let gates = 0;
@@ -622,7 +620,7 @@ function stallCheck(track, s, dt) {
   if (s.phase !== 'play') return null;
   for (const k of s.skeletons) {
     const t = track[k.id] || (track[k.id] = { t: 0, x: k.x, z: k.z });
-    if (k.state !== 'hunting' && k.state !== 'frightened') { t.t = 0; t.x = k.x; t.z = k.z; continue; }
+    if (k.state !== 'hunting') { t.t = 0; t.x = k.x; t.z = k.z; continue; }
     if (Math.hypot(k.x - t.x, k.z - t.z) > 1.0) { t.t = 0; t.x = k.x; t.z = k.z; continue; }
     t.t += dt;
     if (t.t > 12) return 'skeleton-stalled';
@@ -638,8 +636,6 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
   let steps = 0;
   let firstDeath = -1;
   let deaths = 0;
-  let eats = 0;
-  let powers = 0;
   let jumps = 0;
   let vaults = 0;
   let refused = 0;
@@ -682,8 +678,6 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
         if (w >= 1) nearWallDeaths++;
         if (w >= 2) cornerDeaths++;
       }
-      if (e.type === 'eat') eats++;
-      if (e.type === 'power') powers++;
       if (e.type === 'jump') { jumps++; if (e.overFence) vaults++; }
       if (e.type === 'jumpRefused') refused++;
     }
@@ -693,7 +687,7 @@ function playOne(seed, { botFactory, dt = 1 / 60, limit = 300, tuning, skeletons
   return {
     seed, phase: s.phase, time: s.time, score: s.score, lives: s.lives,
     collected: s.collected, bestStreak: s.bestStreak, distance: s.distance,
-    deaths, eats, powers, jumps, vaults, refused, firstDeath, bad,
+    deaths, jumps, vaults, refused, firstDeath, bad,
     threat: bot.stats.threatTime, panic: bot.stats.panicTime,
     plannedVaults: bot.stats.plannedVaults || 0,
     bot: bot.stats,
@@ -744,9 +738,8 @@ function check(game, s) {
   for (const k of s.skeletons) {
     if (!Number.isFinite(k.x) || !Number.isFinite(k.z)) return 'nan-skeleton';
     // A skeleton is allowed to be somewhere a walker could not be for exactly
-    // two reasons: it is in its grave and part way out of it, or it has been
-    // eaten and is a heap of bones going home over the fences by design.
-    if (k.state === 'buried' || k.state === 'emerging' || k.state === 'sinking' || k.state === 'eaten') continue;
+    // one reason: it is underground, or part way out of the ground.
+    if (k.state === 'buried' || k.state === 'emerging' || k.state === 'sinking') continue;
     if (!nav.discClear(k.x, k.z, SKEL_RADIUS * 0.9)) return 'skeleton-in-fence';
     // The window relation nav.js's comment promises: nothing the rules steer
     // may be further from the ghost than the window minus its slack, or it is
@@ -774,7 +767,6 @@ function playMany(seeds, opts, title) {
   console.log(`  score          mean ${mean(rows.map((r) => r.score)).toFixed(0)}  median ${median(rows.map((r) => r.score)).toFixed(0)}  best ${Math.max(...rows.map((r) => r.score))}`);
   console.log(`  fireflies      mean ${mean(rows.map((r) => r.collected)).toFixed(1)} a run, ${(mean(rows.map((r) => r.collected)) / (mean(times) / 60)).toFixed(1)} a minute, best streak ${mean(rows.map((r) => r.bestStreak)).toFixed(1)}`);
   console.log(`  deaths         mean ${mean(rows.map((r) => r.deaths)).toFixed(2)}   first death median ${median(rows.filter((r) => r.firstDeath > 0).map((r) => r.firstDeath)).toFixed(0)}s`);
-  console.log(`  lanterns       ${mean(rows.map((r) => r.powers)).toFixed(2)} lit, ${mean(rows.map((r) => r.eats)).toFixed(2)} skeletons eaten, ${(mean(rows.map((r) => r.eats)) / Math.max(0.01, mean(rows.map((r) => r.powers)))).toFixed(2)} a lantern`);
   console.log(`  jumps          ${mean(rows.map((r) => r.jumps)).toFixed(1)} a run, ${mean(rows.map((r) => r.vaults)).toFixed(1)} of them over a fence, ${mean(rows.map((r) => r.refused)).toFixed(2)} refused`);
   console.log(`  travel         ${mean(rows.map((r) => r.distance)).toFixed(0)} units a run, ${(mean(rows.map((r) => r.distance)) / Math.max(0.01, mean(times))).toFixed(2)} units a second`);
   console.log(`  under threat   ${pct(mean(rows.map((r) => r.threat)), mean(times))} of the run within 8.0 units of a skeleton`);
@@ -1039,20 +1031,6 @@ function schedules(seeds) {
   }
 }
 
-// The lantern, re-measured. A lantern forty units away is a different object
-// from one four units away, so both its duration and whether the bot bothers to
-// go and get it have to be looked at again.
-function power(seeds) {
-  console.log(`\n--- 9. THE LANTERN, ${seeds} runs each ---`);
-  console.log('  seconds  lit a run  eaten  per lantern  median life  score');
-  for (const t of [6, 8, 10, 12, 16, 20]) {
-    const rows = [];
-    for (let seed = 1; seed <= seeds; seed++) rows.push(playOne(seed, { botFactory: createBot, tuning: { powerTime: t }, limit: LIMIT }));
-    const lit = mean(rows.map((r) => r.powers));
-    console.log(`  ${String(t).padStart(7)}  ${lit.toFixed(2).padStart(9)}  ${mean(rows.map((r) => r.eats)).toFixed(2).padStart(5)}  ${(mean(rows.map((r) => r.eats)) / Math.max(0.01, lit)).toFixed(2).padStart(11)}  ${median(rows.map((r) => r.time)).toFixed(0).padStart(10)}s  ${mean(rows.map((r) => r.score)).toFixed(0).padStart(5)}`);
-  }
-}
-
 // Is the score a leaderboard? A flat distribution is not one. What is wanted is
 // a long right tail that a better player can climb, and a score that separates
 // two runs of the same LENGTH, which is what the streak is for.
@@ -1094,7 +1072,7 @@ function selftest() {
     const w = fixedWorld({
       spawn: { x: -14, z: 0 }, ...p,
       fireflies: [{ id: 'f', x: 0, z: 0 }],
-      graves: [{ id: 'v', x: -14, z: 6 }],
+      spawns: [{ id: 'v', x: -14, z: 6 }],
     });
     const f = fairOne(w, { x: -14, z: 0 });
     add('F3safeSpot   (gateless pen)', f.includes('F3safeSpot'), f.join(' ') || 'nothing fired');
@@ -1103,9 +1081,9 @@ function selftest() {
     // F1, the chase: put the GRAVE inside the gateless pen instead. A skeleton
     // climbing out of it can never reach anybody.
     const p = pen(0, 0, 8, 8, 0);
-    const w = fixedWorld({ spawn: { x: -14, z: 0 }, ...p, graves: [{ id: 'v', x: 0, z: 0 }] });
+    const w = fixedWorld({ spawn: { x: -14, z: 0 }, ...p, spawns: [{ id: 'v', x: 0, z: 0 }] });
     const f = fairOne(w, { x: -14, z: 0 });
-    add('F1graveCut   (grave in a gateless pen)', f.includes('F1graveCut'), f.join(' ') || 'nothing fired');
+    add('F1spawnCut  (marker in a gateless pen)', f.includes('F1spawnCut'), f.join(' ') || 'nothing fired');
   }
   {
     // F2, sealed: the same pen with the SPAWN inside it, and no way out at all,
@@ -1119,7 +1097,7 @@ function selftest() {
       props.push({ id: `e${a}`, x: 4.2, z: a, radius: 0.6, solid: true });
       props.push({ id: `w${a}`, x: -4.2, z: a, radius: 0.6, solid: true });
     }
-    const w = fixedWorld({ spawn: { x: 0, z: 0 }, ...p, props, graves: [{ id: 'v', x: 12, z: 12 }] });
+    const w = fixedWorld({ spawn: { x: 0, z: 0 }, ...p, props, spawns: [{ id: 'v', x: 12, z: 12 }] });
     const f = fairOne(w, { x: 0, z: 0 });
     add('F2sealed     (pen with no gate and no landing)', f.includes('F2sealed'), f.join(' ') || 'nothing fired');
   }
@@ -1135,7 +1113,7 @@ function selftest() {
       props.push({ id: `e${a}`, x: 4.2, z: a, radius: 0.6, solid: true });
       props.push({ id: `w${a}`, x: -4.2, z: a, radius: 0.6, solid: true });
     }
-    const w = fixedWorld({ spawn: { x: 0, z: 0 }, ...p, props, graves: [{ id: 'v', x: 0, z: -8 }] });
+    const w = fixedWorld({ spawn: { x: 0, z: 0 }, ...p, props, spawns: [{ id: 'v', x: 0, z: -8 }] });
     const f = fairOne(w, { x: 0, z: 0 });
     add('F4pin        (one gate, fence not vaultable)', f.includes('F4pin'), f.join(' ') || 'nothing fired');
   }
@@ -1143,7 +1121,7 @@ function selftest() {
     // The spawn is checked where the WORLD puts it, by fairness() rather than
     // by fairOne, because fairOne's sample point is snapped to open ground on
     // purpose. So the self test has to exercise the same path fairness() uses.
-    const w = fixedWorld({ spawn: { x: 0, z: 0 }, props: [{ id: 'p', x: 0, z: 0, radius: 1.2, solid: true }], graves: [{ id: 'v', x: 8, z: 0 }] });
+    const w = fixedWorld({ spawn: { x: 0, z: 0 }, props: [{ id: 'p', x: 0, z: 0, radius: 1.2, solid: true }], spawns: [{ id: 'v', x: 8, z: 0 }] });
     const nv = createNav(w);
     nv.focus(w.spawn.x, w.spawn.z);
     add('spawn        (spawn inside a prop)', !nv.discClear(w.spawn.x, w.spawn.z, TUNING.ghostRadius), 'the ghost does not fit where the world put it');
@@ -1154,19 +1132,19 @@ function selftest() {
       const th = (a / 12) * Math.PI * 2;
       props.push({ id: `r${a}`, x: 8 + Math.cos(th) * 1.7, z: Math.sin(th) * 1.7, radius: 0.62, solid: true });
     }
-    const w = fixedWorld({ spawn: { x: 0, z: 0 }, props, fireflies: [{ id: 'f', x: 8, z: 0 }], graves: [{ id: 'v', x: -8, z: 0 }] });
+    const w = fixedWorld({ spawn: { x: 0, z: 0 }, props, fireflies: [{ id: 'f', x: 8, z: 0 }], spawns: [{ id: 'v', x: -8, z: 0 }] });
     const f = fairOne(w, { x: 0, z: 0 });
     add('flyReach     (firefly walled in by props)', f.includes('flyReach') || f.includes('F2sealed'), f.join(' ') || 'nothing fired');
   }
   {
-    const w = fixedWorld({ spawn: { x: 0, z: 0 }, props: [{ id: 'p', x: 6, z: 0, radius: 0.9, solid: true }], graves: [{ id: 'v', x: 6, z: 0 }] });
+    const w = fixedWorld({ spawn: { x: 0, z: 0 }, props: [{ id: 'p', x: 6, z: 0, radius: 0.9, solid: true }], spawns: [{ id: 'v', x: 6, z: 0 }] });
     const f = fairOne(w, { x: 0, z: 0 });
-    add('graveClear   (grave under a prop)', f.includes('graveClear'), f.join(' ') || 'nothing fired');
+    add('spawnClear  (marker under a prop)', f.includes('spawnClear'), f.join(' ') || 'nothing fired');
   }
   {
     const p = pen(0, 0, 8, 8, 1);
     p.props = [{ id: 'plug', x: p.gates[0].x, z: p.gates[0].z, radius: 0.8, solid: true }];
-    const w = fixedWorld({ spawn: { x: -14, z: 0 }, ...p, graves: [{ id: 'v', x: -14, z: 4 }] });
+    const w = fixedWorld({ spawn: { x: -14, z: 0 }, ...p, spawns: [{ id: 'v', x: -14, z: 4 }] });
     const f = fairOne(w, { x: -14, z: 0 });
     add('gateWide     (prop standing in the gate)', f.includes('gateWide'), f.join(' ') || 'nothing fired');
   }
@@ -1182,7 +1160,7 @@ function selftest() {
     const world = fixedWorld({
       spawn: { x: -4, z: 0 },
       barriers: [{ id: 'b', x0: 0, z0: -20, x1: 0, z1: 20, half: 0.1, end0: 'free', end1: 'free' }],
-      graves: [{ id: 'v', x: -40, z: 40 }],
+      spawns: [{ id: 'v', x: -40, z: 40 }],
     });
     const game = createGame({ world, seed: 1, tuning: { maxStep: 1e9 } });
     const track = {};
@@ -1237,9 +1215,9 @@ function selftest() {
     //    dodge and the fence is decoration.
     // Graves in a ring 13 out, so the pen band always has one and the ghost is
     // never standing on the hole a skeleton is climbing out of.
-    const graves = [];
-    for (let a = 0; a < 8; a++) graves.push({ id: `v${a}`, x: Math.cos(a) * 13, z: Math.sin(a) * 13 });
-    const game = createGame({ world: fixedWorld({ spawn: { x: 0, z: 0 }, graves }), seed: 1 });
+    const spawns = [];
+    for (let a = 0; a < 8; a++) spawns.push({ id: `v${a}`, x: Math.cos(a) * 13, z: Math.sin(a) * 13 });
+    const game = createGame({ world: fixedWorld({ spawn: { x: 0, z: 0 }, spawns }), seed: 1 });
     let st = game.state;
     let s0 = null;
     for (let i = 0; i < 60 * 25 && !s0; i++) {
@@ -1268,7 +1246,7 @@ function selftest() {
   }
   {
     // 2. THE RUN-UP. A jump from a standing start is refused.
-    const game = createGame({ world: fixedWorld({ spawn: { x: 0, z: 0 }, graves: [{ id: 'v', x: 30, z: 30 }] }), seed: 1 });
+    const game = createGame({ world: fixedWorld({ spawn: { x: 0, z: 0 }, spawns: [{ id: 'v', x: 30, z: 30 }] }), seed: 1 });
     let st = game.state;
     for (let i = 0; i < 60 * 3; i++) st = game.update(1 / 60, { x: 0, y: 0 });
     st = game.update(1 / 60, { x: 0, y: 0, jump: true });
@@ -1280,7 +1258,7 @@ function selftest() {
     //    takeoff rather than rolled back in mid-air.
     const props = [];
     for (let a = -3; a <= 3; a += 0.5) props.push({ id: `w${a}`, x: 2.0, z: a, radius: 0.5, solid: true });
-    const game = createGame({ world: fixedWorld({ spawn: { x: 0, z: 0 }, props, graves: [{ id: 'v', x: 30, z: 30 }] }), seed: 1 });
+    const game = createGame({ world: fixedWorld({ spawn: { x: 0, z: 0 }, props, spawns: [{ id: 'v', x: 30, z: 30 }] }), seed: 1 });
     let st = game.state;
     for (let i = 0; i < 60 * 3; i++) st = game.update(1 / 60, { x: 0, y: 0 });
     let refused = false;
@@ -1296,7 +1274,7 @@ function selftest() {
     const world = fixedWorld({
       spawn: { x: -4, z: 0 },
       barriers: [{ id: 'b', x0: 0, z0: -6, x1: 0, z1: 6, half: 0.1, end0: 'free', end1: 'free' }],
-      graves: [{ id: 'v', x: -30, z: 30 }],
+      spawns: [{ id: 'v', x: -30, z: 30 }],
     });
     const game = createGame({ world, seed: 1 });
     let st = game.state;
@@ -1318,7 +1296,7 @@ function selftest() {
     const world = fixedWorld({
       spawn: { x: -4, z: 0 },
       barriers: [{ id: 'b', x0: 0, z0: -6, x1: 0, z1: 6, half: 0.1, end0: 'free', end1: 'free' }],
-      graves: [{ id: 'v', x: -30, z: 30 }],
+      spawns: [{ id: 'v', x: -30, z: 30 }],
     });
     const game = createGame({ world, seed: 1 });
     for (let i = 0; i < 60 * 8; i++) game.update(1 / 60, { x: 1, y: 0 });
@@ -1333,7 +1311,7 @@ function selftest() {
     const world = fixedWorld({
       spawn: { x: 4, z: 0 },
       barriers: [{ id: 'b', x0: 0, z0: -80, x1: 0, z1: 80, half: 0.1, end0: 'free', end1: 'free' }],
-      graves: [{ id: 'v', x: -6, z: 0 }],
+      spawns: [{ id: 'v', x: -6, z: 0 }],
     });
     const game = createGame({ world, seed: 1, skeletons: 1 });
     let worst = -99;
@@ -1354,7 +1332,7 @@ function selftest() {
     const world = fixedWorld({
       spawn: { x: -2, z: 0 },
       barriers: [{ id: 'b', x0: 0, z0: -20, x1: 0, z1: 20, half: 0.1, end0: 'free', end1: 'free' }],
-      graves: [{ id: 'v', x: -40, z: 40 }],
+      spawns: [{ id: 'v', x: -40, z: 40 }],
     });
     const game = createGame({ world, seed: 1 });
     const jam = { t: 0, x: 0, z: 0, dt: 1 / 60 };
@@ -1373,7 +1351,7 @@ function selftest() {
     // zero is the cleanest way to produce the symptom the check exists for,
     // which is a hunting skeleton that goes nowhere.
     const game = createGame({
-      world: fixedWorld({ spawn: { x: 0, z: 0 }, graves: [{ id: 'v', x: 12, z: 0 }] }),
+      world: fixedWorld({ spawn: { x: 0, z: 0 }, spawns: [{ id: 'v', x: 12, z: 0 }] }),
       seed: 1,
       tuning: { speeds: { walk: 0.0001 } },
     });
@@ -1398,7 +1376,7 @@ function selftest() {
 
 // ---------------------------------------------------------------------------
 
-const FLAGS = ['--selftest', '--fair', '--play', '--passive', '--stability', '--jump', '--fence', '--players', '--leg', '--ghostsweep', '--schedule', '--power', '--score'];
+const FLAGS = ['--selftest', '--fair', '--play', '--passive', '--stability', '--jump', '--fence', '--players', '--leg', '--ghostsweep', '--schedule', '--score'];
 const only = args.some((a) => FLAGS.includes(a));
 if (!only || has('--selftest')) selftest();
 if (!only || has('--fair')) fairness(num('--fair', 300));
@@ -1411,5 +1389,4 @@ if (has('--players')) players(num('--players', 40));
 if (has('--leg')) legSweep(num('--leg', 40));
 if (has('--ghostsweep')) ghostSweep(num('--ghostsweep', 40));
 if (has('--schedule')) schedules(num('--schedule', 40));
-if (has('--power')) power(num('--power', 40));
 if (has('--score')) scoreShape(num('--score', 200));

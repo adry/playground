@@ -61,11 +61,33 @@
 //   loner     the ghost while further away than 16.0, its own quarter once
 //             closer.
 //
-// Scatter, the mode schedule, the frightened flee, the eaten-and-return loop
-// and the speeds are all unchanged. Two of them had to be re-anchored for an
-// endless world and the re-anchoring is described where it happens: SCATTER
-// (there are no corners in an infinite plane) and THE PEN (the graves have to
-// follow the player or the chase runs off the end of the world).
+// Scatter, the mode schedule and the speeds are all unchanged. Two things had
+// to be re-anchored for an endless world and the re-anchoring is described
+// where it happens: SCATTER (there are no corners in an infinite plane) and
+// THE SPAWN BAND (the marker a skeleton comes back out of has to follow the
+// player or the chase runs off the end of the world).
+//
+// ---------------------------------------------------------------------------
+// WHAT WENT WITH THE POWER PELLET
+// ---------------------------------------------------------------------------
+//
+// The frightened flee, the eaten-and-return loop, `speeds.fright`,
+// `speeds.eaten`, frighten(), unfrighten() and eat(). All four were reachable
+// only from a lit jack-o'-lantern, and the owner has taken the pellet out of
+// the game; see rules.js for what that costs. A skeleton now has four states --
+// buried, emerging, hunting, sinking -- and the only way one leaves the board
+// is the leash or the wedge escape, both of which read as giving up rather than
+// as being caught. Nothing in here is dead: what is left is what runs.
+//
+// ---------------------------------------------------------------------------
+// AND WHERE THEY COME OUT OF
+// ---------------------------------------------------------------------------
+//
+// The pen is gone. A skeleton used to come up out of one of four graves the
+// level placed by hand; it now comes up in front of any HEADSTONE in the yard,
+// picked at random from the ones the world says are usable. See
+// world/spawn.js for what makes one usable, and pickSpawn below for how the
+// pick is made and why it is random rather than nearest.
 
 export const EMERGE_TIME = 3.4;   // what perform.js's climb actually takes
 
@@ -104,8 +126,6 @@ export const DEFAULT_SPEEDS = {
   // See rules.js for how these were chosen. Unchanged by the redirection: the
   // ratio was measured against cornering and the jump does not touch it.
   walk: 2.15,
-  fright: 1.20,
-  eaten: 5.20,
   // Cruise Elroy, RETRIGGERED. It used to key off the fireflies remaining,
   // which in an endless world is a number that never falls. The mechanism it
   // exists for is "stop a stale chase dragging", and the endless equivalent of
@@ -166,13 +186,27 @@ export const DEFAULT_CHASE = {
   // reason and reads better, as a thing pacing its own patch of the yard.
   scatterOrbit: 3.2,
   scatterPeriod: 9.0,
-  // The pen follows the player. A skeleton going back underground re-homes to
-  // a grave in this band around the ghost, which is the endless-world version
-  // of Pac-Man's pen being in the middle of a small board. 10 is far enough
-  // that nothing climbs out on top of the player; 20 is near enough that being
-  // eaten costs the skeleton a return trip and not the rest of the run.
+  // THE SPAWN BAND. A skeleton going back underground comes up in front of a
+  // headstone in this band around the ghost, which is what is left of Pac-Man's
+  // pen being in the middle of a small board. 10 is far enough that nothing
+  // climbs out on top of the player; 20 is near enough that going under costs
+  // the skeleton a return trip and not the rest of the run.
+  //
+  // The band matters MORE than it did, not less. There were four graves in an
+  // arena and the band usually admitted one or two of them, so the pick was
+  // nearly forced; there are four to twenty markers now and the band is the
+  // only thing standing between the player and a skeleton surfacing at their
+  // shoulder. It is the floor of that 10 that is the fairness property, and
+  // soak.mjs measures what the change did to the death rate.
   penMin: 10,
   penMax: 20,
+  // How long a marker is left alone after something has come out of it. Long
+  // enough that the same stone is not used twice running while there is any
+  // choice, short enough that a yard with only three markers still works. It is
+  // a PREFERENCE and not a rule: when nothing else is in the band the cooldown
+  // is ignored, because a skeleton that cannot find a stone is worse than one
+  // that reuses a stone.
+  spawnCool: 12.0,
   // THE LEASH, which only exists because the world is endless.
   //
   // Pac-Man's board is 28 tiles wide and a ghost cannot get lost on it. Here
@@ -184,9 +218,9 @@ export const DEFAULT_CHASE = {
   // fence nobody loaded. The soak caught that in 24 runs out of 24.
   //
   // So a skeleton this far from the ghost gives up, sinks where it stands, and
-  // comes back out of a grave in the pen band. It is the same eaten-and-return
-  // loop with no reward attached, and it reads correctly: a monster that has
-  // lost you goes back underground rather than trudging after you for ever.
+  // comes back up in front of a headstone in the spawn band. It reads
+  // correctly: a monster that has lost you goes back underground rather than
+  // trudging after you for ever.
   //
   // 38 is comfortably inside nav's WINDOW minus its SLACK, which is 54, and
   // comfortably outside the 26 a scatter sends them, so scatter still works.
@@ -227,9 +261,11 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       state: 'buried',
       timer: 0,
       x: 0, z: 0,
-      // The grave this one is currently attached to, re-chosen every time it
-      // goes underground.
-      grave: { x: 0, z: 0 },
+      // The headstone this one is currently coming out of, re-chosen every time
+      // it goes underground. `yaw` is the way the marker faces, which is the
+      // way the figure faces as it climbs: out of the plot, with its back to
+      // the stone. The renderer reads it straight off this.
+      home: { x: 0, z: 0, yaw: 0, id: null },
       hx: 0, hz: -1,             // heading, unit
       stallGuard: 0,
       wedged: 0,
@@ -242,57 +278,88 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
     });
   }
 
-  // --- graves ---------------------------------------------------------------
+  // --- where one comes out --------------------------------------------------
   //
-  // The pen, and the only thing in here that TELEPORTS. A skeleton is moved
-  // between graves only while it is buried, which is under the ground and
-  // behind a closed hole: nothing is on screen to teleport. Pac-Man does the
-  // same thing and calls it reappearing in the pen.
-  function pickGrave(ghost, avoid) {
-    const graves = nav.near(ghost.x, ghost.z, C.penMax + 8, 'graves');
-    let best = null;
-    let bestScore = Infinity;
-    for (const g of graves) {
-      const d = Math.hypot(g.x - ghost.x, g.z - ghost.z);
-      // In the band is best; outside it, prefer the nearest that is far enough.
-      let score;
-      if (d >= C.penMin && d <= C.penMax) score = Math.abs(d - (C.penMin + C.penMax) / 2);
-      else if (d > C.penMax) score = 100 + (d - C.penMax);
-      else score = 200 + (C.penMin - d);
-      // Two skeletons should not surface in the same hole at the same moment.
-      if (avoid && avoid.some((a) => Math.hypot(a.x - g.x, a.z - g.z) < 1.5)) score += 400;
-      if (score < bestScore) { bestScore = score; best = g; }
-    }
-    // The world guarantees a grave per 32x32 box, so `best` is only ever null
-    // in a test harness. Fall back to a point in the band rather than throwing.
-    if (!best) {
-      const a = rng() * Math.PI * 2;
-      const d = (C.penMin + C.penMax) / 2;
-      return { x: ghost.x + Math.cos(a) * d, z: ghost.z + Math.sin(a) * d };
-    }
-    return { x: best.x, z: best.z };
-  }
+  // The only thing in here that TELEPORTS. A skeleton is moved between markers
+  // only while it is buried, which is under the ground: nothing is on screen to
+  // teleport. Pac-Man does the same thing and calls it reappearing in the pen.
+  //
+  // WHY THE PICK IS RANDOM, which is the whole design change and not an
+  // implementation detail.
+  //
+  // The old pick was DETERMINISTIC: score every grave by how near the middle of
+  // the band it is, take the best. With four graves in an arena that was almost
+  // forced -- the band usually held one or two -- so nothing was lost by it. It
+  // is a different function with twenty markers in the band: a deterministic
+  // best always chooses the same stone, so a player learns one stone and the
+  // yard collapses back to a pen with extra steps. Random over the band is the
+  // point of the change.
+  //
+  // WEIGHTED, not uniform. A marker at the far edge of the band is a skeleton
+  // that arrives late and a marker at the near edge is one that arrives on top
+  // of you, so the weight peaks in the middle of the band and falls to nothing
+  // at its edges. Outside the band a marker is only considered when nothing
+  // inside it is available at all.
+  //
+  // AND A COOLDOWN, which answers "can the same stone be used twice". It can,
+  // but not while there is anywhere else: a marker something has just come out
+  // of is skipped for spawnCool seconds. Without it the same stone comes up
+  // twice in a row about as often as a fair die repeats, which reads as the
+  // game having favourites rather than as chance.
+  //
+  // NEAR THE PLAYER OR FAR? Neither, deliberately. The band is the fairness
+  // property and preferring the near edge of it or the far one is a difficulty
+  // dial in disguise: near is cruel and far is a herd that never arrives. What
+  // the band says is "never within ten units", and inside that the yard decides.
+  const usedAt = new Map();        // marker id -> the clock it was last used at
+  let clock = 0;
 
-  function nearestGrave(x, z) {
-    const graves = nav.near(x, z, 40, 'graves');
-    let best = null;
-    let bd = Infinity;
-    for (const g of graves) {
-      const d = (g.x - x) ** 2 + (g.z - z) ** 2;
-      if (d < bd) { bd = d; best = g; }
+  function pickSpawn(ghost, avoid) {
+    const marks = nav.near(ghost.x, ghost.z, C.penMax + 8, 'spawns');
+    const band = [];
+    const spare = [];
+    for (const g of marks) {
+      const d = Math.hypot(g.x - ghost.x, g.z - ghost.z);
+      // Two skeletons must not surface in the same plot at the same moment.
+      if (avoid && avoid.some((a) => Math.hypot(a.x - g.x, a.z - g.z) < 1.5)) continue;
+      const cool = clock - (usedAt.get(g.id) ?? -1e9) < C.spawnCool;
+      if (d >= C.penMin && d <= C.penMax) {
+        const mid = (C.penMin + C.penMax) / 2;
+        const t = 1 - Math.abs(d - mid) / ((C.penMax - C.penMin) / 2);
+        const w = Math.max(0.05, t);
+        (cool ? spare : band).push({ g, w });
+      } else {
+        spare.push({ g, w: 1 / (1 + Math.abs(d - (C.penMin + C.penMax) / 2)) });
+      }
     }
-    return best ? { x: best.x, z: best.z } : { x, z };
+    const from = band.length ? band : spare;
+    if (from.length) {
+      let total = 0;
+      for (const e of from) total += e.w;
+      let r = rng() * total;
+      let hit = from[from.length - 1].g;
+      for (const e of from) { r -= e.w; if (r <= 0) { hit = e.g; break; } }
+      usedAt.set(hit.id, clock);
+      return { x: hit.x, z: hit.z, yaw: hit.yaw || 0, id: hit.id };
+    }
+    // Only ever reached in a test harness with no markers in it at all: the
+    // audit's spawn rule refuses a level with fewer than SPAWN_FLOOR. Fall back
+    // to a point in the band rather than throwing.
+    const a = rng() * Math.PI * 2;
+    const d = (C.penMin + C.penMax) / 2;
+    return { x: ghost.x + Math.cos(a) * d, z: ghost.z + Math.sin(a) * d, yaw: a + Math.PI, id: null };
   }
 
   function reset(ghost) {
     const taken = [];
+    usedAt.clear();
     for (const s of list) {
       s.state = 'buried';
       s.timer = s.id * EXIT_STAGGER;
-      s.grave = pickGrave(ghost, taken);
-      taken.push(s.grave);
-      s.x = s.grave.x;
-      s.z = s.grave.z;
+      s.home = pickSpawn(ghost, taken);
+      taken.push(s.home);
+      s.x = s.home.x;
+      s.z = s.home.z;
       s.hx = 0; s.hz = -1;
       s.legLeft = 0;
       s.committed = null;
@@ -308,7 +375,7 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
 
   // --- the target functions, unchanged ---------------------------------------
   function targetOf(s, ctx) {
-    if (ctx.mode === 'scatter' && s.state !== 'frightened') return scatterPoint(s, ctx.time);
+    if (ctx.mode === 'scatter') return scatterPoint(s, ctx.time);
     const g = ctx.ghost;
     switch (s.name) {
       case 'chaser':
@@ -371,7 +438,6 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
   // bookkeeping around this function.
   function decide(s, ctx) {
     const t = targetOf(s, ctx);
-    const flee = s.state === 'frightened';
     // A reversal is granted once, by the mode flip, and it is the only time a
     // skeleton may turn further than MAX_TURN.
     let free = false;
@@ -410,12 +476,7 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       const uz = dz / d;
       if (!free && !turnOk(s, ux, uz)) continue;
       if (!nav.visible(s.x, s.z, p.x, p.z, PLAN_CLEAR, PLAN_SKIP)) continue;
-      const rest = Math.hypot(t.x - p.x, t.z - p.z);
-      // Fleeing is the same decision with the sign flipped, which keeps one
-      // code path and makes the flight read as a deliberate retreat rather than
-      // a random walk. The 0.25 dither is Pac-Man's own frightened wobble.
-      let score = flee ? -(d + rest) : d + rest;
-      if (flee && rng() < 0.25) score += (rng() - 0.5) * 40;
+      const score = d + Math.hypot(t.x - p.x, t.z - p.z);
       const rank = dirRank(ux, uz);
       if (score < bestScore - 1e-9 || (score < bestScore + 1e-9 && rank < bestRank)) {
         bestScore = score;
@@ -479,8 +540,6 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
   }
 
   function speedOf(s, ctx) {
-    if (s.state === 'eaten') return speeds.eaten;
-    if (s.state === 'frightened') return speeds.fright;
     let v = speeds.walk;
     if (s.name === 'chaser') {
       for (const step of speeds.elroy) if (ctx.lifeTime >= step.after) v = speeds.walk * step.mul;
@@ -489,16 +548,17 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
   }
 
   function stepOne(s, dt, ctx) {
+    clock += dt / list.length;      // one shared clock, advanced once per frame
     s.speed = speedOf(s, ctx);
     switch (s.state) {
       case 'buried':
         s.timer -= dt;
         if (s.timer <= 0) {
-          // Re-home NOW, at the last possible moment, so the hole opens where
+          // Re-home NOW, at the last possible moment, so the ground opens where
           // the player is rather than where they were when it closed.
-          s.grave = pickGrave(ctx.ghost, list.filter((o) => o !== s && o.state === 'emerging').map((o) => o.grave));
-          s.x = s.grave.x;
-          s.z = s.grave.z;
+          s.home = pickSpawn(ctx.ghost, list.filter((o) => o !== s && o.state === 'emerging').map((o) => o.home));
+          s.x = s.home.x;
+          s.z = s.home.z;
           s.state = 'emerging';
           s.timer = EMERGE_TIME;
         }
@@ -506,7 +566,7 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       case 'emerging':
         s.timer -= dt;
         if (s.timer <= 0) {
-          s.state = ctx.power ? 'frightened' : 'hunting';
+          s.state = 'hunting';
           // Out of the ground facing the player, which is the shot the scene
           // wants and also stops the turn limit from trapping a fresh skeleton
           // facing a fence.
@@ -586,10 +646,9 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
       // THE LAST RESORT. Steering is a heuristic and a heuristic can wedge, and
       // a monster wedged against a fence for the rest of the run is worse than
       // any amount of clumsiness. Past five seconds of getting nowhere it sinks
-      // where it stands and climbs out again near the player: the same
-      // eaten-and-return loop with no reward, which reads in fiction as giving
-      // up and puts a hard ceiling on how long a failure of the steering can
-      // last. soak.mjs asserts separately that a skeleton never goes nowhere
+      // where it stands and climbs out again near the player, which reads in
+      // fiction as giving up and puts a hard ceiling on how long a failure of
+      // the steering can last. soak.mjs asserts separately that a skeleton never goes nowhere
       // for twelve seconds, so if this starts firing often the steering is
       // broken and this is hiding it.
       if (s.wedged > 5) {
@@ -612,22 +671,12 @@ export function createHerd({ nav, count, seed = 1, speeds = DEFAULT_SPEEDS, chas
     // the leg is cut short so that is immediately.
     reverseAll() {
       for (const s of list) {
-        if (s.state !== 'hunting' && s.state !== 'frightened') continue;
+        if (s.state !== 'hunting') continue;
         s.wantReverse = true;
         s.legLeft = 0;
       }
     },
-    // A skeleton still climbing out is not made vulnerable by a lantern lit
-    // while it is underground, which is Pac-Man's rule for a ghost in the pen
-    // and is the only thing stopping a player from camping the graves.
-    frighten() {
-      for (const s of list) if (s.state === 'hunting') { s.state = 'frightened'; s.wantReverse = true; s.legLeft = 0; }
-    },
-    unfrighten() {
-      for (const s of list) if (s.state === 'frightened') { s.state = 'hunting'; s.legLeft = 0; }
-    },
-    eat(s) { s.state = 'eaten'; s.homeGrave = null; },
-    isSolid: (s) => s.state === 'hunting' || s.state === 'frightened',
+    isSolid: (s) => s.state === 'hunting',
     C,
   };
 }

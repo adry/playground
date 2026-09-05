@@ -38,11 +38,12 @@ export function waveTuning(wave) {
   const t = Math.min(1, (w - 1) / 7);
   const walk = 2.15 + (2.49 - 2.15) * Math.sqrt(t);
 
-  // Power: the pellet is the player's only counter-attack, and taking it away
-  // is the sharpest difficulty knob in the original. 10.0 s down to 4.0 s.
-  // Below 4 it stops being worth crossing a maze for, which turns four pellets
-  // into scenery, so that is the floor.
-  const power = Math.max(4.0, 10.0 - (w - 1) * 0.9);
+  // THE PELLET WAS THE SHARPEST KNOB HERE AND IT IS GONE. A wave used to
+  // shorten the power time from 10.0 s to 4.0, which was the original's own
+  // curve and the one axis the player could feel without being told. With the
+  // pellet out of the game the curve rests on two axes instead of three, speed
+  // and scatter, and it is correspondingly flatter: see rules.js for what else
+  // went with it.
 
   // Scatter: the periods when nothing is hunting you. This is the axis with the
   // most room and the least visible, which is exactly why the original uses it.
@@ -62,18 +63,12 @@ export function waveTuning(wave) {
     speeds: {
       ...DEFAULT_SPEEDS,
       walk,
-      // The flee stays under perform.js's authored 1.25 for ever, so a
-      // frightened skeleton always plays the original cycle under pace. It is
-      // the one thing that must not get harder: a power pellet whose victims
-      // outrun you is a punishment.
-      fright: DEFAULT_SPEEDS.fright,
       // Cruise Elroy bites earlier and harder as the waves go up.
       elroy: [
         { left: Math.min(0.45, 0.25 + (w - 1) * 0.03), mul: 1.08 },
         { left: Math.min(0.25, 0.10 + (w - 1) * 0.02), mul: 1.16 },
       ],
     },
-    powerTime: power,
     scatterScale,
   };
 }
@@ -129,7 +124,6 @@ export const SCHEMA = {
   wave: 'integer, mazes reached (1 based)',
   cleared: 'integer, mazes actually swept',
   fireflies: 'integer, collected across the run',
-  eaten: 'integer, skeletons caught',
   seed: 'integer, the run seed. every maze derives from it',
   duration: 'seconds of play, rounded',
   caughtBy: 'string, which skeleton ended it, or null if the run was quit',
@@ -140,7 +134,13 @@ export const SCHEMA = {
 // Bumped whenever a change to the rules would make old scores incomparable: a
 // speed, the curve above, the scoring, the maze sizes. A board that mixes
 // versions is a board that lies.
-export const RULES_VERSION = 1;
+//
+// TWO, because the power pellet is gone. Every version 1 score was made in a
+// game where four lanterns paid 500 each and a chain of four skeletons paid
+// 3000 on top, and where the wave curve had a third axis. Nothing in version 2
+// can reach those numbers, so mixing them would be the board lying in exactly
+// the way this constant exists to prevent.
+export const RULES_VERSION = 2;
 
 function readStore() {
   // Every read and write is wrapped, and both are allowed to do nothing. A
@@ -205,7 +205,7 @@ export function shareText(run) {
   if (who) lines.push(`${who} in maze ${run.wave}.`);
   else lines.push(`Made it to maze ${run.wave}.`);
 
-  lines.push(`${run.score.toLocaleString('en-US')} points, ${run.fireflies} fireflies, ${run.eaten} skeletons eaten.`);
+  lines.push(`${run.score.toLocaleString('en-US')} points, ${run.fireflies} fireflies.`);
 
   // The near miss is the bit that makes someone want to try it. Only mentioned
   // when it was genuinely near, because a game that tells you every run was

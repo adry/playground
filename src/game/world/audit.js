@@ -462,47 +462,55 @@ export function auditLevel(world, fail) {
   //
   // This is the rule the pen used to make unnecessary. A level carried four
   // hand-placed graves, the generator guaranteed them and the audit only had to
-  // count them; a skeleton now climbs out in front of a HEADSTONE picked at
+  // count them. A skeleton now climbs out in front of a HEADSTONE picked at
   // random, so the question is about every headstone in the yard and it is
   // geometric. spawn.js owns the zone, its measurement and the four reasons a
-  // stone is not a spawn point, and both this and world/index.js's own list
-  // call spawnFault, so a stone cannot be usable to the game and unusable to
-  // the audit or the other way round.
+  // stone is not a spawn point; both this and the world's own list call
+  // spawnFault, so a stone cannot be usable to the game and unusable to the
+  // audit or the other way round. That is the whole of "no headstone is
+  // silently exempt": every exemption has a name and both halves read it off
+  // the same call.
   //
-  // TWO CLAUSES, and they are deliberately not the same severity.
+  // WHAT FAILS IS THE COUNT, AND THAT IS NOT WHAT WAS ASKED FOR, so here is the
+  // measurement that changed it. The rule as first written failed a level for
+  // EVERY headstone with something solid in its plot. Run against the level
+  // this game ships, public/levels/demo.json, it failed eight of its twelve
+  // markers, and the eight were not mistakes: they are stones standing 2.2
+  // apart in rows all facing the same way, which is the arrangement DESIGN.md
+  // calls cute and asks the generator to make. The zone is 2.65 deep because
+  // the climb is, so two stones 2.2 apart cannot both be spawn points however
+  // they are turned, and no author can fix that by moving one thing.
   //
-  // A SOLID PROP in the zone FAILS, one finding per stone. It is the mistake an
-  // author makes without noticing -- a bench, a fountain, the next headstone
-  // along -- and it is fixable by moving one thing a hand's width.
+  // A rule the shipped level and the design doc both break is a rule an author
+  // learns to ignore. So a blocked front DEMOTES the stone to an ordinary
+  // headstone, exactly as a fence across its plot does, and the thing that
+  // fails is a yard that has run out of markers. The failure the strict version
+  // existed to prevent -- a skeleton climbing out inside a fountain -- cannot
+  // happen either way, because the world's spawn list is the output of
+  // spawnFault and a blocked stone is never in it.
   //
-  // A FENCE across the zone, a gate sweeping through it or an edge hanging over
-  // the wall DEMOTES the stone instead. A headstone standing with its face half
-  // a metre from a pen rail is a good thing to place and no rule should forbid
-  // it; what it is not is a place a skeleton can come out. Failing those would
-  // fail a level for being a graveyard.
-  //
-  // What catches a yard that has quietly run out of markers is the COUNT, and
-  // the message names what was demoted so the author can see where the ones
-  // they thought they had went.
+  // The message names every demotion and its reason, because "four of your
+  // twenty headstones are spawn points" is the sentence an author needs, and
+  // "which four" is what the editor draws.
   const zones = spawnZones(props);
-  const faults = { prop: 0, fence: 0, gate: 0, bounds: 0 };
+  const faults = { prop: 0, fence: 0, wall: 0, gate: 0, bounds: 0 };
   let usable = 0;
   for (const z of zones) {
     const why = spawnFault(z, { props, barriers, gates, box });
-    if (!why) { usable++; continue; }
-    faults[why]++;
-    if (why === 'prop') {
-      fail('spawn', `nothing can climb out in front of the ${z.variant} at ${z.prop.x.toFixed(1)}, ${z.prop.z.toFixed(1)}: something solid is standing in its plot`);
-    }
+    if (why) faults[why]++;
+    else usable++;
   }
   if (usable < SPAWN_FLOOR) {
     const lost = [];
+    if (faults.prop) lost.push(`${faults.prop} with something solid in the plot`);
     if (faults.fence) lost.push(`${faults.fence} fenced in`);
+    if (faults.wall) lost.push(`${faults.wall} facing the arena wall`);
     if (faults.gate) lost.push(`${faults.gate} in a gate's sweep`);
     if (faults.bounds) lost.push(`${faults.bounds} over the wall`);
-    if (faults.prop) lost.push(`${faults.prop} blocked by a prop`);
-    const of = zones.length ? `${zones.length} headstones with a face` : 'no headstone with a face';
-    fail('spawn', `${usable} places a skeleton can climb out of, the game needs ${SPAWN_FLOOR} (${of}${lost.length ? ', ' + lost.join(', ') : ''})`);
+    const of = zones.length
+      ? `${zones.length} headstones have a face to spawn off`
+      : 'no headstone in this level has a face to spawn off';
+    fail('spawn', `${usable} places a skeleton can climb out of, the game needs ${SPAWN_FLOOR}: ${of}${lost.length ? ', ' + lost.join(', ') : ''}`);
   }
 
   // 11: NO WEDGES. A place a body fits that nothing can walk to. Rule 9 above

@@ -11,8 +11,8 @@ without agreeing on anything else.
 | the maze | fence runs, hedges, kerbed plots | the fence already exists and is 0.86 tall, low enough to see over and high enough to read as a wall |
 | corridors | sand and gravel paths | a path is a corridor you can see, so the maze is legible without a HUD |
 | pellets | fireflies | they can drift and glow, so a corridor reads as alive rather than dotted |
-| the ghost pen | graves | skeletons climb out of the ground, which the skeleton already does, and it takes 3.4 s, which is a spawn animation for free |
-| power pellet | a lit jack-o'-lantern | the scene's brightest object, and eating light to gain power is its own joke |
+| the ghost pen | **every headstone**, chosen at random | skeletons climb out of the ground, which the skeleton already does, and it takes 3.4 s, which is a spawn animation for free. It used to be four hand-placed graves; see "The pen is the yard" below |
+| power pellet | **nothing** | it was a lit jack-o'-lantern and the owner has taken it out. See rules.js for what the game loses |
 | Pac-Man | the cloth ghost | already the player character |
 
 The one deliberate inversion: **the ghost is the player and the skeletons are
@@ -34,10 +34,10 @@ cutting.
   is a cell. This was written the other way round first, as though a cell were
   the 4.0 pitch itself, and on that reading the shed, the fountain, any grave
   with its spoil heap and rule 6's own "three small ones" all fit nowhere.
-- Props live INSIDE cells. Corridors carry fireflies, the four jack-o'-lanterns
-  and nothing else. The lanterns are pickups rather than props and they are
-  exempt from the corridor rule on purpose: a power pellet the player cannot
-  run over is not a power pellet.
+- Props live INSIDE cells. Corridors carry fireflies and nothing else. They
+  used to carry the four jack-o'-lanterns too, exempt from the corridor rule on
+  purpose because a power pellet the player cannot run over is not a power
+  pellet. There is no power pellet, so there is no exemption.
 
 **Which frame.** The level is laid out in a grid turned 45 degrees into world,
 matching `main.js`'s `atScreen`, so corridors run across and up the SCREEN.
@@ -101,14 +101,79 @@ ball; the other three are the editor's to place.
 7. **At most four open graves.** `src/ghost/ground.js` exports
    `MAX_GROUND_HOLES = 4` and `addGroundHole` THROWS at the fifth, because each
    cut costs a distance test per ground fragment. This is an engine constraint
-   rather than a taste one, and it caps the ghost pen.
+   rather than a taste one.
 
-   In practice the pen gets **three**, not four: `layout.js` reserves one of the
-   four for a loose dug grave elsewhere in the level. So `spawns.graves.length`
-   is 3 while a checker counting hole PROPS reports 4, and they are both right.
-   Four skeleton personalities therefore share three graves, staggered so that
-   two never occupy one at the same time. The cap is on simultaneous cuts and
-   not on how many things ever climb out of a hole.
+   It used to cap the ghost pen, because the pen WAS the graves. It no longer
+   caps anything about the herd: a dug grave is a hole, a spoil heap and a
+   marker, and it is decoration. What the skeletons come out of is rule 8.
+
+8. **Every headstone with a face publishes a KEEP-CLEAR ZONE**, a 2.14 by 2.65
+   rectangle off its face, and it is the first directional footprint in the
+   project. `src/game/world/spawn.js` owns it and carries the measurement:
+   the climb in `props/skeleton/perform.js` reaches 1.247 ahead of the figure,
+   1.097 behind it and 0.915 either side, all measured above the floor over six
+   seeds, and each of those gets the same 0.15 margin rule 1 keeps between two
+   props. A rectangle rather than a half-disc because the region is not disc
+   shaped -- the climb reaches behind the point the body comes up at -- and
+   because a box with a yaw is a shape every test in this project already takes.
+
+   A stone is a MARKER when it is not one of the four things in the registry
+   that are not headstones (bench, ledger, chest, kerb) and when it is at least
+   1.5 times as wide as it is deep, which is a measured fact about its
+   footprint and takes out the round, square and four-sided ones. Fourteen of
+   the twenty-nine variants qualify.
+
+   A marker whose zone holds something solid, or is crossed by a fence, or
+   hangs over the wall, or sits in a gate's sweep, is DEMOTED to an ordinary
+   headstone. It is not an error: two stones 2.2 apart in a row cannot both be
+   spawn points however they are turned, and a row of stones facing the same way
+   is what this document calls cute. What IS an error is a yard with fewer than
+   `SPAWN_FLOOR` markers left, which is audit.js's `spawn` rule.
+
+## The pen is the yard
+
+Pac-Man's ghosts leave from a box in the middle of the board, and the reason
+that works is that the player always knows where danger comes from. This game
+had the same thing, four graves placed by hand with a personality each and an
+order. It does not any more: a skeleton going underground comes back up in front
+of a headstone chosen at random from the ones in a band 10 to 20 units around
+the player, weighted toward the middle of that band, with a 12 s cooldown on a
+stone something has just come out of.
+
+**Random rather than best.** The old pick scored every grave and took the
+nearest the middle of the band. With four graves that was almost forced, since
+the band usually held one or two. With twenty markers a deterministic best
+always picks the same stone, the player learns it, and the yard is a pen again.
+
+**The band is the fairness property**, not the count. Ten units is the whole of
+what stands between the player and a skeleton surfacing at their shoulder, and
+neither edge of the band is preferred: near is cruel and far is a herd that
+never arrives.
+
+**Measured, it is not the crueller game it sounds like.** Sixty generated arenas,
+the same seeds and the same bot, the only difference being which stones the
+spawn list holds:
+
+| | four graves | every marker |
+|---|---|---|
+| deaths a run, careful bot | 0.25 | 0.13 |
+| deaths a run, reckless bot | 1.25 | 1.18 |
+| deaths a run, a player who never moves | 2.83 | 2.77 |
+| median first death, careful bot | 35.5 s | 17.1 s |
+| surfaced at, mean | 12.1 | 12.2 |
+| bearing concentration, passive | 0.26 | 0.53 |
+
+Two surprises in that table and both are worth keeping. The first is that it is
+very slightly KINDER: four graves often left nothing in the band at all and the
+old pick then took the nearest thing outside it, which was frequently nearer
+than ten. The second is the last row: **danger became more concentrated, not
+less.** The generator's four graves are one per quadrant by construction, so
+they surround the player; headstones cluster in plots, so in a generated arena
+the herd tends to come from the side of the yard the stones are on. In a
+hand-made level that is the author's decision, and it is a real one.
+
+What did get harder is the first surprise: the careful bot's median first death
+halves, from 35.5 s to 17.1 s.
 
 ## Navigation
 
@@ -135,29 +200,30 @@ fairness is true of every intermediate state.
 ## Interfaces
 
 ```js
-// layout.js
-createLayout({ seed, cells = [7, 5], frame = 'screen' }) -> {
-  graph,          // { nodes: [{ id, x, z, edges }], edges: [{ a, b }] }
-  props,          // [{ kind, variant, x, z, yaw, radius, height, foot }]
-  fireflies,      // [{ x, z }] on corridor centrelines
-  powerups,       // [{ x, z }] the four jack-o'-lanterns, also on centrelines
-  spawns,         // { ghost: {x,z}, graves: [{x,z,yaw}] }
-  bounds,         // { minX, maxX, minZ, maxZ }
-  // and, for a checker or a renderer that should not have to rebuild the grid:
-  gate, walls, paths, corridor, grid,
+// world/index.js, and level/format.js answers every one of these identically
+createWorld({ seed, size = 30 }) -> {
+  bounds,             // { minX, maxX, minZ, maxZ }. The arena.
+  spawn,              // { x, z }. Where the GHOST starts.
+  barriers(box), gates(box), props(box), paths(box),
+  fireflies(box),     // [{ id, x, z }]
+  spawns(box),        // [{ id, x, z, yaw, stone, variant, zone }] every
+                      // headstone a skeleton may climb out in front of. `yaw`
+                      // is the marker's own facing, so the figure comes up with
+                      // its back to the stone. `zone` is the keep-clear
+                      // rectangle rule 8 is about.
 }
-// `graph.nodes` and `corridor.tiles` each publish `u, v`, their grid
-// coordinates, alongside the world `x, z`. That is part of the contract and not
-// an implementation detail: a rules implementation given only `x, z` has to
-// carry its own copy of the frame's isometry to do anything with the maze, and
-// then there are two of them to keep in step.
 
 // rules.js
-createGame({ layout }) -> {
+createGame({ world }) -> {
   update(dt, input) -> state,
-  state: { score, lives, mode, fireflies, skeletons, powerUntil },
+  state: { score, lives, mode, fireflies, skeletons },
 }
 ```
+
+The old maze package, `layout.js`'s `createLayout`, is superseded by `world/`
+and is kept only for `world-check.mjs`'s fence-density comparison. It still
+publishes `powerups` and a four-grave `spawns`, which is what a level looked
+like before this document was last edited, and neither is wired to anything.
 
 Both must run **headless, with no renderer**, because the overnight check is a
 few thousand generated levels and a few hundred simulated minutes, and neither
@@ -168,7 +234,9 @@ can afford a canvas.
 Not a rule the generator can check, but the thing it is for. A graveyard reads
 as cute when it is tidy: stones in rows facing the same way, paths that go
 somewhere, a bench looking at something, lanterns spaced evenly enough to look
-placed rather than dropped. Randomness should vary WHICH prop and its small
+placed rather than dropped. Rule 8 puts a price on one of those: a row of
+stones facing the same way is still exactly right, and only the stone at the
+end of the row is somewhere a skeleton can come out of. Randomness should vary WHICH prop and its small
 jitter, never whether the arrangement makes sense.
 
 
