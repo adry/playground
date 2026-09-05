@@ -101,16 +101,22 @@ const PAD_R = [0.075, 0.075, 0.090, 0.085];
 // and nearly as wide as the pad, and the ledge came out as a moulded seam
 // rather than as a step. A step is one of the four tonal breaks this piece has,
 // so it has to be wide enough to hold a shadow.
-const PW = 0.42; // half the tablet's width
-const PH = 0.36; // its run up the slope, foot to head
+const PW = 0.44; // half the tablet's width
+const PH = 0.38; // its run up the slope, foot to head
 const PT = 0.15; // its thickness. Under 2 * PAD_E the sweep folds, so this is
-const PR = 0.13; // near the floor already; the corner radius is generous.
+// near the floor already. The corner radius is deliberately TIGHT, and it is
+// the second thing the render sent back: a softly rounded tablet on a softly
+// rounded pad is two nested lozenges and reads as a keycap. Crisp corners on
+// the tablet against the pad's rolled lip is the contrast the piece needs, and
+// it is also the honest one, since the tablet is the dressed face and the pad
+// is the bolster.
+const PR = 0.075;
 // How far the tablet's underside sits inside the pad. It buys two things: no
 // crack can open along the joint on any seed, and the bead on the tablet's
 // underside is mostly hidden, so the step reads as a tablet standing on a ledge
 // rather than as a biscuit resting on one. What is left proud is 0.105, which
 // is the full top bead plus a sliver of undercut.
-const BURY = 0.045;
+const BURY = 0.065;
 // The tablet set a little up the slope, so the apron below it is wider than the
 // one above. That is where the margin goes on a real slant marker, and here it
 // also keeps the lettering off the part of the face nearest the ground.
@@ -219,8 +225,8 @@ function padOutline() {
 // and book.js has SLEEP WELL, so the two obvious ones are gone, and a pillow is
 // the one marker in a graveyard whose shape is already the word.
 function drawPillowInscription(ctx, w, h) {
-  const size = h * 0.421; // 0.100 in world, measured off the artwork not the em
-  inkText(ctx, 'ASLEEP', w / 2, h * 0.50, size, size * 0.06);
+  const size = h * 0.375; // 0.095 in world, measured off the artwork not the em
+  inkText(ctx, 'ASLEEP', w / 2, h * 0.50, size, size * 0.05);
 }
 
 registerStone('pillow', {

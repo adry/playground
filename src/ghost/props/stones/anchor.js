@@ -270,10 +270,11 @@ function armSweep(zFront, zk) {
       const p = P[i][j];
       const du = sub(P[Math.min(PH, i + 1)][j], P[Math.max(0, i - 1)][j]);
       const dv = sub(P[i][(j + 1) % RG], P[i][(j + RG - 1) % RG]);
-      // dv x du points out of the tube for this parametrisation.
-      let nx = dv[1] * du[2] - dv[2] * du[1];
-      let ny = dv[2] * du[0] - dv[0] * du[2];
-      let nz = dv[0] * du[1] - dv[1] * du[0];
+      // du x dv points out of the tube for this parametrisation. The other way
+      // round is not a subtle bug: the arms render as a crease in the face.
+      const nx = du[1] * dv[2] - du[2] * dv[1];
+      const ny = du[2] * dv[0] - du[0] * dv[2];
+      const nz = du[0] * dv[1] - du[1] * dv[0];
       const inv = 1 / (Math.hypot(nx, ny, nz) || 1);
       pos.push(p[0], p[1], p[2]);
       nor.push(nx * inv, ny * inv, nz * inv);
@@ -287,7 +288,7 @@ function armSweep(zFront, zk) {
       const b = i * RG + j2;
       const c = (i + 1) * RG + j2;
       const d = (i + 1) * RG + j;
-      idx.push(a, b, c, a, c, d);
+      idx.push(a, c, b, a, d, c);
     }
   }
   const geo = new THREE.BufferGeometry();
