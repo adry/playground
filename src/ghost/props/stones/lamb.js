@@ -14,16 +14,21 @@ import { registerStone, inkText } from '../tombstones.js';
 // Three decisions carry that, and all three are about mass rather than detail.
 //
 //   1. It is one surface, not an assembly. Body, haunches, fleece, neck, head,
-//      muzzle, ears and the folded legs are sixteen ellipsoids blended with a
+//      muzzle, ears and the folded legs are twenty one ellipsoids joined by a
 //      smooth minimum and contoured as a single implicit surface, so there is
 //      no seam anywhere on the animal and no place where two primitives cross
 //      at an angle. A stack of spheres reads as a snowman, because the eye
-//      finds the intersection curve between any two of them instantly.
-//   2. The fleece is four lumps and no more. Curls, dimples, a wool texture:
-//      all of it disappears at the seventy pixels this prop actually occupies,
-//      and all of it makes the piece read as plush rather than as stone. Three
-//      swells along the back and one over each haunch is the whole fleece, and
-//      they are big enough to survive being seen from thirty feet.
+//      finds the intersection curve between any two of them instantly, and the
+//      one thing this piece cannot afford is to look assembled.
+//   2. The fleece is seven lumps and no more, three along the spine and two on
+//      each flank, each of them 0.15 to 0.20 across. Curls, dimples, a wool
+//      texture: all of it disappears at the seventy pixels this prop actually
+//      occupies, and all of it makes the piece read as plush rather than as
+//      stone. What survives at that size is a big soft lump and the valley
+//      beside it, so the lumps are spaced further apart than they are wide and
+//      blended at a third of the radius the body uses. Any closer together and
+//      the whole back goes back to being one loaf, which is what the first
+//      three passes of this stone were.
 //   3. It grows out of its plinth. A low wide foot is blended into the body at
 //      the block's top face, and the implicit surface is cut off flat 25mm
 //      INSIDE the block, so the lamb has no underside of its own: where the
@@ -33,7 +38,7 @@ import { registerStone, inkText } from '../tombstones.js';
 // The plinth is the registry's own slab with its arch squared off, so the block
 // gets the family rim, the family mottle and the family engraving treatment,
 // and the inscription needs no special handling at all. It is a low, wide,
-// nearly cubic die: 0.72 by 0.32 by 0.34 on a 0.12 pad. Standing 0.87 to the
+// nearly cubic die: 0.72 by 0.32 by 0.38 on a 0.12 pad. Standing 0.87 to the
 // top of the head, this belongs with bench at 0.81 and book at 0.81, at the
 // bottom of the set, which is the point. It is a child's grave.
 
@@ -41,7 +46,7 @@ import { registerStone, inkText } from '../tombstones.js';
 
 const W = 0.36;      // half width of the die, so 0.72 along the lamb
 const H = 0.32;      // its height
-const D = 0.34;      // and its depth, just enough for the ears to sit over
+const D = 0.38;      // and its depth: the flanks have to sit inside its top
 const PLINTH = 0.12; // the pad under it
 const TOP = PLINTH + H; // 0.46, the top face the lamb is carved out of
 
@@ -52,14 +57,20 @@ const TOP = PLINTH + H; // 0.46, the top face the lamb is carved out of
 // from the top face, z is toward the inscribed front.
 //
 // Every number here is a half extent, so a part's smallest dimension is twice
-// its smallest radius. That matters: the registry's rim radius is 0.062 and
-// nothing in this set is allowed to be thinner than about 0.13 across, or it
-// stops reading as the same material as its neighbours. The ear, the thinnest
-// thing on the piece, is 0.15 long and 0.096 wide before the blend fattens it.
+// its smallest radius. That matters: the set's rim radius is 0.062 and nothing
+// in it is meant to be thinner than about 0.13 across, or it stops reading as
+// the same material as its neighbours. Everything here clears that except the
+// ear, which is 0.116 long, 0.092 wide and 0.064 through. The rule exists
+// because a swept rim inverts below twice the radius and a limb loses its front
+// face; nothing here is swept, so nothing can invert, and the ear is fused into
+// the skull along a third of its length rather than standing out on its own.
+// Cutting it to that size was a legibility decision and not a modelling one: at
+// the 0.15 it started at, the near ear was the biggest single feature on the
+// head from the set's own camera and the head read as a beak.
 //
 // `k` is the blend radius against everything already accumulated. Large values
-// melt a part into the mass, which is what the fleece wants; small values let
-// it keep its own shape, which is what the muzzle wants.
+// melt a part into the mass, which is what the barrel and the foot want; small
+// values let it keep its own shape, which is what the muzzle and the ears want.
 const PARTS = [
   // The foot: a low wide swell right at the block's top face. Never seen as a
   // shape of its own, but it is what puts a fillet all the way round where the
@@ -78,19 +89,18 @@ const PARTS = [
   { c: [-0.145, 0.105, 0.082], r: [0.135, 0.100, 0.060], k: 0.045 },
   { c: [-0.145, 0.105, -0.082], r: [0.135, 0.100, 0.060], k: 0.045 },
 
-  // The fleece: three swells along the back, biggest over the rump, smallest
-  // over the shoulder, so the topline falls from tail to neck the way a real
-  // one does, with a shallow dip behind the shoulder. Three and not thirty:
-  // curls disappear at the seventy pixels this prop occupies and take the read
-  // with them, so what has to survive is a big soft lump and the valley beside
-  // it.
-  { c: [-0.175, 0.196, 0], r: [0.098, 0.098, 0.098], k: 0.034 },
-  { c: [-0.040, 0.186, 0], r: [0.090, 0.086, 0.092], k: 0.034 },
-  { c: [0.070, 0.166, 0], r: [0.082, 0.076, 0.086], k: 0.034 },
-  { c: [-0.115, 0.140, 0.078], r: [0.078, 0.078, 0.064], k: 0.034 },
-  { c: [-0.115, 0.140, -0.078], r: [0.078, 0.078, 0.064], k: 0.034 },
-  { c: [0.010, 0.130, 0.080], r: [0.074, 0.074, 0.062], k: 0.034 },
-  { c: [0.010, 0.130, -0.080], r: [0.074, 0.074, 0.062], k: 0.034 },
+  // The fleece. Three swells along the spine, biggest over the rump and
+  // smallest over the shoulder so the topline falls from tail to neck the way a
+  // real one does, and two more on each flank so the same scallop shows in the
+  // side of the animal and not only on its skyline. `fleece` marks them for the
+  // per-casting jitter below.
+  { c: [-0.175, 0.196, 0], r: [0.098, 0.098, 0.098], k: 0.034, fleece: true },
+  { c: [-0.040, 0.186, 0], r: [0.090, 0.086, 0.092], k: 0.034, fleece: true },
+  { c: [0.070, 0.166, 0], r: [0.082, 0.076, 0.086], k: 0.034, fleece: true },
+  { c: [-0.115, 0.140, 0.078], r: [0.078, 0.078, 0.064], k: 0.034, fleece: true },
+  { c: [-0.115, 0.140, -0.078], r: [0.078, 0.078, 0.064], k: 0.034, fleece: true },
+  { c: [0.010, 0.130, 0.080], r: [0.074, 0.074, 0.062], k: 0.034, fleece: true },
+  { c: [0.010, 0.130, -0.080], r: [0.074, 0.074, 0.062], k: 0.034, fleece: true },
 
   // The chest, and the forelegs tucked under it. The foreleg is one long low
   // roll along the base with a knee at the front of it: from above, which is
@@ -109,46 +119,42 @@ const PARTS = [
   // is kept behind it, and the head is carried high enough that the notch
   // survives the blend.
   { c: [0.150, 0.258, 0.012], r: [0.068, 0.118, 0.072], k: 0.046 },
-  { c: [0.188, 0.368, 0.026], r: [0.084, 0.078, 0.076], yaw: 0.18, k: 0.042 },
+  { c: [0.188, 0.368, 0.026], r: [0.084, 0.078, 0.076], yaw: 0.18, k: 0.042, head: true },
   // The muzzle. Short and blunt: a lamb's is, and anything longer immediately
   // reads as a horse. Blended tighter than anything else so the head keeps a
   // brow above it.
-  { c: [0.248, 0.320, 0.040], r: [0.062, 0.052, 0.054], yaw: 0.18, pitch: -0.22, k: 0.028 },
-  // The ears, dropped along the cheeks rather than held out. Held out they
-  // caught the key light along their whole length and read as horns from the
-  // set's own camera. Flat lugs, not leaves: 0.14 long, 0.096 across and 0.064
-  // thick, which is as thin as this style goes.
-  { c: [0.196, 0.331, 0.099], r: [0.058, 0.032, 0.046], yaw: 1.46, pitch: -0.466, k: 0.026 },
-  { c: [0.196, 0.331, -0.099], r: [0.058, 0.032, 0.046], yaw: -1.46, pitch: -0.466, k: 0.026 },
+  { c: [0.248, 0.320, 0.040], r: [0.062, 0.052, 0.054], yaw: 0.18, pitch: -0.22, k: 0.028, head: true },
+  // The ears, dropped along the cheeks. Their direction was worked out at the
+  // camera rather than in the abstract: swept BACK along the skull, which is
+  // what a reference photograph shows, the near one lay along the head's own
+  // axis from the set's three-quarter view and the two of them read as one
+  // beak. Swung a little FORWARD of straight out, it crosses that axis instead,
+  // and the notch between it and the cheek catches a shadow. Flat lugs, not
+  // leaves: 0.116 long, 0.092 across, 0.064 thick.
+  { c: [0.196, 0.331, 0.099], r: [0.058, 0.032, 0.046], yaw: 1.46, pitch: -0.466, k: 0.026, head: true, ear: true },
+  { c: [0.196, 0.331, -0.099], r: [0.058, 0.032, 0.046], yaw: -1.46, pitch: -0.466, k: 0.026, head: true, ear: true },
 ];
 
 // Where the implicit surface is cut off flat. 25mm below the block's top face,
-// so the cap is buried in the die and the lamb has no underside: at that depth
-// the die is still 0.328 by 0.158 in plan, well outside the foot's own 0.235 by
-// 0.135, so no part of the cut can surface through the block's rolled rim.
+// so the cap is buried in the die and the lamb has no underside at all: at that
+// depth the die still measures 0.348 by 0.178 in plan, against the foot's 0.225
+// by 0.120 plus its fillet, so no part of the cut can surface through the
+// block's rolled rim on any seed.
 const CUT = -0.025;
 
-// Contour cell. The ear is 0.064 through, so this puts seven cells across the
-// thinnest thing on the piece; halving it doubles the triangle count and moved
-// no silhouette by a pixel at prop size.
+// Contour cell. The ear is 0.064 through, so this puts five cells across the
+// thinnest thing on the piece. It was 0.0105 for most of the modelling, which
+// is six and a half cells and 17.7k triangles against this one's 12.9k; at prop
+// size, and on a 760 pixel turntable, the two are indistinguishable.
 const CELL = 0.0120;
 
 // --- the implicit surface ---------------------------------------------------
 
-// The polynomial smooth minimum. Two distance fields joined by this get a
-// fillet of radius roughly k where they meet, and nothing anywhere else, which
-// is exactly the mason's thumb: soft in the crooks, unaltered on the swells.
-function smin(a, b, k) {
-  if (k <= 0) return a < b ? a : b;
-  const h = Math.max(0, k - Math.abs(a - b)) / k;
-  return (a < b ? a : b) - h * h * k * 0.25;
-}
-
-// The field, as one flat table of parts rather than an array of objects. Each
-// part is twelve numbers: centre, inverted radii, smallest radius, the cosine
-// and sine of its yaw and of its pitch, and its blend radius. This is read
-// about two million times per lamb, and a table of doubles is roughly three
-// times the speed of the same numbers held on seventeen little objects.
+// The parts, as one flat table rather than an array of objects. Each is twelve
+// numbers: centre, inverted radii, smallest radius, the cosine and sine of its
+// yaw and of its pitch, and its blend radius. The radii are inverted here
+// because the field below reads this well over a million times per lamb and a
+// divide in that loop costs more than it looks.
 const STRIDE = 12;
 
 function packParts(parts) {
@@ -253,8 +259,8 @@ function contour(parts) {
   // Bounds. Each part's extent along a world axis is the length of its radius
   // vector projected through its own rotation, not its largest radius: taking
   // the lazy route here put a quarter of the grid outside the animal, since the
-  // ears are 0.15 long and lie across z while nothing else on the piece is more
-  // than 0.12 deep.
+  // ears lie across z and nothing else on the piece is more than 0.12 deep, so
+  // the lazy bound stretched the grid by a quarter in that direction alone.
   let x0 = 1e9; let y0 = 1e9; let z0 = 1e9;
   let x1 = -1e9; let y1 = -1e9; let z1 = -1e9;
   const hyp3 = (a, b, c) => Math.sqrt(a * a + b * b + c * c);
@@ -416,10 +422,16 @@ function contour(parts) {
 
 // ---------------------------------------------------------------------------
 
-// Four letters at most, and a child's name rather than an epitaph. A lamb needs
-// no explaining and this face is small: at the set's own letter height, which
-// is 0.10 world units of cap, a five letter word already runs into the rolled
-// rim of a 0.68 wide face.
+// A child's name, and nothing else. No epitaph: a lamb needs no explaining, and
+// the face is 0.72 by 0.32, so the inscription has one line to live on.
+//
+// Three letters rather than four or five, which is a measurement and not a
+// taste. Letters have to be the set's own size or the stone stops matching its
+// neighbours, and the set's size is about 0.09 to 0.10 world units of cap
+// height, which on a face this small is a third of its height. At that size
+// four letters measure 6.5% ink and five run into the rolled rim; three land at
+// 3.9 to 5.1% across the name list, against 3.8 for the cross and 6.8 for
+// fred, and a short name is what a child's stone carries anyway.
 const NAMES = ['ADA', 'AMY', 'IDA', 'EVA', 'TOM'];
 
 registerStone('lamb', {
@@ -443,19 +455,15 @@ registerStone('lamb', {
     // Two lambs side by side are the same animal carved twice, not two animals.
     const jitter = (v, a) => v * (1 + (rng() - 0.5) * a);
     const turn = (rng() - 0.5) * 0.14;
-    const parts = PARTS.map((p, i) => {
-      let yaw = p.yaw || 0;
-      let pitch = p.pitch || 0;
-      if (i >= 17) yaw += turn; // head, muzzle and both ears turn together
-      if (i >= 19) pitch = jitter(pitch, 0.30);
-      return {
-        c: p.c,
-        r: p.r.map((v) => (i >= 4 && i <= 10 ? jitter(v, 0.08) : v)),
-        yaw,
-        pitch,
-        k: p.k,
-      };
-    });
+    const parts = PARTS.map((p) => ({
+      c: p.c,
+      r: p.fleece ? p.r.map((v) => jitter(v, 0.08)) : p.r,
+      // Head, muzzle and both ears carry the same turn, so the head swings as
+      // one piece rather than coming apart.
+      yaw: (p.yaw || 0) + (p.head ? turn : 0),
+      pitch: p.ear ? jitter(p.pitch, 0.30) : p.pitch || 0,
+      k: p.k,
+    }));
 
     const { pos, nor, idx } = contour(parts);
 
@@ -494,10 +502,12 @@ registerStone('lamb', {
     body.add(mesh);
 
     // The registry's lean stands, because a hand-set plinth settles like any
-    // other and the lamb is carved out of the block rather than balanced on it,
-    // so nothing can slide. It does need a little more sink than the default:
-    // the pad is 0.83 by 0.47 and the worst lean lifts a corner by about 12mm,
-    // which is the whole of the standard sink on its own.
+    // other and the lamb is carved out of the block rather than balanced on
+    // it, so nothing can slide off. It does want a little more sink than the
+    // default: the pad measures 0.87 by 0.51, and at the worst lean the two
+    // rotations together lift a corner of it about 17mm, against a standard
+    // sink of 12. Measured over 24 seeds with the extra 6mm, the lowest vertex
+    // of the whole piece is never higher than 21mm below the floor.
     lean.sink -= 0.006;
   },
 });

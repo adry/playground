@@ -149,20 +149,29 @@ const PLANES = [
 // The fillet the smooth min puts on an arris, in world units, and it is two
 // numbers rather than one.
 //
-// SMIN_K is what the rough facets meet each other on. The registry rolls every
-// edge in the set on a 62 mm quarter round, and 60 was tried first for exactly
-// that reason: it is too much. A fillet that size is wider than the corner
-// chamfers below are long, so it eats them, and what comes back is one smooth
-// wedge. 36 mm is about two and a half pixels at scene scale, still nothing the
-// eye can call an edge, and it leaves the small facets standing.
+// SMIN_K is what the rough facets meet each other on, and finding it was the
+// longest part of this build. The registry rolls every edge in the set on a
+// 62 mm quarter round, so 60 was tried first: it is far too much here. A fillet
+// that size is wider than the corner chamfers above are long, so it eats them,
+// and what comes back is one smooth wedge with an inscription on it. Rendering
+// the same planes at 6 mm settled it, because that version has the silhouette
+// the piece wants -- straight runs and real corners -- and the only thing
+// missing from the 60 mm one was the fillet size. 45 and 26 were still soft.
 //
-// SMIN_PANEL is what the DRESSED face meets the rough rock on, and it is half
-// of that on purpose. A worked face has a harder boundary than a broken one --
-// that difference is the whole "someone did this" of the design -- and it is
-// also what makes the panel possible at all: the pocket cut into the facet has
-// to clear the rock all the way round, and at 60 mm the facet is only flat in
-// the middle third of itself, which shrank the pocket to two thirds of its size
-// and ran the letters off the edge of it.
+// 17 mm is the answer, and the tessellation is why it cannot go lower: rings
+// are about 30 mm apart on the rough shell, so a fillet tighter than this is
+// sampled once, the grid crosses the arris at a grazing angle and scallops it,
+// and the render comes back with a crimped seam down the edge. 17 mm is one
+// pixel at scene scale, so nothing there reads as sharp; it is eight at the
+// size the piece is inspected, which is a soft edge and not a knife.
+//
+// SMIN_PANEL is what the DRESSED face meets the rough rock on, and it is
+// smaller still. A worked face has a harder boundary than a broken one -- that
+// difference is the whole "someone did this" of the design -- and it is also
+// what makes the panel possible at all: the pocket cut into the facet has to
+// clear the rock all the way round, and at 60 mm the facet was only flat in the
+// middle third of itself, which shrank the pocket to two thirds of its size and
+// ran the letters off the edge of it.
 const SMIN_K = 0.017;
 const SMIN_PANEL = 0.012;
 
@@ -743,10 +752,17 @@ registerStone('boulder', {
   bottomRadius: 0.062,
 
   // A small cross and two initials, both well inside the pocket's outline,
-  // which wanders a little per seed. Letters about 0.10 world units tall, the
-  // same as the family's; the cross is smaller than the one on `cross` because
-  // this face is a third of that one's area and the brief for a found stone is
-  // quiet.
+  // which wanders a little per seed. Letters 0.104 world units tall, against
+  // 0.123 for cross and 0.096 for fred; the cross is smaller than the one on
+  // `cross` because this face is a third of that one's area and the brief for a
+  // found stone is quiet. Measured, alpha weighted, on the 948 x 1024 face:
+  // 4.8% ink, against 3.7, 6.4 and 9.2 for the approved cross, fred and bat.
+  //
+  // The one thing worth checking again if these numbers move: the pocket is
+  // sized per seed, so the mark has to fit the SMALLEST pocket, not the drawn
+  // canvas. Over sixteen seeds the tightest pocket covers u 0.122 to 0.888 and
+  // v 0.107 to 0.884 of the face region, and the ink here sits inside u 0.177
+  // to 0.823 and v 0.25 to 0.81, so it clears on every one of them.
   draw(ctx, w, h, rng) {
     inkCross(ctx, w / 2, h * 0.275, h * 0.165);
     const size = h * 0.285;

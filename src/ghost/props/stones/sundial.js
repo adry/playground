@@ -40,8 +40,10 @@ import { Profile, createSink, sinkToGeometry, latheInto } from '../fountain/lath
 //    of the registry's builders are quarter-round sweeps of a fixed rim radius
 //    of 0.062: depth must be at least twice that or the side wall inverts, and
 //    every convex corner needs a radius bigger than it or the corner turns
-//    inside out. That floors a swept blade at 0.124 thick with corners so fat
-//    that a 0.17 triangle is all corner. So the blade is built here instead, as
+//    inside out. That floors a swept blade at 0.124 thick, and worse, at the
+//    smallest legal corner the two arcs at the ends of this blade's 0.18 base
+//    would need 0.195 of it, so the base is gone before the triangle is drawn.
+//    So the blade is built here instead, as
 //    the set of points within rho of a flat triangle. Two flat faces, a roll of
 //    radius rho along each edge, a ball of it at each corner, and every normal
 //    analytic. It is the same idea as the fountain's rounded box, which is a
@@ -113,7 +115,7 @@ const CENTRE_SOUTH = 0.12;
 // and also what puts the tall edge at the far side of the plate, where it
 // occludes the least of the face.
 const BLADE_BASE = 0.18;
-const BLADE_RISE = BLADE_BASE * Math.tan(LAT); // 0.191
+const BLADE_RISE = BLADE_BASE * Math.tan(LAT); // 0.215
 // Half the thickness of the blade, and the radius of every roll and every
 // corner on it, since both come out of the same ball. 0.048 makes it 0.096
 // across, under the 0.13 the registry's sweeps floor a limb at, which is the
@@ -185,7 +187,6 @@ function hourAngle(h) {
   return Math.atan2(SIN_LAT * Math.sin(H), Math.cos(H));
 }
 
-
 // Radii, as fractions of the flat top. Nothing reaches past 0.88 of it. The
 // first pass ran the lines out to 0.94 and thickened their last fifth into a
 // chapter band, and from above that read as a ring of fat spikes with their
@@ -227,14 +228,15 @@ const START = 0.085;
 // scribbles that made the middle of the plate look dirty, and they cost four
 // points of the ink budget to do it.
 //
-// One XII at the set's real letter height, which is what a font size of 0.13
-// gives, then failed on geometry rather than on legibility, and this is the
-// measurement worth keeping: a XII that tall is 0.17 wide, and the eleven and
-// one o'clock lines are 12 degrees off noon, which out at the chapter arc is
-// 0.036 away. The numeral is five times wider than the gap it has to live in.
-// Stopping every line short to clear a pocket for it takes a 60 degree bite out
-// of the top of the fan, which is the part of the dial the eye actually lands
-// on.
+// One XII at the set's real letter height, which is a font size of about 0.13
+// since a cap is roughly seven tenths of it, then failed on geometry rather
+// than on legibility, and this is the measurement worth keeping: a XII that
+// tall is 0.17 wide, and where it would sit, a quarter of a unit out from the
+// convergence, the eleven and one o'clock lines are 12 degrees either side of
+// it and 0.104 apart. The numeral is half again as wide as the whole gap it has
+// to live in. Stopping every line short to clear a pocket for it takes a 60
+// degree bite out of the top of the fan, which is the part of the dial the eye
+// actually lands on.
 //
 // So: no letters. The hours are carried by their LINES, which are radial marks
 // and lose nothing by being small, and the one non-linear mark on the face is a
@@ -298,21 +300,18 @@ export function drawDial(ctx, S, rng) {
   // into the stone; with it they read as an instrument, because a scale is a
   // set of marks against a datum and this is the datum.
   {
-    const ang = (p) => Math.atan2(p[1], p[0]);
     const r = FLAT_R * R_ARC * PPU;
-    // The arc runs the long way round, from one six o'clock end through north
-    // to the other, so the gap in it sits in the empty crescent south of the
-    // convergence where there is nothing to join up.
-    let a0 = ang(ends[0]);
-    let a1 = ang(ends[ends.length - 1]);
     ctx.lineWidth = W_ARC * PPU;
     ctx.beginPath();
-    // Canvas y runs down and the half turn may flip the whole face, so the arc
-    // is drawn in canvas angles taken from two points that are already mapped.
+    // The arc runs the long way round, from one six o'clock end through north
+    // to the other, so the gap in it sits in the empty crescent south of the
+    // convergence where there is nothing to join up. Canvas y runs down and the
+    // half turn may flip the whole face, so the angles are taken from points
+    // that have already been through the mapping rather than from dial ones.
     const m0 = px(...ends[0]);
     const m1 = px(...ends[ends.length - 1]);
-    a0 = Math.atan2(m0[1] - cy, m0[0] - cx);
-    a1 = Math.atan2(m1[1] - cy, m1[0] - cx);
+    const a0 = Math.atan2(m0[1] - cy, m0[0] - cx);
+    const a1 = Math.atan2(m1[1] - cy, m1[0] - cx);
     // Which way round is the long way is decided by where north lands, not
     // assumed: the mapped noon end is on the arc that has to be kept.
     const mid = px(...ends[6]);
@@ -368,9 +367,9 @@ function pedestalProfile(k) {
   P.arc(0.200, 0.064, 0.038, 0, Math.PI / 2, 6);
   P.curve([[0.172, 0.112], [0.160, 0.142]], 6);
   P.lineTo(0.158, 0.166, 2);
-  P.curve([[0.146, 0.190], [0.122, 0.215], [0.110, 0.250]], 8);
-  P.curve([[0.124, 0.305], [0.146, 0.352], [0.150, 0.398]], 12);
-  P.curve([[0.142, 0.468], [0.122, 0.545], [0.106, 0.612]], 12);
+  P.curve([[0.146, 0.190], [0.122, 0.215], [0.110, 0.250]], 7);
+  P.curve([[0.124, 0.305], [0.146, 0.352], [0.150, 0.398]], 10);
+  P.curve([[0.142, 0.468], [0.122, 0.545], [0.106, 0.612]], 10);
   P.curve([[0.098, 0.664], [0.100, 0.694]], 5);
   P.curve([[0.124, 0.720], [0.134, 0.734]], 5);
   P.curve([[0.160, 0.760], [0.172, 0.790]], 6);
@@ -545,7 +544,10 @@ registerStone('sundial', {
 
     // --- the pedestal -------------------------------------------------------
     const sink = createSink();
-    latheInto(sink, { profile: pedestalProfile(k), segments: 44 });
+    // 38 rather than the house 48. On a shaft 0.3 across at the size this prop
+    // is seen, a facet is under a millimetre off the true circle, and the lathe
+    // is already the most expensive thing on the piece.
+    latheInto(sink, { profile: pedestalProfile(k), segments: 38 });
 
     // A lathe's own UVs are a cylindrical wrap, which over the shared material
     // would drag the dial round the outside of the shaft. Every vertex is

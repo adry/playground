@@ -28,8 +28,8 @@ import { registerStone, inkText } from '../tombstones.js';
 //      has one shadow-casting key at 54 degrees and it cannot put a shadow in a
 //      two centimetre crevice, so without a baked term a pile comes out as a
 //      tray of pale pebbles. Every vertex here is tested against every other
-//      stone's ellipsoid and darkened by what sits in front of it. It costs
-//      about twelve thousand distance tests at build time and nothing per
+//      stone's ellipsoid and darkened by what sits in front of it. That is
+//      about sixty thousand distance tests at build time and nothing at all per
 //      frame.
 //   3. FACETS, NOT NOISE. A rock reads as a rock through a few large planes
 //      meeting at soft edges. So a stone here is the intersection of eight to
@@ -69,13 +69,13 @@ const TAU = Math.PI * 2;
 //
 // 0.62 by 0.52, and the two numbers were forced rather than chosen.
 //
-// The letter has to be the set's letter: fred's is 0.098 world units of cap
-// height and cross's is 0.127, and a mark smaller than that does not read as
-// the same chisel however good the coverage number looks. Four capitals at that
-// size need 0.40 of clear face. The catch is that a slab's front face is NOT as
+// The letter has to be the set's letter. Measured off the ink rather than off
+// the font metrics, fred's capitals stand 0.093 world units and cross's 0.122,
+// and a mark under that does not read as the same chisel however good the
+// coverage number looks. Four capitals at that size need 0.43 of clear face. The catch is that a slab's front face is NOT as
 // wide as the slab: the sweep insets it by the 0.062 rim radius all the way
 // round, so a 0.50 wide slate has 0.376 of flat face and a word sized for the
-// set wraps round the bead and up the side. Hence 0.58, which leaves 0.456 of
+// set wraps round the bead and up the side. Hence 0.62, which leaves 0.496 of
 // flat, and hence the tablet being WIDER than it is tall, which is a plaque
 // rather than a little headstone and is the better thing for it to be: a small
 // upright slab in front of a cairn reads as a second grave marker.
@@ -83,6 +83,11 @@ const TAU = Math.PI * 2;
 // Depth is 0.15 because the rim radius is 0.062 and a slab thinner than twice
 // that loses its front face and the sweep crosses itself.
 const SLATE = { halfWidth: 0.31, height: 0.52, depth: 0.15 };
+// How far back it leans, and the second job the lean does. The camera sits 29
+// degrees up, so an upright face gives up most of itself: tipped back into this
+// range the plaque turns toward the eye and reads about a fifth taller than it
+// is. Which angle inside the range is solved for in extras, per seed, by asking
+// which one actually lands the plaque's top edge on the pile.
 const TIP = { lo: 0.20, hi: 0.46 };
 // How far the slate presses into the stone it leans on, and how far its foot is
 // buried. Both are well over the light's 0.006 normal bias, which is the floor
@@ -92,10 +97,10 @@ const SLATE_SINK = 0.006;
 
 // --- the pile --------------------------------------------------------------
 //
-// Four tiers and a cap, biggest at the bottom. Counts are 4 or 3 at the base,
-// so a cairn is nine or ten stones plus one or two that have rolled off the
-// foot of it: few enough that the eye can count them, which is what stops it
-// reading as gravel.
+// Three rings and a capstone, biggest at the bottom. The base ring is four
+// stones or three, so the stack is ten or nine, with one more hidden in the
+// heart of it and one or two that have rolled off its foot. Few enough that the
+// eye can count them, which is what stops a pile reading as gravel.
 //
 // A tier's ring radius is not a number anybody chose. It is the smallest radius
 // at which n stones of that size do not overlap each other, hw / sin(pi / n),
@@ -121,6 +126,7 @@ const SLATE_SINK = 0.006;
 // pile the one broad horizontal plane the key light can land square on. Real
 // cairns are finished this way for the same reason: it is what stops the top
 // blowing apart.
+//
 // The pair below the capstone is turned to 45 degrees rather than to the half
 // step the rest of the tiers use, and that is a sightline rather than a
 // building decision. A ring of two parts along one line, and at a half step
@@ -135,18 +141,18 @@ const TIERS = [
   { n: 1, hw: 0.185, phase: 0.00, flat: { lo: 0.38, hi: 0.50 }, tilt: 0.06, bite: 0.05, settle: 0.97, plateau: true },
 ];
 const PACK = 1.02;
-// Half height over half width, drawn per stone. Field stones are flat: they are
-// what splits off a hillside and what a person can carry, and a flat stone is
-// also the better stone for this piece twice over. It meets the one below it
-// along a broad contact rather than at a point, which is what makes the joint a
-// LINE, and it turns more of itself at the sky, which is dirtpile's second
-// finding about why a heap reads as lit and a dome does not. The spread is held
-// narrow because the pile is four of these stacked and a wide spread compounds
-// into a stone half a head taller on one seed than the next.
+// Half height over half width, drawn per stone, and the height budget decides
+// it rather than taste. Four courses have to make 0.9, so a course is 0.22 and
+// a stone 0.38 across has to be about 0.3 thick. Tried at half of that, on the
+// reasoning that a field stone is a slab, and the render was a stack of
+// pancakes; tried the other way and it is a tower of dice. The spread is held
+// narrow because four of these compound: at plus or minus a third one seed
+// builds a pile a head taller than the next, and the scale that pulls it back
+// takes the footprint with it.
 const FLAT = { lo: 0.70, hi: 0.92 };
 // The block. A stone is the intersection of this many half spaces, and `edge`
-// is how sharply they meet: see fieldStone below. Eight to ten faces on a
-// stone this size gives facets sixty or seventy degrees apart, which is a few
+// is how sharply they meet: see fieldStone below. Eight to eleven faces on a
+// stone this size puts them sixty or seventy degrees apart, which is a few
 // large planes rather than a chipped surface. The first pass used an
 // axis aligned superellipsoid instead and rendered as a heap of pillows: three
 // planes at right angles is not a rock, it is a bar of soap.
@@ -208,10 +214,11 @@ const lerp = (a, b, t) => a + (b - a) * t;
 // which is flat where one term dominates, a rounded blend where two or three
 // do, and exactly a superellipsoid if the faces happen to be the six axis ones.
 // q is the edge, and it is the one knob that decides whether this is a river
-// cobble or a quarry block: 4.6 rounds the edges to about a fifth of the
-// stone's width, 7.5 to a twentieth. Anything sharper than that starts to
-// alias, because the sphere it is sampled on has no vertices lined up with an
-// edge that arrived after it.
+// cobble or a quarry block: at 4 the edges round off to about a fifth of the
+// stone's width and it renders as a pebble, at 11 to a fortieth, which is a
+// bead of about a centimetre and is where this sits. Much sharper than that
+// starts to alias, because the sphere it is sampled on has no vertices lined up
+// with an edge that arrived after it.
 //
 // Face normals come off a Fibonacci sphere rather than out of a random number
 // generator, jittered afterwards. Drawn at random, eight directions clump: two
@@ -494,10 +501,11 @@ registerStone('cairn', {
   // and is exactly the busy lettering the last round was rejected for: measured
   // two up, this face goes to 8.5% ink.
   //
-  // Measured on its own 1221 by 1024 face: 5.0% ink at a cap height of 0.089
-  // world units, against cross 3.8% at 0.127 and fred 6.8% at 0.098. A piece
-  // whose identity is its silhouette belongs at the light end, and this one's
-  // identity is a heap of rocks.
+  // Measured on its own 1221 by 1024 face: 4.9% ink at a cap height of 0.088
+  // world units and a word 86% of the clear face wide, against cross 3.8% at
+  // 0.122 and fred 6.8% at 0.093. A piece whose identity is its silhouette
+  // belongs at the light end of the ink, and this one's identity is a heap of
+  // rocks.
   draw(ctx, w, h) {
     const size = h * 0.254;
     inkText(ctx, 'HOME', w / 2, h * 0.505, size, size * 0.05);
