@@ -1073,9 +1073,13 @@ export function createZombiePerformance({
       yawVel = 0;
       shedLeft = rig.shed ? [...rig.shed.keys()].slice(0, 3) : [];
       shedFired = [];
-      // Started from where the figure IS, not snapped to the hole, so a rules
-      // change of mind mid-stride reads as the ground taking it back rather
-      // than as a cut.
+      // The hole is set as the lift spring's TARGET and the spring is
+      // deliberately not snapped to it, which is the one difference from the
+      // buried branch above. Coming from 'dormant' the figure is already down
+      // there and the target changes nothing; coming straight from 'hunting',
+      // which the rules are allowed to do, it sinks into the hole over about a
+      // second while the climb's first beats play, and a figure being taken
+      // back by the ground looks far better than one that cuts to it.
       T.lift = BURIED_Y;
     }
     if (next === 'rising') {

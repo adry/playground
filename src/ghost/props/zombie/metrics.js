@@ -113,7 +113,7 @@ export const M = {
     waist: f(0.425),          // spineLower pivot
     cavityBottom: f(0.470),   // bottom lip of the open ribcage window
     chest: f(0.520),          // spineUpper pivot
-    cavityTop: f(0.600),      // top lip of the window, under the collarbone
+    cavityTop: f(0.588),      // top lip of the window, just under the glenoid
     shoulder: f(0.598),       // glenoid, the pivot
     shoulderTop: f(0.628),    // top of the deltoid mass, where the jacket sits
     neck: f(0.640),           // neck pivot. See the note under `neck` below.
@@ -287,14 +287,14 @@ export const M = {
     ribPairs: 3,
     ribRadius: f(0.0105),
     ribSpacing: f(0.040),
-    ribTop: f(0.588),
+    ribTop: f(0.576),
     // The spine runs down the middle of the cavity BEHIND the ribs, so its
     // top knobs show through the rib gaps and its bottom ones are exposed
     // below the lowest rib. That is what sells the cavity as an opening with
     // a back to it rather than as a patch painted on the chest: you are
     // looking past one piece of geometry at another.
     spineKnobs: 5,
-    spineTop: f(0.578),
+    spineTop: f(0.566),
     spineSpacing: f(0.024),
     spineRadius: f(0.016),
   },
@@ -332,7 +332,12 @@ export const M = {
     hem: f(0.245),
     thickness: f(0.013),
     tatter: f(0.026),
-    holes: 3,                 // one of them shows bone, on the left thigh
+    // Two, not the reference's three. One worn through the seat, on the
+    // waistband piece, and one on the LEFT thigh cuff with a shard of bone
+    // behind it. A hole in a rag with more rag behind it is not a wound, so
+    // every hole here has to have something to show, and there are only two
+    // places on a pair of shorts where that is true.
+    holes: 2,
   },
 
   // --- arms ----------------------------------------------------------------

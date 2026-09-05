@@ -48,9 +48,7 @@ const setSize = (w, h) => lab.page.evaluate((o) => window.__game.setSize(o.w, o.
 await setSize(small, Math.round(small * height / width));
 
 // The driver. A player who walks INTO the thing chasing them, which is the
-// fastest honest way to the third death, except on the last life, where it
-// runs across the skeleton's path instead so the frames the ring keeps are a
-// chase rather than a head-on collision.
+// fastest honest way to a third death and therefore to a picture.
 const COARSE = 1 / 5;
 const FINE = 1 / 12;
 const CHUNK = 10;
@@ -80,13 +78,14 @@ while (t < maxSeconds && !over) {
         const dx = foe.x - st.ghost.x;
         const dz = foe.z - st.ghost.z;
         const L = Math.hypot(dx, dz) || 1;
-        // Straight at it while there are lives to spend; on the last one, 23
-        // degrees off, so it closes at an angle and the frames the ring keeps
-        // are a chase across the picture rather than a head-on collision.
-        const turn = st.lives <= 1 ? 0.4 : 0;
-        const c = Math.cos(turn);
-        const s = Math.sin(turn);
-        axis = { x: (dx * c - dz * s) / L, y: (dx * s + dz * c) / L };
+        // STRAIGHT AT IT, on every life including the last. Anything off the
+        // straight line was tried and does not terminate: a ghost at 3.05
+        // running tangentially outpaces a skeleton at 2.15 closing radially,
+        // so it circles for ever and the run never ends. The frames the ring
+        // keeps are a chase either way -- a second before contact the two are
+        // about two units apart, which is exactly the gap share.js is looking
+        // for -- so the straight line costs the picture nothing.
+        axis = { x: dx / L, y: dz / L };
       }
       window.__game.step(st.lives <= 1 ? o.fine : o.coarse, axis);
     }

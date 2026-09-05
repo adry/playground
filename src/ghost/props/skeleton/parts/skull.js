@@ -660,8 +660,23 @@ const AO_REACH = 0.038 * HS;
 // Tessellation. Set by the openings, not by the silhouette: the vault is smooth
 // at a third of this, but the edge of a cut is a contour crossing the grid at
 // an arbitrary angle and can only be as clean as the grid it lands on.
-const NTH = 144;
-const NPH = 92;
+//
+// THREE QUARTERS, NOT A HALF, AND THE REASON IS THE SENTENCE ABOVE.
+//
+// 288 by 184 is 103,888 triangles, a fifth of the whole figure, on a head that
+// is about twelve pixels across in the game. Halving it to 144 by 92 saves
+// 78,432 and the vault survives it easily, exactly as the note above predicts.
+// What does not survive it is the thing the note warns about: the ORBIT RIM and
+// the NASAL APERTURE are contours cut across this grid, and at half they pick
+// up visible facets. Rendered side by side at the skull framing they are there
+// to see, and that skull was rejected twice before it was right.
+//
+// At three quarters the two are indistinguishable at 25 times the shipped pixel
+// density, and it still returns 45,716 triangles, 59% of what halving offered.
+// That is the trade: give up two fifths of the saving on this one dial and the
+// form we fought for is untouched.
+const NTH = 216;
+const NPH = 138;
 
 // Polynomial smooth minimum. k is a real length, so a fillet between two parts
 // is the same size wherever it happens.

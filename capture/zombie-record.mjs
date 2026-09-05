@@ -11,11 +11,15 @@
 // rasteriser cannot affect the timing: the clip is smooth even when a frame
 // takes most of a second to draw.
 //
-// Three outputs, and the last two are the ones that settle arguments:
+// Four outputs, and the last two are the ones that settle arguments:
 //
 //   the clip      out/zombie-<w>x<h>.mp4
-//   the strip     out/zombie-walk-strip.png, consecutive frames side by side,
-//                 so the gait can be judged as POSES rather than as motion
+//   the sheet     --sheet t0,t1,... tiles the climb at named moments, which is
+//                 how the emergence is reviewed before anybody spends twenty
+//                 minutes of software rasteriser on a video
+//   the strip     out/zombie-walk-strip.png, twelve poses spanning exactly one
+//                 gait cycle, so the walk can be judged as POSES rather than as
+//                 motion
 //   the numbers   foot slip, the derived constant table, and the per-frame cost
 //                 of update(), printed to stdout
 //
@@ -34,6 +38,13 @@ const args = parseArgs(process.argv.slice(2));
 const width = Number(args.w || 900);
 const height = Number(args.h || 900);
 const fps = Number(args.fps || 60);
+// How many SIMULATION steps go into one captured frame. The sim always runs at
+// 1/(fps*sub), so `--fps 30 --sub 2` is a 30fps clip whose springs were still
+// stepped at 60Hz: identical motion, half the screenshots. On a loaded box the
+// screenshot is the whole cost, so this is the knob that decides whether a clip
+// takes six minutes or forty, and it costs nothing in the fidelity that matters,
+// which is that the sim never sees a variable dt.
+const sub = Math.max(1, Number(args.sub || 1));
 const seconds = Number(args.seconds || 20);
 const rig = args.rig === 'skeleton' ? 'skeleton' : 'zombie';
 const route = args.route || 'rise';
@@ -43,12 +54,16 @@ const doStrip = !!args.strip;
 const outFile = args.out || `out/zombie-${width}x${height}.mp4`;
 const stripFile = args.stripOut || 'out/zombie-walk-strip.png';
 
-// The walk strip. Consecutive frames, one apart at the recording's own dt,
-// starting once the figure is well into its shamble. Twelve of them at 60fps is
-// a fifth of a second, which is under half a step and shows nothing; the strip
-// therefore samples every `stripEvery` frames so the twelve tiles span a whole
-// gait cycle, and the tiles are STILL one simulation frame apart in the sense
-// that matters, which is that nothing between them is interpolated.
+// The walk strip: frames from the running simulation, tiled, starting once the
+// figure is well into its shamble.
+//
+// The sampling interval is the whole design of it. Twelve strictly consecutive
+// frames at 60Hz span a fifth of a second, which is under half a step, and a
+// strip of that shows twelve near-identical poses and settles nothing. This
+// figure's cadence is 2.6 steps a second, so one full cycle is 46 frames, and
+// twelve tiles every 4 frames span 48: the strip is one complete cycle and the
+// first tile and the last are the same phase of it. Nothing is interpolated and
+// nothing is seeked past; every tile is a frame the simulation actually ran.
 const stripFrom = Number(args.stripFrom || 13.0);
 const stripTiles = Number(args.stripTiles || 12);
 const stripEvery = Number(args.stripEvery || 4);
@@ -214,7 +229,8 @@ if (doStrip) {
 
 await lab.page.evaluate((o) => window.__zlab.setSize(o.w, o.h), { w: width, h: height });
 const frames = Math.round(seconds * fps);
-console.log(`\n${width}x${height} - ${fps}fps - ${seconds}s - ${frames} frames - rig=${rig} view=${view}`);
+console.log(`\n${width}x${height} - ${fps}fps - ${seconds}s - ${frames} frames`
+  + ` - sim dt 1/${fps * sub} - rig=${rig} view=${view}`);
 
 const ff = spawn(ffmpegPath, [
   '-y',
@@ -237,7 +253,10 @@ const done = new Promise((res, rej) => {
 
 const started = Date.now();
 for (let f = 0; f < frames; f++) {
-  await lab.page.evaluate((o) => window.__zlab.step(o.dt), { dt: 1 / fps });
+  await lab.page.evaluate(
+    (o) => { for (let i = 0; i < o.n; i++) window.__zlab.step(o.dt); },
+    { dt: 1 / (fps * sub), n: sub },
+  );
   const png = await grabPNG(lab.page);
   if (!ff.stdin.write(png)) await new Promise((r) => ff.stdin.once('drain', r));
   if (f % 20 === 0 || f === frames - 1) {

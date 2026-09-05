@@ -630,8 +630,17 @@ export function degenerate() {
   const out = [];
   for (const [x, z] of cases) {
     nav.focus(Number.isFinite(x) ? x : 0, Number.isFinite(z) ? z : 0);
-    const r = nav.resolveDisc(x, z, T.ghostRadius);
-    out.push({ from: [x, z], to: [r.x, r.z], ok: Number.isFinite(r.x) && Number.isFinite(r.z) });
+    // A resolver can fail this by THROWING as well as by returning a NaN, and
+    // one of them did: an infinite coordinate made the spatial index loop
+    // `for (let b = Infinity; b <= Infinity; b++)` and fill its result array
+    // until the array length overflowed. In a browser that is a locked tab
+    // rather than an exception, so the throw is the lucky version.
+    try {
+      const r = nav.resolveDisc(x, z, T.ghostRadius);
+      out.push({ from: [x, z], to: [r.x, r.z], ok: Number.isFinite(r.x) && Number.isFinite(r.z) });
+    } catch (err) {
+      out.push({ from: [x, z], to: null, ok: false, threw: err.message });
+    }
   }
   return { ok: out.every((c) => c.ok), cases: out };
 }

@@ -24,7 +24,12 @@ export function boneMaterial(options = {}) {
   });
 }
 
-const RADIAL = 12;   // enough that a shaft's silhouette is smooth at prop size
+// How many sides a shaft has. 20 was chosen as "smooth at prop size" and it
+// is, but so is 12: measured against 20 at 25 times the shipped pixel density,
+// the two are indistinguishable, and the game draws a whole skeleton 97 pixels
+// tall. The figure was 531,364 triangles, of which this number alone was
+// 65,280. See the block above jointBall for the arithmetic and the renders.
+const RADIAL = 12;
 
 // A long bone: swept along `path`, fat at both ends, waisted in between.
 //
@@ -97,6 +102,37 @@ export function straightShaft(a, b, r, { bow = 0, bowAxis = null, ...rest } = {}
 
 // A joint bulb. Slightly squashed along its own axis so it reads as a condyle
 // rather than a bead threaded on a stick.
+//
+// THE SINGLE BIGGEST THING IN THE FIGURE, and not the one anybody would guess.
+// A skeleton carries about 180 of these, and a 24 by 18 sphere is 864
+// triangles, so the condyles alone were 155,440 of the rig's 531,364: more than
+// the cranium, more than the hands, more than every shaft put together. At 14
+// by 11 they are 286 each.
+//
+// What the four dials are worth, per rig, measured one at a time:
+//
+//   joint balls   24x18 -> 14x11      155,440   51% of the saving
+//   shaft sides   RADIAL 20 -> 12      65,280   22%
+//   cranium grid  288x184 -> 216x138   45,716   15%
+//   skull spheres a third off           4,512    1%
+//
+// Together 531,364 -> 260,416, and five skeletons 2.66M -> 1.30M.
+//
+// The quality side, against the unchanged figure, at three framings: the
+// shipped 900x700 game view, the rise clip's close-up, and a skull-only view
+// eight times tighter than anything that ships.
+//
+//   framing        mean difference   pixels over 8/255   over 24/255
+//   game            0.007 / 255           0.03%            0.00%
+//   rise close-up   0.074 / 255           0.22%            0.03%
+//   skull only      0.582 / 255           1.52%            0.39%
+//
+// THE CRANIUM IS THE ONE THAT WAS NEARLY WRONG. Halving its grid to 144 by 92
+// saves 78,432 rather than 45,716, but the orbit rim and the nasal aperture
+// pick up visible facets at the skull framing, and that skull went round the
+// design loop three times. Three quarters keeps the whole form and is worth
+// 59% of what halving would have been, so three quarters is what shipped. See
+// skull.js.
 export function jointBall(r, { squash = 0.88, axis = null } = {}) {
   const geo = new THREE.SphereGeometry(r * M.jointBallScale, 14, 11);
   if (squash !== 1) {
