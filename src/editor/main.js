@@ -1431,13 +1431,36 @@ function placeGroup(group) {
   ]);
 }
 
-// A grid of pictures. The name is a caption rather than the button, which is
-// the whole point of the change: "draped" means nothing until you have seen it,
-// and the owner drew all twenty-nine of these by eye.
+// A PICTURE FOR EVERY TILE, and two kinds of picture.
+//
+// A prop gets a render of itself: "draped" means nothing until you have seen
+// it, and the owner drew all twenty-nine of these by eye. A fence run, a gate,
+// a change of stone, a grave and a path are not props and cannot be rendered
+// as one -- a fence is a thing you draw, not a thing that exists until you have
+// drawn it -- so each gets a drawn mark instead. An empty tile with a name
+// under it was the worst of both: it reads as a thumbnail that failed.
+const GLYPHS = {
+  fence: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18M3 14h18" /><path d="M5 5v15M10 5v15M15 5v15M20 5v15" /></svg>',
+  gate: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 10h4M18 10h4M2 15h4M18 15h4" /><path d="M4 4v17M20 4v17" /><path d="M7 20l8-9" /><path d="M7 20l0-6M7 20l6 0" /></svg>',
+  wall: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 7h20M2 12h20M2 17h20" /><path d="M6 7V2M6 12V7M11 17v-5M16 12V7M11 7V2M16 17v-5" /><path d="M13 2v20" stroke-dasharray="2 2" /></svg>',
+  path: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 22c0-6 10-8 10-14 0-3-2-5-4-6" /><path d="M12 22c0-6 10-8 10-14" opacity="0.45" /><path d="M2 22c0-6 10-8 10-14" opacity="0.45" /></svg>',
+  grave: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 20V10a4 4 0 0 1 8 0v10z" /><path d="M4 20h16" /><path d="M10 13h4" opacity="0.6" /></svg>',
+};
+
+function glyphFor(e) {
+  if (e.tool === 'fence') return GLYPHS.fence;
+  if (e.tool === 'gate') return GLYPHS.gate;
+  if (e.tool === 'wall') return GLYPHS.wall;
+  if (e.tool === 'path') return GLYPHS.path;
+  if (e.tool === 'spawn') return GLYPHS.grave;
+  return null;
+}
+
 function tileGrid(items) {
   const wide = items.some((e) => e.label.length > 11);
   return el('div', { class: `tiles${wide ? ' wide' : ''}` }, items.map((e) => {
     const shot = e.tool === 'place' ? thumbs.get(e.kind, e.variant) : null;
+    const glyph = glyphFor(e);
     return el('button', {
       title: e.title || null,
       'aria-pressed': String(isPicked(e)),
@@ -1445,7 +1468,7 @@ function tileGrid(items) {
     }, [
       e.tool === 'place'
         ? el('img', { class: 'shot', alt: '', 'data-thumb': thumbs.keyOf(e.kind, e.variant), ...(shot ? { src: shot } : {}) })
-        : el('span', { class: 'shot' }),
+        : el('span', { class: 'shot glyph', html: glyph || '' }),
       el('span', { class: 'name', text: e.label }),
       e.key ? el('kbd', { text: e.key }) : null,
     ]);

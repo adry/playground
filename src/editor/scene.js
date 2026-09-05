@@ -634,6 +634,139 @@ export function createEditorScene({ canvas }) {
   // loop can simply be stopped. A capture script does that: a page that is
   // redrawing sixty times a second on a software rasteriser never presents a
   // stable frame, and a screenshot of it waits for ever.
+  // --- the readout --------------------------------------------------------------
+  //
+  // Everything this project has measured for two days came off a software
+  // rasteriser where a frame takes hundreds of milliseconds to composite and
+  // renderer.render returns in 0.3. That instrument has now twice said a thing
+  // was fine when it was not, and it cannot see the owner's display at all --
+  // it reports devicePixelRatio 1 where theirs is 2. So this is the same set of
+  // numbers, taken on whatever machine the editor is actually running on.
+  //
+  //   /editor/?perf=1   on at load
+  //   F2                toggle
+  //
+  // It is a plain div and it never draws into the scene, so turning it on
+  // cannot change what it is measuring. The only cost it adds is a walk of the
+  // scene for texture memory, which is why that runs every two seconds rather
+  // than every frame.
+  const readout = (() => {
+    let el = null;
+    let on = q.get('perf') === '1';
+    const gaps = [];
+    let drawn = 0;
+    let drawnAt = performance.now();
+    let drawsPerSec = 0;
+    let mem = { tex: 0, geo: 0, mat: 0 };
+    let memAt = 0;
+    let lastPaint = 0;
+    const marks = new Map();
+
+    const ensure = () => {
+      if (el || typeof document === 'undefined') return;
+      el = document.createElement('div');
+      el.style.cssText = [
+        // Bottom left, above the status line: the palette runs down the left
+        // and the properties down the right, and the bottom corner is the one
+        // place a fixed box does not cover a control.
+        'position:fixed', 'left:8px', 'bottom:30px', 'z-index:99999',
+        'font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace',
+        'background:rgba(12,14,18,0.82)', 'color:#dfe6f5', 'padding:7px 9px',
+        'border-radius:5px', 'white-space:pre', 'pointer-events:none',
+        'letter-spacing:0.2px',
+      ].join(';');
+      document.body.appendChild(el);
+    };
+
+    const walk = () => {
+      const geos = new Set();
+      const mats = new Set();
+      const texs = new Set();
+      let bytes = 0;
+      scene.traverse((o) => {
+        if (!o.isMesh && !o.isPoints && !o.isLine) return;
+        if (o.geometry) geos.add(o.geometry);
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+          if (!m || mats.has(m)) continue;
+          mats.add(m);
+          for (const k of Object.keys(m)) {
+            const t = m[k];
+            if (!t || !t.isTexture || texs.has(t)) continue;
+            texs.add(t);
+            const im = t.image || {};
+            const w = im.width || t.source?.data?.width || 0;
+            const h = im.height || t.source?.data?.height || 0;
+            bytes += w * h * 4 * (t.generateMipmaps === false ? 1 : 4 / 3);
+          }
+        }
+      });
+      mem = { tex: bytes / 1048576, geo: geos.size, mat: mats.size };
+    };
+
+    return {
+      get on() { return on; },
+      toggle(v) { on = v === undefined ? !on : !!v; if (el) el.style.display = on ? '' : 'none'; if (on) ensure(); },
+      // Anything outside this file that wants a number in the readout calls
+      // this. main.js has the two that matter: the deep review and the ground
+      // cover rebuild.
+      mark(name, ms) { marks.set(name, ms); },
+      drew() { drawn += 1; },
+      tick(now, gap) {
+        if (!on) return;
+        ensure();
+        if (!el) return;
+        gaps.push(gap);
+        if (gaps.length > 90) gaps.shift();
+        if (now - drawnAt >= 1000) {
+          drawsPerSec = (drawn * 1000) / (now - drawnAt);
+          drawn = 0;
+          drawnAt = now;
+        }
+        if (now - memAt > 2000) { walk(); memAt = now; }
+        // Four times a second: a readout that repaints every frame is measuring
+        // itself.
+        if (now - lastPaint < 250) return;
+        lastPaint = now;
+        const sorted = [...gaps].sort((a, b) => a - b);
+        const med = sorted[Math.floor(sorted.length / 2)] || 0;
+        const worst = sorted[sorted.length - 1] || 0;
+        const info = renderer.info;
+        const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+        const rows = [
+          `frame   ${med.toFixed(1)} ms median   ${worst.toFixed(0)} worst`,
+          `draws   ${drawsPerSec.toFixed(1)} /s        shadow ${renderer.shadowMap.autoUpdate ? 'every frame' : 'on change'}`,
+          `calls   ${info.render.calls}   tris ${info.render.triangles.toLocaleString('en-US')}`,
+          `memory  ${mem.tex.toFixed(0)} MB tex   ${mem.geo} geo   ${mem.mat} mat`,
+          `pixels  ${size.x}x${size.y}   dpr ${(window.devicePixelRatio || 1)} cap ${dprCap}   aa ${antialias ? 'on' : 'off'}`,
+          `props   ${built.size} built`,
+          `cover   ${coverMs.toFixed(0)} ms last rebuild`,
+        ];
+        for (const [k, v] of marks) rows.push(`${k.padEnd(7)} ${v.toFixed(0)} ms`);
+        el.textContent = rows.join('\n');
+      },
+    };
+  })();
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'F2') return;
+      e.preventDefault();
+      // Shift cycles the pixel-ratio cap instead, so the one quality-for-speed
+      // trade in the tool can be felt against the readout rather than argued
+      // about. 1 is soft and cheap, 2 is everything the display has.
+      if (e.shiftKey) {
+        const steps = [1, 1.5, 2];
+        const next = steps[(steps.indexOf(dprCap) + 1) % steps.length] ?? 1.5;
+        dprCap = next;
+        applyPixelRatio();
+        resize();
+        readout.toggle(true);
+        return;
+      }
+      readout.toggle();
+    });
+  }
+
   let running = true;
   // The firefly field is the one thing here that animates, and in an editor it
   // is decoration: holding it still costs nothing anyone is authoring and is
@@ -650,10 +783,12 @@ export function createEditorScene({ canvas }) {
     // ALWAYS, even on a frame that draws nothing: main.js flushes its ground
     // paint and pumps one palette thumbnail from here, and both would stop.
     onFrame?.(dt);
+    readout.tick(now, dt * 1000);
     if (animating && flies) { flies.update(time, dt); dirty = true; }
     if (!dirty) return;
     dirty = false;
     renderer.render(scene, camera);
+    readout.drew();
   }
   requestAnimationFrame(frame);
 
@@ -665,6 +800,11 @@ export function createEditorScene({ canvas }) {
     sync,
     // For main.js, or anyone who changes something this file cannot see.
     invalidate,
+    // The readout, so the editor can show a number this file cannot time. See
+    // createEditorScene's readout block: mark('review', ms) and the like.
+    mark: (name, ms) => readout.mark(name, ms),
+    showPerf: (v) => readout.toggle(v),
+    get perfOn() { return readout.on; },
     setAnimating(on) { animating = !!on; if (on) invalidate(); },
     // The overlay alone. Moving the pointer with the ground brush up has to
     // redraw the brush ring and nothing else, and a full sync would rebuild

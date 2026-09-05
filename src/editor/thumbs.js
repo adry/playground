@@ -200,6 +200,7 @@ export function createThumbnails({ renderer, size = 76 }) {
 
     fitAtlas(Math.ceil(todo.length / COLS));
 
+    const pr = renderer.getPixelRatio();
     const wasTarget = renderer.getRenderTarget();
     const wasClear = renderer.getClearColor(new THREE.Color());
     const wasAlpha = renderer.getClearAlpha();
@@ -234,8 +235,14 @@ export function createThumbnails({ renderer, size = 76 }) {
         // GL counts rows from the bottom; the slicing below counts from the
         // top, so the atlas is filled bottom up and read straight through.
         const y = (atlasRows - 1 - row) * CELL;
-        renderer.setViewport(x, y, CELL, CELL);
-        renderer.setScissor(x, y, CELL, CELL);
+        // DIVIDED BY THE PIXEL RATIO, because setViewport and setScissor
+        // multiply by it on the way in. The atlas is sized in real pixels, so
+        // on a display at ratio 2 every cell would otherwise be laid out twice
+        // as large as its slice and each tile would show a quarter of the prop
+        // and a corner of its neighbour. Invisible on a ratio of 1, which is
+        // every capture the harness takes.
+        renderer.setViewport(x / pr, y / pr, CELL / pr, CELL / pr);
+        renderer.setScissor(x / pr, y / pr, CELL / pr, CELL / pr);
         renderer.render(scene, camera);
         placed.push({ k: job.k, col, row });
       } else {
@@ -249,7 +256,7 @@ export function createThumbnails({ renderer, size = 76 }) {
     // ONE STALL for the whole group.
     renderer.readRenderTargetPixels(atlas, 0, 0, atlas.width, atlas.height, pixels);
     renderer.setScissorTest(wasScissor);
-    renderer.setViewport(0, 0, renderer.domElement.width, renderer.domElement.height);
+    renderer.setViewport(0, 0, renderer.domElement.width / pr, renderer.domElement.height / pr);
     renderer.setRenderTarget(wasTarget);
     renderer.setClearColor(wasClear, wasAlpha);
     renderer.shadowMap.enabled = wasShadow;
