@@ -127,7 +127,13 @@ function pose(r) {
     j.shoulderL.rotation.x = 0.45; j.shoulderR.rotation.x = -0.85;
     j.elbowL.rotation.x = -0.55; j.elbowR.rotation.x = -1.05;
     j.spineUpper.rotation.set(-0.18, 0.10, 0);
-    j.head.rotation.x = -0.18;
+    // The head as the animation half actually drives it: it rolls about 19
+    // degrees once a cycle and rides 10 to 20 degrees behind the chest, both
+    // emergent from the walk rather than posed. The face therefore has to read
+    // TURNING AND LAGGING, not square on, so this frame is the one the brow,
+    // the sockets and the nose are judged on.
+    j.neck.rotation.set(0.10, -0.14, 0.14);
+    j.head.rotation.set(-0.16, -0.22, 0.19);
     j.jaw.rotation.x = 0.28;
   } else if (params.get('pose') === 'reach') {
     for (const s of ['L', 'R']) {

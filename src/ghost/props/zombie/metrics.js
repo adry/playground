@@ -324,7 +324,7 @@ export const M = {
   // to a slot the moment it walks off-axis, which is the failure mode: the
   // feature that defines this character must not be a front-view-only feature.
   cavity: {
-    halfAngle: 0.62,
+    halfAngle: 0.58,
     // The cavity floor, as a fraction of the shell's own section. It is
     // ANISOTROPIC and that is the whole trick.
     //
@@ -349,16 +349,16 @@ export const M = {
     ribPairs: 3,
     ribRadius: f(0.0105),
     ribSpacing: f(0.040),
-    ribTop: f(0.576),
+    ribTop: f(0.572),
     // The spine runs down the middle of the cavity BEHIND the ribs, so its
     // top knobs show through the rib gaps and its bottom ones are exposed
     // below the lowest rib. That is what sells the cavity as an opening with
     // a back to it rather than as a patch painted on the chest: you are
     // looking past one piece of geometry at another.
     spineKnobs: 5,
-    spineTop: f(0.566),
-    spineSpacing: f(0.024),
-    spineRadius: f(0.016),
+    spineTop: f(0.548),
+    spineSpacing: f(0.020),
+    spineRadius: f(0.013),
   },
 
   // --- clothing -------------------------------------------------------------

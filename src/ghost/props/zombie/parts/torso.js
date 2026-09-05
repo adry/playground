@@ -163,15 +163,45 @@ export function buildTorso({ materials }) {
   const vLo = vOfY(M.y.cavityBottom);
   const vHi = vOfY(M.y.cavityTop);
 
-  // The window's outline is a ROUNDED rectangle, not a rectangle. A square
-  // corner on an opening in flesh reads as a machined panel; the corner radius
-  // is what makes it read as torn away. `windowR` is 1 exactly on the outline,
-  // and the cut, the lip and nothing else all use it, so they cannot disagree.
-  const CORNER = 3.2;
+  // THE WINDOW IS A TEAR, NOT A PANEL.
+  //
+  // The first build made it a rounded rectangle and the note back was exactly
+  // right: three pale bars in a rounded rectangle reads as a window with
+  // blinds in it. Three things turn it back into something that came open:
+  //
+  //   - it is WIDER AT THE TOP. Skin gives way from the top of the sternum
+  //     down, so the opening flares upward and narrows toward the belly.
+  //   - the corners are ROUNDER (2.4 rather than 3.2), because a tight corner
+  //     is a machined corner.
+  //   - the outline carries three harmonics of wobble, so no two edges of it
+  //     are the same curve.
+  //
+  // `windowR` is 1 exactly on the outline and the cut, the lip and the ribs
+  // all read it, so they cannot disagree about where the hole is.
+  const CORNER = 2.4;
+  const vMid = (vLo + vHi) / 2, vHalf = (vHi - vLo) / 2;
   const windowR = (u, vv) => {
-    const du = (((u - U_FRONT + 1.5) % 1) - 0.5) / uHalf;
-    const dv = (vv - (vLo + vHi) / 2) / ((vHi - vLo) / 2);
-    return Math.pow(Math.pow(Math.abs(du), CORNER) + Math.pow(Math.abs(dv), CORNER), 1 / CORNER);
+    const du0 = (((u - U_FRONT + 1.5) % 1) - 0.5) / uHalf;
+    const dv = (vv - vMid) / vHalf;
+    const du = du0 / (1 + 0.24 * Math.max(0, dv));
+    const rr = Math.pow(Math.pow(Math.abs(du), CORNER) + Math.pow(Math.abs(dv), CORNER), 1 / CORNER);
+    const th = Math.atan2(dv, du);
+    const wob = 1 + 0.10 * Math.sin(3 * th + 0.8) + 0.06 * Math.sin(5 * th - 1.9)
+      + 0.045 * Math.sin(7 * th + 0.3);
+    return rr / wob;
+  };
+  // Where the outline sits along a given direction. Bisection, because the
+  // wobble and the upward flare have no closed form, and because the lip has
+  // to land on the SAME curve the cut used or it stops covering it.
+  const outlineAt = (th) => {
+    let lo = 0.05, hi = 3.0;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (windowR(U_FRONT + mid * Math.cos(th) * uHalf, vMid + mid * Math.sin(th) * vHalf) < 1) lo = mid;
+      else hi = mid;
+    }
+    const sMid = (lo + hi) / 2;
+    return [sMid * Math.cos(th), sMid * Math.sin(th)];
   };
 
   // The cut is a little smaller than the true outline all round, so the lip
@@ -182,7 +212,10 @@ export function buildTorso({ materials }) {
     // The hole is cut a little LARGER than the lip's outline, not smaller, so
     // the lip's outer flange lies over the cut edge. Cut smaller and the
     // shell's staircase stands proud of the lip and you see every step of it.
-    keepQuad: (u, vv) => windowR(u, vv) > 1.10,
+    // Cut generously past the outline: the lip is placed on the outline
+    // itself and its outer flange has to lie OVER the cut, and with a wobbly
+    // outline the margin needed varies round the opening.
+    keepQuad: (u, vv) => windowR(u, vv) > 1.16,
   }).geometry, materials.skin);
 
   // --- 3. the lip ---------------------------------------------------------
@@ -198,19 +231,9 @@ export function buildTorso({ materials }) {
     const corner = 0.16;   // fraction of each side spent rounding the corners
     for (let i = 0; i < N; i++) {
       // Walk a rounded rectangle in (u, v) space.
-      const t = i / N;
-      let du, dv;
-      const box = (s) => {
-        // s in 0..1 round a unit superellipse with the same corner radius the
-        // cut above used, so the lip lands exactly on the edge of the hole.
-        const a = s * Math.PI * 2;
-        const cx = Math.cos(a), cy = Math.sin(a);
-        const k = Math.pow(Math.pow(Math.abs(cx), CORNER) + Math.pow(Math.abs(cy), CORNER), -1 / CORNER);
-        return [cx * k, cy * k];
-      };
-      [du, dv] = box(t);
+      const [du, dv] = outlineAt((i / N) * Math.PI * 2);
       const u = U_FRONT + du * uHalf;
-      const vv = (vLo + vHi) / 2 + dv * (vHi - vLo) / 2;
+      const vv = vMid + dv * vHalf;
       const p = blockPoint(CHEST.lo, CHEST.hi, u, vv);
       const pu = blockPoint(CHEST.lo, CHEST.hi, u + eps, vv).sub(p);
       const pv = blockPoint(CHEST.lo, CHEST.hi, u, vv + eps).sub(p);
@@ -229,7 +252,8 @@ export function buildTorso({ materials }) {
     const wall = M.torso.shellThickness;
     const back = M.torso.chestDepth / 2 * (1 - M.cavity.floorZ);
     put(inUpper, ribbon(frames, [
-      { t: wall * 1.75, n: -wall * 0.14 },  // tucked under the skin, outside the cut
+      { t: wall * 2.60, n: -wall * 0.30 },  // tucked under the skin, outside the cut
+      { t: wall * 1.55, n: -wall * 0.02 },
       { t: wall * 0.50, n: wall * 0.30 },   // the proud torn edge
       { t: -wall * 0.10, n: -wall * 0.30 },
       { t: -wall * 0.55, n: -back * 0.55 },
@@ -253,30 +277,51 @@ export function buildTorso({ materials }) {
   // both ends, rather than two half ribs meeting at a sternum. At this size a
   // sternum is one more pale vertical bar and it fights the spine behind it;
   // what you want is three clean horizontals.
+  // THE RIBS, and no two of them alike.
+  //
+  // Three identical horizontal bars at an even pitch is a set of blinds. Real
+  // ribs differ in every respect available: the upper ones are longer and
+  // flatter, the lower ones shorter, thinner and more steeply angled, none of
+  // them is level, and the ends are not symmetric because one side of this
+  // body came apart before the other. Each of the numbers below is a per-rib
+  // variation on the one before, and together they are most of what stops the
+  // opening reading as a window.
   const shed = new Map();
+  const RIB = [
+    // reachBias, droopBias, radiusBias, tiltRad, yJitter
+    [0.34, 0.8, 1.10, -0.030, 0.04],
+    [0.30, 1.0, 1.00, 0.022, -0.02],
+    [0.22, 1.3, 0.88, -0.050, 0.02],
+  ];
   for (let k = 0; k < M.cavity.ribPairs; k++) {
-    const y = M.cavity.ribTop - k * M.cavity.ribSpacing;
-    const [hw, hd] = profile(y);
-    const reach = M.cavity.halfAngle + 0.30;      // past the lip, into the skin
+    const [reachBias, droopBias, radBias, tilt, yJit] = RIB[k % RIB.length];
+    const y0 = M.cavity.ribTop - k * M.cavity.ribSpacing + yJit * M.cavity.ribSpacing;
+    const reach = M.cavity.halfAngle + reachBias;   // past the lip, into the skin
     const pts = [];
-    const STEPS = 14;
+    const STEPS = 16;
     for (let i = 0; i <= STEPS; i++) {
-      const a = Math.PI / 2 + (i / STEPS - 0.5) * 2 * reach;
-      // Ribs are shallower than the skin at the front and meet it at the sides,
-      // which is what makes them sit INSIDE the cavity rather than on it.
-      // The ends stop at 0.86 of the shell rather than reaching 1.0. At 1.0 the
-      // tube's CENTRE line lies on the skin, so half of every rib sits outside
-      // the body and the three of them read as fat pale sausages strapped
+      const f = i / STEPS - 0.5;
+      const a = Math.PI / 2 + f * 2 * reach;
+      // Each rib runs downhill from one end to the other, which is what stops
+      // the three of them being parallel.
+      const y = y0 + tilt * M.cavity.ribSpacing * f * 2;
+      const [hw, hd] = profile(y);
+      // Ribs are shallower than the skin at the front and meet it at the
+      // sides, which is what makes them sit INSIDE the cavity rather than on
+      // it. The ends stop at 0.86 of the shell rather than reaching 1.0: at
+      // 1.0 the tube's CENTRE line lies on the skin, so half of every rib sits
+      // outside the body and the three read as fat pale sausages strapped
       // across the chest, which is what the first pass looked like.
       const inset = M.cavity.ribFront + (0.86 - M.cavity.ribFront) *
         smoothstep(M.cavity.halfAngle * 0.72, reach, Math.abs(a - Math.PI / 2));
       // and they droop forward and down, as real ribs do.
-      const droop = 0.12 * M.cavity.ribSpacing *
+      const droop = 0.12 * droopBias * M.cavity.ribSpacing *
         (1 - Math.pow(Math.abs(a - Math.PI / 2) / reach, 2));
       pts.push(new THREE.Vector3(Math.cos(a) * hw * inset, y - droop, Math.sin(a) * hd * inset));
     }
     const curve = new THREE.CatmullRomCurve3(pts);
-    const g = tube(curve, M.cavity.ribRadius, M.cavity.ribRadius, { radial: 8, segments: 22 });
+    const r = M.cavity.ribRadius * radBias;
+    const g = tube(curve, r * 0.82, r * 0.82, { radial: 8, segments: 24 });
     const m = put(inUpper, g, materials.bone);
     m.name = `rib${k}`;
   }
@@ -302,8 +347,11 @@ export function buildTorso({ materials }) {
     // one plane of pale shapes; a tenth of the chest's depth further back is
     // enough that the top ones read as glimpsed THROUGH the rib gaps, which is
     // the whole reason the spine is in there.
+    // Well back against the flesh, and small. Pushed forward they compete
+    // with the ribs for the same plane and the cavity turns into a jumble of
+    // pale shapes instead of bars in front of a column behind them.
     put(inUpper, ball(r, r * 0.62, r * 0.75, 12), materials.bone, {
-      pos: v(0, y, hd * (M.cavity.floorZ + 0.12)),
+      pos: v(0, y, hd * (M.cavity.floorZ + 0.05)),
     });
   }
 

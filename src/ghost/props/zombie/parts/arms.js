@@ -40,17 +40,25 @@ export function buildArm({ materials, side }) {
     radial: 14, segments: 8, bow: 0.03, bowAxis: v(-sign, 0, 0),
   }), materials.skin);
 
-  // --- the jacket sleeve, torn off just above the elbow.
+  // --- the jacket sleeve, in TWO pieces.
+  //
+  // One on the shoulder covering the whole upper arm, one on the elbow
+  // covering the top of the forearm and ending in a torn edge. Two pieces
+  // because a single sleeve long enough to reach the forearm has to hang off
+  // the shoulder, and then it stays put while the elbow bends through it.
+  //
+  // The left sleeve keeps its forearm half. The RIGHT one does not: that is
+  // the arm whose flesh has been stripped, and the sleeve going with it is
+  // why. A torn sleeve that stops exactly where the skin stops reads as one
+  // event; two unrelated tears read as wear.
   {
-    const len = M.arm.upper;
-    const to = (M.y.shoulder - M.jacket.sleeveTo) / Math.cos(M.arm.flare);
     const cuff = tatteredCuff({
       material: materials.jacket,
       top: 0.055 * M.height,
-      bottom: 0.055 * M.height - Math.min(to, len * 1.02),
+      bottom: 0.055 * M.height - M.arm.upper * (stripped ? 0.92 : 1.02),
       rTop: M.arm.upperRadius * 1.55,
-      rBottom: M.arm.upperRadius * 1.32,
-      tatter: M.jacket.tatter * 0.9,
+      rBottom: M.arm.upperRadius * 1.30,
+      tatter: M.jacket.tatter * (stripped ? 1.5 : 0.9),
       teeth: 6,
       seed: side === 'L' ? 11 : 29,
       thickness: M.jacket.thickness,
@@ -116,6 +124,27 @@ export function buildArm({ materials, side }) {
       if (atT > 0) g.rotateX(Math.PI);           // the wrist cuff opens upward
       elbow.add(g);
     }
+  }
+
+  // the forearm half of the sleeve, on the elbow so it bends with it
+  if (!stripped) {
+    const cuff = tatteredCuff({
+      material: materials.jacket,
+      top: M.arm.elbowRadius * 0.9,
+      bottom: M.arm.elbowRadius * 0.9 - M.arm.fore * 0.52,
+      rTop: M.arm.elbowRadius * 1.42,
+      rBottom: M.arm.elbowRadius * 1.22,
+      tatter: M.jacket.tatter * 1.4,
+      teeth: 5,
+      seed: 53,
+      thickness: M.jacket.thickness,
+      uSteps: 18, vSteps: 5,
+    });
+    const g = new THREE.Group();
+    put(g, cuff.geometry, cuff.material);
+    g.quaternion.setFromUnitVectors(v(0, -1, 0), dir.clone().normalize());
+    g.position.copy(dir.clone().multiplyScalar(M.arm.elbowRadius * 0.9));
+    elbow.add(g);
   }
 
   // --- wrist

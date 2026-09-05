@@ -66,6 +66,9 @@ const concentrate = (t, at, k) => t - (k / (2 * Math.PI)) * Math.sin(2 * Math.PI
 const vWarp = (t, at, k) => concentrate(t, at, k) - concentrate(0, at, k);
 
 const U_FRONT = 0.25;       // azimuth u at which the surface faces +Z
+// The surface with no feature cut into it: what the cuts and the rims measure
+// against, so they all share one coordinate frame.
+const BARE = { mouth: false, sockets: false };
 // Where the extra v samples land, chosen so that after the pinning above the
 // dense band comes out at v = 0.42, between the sockets and the grin.
 const V_FACE = 0.445;
@@ -286,18 +289,17 @@ function surfacePoint(u, vv, { mouth = true, sockets = true, lumps = true } = {}
     if (sockets) {
       for (const side of [1, -1]) {
         const r = socketR(p.x, p.y, side);
-        // THE ORBITAL RIM: a raised ring all the way round the socket. The
-        // brow shelf above was doing this job on the top edge only, so the
-        // socket had a brow and no lid, no lower rim and no outer corner, and
-        // it read as a hole punched in a smooth ball. A full ring gives the
-        // eye an edge to be sunk behind from every direction, which is what
-        // makes the shadow inside it look like depth instead of paint.
+        // THE ORBITAL RIM: a raised ring all the way round the socket, so the
+        // eye has a lid above it, a lower rim below and a corner at each end,
+        // rather than being a hole punched in a smooth ball. It lives in the
+        // shell because, with the socket painted rather than cut (see the
+        // build below), there is no cut edge for it to have to stay clear of.
+        //
+        // The wall is SHORT and steep: full depth out to the outline, then
+        // over in a tenth. A long ramp is a shallow crater, and a crater with
+        // a small dark bead in it is what this looked like for three rounds.
         const ring = Math.exp(-Math.pow((r - M.socket.rimAt) / M.socket.rimWide, 2));
         p.addScaledVector(n, M.head.browJut * M.socket.rim * ring * front);
-        // The wall is SHORT and steep: full depth all the way out to the
-        // outline, then over in a tenth. A long ramp plus a wide rim is a
-        // shallow crater, and a crater with a small dark bead in it is what
-        // this looked like for three rounds.
         recess = Math.max(recess, socketDepthAt(r));
       }
     }
@@ -602,172 +604,68 @@ export function buildHead({ materials }) {
   const U = 104;
   const V = 64;
 
-  // The shell. Non-uniform in both directions: dense across the face, dense
-  // through the band that carries the sockets and the mouth.
-  const shell = gridSurface({
-    uSteps: U,
-    vSteps: V,
-    closedU: true,
-    uAt: (i) => concentrate(i / U, U_FRONT, 0.55),
-    vAt: (j) => vWarp(j / V, V_FACE, 0.45),
-    point: (u, vv) => surfacePoint(u, vv),
-    // THE SOCKETS ARE REAL HOLES, and this is the fourth and last answer to
-    // "how do you make an eye socket black". The three before it all tried to
-    // lay a dark sheet INSIDE a dent, and all three failed the same way: the
-    // sheet is placed through frontUV, which inverts the base ellipsoid, while
-    // the shell is displaced by a brow, a cheek, a crown swell, a rim and
-    // three octaves of lumps on top of that. The two disagree by a fraction of
-    // a millimetre, and on a wall as steep as a socket's a fraction of a
-    // millimetre is a large fraction of the depth, so the sheet rips through
-    // the skin in a fan of dark rays. Chasing that mismatch term by term is a
-    // losing game: each fix removes one source and reveals the next.
-    //
-    // A hole has no such term. The shell simply is not there, a ribbon along
-    // the true outline covers the staircase the quad grid leaves and gives the
-    // orbit its rim, and the dark sits far enough behind that nothing can
-    // reach it. It is exactly the chest cavity's construction, which has
-    // worked from the first render.
-    keepQuad: (u, vv) => {
-      const p = surfacePoint(u, vv);
-      if (p.z <= 0) return true;
-      // Cut GENEROUSLY, past the outline rather than short of it. Cut short,
-      // the shell's surviving quads and the rim ribbon lie on the same
-      // surface, and coplanar geometry z-fights: what that looks like is a fan
-      // of bright triangular spokes radiating out of each socket. The ribbon's
-      // outer flange reaches well past this and tucks under the skin.
-      for (const side of [1, -1]) if (socketR(p.x, p.y, side) <= 1.06) return false;
-      if (grinR(p.x, p.y) <= 0.96) return false;
-      return true;
-    },
-  });
-  put(group, shell.geometry, materials.skin);
-
-  // The dark that lives in the sockets. The dent walls are skin, but the floor
-  // has to be genuinely dark or the socket reads as a dimple.
+  // THE SHELL, AND WHY THE DARK IS PAINTED ON IT RATHER THAN PUT BEHIND IT.
   //
-  // Each dark is a flattened ball seated ON the dent floor, found by asking the
-  // surface function itself where that floor is rather than by guessing an
-  // offset from the head's radius. Guessing is what put the first pass's darks
-  // OUTSIDE the head, as two black bubbles on the face: the head at brow height
-  // is not RZ deep, it is RZ times the cosine of the latitude times the jaw
-  // taper, and the dent then takes another socket.depth out of it.
-  for (const side of [1, -1]) {
-    const phase = side > 0 ? 0.9 : 2.3;
+  // The sockets, the nasal aperture and the mouth are all drawn from THE SAME
+  // parametric surface as the face, over THE SAME grid, in three passes that
+  // keep different quads. There is no cut, no hole, nothing placed behind
+  // anything: it is one continuous surface, coloured in three parts, and the
+  // dark is the recess itself rather than an object seen through an opening.
+  //
+  // This is the fifth construction and the four before it all failed the same
+  // way, so the reasoning is worth keeping.
+  //
+  //   1. A dark BALL seated in the dent: flush only at its own pole.
+  //   2. A dark PATCH resampled off the built surface: the patch reaches the
+  //      surface through frontUV, which inverts the base ellipsoid, while the
+  //      shell has a brow, a cheek, a crown swell and three octaves of lumps
+  //      on top of that. The two disagree by a fraction of a millimetre and
+  //      the patch comes through the skin in slivers.
+  //   3. A CUP following the dent's own depth profile: same problem, one term
+  //      further down. Each fix removed one source of drift and revealed the
+  //      next.
+  //   4. A real HOLE with a rim ribbon over the cut and a bowl behind, which
+  //      is how the chest cavity works and works well there. On a socket it
+  //      does not, for two reasons the chest does not have: the recess is
+  //      applied along the local normal, which at an orbit is raked 25 degrees
+  //      off the view, so the surviving shell slides sideways over the hole;
+  //      and the bowl behind is a solid whose silhouette has to stay hidden
+  //      inside a curving head from every angle, which it does not once the
+  //      walk turns the head twenty degrees, which it does every cycle.
+  //
+  // Painting it removes every one of those failure modes at once, because
+  // there are no longer two surfaces to disagree. What it costs is that the
+  // boundary between colours is a staircase at grid resolution. That is worth
+  // it: the boundary sits on the steep wall of the dent, in its own shadow,
+  // and at 104 samples across the face one step is about half a pixel in a
+  // shipped frame.
+  const U = 104;
+  const V = 64;
+  const uAt = (i) => concentrate(i / U, U_FRONT, 0.55);
+  const vAt = (j) => vWarp(j / V, V_FACE, 0.45);
 
-    // The rim, swept along the socket's true outline. Proud of the skin on the
-    // outside, over a rolled crest, then diving back to the floor of the
-    // orbit. That roll is the lid: it is what the light catches above and
-    // below the eye, and it is what the dark is sunk behind.
-    const frames = [];
-    const N = 40;
-    const at = (th) => {
-      const k = lobes(th, M.socket.wobble, phase);
-      const x = side * SOCK_X + SOCK_HW * k * Math.cos(th);
-      const y = BROW_Y + SOCK_HH * k * Math.sin(th)
-        + M.socket.slant * side * (SOCK_HW * k * Math.cos(th));
-      const [u, vv] = frontUV(x, y);
-      return { p: surfacePoint(u, vv), n: baseNormal(u, vv) };
-    };
-    // The outward direction is checked against the socket's ACTUAL centre, not
-    // against the antipodal point on the outline. With a wobbly outline the
-    // antipode is not the centre, the dot product comes out the wrong way for
-    // a few frames, and those frames sweep their profile inward instead of
-    // outward: the rim then sprouts bright spokes across the face.
-    const [ucc, vcc] = frontUV(side * SOCK_X, BROW_Y);
-    const hub = surfacePoint(ucc, vcc);
-    for (let i = 0; i < N; i++) {
-      const th = (i / N) * Math.PI * 2;
-      const a = at(th), b = at(th + 0.02);
-      const tangent = new THREE.Vector3().subVectors(b.p, a.p).normalize();
-      const out = new THREE.Vector3().crossVectors(tangent, a.n).normalize();
-      if (out.dot(new THREE.Vector3().subVectors(a.p, hub)) < 0) out.negate();
-      frames.push({ p: a.p, t: out, n: a.n });
+  // Which of the three a quad belongs to, decided on the BARE surface so the
+  // painted region is the same region the dent is cut into.
+  const SKIN = 0, DARK = 1, DEEP = 2;
+  const zoneOf = (u, vv) => {
+    const p = surfacePoint(u, vv, BARE);
+    if (p.z <= 0) return SKIN;
+    for (const side of [1, -1]) {
+      const r = socketR(p.x, p.y, side);
+      if (r <= 0.52) return DEEP;
+      if (r <= 1.00) return DARK;
     }
-    const w = SOCK_HW * 0.34;
-    const d = M.socket.depth;
-    put(group, ribbon(frames, [
-      // SHORT and DEEP, not long and shallow. The outward direction is in the
-      // surface, so a long flange leaves a curving head and floats off it as a
-      // spike; the way to hide the cut edge is to dive behind the skin quickly,
-      // not to reach a long way over it.
-      { t: w * 1.05, n: -d * 0.60 },
-      { t: w * 0.55, n: d * 0.28 },     // the crest of the lid
-      { t: -w * 0.10, n: -d * 0.25 },
-      { t: -w * 0.45, n: -d * 0.80 },
-      { t: -w * 0.75, n: -d * 1.25 },
-    ]), materials.skin);
+    if (grinR(p.x, p.y) <= 1.00) return DEEP;
+    if (noseR(p.x, p.y) <= 1.00) return DARK;
+    return SKIN;
+  };
 
-    // The dark. A plain squashed ball, set well back behind the rim's inner
-    // edge, so no camera angle can see its own silhouette: what the viewer
-    // sees is the hole, filled.
-    const [uc, vc] = frontUV(side * SOCK_X, BROW_Y);
-    const axis = baseNormal(uc, vc);
-    // Set back nearly two socket depths. At 1.30 its front pole was only a
-    // fifth of a depth behind the skin and it came through the shell's cut in
-    // spokes wherever the rim's crest ran thin.
-    const floor = surfacePoint(uc, vc, { sockets: false, mouth: false })
-      .addScaledVector(axis, -d * 1.95);
-    put(group, ball(SOCK_HW * 1.30, SOCK_HH * 1.30, d * 1.15, 20), materials.socket,
-      { pos: floor });
-    put(group, ball(SOCK_HW * 0.72, SOCK_HH * 0.70, d * 0.85, 14), materials.socketDeep, {
-      pos: floor.clone()
-        .add(v(-side * SOCK_HW * 0.10, -SOCK_HH * 0.10, 0))
-        .addScaledVector(axis, d * 0.34),
-    });
-  }
-
-  // --- the nasal aperture's dark ------------------------------------------
-  // Same construction as the sockets, with the teardrop's own width profile
-  // fed in, so the dark is exactly the shape of the hole.
-  put(group, dentDisc({
-    cx: 0, cy: NOSE_Y, hw: NOSE_HW, hh: NOSE_HH,
-    depth: M.nose.depth, depthOf: (p) => noseDepthAt(noseR(p.x, p.y)), scale: 1.00,
-    outline: (a, r) => nosePoint(a, r),
-    sectors: 26, rings: 6,
-  }), materials.socket);
-
-  // The mouth, built the same way as the sockets and for the same reason: a
-  // real hole, a lip swept along the true outline, and the dark set well back
-  // behind it. A slot with a sheet laid in it kept rendering as a thin dark
-  // curve with teeth balanced on it, because the sheet has to sit shallow to
-  // avoid the shell and shallow means lit.
-  {
-    const frames = [];
-    const N = 44;
-    const at = (th) => {
-      const k = lobes(th, M.grin.wobble, 0.4);
-      const x = GRIN_HW * k * Math.cos(th);
-      const lift = M.grin.curve * GRIN_HH * Math.pow(Math.min(1, Math.abs(x) / GRIN_HW), 2);
-      const y = GRIN_Y + lift + GRIN_HH * k * Math.sin(th);
-      const [u, vv] = frontUV(x, y);
-      return { p: surfacePoint(u, vv), n: baseNormal(u, vv) };
-    };
-    const [uch, vch] = frontUV(0, GRIN_Y);
-    const hub = surfacePoint(uch, vch);
-    for (let i = 0; i < N; i++) {
-      const th = (i / N) * Math.PI * 2;
-      const a = at(th), b = at(th + 0.02);
-      const tangent = new THREE.Vector3().subVectors(b.p, a.p).normalize();
-      const out = new THREE.Vector3().crossVectors(tangent, a.n).normalize();
-      if (out.dot(new THREE.Vector3().subVectors(a.p, hub)) < 0) out.negate();
-      frames.push({ p: a.p, t: out, n: a.n });
-    }
-    const w = GRIN_HH * 0.42;
-    const d = M.grin.depth;
-    put(group, ribbon(frames, [
-      { t: w * 1.05, n: -d * 0.60 },
-      { t: w * 0.50, n: d * 0.22 },        // the lip, such as it is
-      { t: -w * 0.10, n: -d * 0.30 },
-      { t: -w * 0.50, n: -d * 1.00 },
-      { t: -w * 0.85, n: -d * 1.60 },
-    ]), materials.skin);
-
-    const [uc, vc] = frontUV(0, GRIN_Y);
-    const axis = baseNormal(uc, vc);
-    put(group, ball(GRIN_HW * 1.20, GRIN_HH * 1.55, d * 1.45, 22), materials.socketDeep, {
-      pos: surfacePoint(uc, vc, { sockets: false, mouth: false })
-        .addScaledVector(axis, -d * 2.30),
-    });
+  for (const [zone, material] of [[SKIN, materials.skin], [DARK, materials.socket], [DEEP, materials.socketDeep]]) {
+    put(group, gridSurface({
+      uSteps: U, vSteps: V, closedU: true, uAt, vAt,
+      point: (u, vv) => surfacePoint(u, vv),
+      keepQuad: (u, vv) => zoneOf(u, vv) === zone,
+    }).geometry, material);
   }
 
   // Upper teeth ride on the cranium.

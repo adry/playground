@@ -50,7 +50,6 @@ export function buildJacket({ materials }) {
   const group = new THREE.Group();
 
   const open = M.jacket.openHalfAngle;
-  const arc = Math.PI * 2 - 2 * open;
   const gap = 0.005 * M.height;          // standoff from the body
   const top = M.jacket.top;
 
@@ -79,11 +78,34 @@ export function buildJacket({ materials }) {
     const t = Math.max(0, (y - (M.y.shoulder - 0.075 * M.height)) / (0.075 * M.height));
     return 1 + 0.08 * Math.min(1, t) * Math.min(1, t);
   };
+
+  // How far up the garment a point is, 0 at the hem and 1 at the collarbone.
+  const rise = (y) => Math.min(1, Math.max(0, (y - M.jacket.hem) / (M.jacket.top - M.jacket.hem)));
+
+  // THE FRONT HANGS IN TWO HALVES, and this is what the first build was
+  // missing. It had a collar shape and a hem and nothing in between that said
+  // garment, because the two front edges ran straight down parallel to each
+  // other: that is a tube with a slot in it, not a coat.
+  //
+  // Two things fix it. The opening is a V, narrow at the hem and wide at the
+  // chest, so the halves visibly hang apart rather than being cut apart. And
+  // each edge rolls outward into a LAPEL over the top third, which is the one
+  // shape that makes cloth read as tailored rather than as a wrapper.
+  const SPLAY = 0.30;                    // radians the opening gains at the top
+  const openAt = (y) => open + SPLAY * Math.pow(rise(y), 1.6);
+
+  // Distance from the nearer front edge, in the garment's own u.
+  const edgeK = (u) => Math.min(u, 1 - u);
+
   const radAt = (u, y, out) => {
     const [hw, hd] = trunkProfile(y);
-    const a = Math.PI / 2 + open + u * arc;
+    const o = openAt(y);
+    const a = Math.PI / 2 + o + u * (Math.PI * 2 - 2 * o);
     const fold = 1 + 0.045 * Math.sin(u * Math.PI * 3.0 + 0.7) * (0.35 + 0.65 * (1 - Math.abs(u - 0.5) * 2));
-    const k = gap + out;
+    // The lapel: a roll standing off the chest, strongest at the very edge and
+    // dying out a fifth of the way round, and only over the top of the coat.
+    const lap = Math.pow(Math.max(0, 1 - edgeK(u) / 0.16), 1.5) * Math.pow(rise(y), 1.8);
+    const k = gap + out + lap * M.torso.chestDepth * 0.20;
     const yk = yoke(y);
     // The yoke widens the garment sideways only: a jacket that stands 30 per
     // cent off the chest as well looks inflated.
