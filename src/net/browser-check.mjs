@@ -107,8 +107,12 @@ try {
     const page = await ctx.newPage();
     // Generous, and deliberately so: this page builds a graveyard out of a few
     // hundred meshes on a software renderer.
-    page.setDefaultTimeout(60000);
-    page.setDefaultNavigationTimeout(90000);
+    // Generous everywhere. The editor holding a full graveyard builds a few
+    // hundred meshes and a palette of rendered thumbnails on a software
+    // renderer, and `load` does not fire until it has: every navigation below
+    // waits for DOM instead and then for the one thing it actually needs.
+    page.setDefaultTimeout(120000);
+    page.setDefaultNavigationTimeout(120000);
     page.on('pageerror', (e) => errors.push(String(e)));
     return { ctx, page, errors };
   }
@@ -119,11 +123,11 @@ try {
     const { ctx, page, errors } = await open({ board: BOARD, name: 'Ada' });
     const dialogs = [];
     page.on('dialog', (d) => { dialogs.push(d.message()); d.accept(); });
-    await page.goto(`${ORIGIN}/editor/`, { waitUntil: 'load' });
-    await page.waitForSelector('button:text-is("publish")', { timeout: 20000 });
+    await page.goto(`${ORIGIN}/editor/`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('button:text-is("publish")');
 
     await page.click('button:text-is("publish")');
-    await page.waitForSelector('.gp-back input', { timeout: 20000 });
+    await page.waitForSelector('.gp-back input');
     const url = await page.inputValue('.gp-back input');
 
     eq(dialogs.length, 0, 'a level that passes the guard is not questioned');
@@ -138,7 +142,7 @@ try {
 
     // One click, because nobody transcribes a URL by hand.
     await page.click('.gp-back button.go');
-    await page.waitForFunction(() => document.querySelector('.gp-back button.go').textContent === 'copied', null, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector('.gp-back button.go').textContent === 'copied', null, );
     const clip = await page.evaluate(() => navigator.clipboard.readText());
     eq(clip, url, 'the copy button puts the URL on the clipboard');
 
@@ -151,8 +155,8 @@ try {
     // --- and the game plays it -------------------------------------------------
     console.log('\nthe game, playing a published level by its code');
     const { ctx: ctx2, page: p2, errors: e2 } = await open({ board: BOARD });
-    await p2.goto(`${ORIGIN}${url.replace(ORIGIN, '')}`, { waitUntil: 'load' });
-    await p2.waitForFunction(() => window.__game && window.__game.level(), null, { timeout: 45000 });
+    await p2.goto(`${ORIGIN}${url.replace(ORIGIN, '')}`, { waitUntil: 'domcontentloaded' });
+    await p2.waitForFunction(() => window.__game && window.__game.level(), null, );
     const level = await p2.evaluate(() => window.__game.level());
     eq(level.name, DEMO.name, 'the game loaded the published level');
     eq(level.url, row.slug, 'from its code and not from a file');
@@ -177,8 +181,8 @@ try {
     const { ctx, page } = await open({ board: BOARD, name: 'Ada', doc: broken });
     const dialogs = [];
     page.on('dialog', (d) => { dialogs.push(d.message()); d.dismiss(); });
-    await page.goto(`${ORIGIN}/editor/`, { waitUntil: 'load' });
-    await page.waitForSelector('button:text-is("publish")', { timeout: 20000 });
+    await page.goto(`${ORIGIN}/editor/`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('button:text-is("publish")');
     const before = fake.levels.length;
     await page.click('button:text-is("publish")');
     await page.waitForTimeout(1500);
@@ -192,7 +196,7 @@ try {
   console.log('\nthe board, in a page, cross origin');
   {
     const { ctx, page, errors } = await open({ board: BOARD, name: 'Ada' });
-    await page.goto(`${ORIGIN}/lab/`, { waitUntil: 'load' });
+    await page.goto(`${ORIGIN}/lab/`, { waitUntil: 'domcontentloaded' });
 
     // The end card, built the way scene.js builds it, and the board attached to
     // it the way scene.js attaches it. Driving a real game to a real death
@@ -215,7 +219,7 @@ try {
     await page.waitForFunction(() => {
       const rows = document.querySelectorAll('.gb-rows li');
       return rows.length > 0 && !/reading the board/.test(rows[0].textContent);
-    }, null, { timeout: 15000 });
+    }, null, );
 
     const shown = await page.evaluate(() => ({
       rows: [...document.querySelectorAll('.gb-rows li')].map((li) => li.textContent),
@@ -246,7 +250,7 @@ try {
     await page.waitForFunction(() => {
       const li = document.querySelector('.gb-rows li.mine');
       return li && /14,200/.test(li.textContent);
-    }, null, { timeout: 15000 });
+    }, null, );
     const placing = await page.evaluate(() => {
       const li = document.querySelector('.gb-rows li.mine');
       return { text: li.textContent, count: document.querySelectorAll('.gb-rows li').length };
@@ -261,7 +265,7 @@ try {
   console.log('\nthe name, asked for once');
   {
     const { ctx, page } = await open({ board: BOARD, name: null });
-    await page.goto(`${ORIGIN}/lab/`, { waitUntil: 'load' });
+    await page.goto(`${ORIGIN}/lab/`, { waitUntil: 'domcontentloaded' });
     await page.evaluate(async () => {
       const mod = await import('/src/net/leaderboard.js');
       const card = document.createElement('div');
@@ -269,7 +273,7 @@ try {
       document.body.appendChild(card);
       mod.attach(card, { run: { score: 5000, fireflies: 8, seconds: 120 }, levelSlug: null });
     });
-    await page.waitForSelector('.gb-name input', { timeout: 10000 });
+    await page.waitForSelector('.gb-name input', );
     ok(await page.isVisible('.gb-name input'), 'with no name stored the card asks for one');
     const before = fake.scores.length;
     ok(/only in this browser/.test(await page.textContent('.gb-note')), 'and says why it matters');
@@ -277,7 +281,7 @@ try {
 
     await page.fill('.gb-name input', '  Bea  ');
     await page.click('.gb-name button');
-    await page.waitForFunction((n) => document.querySelectorAll('.gb-rows li.mine').length > 0, null, { timeout: 15000 });
+    await page.waitForFunction((n) => document.querySelectorAll('.gb-rows li.mine').length > 0, null, );
     eq(fake.scores.length, before + 1, 'giving a name posts the score');
     eq(fake.scores[fake.scores.length - 1].name, 'Bea', 'trimmed');
     eq(await page.evaluate(() => localStorage.getItem('graveyard.name.v1')), 'Bea', 'and remembered, so it is asked once');
@@ -289,8 +293,8 @@ try {
   console.log('\nwith no network at all');
   {
     const { ctx, page, errors } = await open({ board: DEAD, name: 'Ada' });
-    await page.goto(`${ORIGIN}/lab/?game=1`, { waitUntil: 'load' });
-    await page.waitForFunction(() => window.__game && window.__game.state(), null, { timeout: 45000 });
+    await page.goto(`${ORIGIN}/lab/?game=1`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => window.__game && window.__game.state(), null, );
     for (let i = 0; i < 30; i++) {
       // eslint-disable-next-line no-await-in-loop
       await page.evaluate(() => window.__game.step(1 / 60, { x: 1, y: 0 }));
@@ -319,7 +323,7 @@ try {
       mod.attach(card, { run: { score: 100, fireflies: 1, seconds: 30 }, levelSlug: null });
     });
     ok(await page.isVisible('#offline-card .again'), 'the card is there and Again is pressable at once');
-    await page.waitForFunction(() => /not on the board/.test(document.querySelector('.gb-note').textContent), null, { timeout: 20000 });
+    await page.waitForFunction(() => /not on the board/.test(document.querySelector('.gb-note').textContent), null, );
     const note = await page.textContent('.gb-note');
     ok(/no connection to the board/.test(note), 'and the player is told the score did not save', note);
     ok(await page.isVisible('.gb-note button'), 'with a way to try again');
@@ -331,10 +335,10 @@ try {
   {
     const { ctx, page, errors } = await open({ board: DEAD, name: 'Ada' });
     page.on('dialog', (d) => d.accept());
-    await page.goto(`${ORIGIN}/editor/`, { waitUntil: 'load' });
-    await page.waitForSelector('button:text-is("publish")', { timeout: 20000 });
+    await page.goto(`${ORIGIN}/editor/`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('button:text-is("publish")');
     await page.click('button:text-is("publish")');
-    await page.waitForFunction(() => /not published/.test(document.querySelector('.gp p').textContent), null, { timeout: 30000 });
+    await page.waitForFunction(() => /not published/.test(document.querySelector('.gp p').textContent), null, );
     const said = await page.textContent('.gp p');
     ok(/no connection to the board/.test(said), 'publishing says why it could not', said);
     ok(/save json still works/.test(said), 'and points at the door that does not need a network', said);
@@ -352,8 +356,8 @@ try {
   console.log('\na published code, with no network');
   {
     const { ctx, page } = await open({ board: DEAD });
-    await page.goto(`${ORIGIN}/lab/?game=1&level=abc123def4`, { waitUntil: 'load' });
-    await page.waitForSelector('.card h1', { timeout: 30000 });
+    await page.goto(`${ORIGIN}/lab/?game=1&level=abc123def4`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('.card h1', );
     eq(await page.textContent('.card h1'), 'NO LEVEL', 'a code that cannot be reached says so');
     ok(/no connection/.test(await page.textContent('.card .story')), 'and why');
     await ctx.close();

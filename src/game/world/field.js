@@ -76,7 +76,12 @@ export const PATH_HALF = 1.15;
 // and fences, where five reach 19.8. The owner asked to have to cross the
 // screen for the next one, and the camera shows about 22 across, so nine is
 // asking for a step and five is asking for a walk.
-export const FLIES = 5;
+// SIX, on the owner's rule: six on the map, and when one is left five more
+// appear. The quincunx of five below is what this used to be and the shape
+// survives it -- five at the corners and the middle, plus one -- but the count
+// is now the size of a BOARD that refills for ever rather than the whole of
+// what a level holds.
+export const FLIES = 6;
 export const FLY_REACH = 2.2;       // how far one may be pulled toward a gate or a pen
 // The least ground between two of them. Raised with the count: at nine this
 // was the binding constraint and at five it is slack, since the quincunx puts

@@ -46,6 +46,12 @@ await setSize(small, Math.round(small * height / width));
 // runs across the skeleton's path instead so the frames the ring keeps are a
 // chase rather than a head-on collision.
 const DT = 1 / 30;
+const CHUNK = 15;
+// Counted in FRAMES rather than accumulated in seconds. 15 * (1/30) is not 0.5
+// in binary and a seconds counter built out of it never lands on a round
+// number, so a progress line keyed off `t % 10` prints nothing at all and the
+// run looks hung when it is only slow.
+let frames = 0;
 let t = 0;
 let over = false;
 let big = false;
@@ -61,7 +67,7 @@ while (t < maxSeconds && !over) {
       }
       return best;
     };
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < o.chunk; i++) {
       const st = window.__game.state();
       const foe = foeOf(st);
       let axis = { x: Math.cos((o.t + i * o.dt) * 0.9), y: Math.sin((o.t + i * o.dt) * 0.61) };
@@ -80,8 +86,9 @@ while (t < maxSeconds && !over) {
     }
     const r = window.__game.run();
     return { over: r.over, lives: window.__game.state().lives, score: r.score, flies: r.fireflies };
-  }, { t, dt: DT });
-  t += 15 * DT;
+  }, { t, dt: DT, chunk: CHUNK });
+  frames += CHUNK;
+  t = frames * DT;
   over = res.over;
   // The last life is the one that gets photographed, so that is where the
   // pixels go.
@@ -90,7 +97,7 @@ while (t < maxSeconds && !over) {
     big = true;
     console.log(`  t=${t.toFixed(0)}s last life, canvas up to ${width}x${height}`);
   }
-  if (Math.abs(t % 10) < 1e-9) {
+  if (frames % (10 * 30) === 0) {
     console.log(`  t=${t.toFixed(0)}s lives=${res.lives} score=${res.score} fireflies=${res.flies}`);
   }
 }

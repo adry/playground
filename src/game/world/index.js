@@ -310,8 +310,16 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
     return { x: w.x, z: w.z, why: pick.why };
   }
 
-  // FIVE fireflies in a quincunx: the four corners of the inset square and one
-  // in the middle.
+  // SIX fireflies: the quincunx, plus one.
+  //
+  // The quincunx -- four corners of the inset square and one in the middle --
+  // is the shape the spacing argument below arrived at, and it is unchanged.
+  // The sixth is the owner's, because the board is six now and refills to six.
+  // It goes on the long diagonal between the middle and a corner, which is the
+  // only place in a quincunx with room: it is 9.5 from its two neighbours where
+  // the five are 19.1 apart, so six is a measurably tighter board than five and
+  // the sixth is the one that costs the spacing. That is the trade the count
+  // asks for and it is worth writing down rather than discovering later.
   //
   // The count is the owner's, and it is a decision about spacing rather than
   // about how much there is to collect. Nine on a 3 by 3 lattice of this arena
@@ -331,7 +339,7 @@ export function createWorld({ seed = 1, size = LEVEL_SIZE } = {}) {
     const lo = EDGE;
     const hi = size - EDGE;
     const at = (fx, fz) => ({ x: box.minX + lo + fx * (hi - lo), z: box.minZ + lo + fz * (hi - lo) });
-    const spots = [at(0, 0), at(1, 0), at(0, 1), at(1, 1), at(0.5, 0.5)];
+    const spots = [at(0, 0), at(1, 0), at(0, 1), at(1, 1), at(0.5, 0.5), at(0.25, 0.75)];
     const out = [];
     spots.forEach((s, i) => {
       let { x: px, z: pz } = s;

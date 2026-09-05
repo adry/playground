@@ -54,7 +54,7 @@
 // for and four placed means the arena has no fifth place to stand.
 
 export const DEFAULT_FLY_RULE = {
-  count: 5,        // the owner's number
+  count: 6,        // the owner's number: six on the board, refilled for ever
   // A FLOOR, NOT A TARGET. The sampler maximises the spacing on its own; this
   // only stops it putting a fifth firefly on top of a fourth in an arena with
   // nowhere left to stand. Set it at the target of 20 and the fifth is vetoed

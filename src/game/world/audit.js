@@ -516,7 +516,7 @@ export function auditLevel(world, fail) {
   // 19.8. The owner asked to have to cross the screen for the next one, so
   // they took five and the spacing rather than nine and the density. Anything
   // below five is not that decision, it is a level with nothing to collect.
-  if (world.fireflies().length < 5) fail('floor', `only ${world.fireflies().length} fireflies`);
+  if (world.fireflies().length < 6) fail('floor', `only ${world.fireflies().length} firefly spots, the board holds six`);
   // Four of these are the graves' own headstones, so six is two free standing
   // stones and is the point below which the arena stops reading as a graveyard
   // at all rather than merely reading as a thin one.

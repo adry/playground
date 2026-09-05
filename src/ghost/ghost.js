@@ -428,7 +428,7 @@ export class Ghost {
     // ghost simply runs a little slow for that frame, which is invisible next
     // to the stall that caused it. Four bounds the cost at twice a 60fps
     // frame while still holding h to 12.5 ms at the clamp.
-    const sub = Math.min(MAX_SUBSTEPS, Math.max(1, Math.round(dt / SUBSTEP)));
+    const sub = 2;
     const h = dt / sub;
     for (let s = 0; s < sub; s++) {
       this.time += h;

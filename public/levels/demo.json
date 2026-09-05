@@ -426,7 +426,7 @@
     ]
   },
   "fireflies": {
-    "count": 5,
+    "count": 6,
     "gap": 12,
     "edge": 1.5,
     "clear": 0.45,

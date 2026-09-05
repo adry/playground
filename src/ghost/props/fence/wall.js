@@ -433,6 +433,22 @@ function railSection(v, H) {
   ];
 }
 
+// The THRESHOLD section: the plinth's own block, run through a gateway.
+//
+// The same width as the plinth either side of the opening, so the two meet
+// inside the jamb pier with no step showing, and eased along its top arris,
+// because a doorstep with a sharp edge on it has not been walked on. It is
+// deliberately NOT the body section clipped: a gateway's threshold is one stone
+// laid flat, not the bottom two courses of a wall that has been sawn off.
+function sillSection(v, top) {
+  const hb = v.thickness / 2 + v.plinthOut;
+  const lip = Math.min(0.035, top * 0.22);
+  return [
+    [hb, -0.02], [hb, top - lip], [hb - lip, top],
+    [-(hb - lip), top], [-hb, top - lip], [-hb, -0.02],
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // the path
 
@@ -1473,6 +1489,10 @@ function paint(geo, stoneColour, ironColour) {
 //   gate      { at, width } or an array of them: openings measured as a
 //             distance along the centreline from points[0], with a pier
 //             standing at each jamb. `gaps` is the same under a plural name.
+//             Two optional fields, both for maingate.js and both documented
+//             where they are read: `rise` builds the two jamb piers taller
+//             than the wall's own, `sill` runs a threshold through the
+//             opening so it is not a hole down to the dirt.
 //
 // Returns { group, mesh, bounds, length, height, variant, stats, update, dispose }.
 export function createWall({
@@ -1526,12 +1546,53 @@ export function createWall({
   const rand = rng(seed);
 
   // Openings.
+  //
+  // Two fields beyond `at` and `width`, and the MAIN GATE is the only caller
+  // that sets either -- see maingate.js. Neither changes anything for a plain
+  // gap, which is what `gaps` still is.
+  //
+  //   rise   how far the two JAMB piers stand above the wall's crown, instead
+  //          of the WALL.pier.rise every other pier gets. A main gate's piers
+  //          are the wall's own piers built TALLER and nothing else: same
+  //          stone, same coursing, same mitre, same PLAN SIZE. The plan size is
+  //          not a detail -- WALL.collide is worked out from it, and a pier
+  //          quietly fatter at a gate than everywhere else would make that
+  //          published number false for the one place a prop is most likely to
+  //          be stood.
+  //
+  //          They are also a MATCHED PAIR, so the per-pier size jitter is not
+  //          applied to them. Two piers either side of one opening are looked
+  //          at together and a six per cent difference between them reads as a
+  //          mistake, which is the same argument gate.js makes for building
+  //          both of its posts from one seed.
+  //
+  //   sill   the top of a THRESHOLD swept through the opening at the plinth's
+  //          own width. Without it the opening is a hole all the way down to
+  //          the dirt and you see the darkness outside underneath whatever
+  //          hangs in it; with it the wall's plinth runs through the gateway,
+  //          which is what a real one does, and the bottom of the opening
+  //          reads as a doorstep rather than as a gap to crawl through.
   const openings = []
     .concat(gate ? (Array.isArray(gate) ? gate : [gate]) : [])
     .concat(gaps || [])
-    .map((g) => ({ a: g.at - g.width / 2, b: g.at + g.width / 2 }))
+    .map((g) => ({
+      a: g.at - g.width / 2,
+      b: g.at + g.width / 2,
+      rise: g.rise ?? null,
+      sill: g.sill ?? 0,
+    }))
     .sort((p, q) => p.a - q.a);
   const inOpening = (d) => openings.some((o) => d > o.a + 1e-6 && d < o.b - 1e-6);
+  // The rise a pier standing on a gate's jamb is built to, or null for one of
+  // the wall's own. Both jambs of an opening are its edges, and pierPlan has
+  // already put a pier on each of them.
+  const jambRiseAt = (d) => {
+    for (const o of openings) {
+      if (o.rise == null) continue;
+      if (Math.abs(o.a - d) < 1e-4 || Math.abs(o.b - d) < 1e-4) return o.rise;
+    }
+    return null;
+  };
 
   // Piers, from the raw polyline. A 'pier' joint forces one where it stands.
   const plan = pierPlan(points, closed, pierSpacing, openings,
@@ -1678,6 +1739,17 @@ export function createWall({
     return out;
   };
 
+  // The stretch of the sampled path BETWEEN two distances, as a run. Every
+  // other piece of this build is cut up to an opening and stops; the threshold
+  // is the one piece built across one, so it needs the interval cutRuns throws
+  // away.
+  const runOver = (a0, b0) => {
+    const pts = [pointAt(path, a0)];
+    for (const q of path.pts) if (q.s > a0 + 1e-6 && q.s < b0 - 1e-6) pts.push(q);
+    pts.push(pointAt(path, b0));
+    return { pts, closed: false, total: path.total };
+  };
+
   const shifted = (sp) => (sp.shift
     ? { settle: shape.settle, lean: (d, yy) => shape.lean(d, yy) + sp.shift }
     : shape);
@@ -1711,6 +1783,20 @@ export function createWall({
 
   // --- the body -------------------------------------------------------------
   build(cutRuns(path, openings), (sp) => sectionOf(sp).body, 0);
+
+  // --- the threshold ---------------------------------------------------------
+  // The plinth, carried through an opening that asked for one. One sweep and no
+  // end caps: both ends run half a pier deep into the jamb pier standing over
+  // them, so a cap there would be a face nobody can see on a piece nobody can
+  // reach the end of.
+  for (const o of openings) {
+    if (!(o.sill > 0)) continue;
+    const sp = spanAt((o.a + o.b) / 2);
+    const run = runOver(o.a, o.b);
+    if (run.pts.length < 2) continue;
+    parts.push(sweep(run, sillSection(sp.section, o.sill), shifted(sp),
+      { flags: 0, style: sp.style }));
+  }
 
   // --- the coping, with stones missing out of it ----------------------------
   //
@@ -1831,8 +1917,15 @@ export function createWall({
     // on the prop once the coursing varied, because a pier is a silhouette and
     // the eye counts silhouettes. Held inside 6% of width and 20% of the cap's
     // rise, so the rhythm still reads as a rhythm.
-    const jitter = 0.94 + rand() * 0.12;
-    const rise = WALL.pier.rise * (0.82 + rand() * 0.40);
+    // Both rolls are taken whatever this pier turns out to be. A jamb pier
+    // that took its size and its rise from the gate and skipped the draws
+    // would shift the stream for every pier after it, and a wall would repaint
+    // itself the day somebody put a gate in the far side of it.
+    const jitterRoll = 0.94 + rand() * 0.12;
+    const riseRoll = WALL.pier.rise * (0.82 + rand() * 0.40);
+    const jambRise = jambRiseAt(p.s);
+    const jitter = jambRise == null ? jitterRoll : 1;
+    const rise = jambRise == null ? riseRoll : jambRise;
     // A pier standing ON a style change is its own build. By default it is the
     // OLDER of the two, because the new work was laid up to a buttress that was
     // already standing; jointVariant overrides it, which is how the joint
