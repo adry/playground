@@ -5,9 +5,13 @@ import { createGround } from '../ghost/ground.js';
 // floor and lighting, all turning together so each one can be seen from every
 // side without anyone driving a ghost around a graveyard to find it.
 //
-// This is what /lab/ is for now. The playable graveyard is still there at
-// /lab/?play=1, which loads the game exactly as it was; nothing about it has
-// moved. The two share a floor and a light rig and nothing else.
+// This is what /lab/ is for now. Two other things live behind flags on the
+// same page:
+//
+//   /lab/?play=1   the free-roam graveyard, exactly as it was, nothing moved
+//   /lab/?game=1   the Pac-Man: a generated level, the rules, and a keyboard
+//
+// All three share a floor and a light rig and nothing else.
 //
 // preview.html remains the single-prop turntable used by the capture scripts.
 // This page is the whole set at once, which is a different question: a prop can
@@ -16,7 +20,13 @@ import { createGround } from '../ghost/ground.js';
 
 const params = new URLSearchParams(location.search);
 
-if (params.get('play') === '1') {
+if (params.get('game') === '1') {
+  // The Pac-Man. A generated level, the rules running over it, and a keyboard.
+  // Dynamically imported for the same reason as the graveyard below: a page
+  // showing the lineup should not pay for the game's module graph.
+  const { startGame } = await import('../game/scene.js');
+  await startGame({ canvas: document.getElementById('view'), params });
+} else if (params.get('play') === '1') {
   // The graveyard, untouched. Imported dynamically so a page showing the
   // lineup never pays for the game's module graph and vice versa.
   await import('../ghost/main.js');

@@ -290,6 +290,31 @@ export function createSkeletonPerformance({
   renderer = null,
   seed = 7,
   wakeRange = WAKE_RANGE,
+  // EXTERNAL DRIVE, for the game.
+  //
+  // Left null, this performance is autonomous: it wakes when the ghost comes
+  // within wakeRange, climbs out, and then chases at its own TOP_SPEED. That is
+  // what the free-roam scene wants and it is unchanged.
+  //
+  // The game cannot have that, because the rules decide where every skeleton is
+  // (they run a graph, they have modes, they get eaten) and two things
+  // integrating a position is two positions. So a driver replaces the STEERING
+  // and nothing else: called once a frame, it returns `{ x, z, yaw }` and the
+  // chase phase adopts them instead of solving for them.
+  //
+  // Everything downstream still works because the gait was never driven by the
+  // steering in the first place. It is driven by `speed` and `cursor`, and both
+  // are now MEASURED from the displacement the driver asked for rather than
+  // integrated from a want. So the feet still land where the body is going, the
+  // pelvis still bobs twice a cycle against the footfalls, the roll still leans
+  // into the turn, and the figure can be moved faster than TOP_SPEED without
+  // the legs coming adrift: the cadence follows the distance, which is exactly
+  // the property that made TOP_SPEED a cadence ceiling rather than a speed one.
+  //
+  // The driver is consulted only while chasing. Buried, emerging and rising are
+  // the spawn animation and the rules read `state`/`emergeProgress` to know
+  // where it has got to, rather than driving it.
+  driver = null,
 } = {}) {
   const J = rig.joints;
   const group = rig.group;
@@ -298,7 +323,8 @@ export function createSkeletonPerformance({
 
   // Where it is buried. Everything comes home to here.
   const home = group.position.clone();
-  const homeYaw = group.rotation.y;
+  // Not const: the game moves a skeleton's grave when it builds a level.
+  let homeYaw = group.rotation.y;
   const rootRest = J.root.position.clone();
 
   // --- clipping ---------------------------------------------------------------
@@ -763,6 +789,8 @@ export function createSkeletonPerformance({
   // the ghost, and the walk's phase is distance travelled rather than elapsed
   // time.
   function stepChase(dt, ghost) {
+    if (driver) return stepDriven(dt);
+
     let dist = Infinity;
     let err = 0;
     if (ghost) {
@@ -854,6 +882,103 @@ export function createSkeletonPerformance({
     if (ghost && dist < GIVE_UP_RANGE) lostFor = 0;
     else lostFor += dt;
     if (lostFor > 3.0) enter('settling');
+  }
+
+  // The chase, with the steering taken out and handed to the game.
+  //
+  // This is stepChase with three lines changed and the rest lifted verbatim,
+  // and the duplication is deliberate: the alternative is a dozen `if (driver)`
+  // branches threaded through the busiest function in the file, where the two
+  // behaviours would drift apart silently. Here they are side by side and any
+  // change to the gait has to be made twice ON PURPOSE.
+  //
+  // What is different:
+  //   pos and yaw come from the driver instead of being solved for;
+  //   speed is MEASURED from the displacement rather than approached toward a
+  //     want, so there is no TOP_SPEED ceiling and the cadence follows whatever
+  //     the rules asked for;
+  //   yawVel is likewise differenced, because the roll leans on it;
+  //   it never gives up, since a skeleton leaving the chase is the rules' call
+  //     and they express it by moving the thing rather than by stopping asking.
+  function stepDriven(dt) {
+    const want = driver(dt) || null;
+    if (want) {
+      const dx = want.x - pos.x;
+      const dz = want.z - pos.z;
+      const moved = Math.hypot(dx, dz);
+      pos.x = want.x;
+      pos.z = want.z;
+      // Measured, not integrated. A driver that teleports (a skeleton eaten and
+      // sent home) would otherwise report a speed of hundreds and blow the
+      // gait up for a frame, so a jump beyond what a stride could cover is
+      // treated as a cut rather than as motion.
+      const raw = dt > 0 ? moved / dt : 0;
+      const cut = raw > 12;
+      const nextSpeed = cut ? 0 : raw;
+      const nextYaw = typeof want.yaw === 'number'
+        ? want.yaw
+        : (moved > 1e-4 ? Math.atan2(dx, dz) : yaw);
+      const dyaw = wrap(nextYaw - yaw);
+      yawVel = cut || dt <= 0 ? 0 : clamp(dyaw / dt, -MAX_YAW_RATE, MAX_YAW_RATE);
+      yaw = nextYaw;
+      speed = nextSpeed;
+      if (!cut) {
+        travel += moved;
+        cursor += moved / STEP_LENGTH;
+      }
+    } else {
+      speed = 0;
+      yawVel = 0;
+    }
+
+    const bleed = cursorFix * (1 - Math.exp(-CURSOR_LOCK_RATE * dt));
+    cursor += bleed;
+    cursorFix -= bleed;
+
+    // From here down this is stepChase's gait, unchanged. `dist` and `err` are
+    // the two things it used that only the steering knew, so they are stated
+    // here: the driver has already pointed the figure where it is going, so the
+    // heading error is zero by construction, and the head's gaze uses the
+    // distance the driver reports if it offers one.
+    const err = 0;
+    const dist = typeof want?.dist === 'number' ? want.dist : Infinity;
+
+    const cyc = (cursor * 0.5) % 1;
+    const moving = smoothstep(0.05, 0.5, speed);
+    const bob = -BOB * moving * (1 + Math.cos(cyc * 2 * TAU)) * 0.5;
+    T.lift = mix(HIP_TALL, HIP_STALK, moving) + bob;
+    T.sway = SWAY * moving * Math.sin(cyc * TAU);
+
+    T.roll = clamp(-yawVel * 0.16, -0.22, 0.22);
+    const lurch = 2.5 * moving * Math.sin(cyc * 2 * TAU + 0.6);
+    T.root = (7 + 5 * moving + lurch) * D;
+    T.lumbar = T.root + (-3 + 4 * moving) * D;
+    T.thorax = T.lumbar + (-2 + 6 * moving) * D;
+
+    T.headYaw = clamp(err, -0.75, 0.75);
+    const gaze = (-4 + 10 * moving) * D + (dist < 3 ? -6 * D : 0);
+    T.neck = mix(T.thorax, gaze, 0.45);
+    T.head = gaze;
+
+    const gait = clamp((S.hipR.value - S.hipL.value) * 0.38, -0.32, 0.32);
+    T.shoulderL = (-74 - 6 * moving) * D + gait;
+    T.shoulderR = (-74 - 6 * moving) * D - gait;
+    T.elbowL = T.shoulderL - 34 * D - gait * 0.4;
+    T.elbowR = T.shoulderR - 34 * D + gait * 0.4;
+    T.wristL = T.elbowL - 16 * D;
+    T.wristR = T.elbowR - 16 * D;
+    T.spreadL = (14 + 6 * moving) * D;
+    T.spreadR = T.spreadL;
+
+    strain = 0.12 + 0.1 * moving;
+    legBlend = 1;
+    stepFeet(dt);
+
+    chatter = 0.35 + 0.65 * smoothstep(4.0, 1.4, dist);
+    const near = dist < STOP_RANGE + 0.9;
+    jawBeat = near
+      ? 0.34 * Math.max(0, Math.sin(clock * 5.2)) ** 2
+      : 0.03 + 0.03 * moving;
   }
 
   // Gives up and goes back down. The same machinery in reverse, so the sink is
@@ -1566,6 +1691,27 @@ export function createSkeletonPerformance({
     update,
     reset,
     get state() { return phase; },
+    // For the game, which owns the state machine. The autonomous scene never
+    // calls either of these: it decides its own phases from the ghost's
+    // distance, which is what wakeRange is for.
+    //
+    // setPhase is a request rather than a command, and it no-ops when the
+    // phase already matches, because enter('buried') resets the gait cursor and
+    // calling it every frame would freeze the figure mid-stride.
+    setPhase(next) {
+      if (next && next !== phase) enter(next);
+    },
+    // Where it climbs out of. The rules place the graves, so `home` cannot be
+    // wherever the group happened to be constructed. Only meaningful while
+    // buried: it moves the hole, not the figure.
+    moveHome(x, z, y) {
+      home.set(x, home.y, z);
+      if (typeof y === 'number') homeYaw = y;
+      if (phase === 'buried') {
+        pos.copy(home);
+        yaw = homeYaw;
+      }
+    },
     // Not part of the contract. A performance that is asserted numerically is
     // one that stays fixed: the harness reads foot slip, turn rate and phase
     // dwell out of here rather than off a screenshot.
