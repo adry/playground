@@ -261,7 +261,7 @@ claim(before.variant === 'iron', `the wall's first section is ${before.variant}`
 
 const download = editor.page.waitForEvent('download', { timeout: 30000 }).catch(() => null);
 await editor.page.evaluate(() => {
-  [...document.querySelectorAll('#right button')].find((n) => n.textContent === 'save json')?.click();
+  [...document.querySelectorAll('#right button')].find((n) => n.textContent === 'download a copy')?.click();
 });
 const file = await download;
 claim(!!file, 'clicking save produces a download');
@@ -293,7 +293,7 @@ claim(seen.fast === 0, `the fast half sees no error in a fenced corner (${seen.f
 
 const refused = editor.page.waitForEvent('download', { timeout: 8000 }).catch(() => null);
 await editor.page.evaluate(() => {
-  [...document.querySelectorAll('#right button')].find((n) => n.textContent === 'save json')?.click();
+  [...document.querySelectorAll('#right button')].find((n) => n.textContent === 'download a copy')?.click();
 });
 const leaked = await refused;
 claim(!leaked, 'a level with a wedge in it does not save');
