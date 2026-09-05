@@ -214,6 +214,128 @@ function rawChunk(seed, cx, cz, spacing, fence) {
   return out;
 }
 
+// THE ARENA. A bounded 30 by 30 level with a tall wall round it and darkness
+// beyond, which is what the owner asked for after the endless plane turned out
+// to cost too much to load. It is a different generator rather than a clipped
+// one, because at 30 by 30 the interesting fence is not a scattered run but a
+// PEN: a run of 20 units is two thirds of the level, so a fence is either a
+// closed thing you go into or it is a wall of the level.
+//
+// The wall is published as ordinary barriers carrying `wall: true`, which is the
+// one flag the rules read: a wall barrier cannot be vaulted. Everything else
+// about it is a fence.
+//
+// LANE is a clear ring inside the wall. It is the single most load bearing
+// number in here and it is a fairness device, not a look one: it is Pac-Man's
+// outer corridor. Without it a pen can sit against the wall and make a pocket
+// with one way in, and a player running the perimeter can be stopped dead by a
+// prop. With it the boundary is a loop you can always run, which turns a corner
+// from a dead end into a 90 degree turn.
+export function createArena({ seed = 1, size = 30, lane = 2.6, wallHalf = 0.35, fireflies = 9 } = {}) {
+  const r = mulberry32(hashInt(seed ^ 0x1a7e91, 7, 13));
+  const h = size / 2;
+  const bounds = { minX: -h, minZ: -h, maxX: h, maxZ: h };
+  const out = { barriers: [], gates: [], props: [], fireflies: [], powerups: [], graves: [] };
+
+  // The perimeter. Four segments, `wall: true`, ends flagged as joints so none
+  // of them is ever mistaken for a fence run you can walk round the end of.
+  const W = [[-h, -h, h, -h], [h, -h, h, h], [h, h, -h, h], [-h, h, -h, -h]];
+  W.forEach((w, i) => out.barriers.push({
+    id: `w${i}`, x0: w[0], z0: w[1], x1: w[2], z1: w[3],
+    half: wallHalf, wall: true, end0: 'joint', end1: 'joint',
+  }));
+
+  const inner = h - lane;
+  const clear = (x, z, rad) => {
+    if (Math.abs(x) > inner - rad || Math.abs(z) > inner - rad) return false;
+    for (const b of out.barriers) if (!b.wall && segPointDist(b, x, z) < rad + b.half) return false;
+    for (const p of out.props) if (Math.hypot(p.x - x, p.z - z) < rad + p.radius) return false;
+    return true;
+  };
+  const inGate = (x, z, rad) => {
+    for (const g of out.gates) {
+      const nx = -g.dz;
+      const nz = g.dx;
+      const along = (x - g.x) * nx + (z - g.z) * nz;
+      const t = along < -2.2 ? -2.2 : along > 2.2 ? 2.2 : along;
+      if (Math.hypot(x - (g.x + nx * t), z - (g.z + nz * t)) < 0.62 + rad) return true;
+    }
+    return false;
+  };
+
+  // Two or three pens, each with one or two gates, placed inside the lane and
+  // not touching each other. A pen is the case where the vault is worth the
+  // most, so the arena is mostly pens on purpose.
+  const want = 2 + ((r() * 2) | 0);
+  const pens = [];
+  for (let tries = 0; tries < 200 && pens.length < want; tries++) {
+    const w = 3 + ((r() * 2) | 0);
+    const d = 3 + ((r() * 2) | 0);
+    const px = -inner + 1 + r() * Math.max(0.1, inner * 2 - 2 - w * 2);
+    const pz = -inner + 1 + r() * Math.max(0.1, inner * 2 - 2 - d * 2);
+    const box = { x0: px, z0: pz, x1: px + w * 2, z1: pz + d * 2 };
+    if (box.x1 > inner || box.z1 > inner) continue;
+    let clash = false;
+    for (const q of pens) {
+      if (box.x0 < q.x1 + 3.5 && box.x1 > q.x0 - 3.5 && box.z0 < q.z1 + 3.5 && box.z1 > q.z0 - 3.5) { clash = true; break; }
+    }
+    if (clash) continue;
+    pens.push(box);
+    const sides = [
+      { x: box.x0, z: box.z0, dx: 1, dz: 0, n: w },
+      { x: box.x1, z: box.z0, dx: 0, dz: 1, n: d },
+      { x: box.x1, z: box.z1, dx: -1, dz: 0, n: w },
+      { x: box.x0, z: box.z1, dx: 0, dz: -1, n: d },
+    ];
+    const total = 2 * (w + d);
+    const nG = r() < 0.5 ? 2 : 1;
+    const picks = new Set();
+    while (picks.size < nG) picks.add((r() * total) | 0);
+    let base = 0;
+    for (let i = 0; i < 4; i++) {
+      const gaps = [];
+      for (const q of picks) if (q >= base && q < base + sides[i].n) gaps.push(q - base);
+      emitRun(out, sides[i].x, sides[i].z, sides[i].dx, sides[i].dz, sides[i].n, gaps, `p${pens.length}s${i}`);
+      base += sides[i].n;
+    }
+  }
+
+  const place = (list, rad, n, extra) => {
+    for (let i = 0, tries = 0; i < n && tries < 400; tries++) {
+      const x = -inner + r() * inner * 2;
+      const z = -inner + r() * inner * 2;
+      if (!clear(x, z, rad) || inGate(x, z, rad)) continue;
+      list.push({ id: `${list.length}`, x, z, ...(extra ? extra(r) : {}) });
+      i++;
+    }
+  };
+  place(out.props, 0.45, 10 + ((r() * 8) | 0), (rr) => ({ kind: 'stone', yaw: rr() * 6.28, radius: 0.30 + rr() * 0.16, solid: true }));
+  out.props.forEach((p, i) => { p.id = `s${i}`; });
+  place(out.fireflies, 0.70, fireflies);
+  out.fireflies.forEach((f, i) => { f.id = `f${i}`; });
+  place(out.powerups, 0.85, 2);
+  out.powerups.forEach((p, i) => { p.id = `l${i}`; });
+  place(out.graves, 0.80, 4, (rr) => ({ yaw: rr() * 6.28 }));
+  out.graves.forEach((g, i) => { g.id = `v${i}`; });
+
+  let spawn = { x: 0, z: 0 };
+  for (let i = 0; i < 60 && !clear(spawn.x, spawn.z, 0.62); i++) {
+    const a = i * 2.4;
+    spawn = { x: Math.cos(a) * i * 0.5, z: Math.sin(a) * i * 0.5 };
+  }
+
+  const all = (k) => () => out[k];
+  return {
+    CHUNK: size, size, lane, bounds, spawn,
+    barriers: all('barriers'),
+    gates: all('gates'),
+    props: all('props'),
+    fireflies: all('fireflies'),
+    powerups: all('powerups'),
+    graves: all('graves'),
+  };
+}
+
 export function createWorld({ seed = 1, spacing = FLY_SPACING, fence = 1 } = {}) {
   const raws = new Map();
   const chunks = new Map();
