@@ -14,10 +14,10 @@ import { flattenByMaterial } from './merge.js';
 // Two ideas, and the second only works because of the first:
 //
 //   THE CACHE. A prop is built once per KEY and never again. The key is the
-//   caller's business -- for this graveyard it is kind, variant and a seed
-//   slot -- and the point of a slot is that "a hundred stones" becomes "four
-//   bakes of each of twenty-nine stones, built once for the whole run". A chunk
-//   that streams in later finds every template already built and pays nothing.
+//   caller's business -- for this graveyard it is kind, variant and a slot --
+//   and the point of a slot is that "a hundred stones" becomes "a handful of
+//   bakes of each variant, built once for the run". A chunk that streams in
+//   later finds its templates already built and pays nothing for them.
 //
 //   THE FIELD. Every placement of a key is an instance of that key's meshes.
 //   A template is flattened to one mesh per material first, so a stone that was

@@ -50,7 +50,16 @@
 // generator believes is connected and their check does not. So the repair pass
 // asks nav.js the same question the soak asks it, on the same grid, and cannot
 // drift from it.
-export const NAV_CELL = 0.5;
+// A QUARTER OF A UNIT, not a half.
+//
+// The repair ran at 0.5 first, matching the soak's own default, and the soak
+// then read 0.0% at 0.5, 0.7% at 0.4 and 2.0% at 0.25: climbing rather than
+// converging, which is a coarse raster failing to SEE the failures a fine one
+// finds. A half unit grid steps over a gap between two headstones that a body
+// can walk through and steps over a pocket a body can stand in, and it does the
+// second more often than the first. So the repair is done at the finest raster
+// anybody measures at, and it costs about forty milliseconds a level.
+export const NAV_CELL = 0.25;
 // max(TUNING.ghostRadius 0.55, SKEL_RADIUS 0.475 + 0.08), which is soak.mjs's
 // FAIR_RADIUS. Written here rather than imported from rules.js, because
 // importing the rules into the world would be a cycle; world-check.mjs asserts
@@ -61,11 +70,11 @@ export const NAV_R = 0.555;
 export const SKEL_R = 0.475;
 export const GATE_R = 0.60;
 export const GATE_REACH = 2.0;
-// A pocket of one cell is rasterisation at the lip of a gate; two is already
-// half a square unit of ground the ghost can stand in and nothing can follow it
-// to. The rules half tolerates six cells of leak in total, so this tolerates
-// two in any one pocket and three across the whole level, which leaves their
-// check three cells of headroom over the strictest thing this pass can promise.
+// In CELLS of NAV_CELL, so at a quarter of a unit this is a pocket of an eighth
+// of a square unit and a total leak of a fifth of one. The ghost is 1.31 across
+// and needs 1.35 square units to stand in, so nothing this small is a place
+// anybody can hide; the tolerance exists only for the one or two cells that
+// rasterisation leaves at the lip of a gate.
 const MIN_POCKET = 2;
 const MAX_LEAK = 3;
 

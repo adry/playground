@@ -2,23 +2,23 @@ import * as THREE from 'three';
 import { mergeGeometries } from '../merge.js';
 import { rng } from './wood.js';
 
-// The high wall that encloses a level, and the darkness outside it.
+// The high wall that encloses a level, in four kinds, and the darkness outside
+// it.
 //
 // This is the edge of the world, not another prop. panel.js is the fence: 0.86
 // tall, wood, low enough to see over and to hop, and it stands INSIDE a level
 // as furniture. This stands AROUND one and its whole job is to say "there is no
 // more graveyard past here". Everything below follows from that one difference:
 //
-//   * It is stone, not timber. The graveyard's own stone, PALETTE.stone, the
-//     same grey the headstones are cut from, so it reads as the boundary of the
-//     same yard rather than as a set piece imported from elsewhere.
 //   * It is built as ONE merged geometry per call. A 30 unit run made of
-//     fifteen 2.0 panels would be fifteen draw calls, times four sides; the
-//     whole enclosure here is one.
-//   * It publishes its dimensions. Navigation needs the thickness to collide
-//     against and needs to be told the ghost cannot get over it; the darkness
-//     outside needs the height. Those numbers are WALL below and they are the
-//     only copy.
+//     fifteen 2.0 panels would be fifteen draw calls, times four sides; a whole
+//     enclosure here is one, variant and breakage and ironwork included.
+//   * It publishes its dimensions. Navigation needs a width to collide against
+//     and needs to be told the ghost cannot get over it; the darkness outside
+//     needs the height. Those numbers are WALL below and they are the only
+//     copy. NO VARIANT MAY CHANGE THEM -- see the note on WALL.height.
+//   * It comes in four kinds, because a player should be able to tell one
+//     arena from another at a glance. See VARIANTS.
 //
 // THE CALLER HANDS ONE CLOSED LOOP, NOT FOUR RUNS.
 //
@@ -26,7 +26,7 @@ import { rng } from './wood.js';
 // because it is the one thing a caller has to get right:
 //
 //     createWall({ points: [{x:-15,z:-15},{x:15,z:-15},{x:15,z:15},{x:-15,z:15}],
-//                  closed: true })
+//                  closed: true, variant: 'brick' })
 //
 // Four separate runs cannot make a corner. Each run would have to stop somewhere
 // near the corner and hope, and the two ways of doing that are both wrong: stop
@@ -36,7 +36,9 @@ import { rng } from './wood.js';
 // means the corner is MITRED -- the outer faces are extended to where they
 // actually meet and the inner faces are cut back to where they actually meet --
 // which is the only construction that is right from both sides at once. See
-// miter() below; it is four lines and it is the reason the corners work.
+// miter() below; it is four lines and it is the reason the corners work, in
+// every variant, because every variant is the same sweep of a different
+// section.
 //
 // An open polyline is allowed too (closed: false) and gets an end cap at each
 // end, which is what a gate jamb needs.
@@ -45,10 +47,9 @@ import { rng } from './wood.js';
 // (its rng, so a wall is the same wall every reload), the discipline of putting
 // the surface detail in a fragment patch on a standard material rather than in
 // vertices or a texture, and above all the post rhythm. A fence hides its panel
-// joints inside a shared post; this wall hides its corners and its coursing
-// inside a PIER, on the same 5.0 lattice the floor's major grid already draws.
-// A blank 30 unit stone run is a wall in a flight simulator. A 30 unit run
-// broken into six bays by piers is a churchyard.
+// joints inside a shared post; this wall hides its corners, its coursing and
+// its bay-to-bay changes of mind inside a PIER, on the same 5.0 lattice the
+// floor's major grid already draws.
 
 // ---------------------------------------------------------------------------
 // the published numbers
@@ -58,7 +59,10 @@ import { rng } from './wood.js';
 // here first, the same rule metrics.js states for the fence.
 
 export const WALL = {
-  // Crown of the coping, above the floor.
+  // Crown of the coping, above the floor. THE SAME IN EVERY VARIANT, and the
+  // variant table has no height field so it cannot become otherwise: a wall
+  // that was secretly a different height in one arena would change what the
+  // ghost can get over, and the rules read this number rather than looking.
   //
   // Chosen by measurement, not by taste, and the measurement is in two halves
   // because the decision fights itself: tall enough to read as impassable,
@@ -109,13 +113,14 @@ export const WALL = {
   // this number is 1.761 + 0.24 and should be recomputed rather than nudged.
   height: 2.0,
 
-  // Across the run, at the body. The plinth and the coping stand proud of this
-  // and the piers stand proud of both; see `collide` for the number navigation
-  // actually wants.
+  // Across the run at the body, for the default variant. Variants differ --
+  // brick is thinner, rubble is fatter, the railing is a narrow plinth -- so
+  // this is a nominal, NOT the number to collide against. That is `collide`,
+  // and it is variant-independent by construction; see below.
   thickness: 0.44,
 
-  // Widest the run gets at ground level, at the plinth. A prop laid against the
-  // wall wants this, not `thickness`.
+  // Widest the default run gets at ground level, at the plinth. A prop laid
+  // against the wall wants this, not `thickness`.
   base: 0.55,
 
   // The piers. Spacing is the floor's own major grid, so a pier lands on a
@@ -126,72 +131,254 @@ export const WALL = {
   pier: { width: 0.86, spacing: 5.0, rise: 0.34, cornerScale: 1.30 },
 
   // What navigation should inflate the wall's centreline polyline by, in world
-  // units, to get the solid the ghost must not enter. The pier is the widest
-  // thing on the prop, so these are its half diagonals: the first on a straight
-  // run, the second at a mitred right-angle corner, where the pier is bigger.
-  // Nothing else on the wall -- plinth at 0.275, coping at 0.295 -- comes near
-  // either number.
+  // units, to get the solid the ghost must not enter. These are the pier's half
+  // diagonals: the first on a straight run, the second at a mitred right-angle
+  // corner, where the pier is bigger.
+  //
+  // THESE HOLD FOR EVERY VARIANT, and that is on purpose rather than a
+  // coincidence: every variant, ironwork included, uses the same stone pier,
+  // and the pier is the widest thing on the prop in all of them. The widest
+  // body is rubble's plinth at 0.325 from the centreline, still well inside
+  // 0.53. So navigation never has to know which wall it is looking at.
   collide: 0.53,
   cornerCollide: 0.69,
 
   // Stated rather than implied. The ghost hops the 0.86 fence; it does not get
-  // over this, at any height, ever. A rule that lets it is a bug in the rule.
+  // over this, in any variant, at any height, ever. A rule that lets it is a
+  // bug in the rule.
   vaultable: false,
+
+  // The named set, in the order an editor should list them.
+  variants: ['ashlar', 'brick', 'rubble', 'iron'],
 };
 
-// The masonry. Course height and stone length are the two numbers that decide
-// whether the surface reads as a wall or as a grey extrusion, and they are here
-// because the shader and the lab both want them.
-const STONE = {
-  colour: '#b9b6b1',       // PALETTE.stone, the graveyard's own grey
-  mortar: '#8e8b85',
-  course: 0.235,           // one course of stone, floor to floor
-  length: 0.62,            // nominal stone along the run, varied per course
-  joint: 0.030,            // mortar width
-  jointDepth: 0.85,        // how far the joint darkens towards the mortar tone
-  tone: 0.13,              // per-stone lightness spread
-  grime: 0.30,             // how much the first third of a metre darkens
-};
-
-// Section of the run, one half, in (across, up). Mirrored to make the loop.
+// ---------------------------------------------------------------------------
+// the four walls
 //
-// Read bottom to top: a plinth that is bedded 20mm into the dirt and stands
-// proud of the body, a chamfer off it, the body itself with a slight batter so
-// the wall leans into its own weight, then a coping that oversails on both
-// sides and is crowned rather than flat. The oversail is the important one: a
-// wall whose top is the same width as its body has no cap, and without a cap it
-// reads as a slab standing on edge.
-function halfSection(H, T) {
-  const bed = 0.02;
-  const plinthH = 0.16;
-  const plinthOut = 0.055;
-  const chamfer = 0.055;
-  const batter = 0.035;
-  const copeH = 0.20;
-  const copeOut = 0.075;
-  const hb = T / 2;
-  return [
-    [hb + plinthOut, -bed],
-    [hb + plinthOut, plinthH],
-    [hb, plinthH + chamfer],
-    [hb - batter, H - copeH],
-    [hb + copeOut, H - copeH + 0.045],
-    [hb + copeOut, H - 0.10],
-    [(hb + copeOut) * 0.78, H - 0.055],
-    [0, H],
-  ];
+// An editor is being built so the owner picks one of these per level by hand,
+// which is why this is a named set of four rather than a random roll or a hue
+// slider. The test each one has to pass is the only one that matters here: at
+// the game's framing, roughly a hundred pixels of wall, can you tell which
+// arena you are in without being told? So they are chosen to differ in VALUE
+// and SILHOUETTE first and in colour second, because colour is the thing that
+// survives worst at that size.
+//
+//   ashlar   Pale dressed limestone, deep courses, saddleback coping. The
+//            graveyard's own stone -- the same grey the headstones are cut
+//            from, PALETTE.stone -- so this is the one that reads as the
+//            churchyard the props were made for. The default.
+//   brick    Warm brown brick, courses less than half as deep, a thin wall
+//            with a brick-on-edge cope. Chosen because it is the one that
+//            differs most from ashlar at a hundred pixels: it is darker, it is
+//            the only warm thing in a grey scene, and its coursing is fine
+//            enough to read as texture rather than as blocks. The Victorian
+//            municipal cemetery to ashlar's parish churchyard.
+//   rubble   Uncoursed field stone. Fatter, rougher, greyer-browner, big
+//            unequal lumps that do not line up into courses at all, a heavy
+//            plinth and a lumpy cope. Chosen for SILHOUETTE: it is the only
+//            variant whose top line is visibly uneven, so it reads as a
+//            different wall even in a black-and-white thumbnail. The old
+//            boundary that was there before the cemetery was.
+//   iron     Spiked iron railings between stone piers on a low plinth. The
+//            "grid" reading, and the only variant you can see THROUGH -- which
+//            at this camera means you see the darkness through it, which is
+//            the best thing any of them does. Chosen because a set of three
+//            masonry walls is three shades of the same idea, and this one is a
+//            different idea.
+//
+// A variant may change the section, the coursing and the colours. It may NOT
+// change WALL.height, and there is no field here that would let it.
+
+const VARIANTS = {
+  ashlar: {
+    label: 'Dressed limestone',
+    kind: 'masonry',
+    mode: 0,
+    stone: '#b9b6b1',
+    mortar: '#8e8b85',
+    moss: '#7f8f63',
+    thickness: 0.44,
+    plinthH: 0.16,
+    plinthOut: 0.055,
+    chamfer: 0.055,
+    batter: 0.035,
+    copeH: 0.20,
+    copeOut: 0.075,
+    crown: 0.055,
+    course: 0.235,
+    length: 0.62,
+    joint: 0.030,
+    jointDepth: 0.85,
+    tone: 0.13,
+    rowJitter: 0.0,
+    grime: 0.30,
+    mossAmount: 0.55,
+    // How far the coping settles over a bay, and how far the top of the wall
+    // leans off plumb. Both are per bay; see bayShape().
+    sag: 0.045,
+    lean: 0.030,
+    copeBreaks: 20,      // roughly one broken cope per this many units of run
+  },
+
+  brick: {
+    label: 'Brown brick',
+    kind: 'masonry',
+    mode: 1,
+    stone: '#9a5c40',
+    mortar: '#c8bfae',
+    moss: '#6f8352',
+    thickness: 0.36,
+    plinthH: 0.11,
+    plinthOut: 0.038,
+    chamfer: 0.030,
+    batter: 0.014,
+    copeH: 0.13,
+    copeOut: 0.055,
+    crown: 0.018,        // brick on edge is nearly flat
+    course: 0.098,       // a brick and its bed; nineteen courses to the crown
+    length: 0.31,
+    joint: 0.016,
+    jointDepth: 1.0,     // lime mortar against dark brick is the loudest joint
+    tone: 0.17,
+    rowJitter: 0.0,
+    grime: 0.34,
+    mossAmount: 0.42,
+    sag: 0.035,
+    lean: 0.026,
+    copeBreaks: 26,
+  },
+
+  rubble: {
+    label: 'Field rubble',
+    kind: 'masonry',
+    mode: 2,
+    stone: '#a7a094',
+    mortar: '#7c766c',
+    moss: '#78894f',
+    thickness: 0.52,
+    plinthH: 0.20,
+    plinthOut: 0.065,
+    chamfer: 0.075,
+    batter: 0.055,
+    copeH: 0.17,
+    copeOut: 0.055,
+    crown: 0.075,
+    course: 0.30,
+    length: 0.44,
+    joint: 0.042,
+    jointDepth: 0.78,
+    tone: 0.22,
+    // The number that makes it uncoursed: every column of stone is shoved up or
+    // down by up to this much before the course lines are worked out, so the
+    // beds wander instead of running through.
+    rowJitter: 0.16,
+    grime: 0.38,
+    mossAmount: 0.85,
+    sag: 0.085,
+    lean: 0.055,
+    copeBreaks: 11,      // the derelict one, so it loses the most cope
+  },
+
+  iron: {
+    label: 'Iron railings',
+    kind: 'railing',
+    mode: 3,
+    stone: '#b2aea7',    // the plinth and the piers, a shade greyer than ashlar
+    mortar: '#8b8880',
+    moss: '#7f8f63',
+    iron: '#33363c',
+    thickness: 0.40,
+    plinthH: 0.30,
+    plinthOut: 0.055,
+    chamfer: 0.055,
+    batter: 0.02,
+    // The plinth's own cope, which the railings stand on.
+    copeH: 0.11,
+    copeOut: 0.070,
+    crown: 0.020,
+    course: 0.215,
+    length: 0.58,
+    joint: 0.028,
+    jointDepth: 0.85,
+    tone: 0.11,
+    rowJitter: 0.0,
+    grime: 0.30,
+    mossAmount: 0.60,
+    sag: 0.020,          // an iron railing does not sag, its plinth barely does
+    lean: 0.014,
+    copeBreaks: 0,       // and nothing falls off the top of it
+    // The railings.
+    plinthTop: 0.41,     // where the bars start, the top of the plinth's cope
+    barPitch: 0.40,      // centres. See the triangle note in createWall.
+    barSize: 0.036,
+    railAt: 0.22,        // top rail's centre, below the crown; the bars poke up
+    railDepth: 0.055,
+    railThick: 0.075,
+  },
+};
+
+export function wallVariant(name) {
+  return VARIANTS[name] || VARIANTS.ashlar;
 }
 
-// The closed section loop: up the right side, over the crown, down the left,
-// and back along the underside. The apex is shared and the bottom edge closes
-// the loop, so a swept run is a sealed tube with no bottom face -- which is
-// correct, because the bottom is buried and no camera at 29 degrees of
-// elevation can ever see it.
-function sectionLoop(H, T) {
-  const half = halfSection(H, T);
-  const loop = half.map(([u, v]) => [u, v]);
-  for (let i = half.length - 2; i >= 0; i--) loop.push([-half[i][0], half[i][1]]);
-  return loop;
+// ---------------------------------------------------------------------------
+// the section
+//
+// Read bottom to top: a plinth bedded 20mm into the dirt and standing proud of
+// the body, a chamfer off it, the body with a slight batter so the wall leans
+// into its own weight, then a coping that oversails on both sides and is
+// crowned rather than flat. The oversail is the important one: a wall whose top
+// is the same width as its body has no cap, and without a cap it reads as a
+// slab standing on edge.
+//
+// It comes back as TWO closed loops rather than one, and that split is the
+// whole reason a coping stone can go missing. Swept as one tube the coping is
+// welded to the body for the length of the run and the only way to lose a stone
+// off it is to model the coping as a hundred and thirty separate stones, which
+// at forty triangles apiece costs more than the rest of the wall put together.
+// Swept as two, the coping is its own run along the same path, and a missing
+// stone is a GAP IN THAT RUN -- the same machinery a gate already uses, at two
+// end caps a break. The body's flat top, which is normally hidden, is what you
+// see through the gap, which is exactly right.
+function sections(H, v) {
+  const bed = 0.02;
+  const hb = v.thickness / 2;
+  const cb = H - v.copeH;          // where the coping sits on the body
+
+  const bodyRight = [
+    [hb + v.plinthOut, -bed],
+    [hb + v.plinthOut, v.plinthH],
+    [hb, v.plinthH + v.chamfer],
+    [hb - v.batter, cb],
+  ];
+  const copeRight = [
+    [hb - v.batter, cb],
+    [hb + v.copeOut, cb + 0.045],
+    [hb + v.copeOut, H - v.crown - 0.045],
+    [(hb + v.copeOut) * 0.80, H - v.crown],
+    [0, H],
+  ];
+
+  // Close each into a loop. The body's is flat on top and open-ended at the
+  // bottom edge (buried, and no camera at 29 degrees of elevation can see it);
+  // the coping's is flat underneath.
+  const close = (right, apex) => {
+    const loop = right.map(([u, y]) => [u, y]);
+    for (let i = right.length - (apex ? 2 : 1); i >= 0; i--) loop.push([-right[i][0], right[i][1]]);
+    return loop;
+  };
+
+  return { body: close(bodyRight, false), cope: close(copeRight, true), copeBottom: cb };
+}
+
+// The section of the iron variant's top rail: a flat bar laid on edge.
+function railSection(v, H) {
+  const y = H - v.railAt;
+  const hw = v.railDepth / 2;
+  const ht = v.railThick / 2;
+  return [
+    [hw, y - ht], [hw, y + ht], [-hw, y + ht], [-hw, y - ht],
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +407,8 @@ function across(dx, dz) {
 // corner that is sqrt(2), so a 0.275 half-width plinth reaches 0.389 along the
 // diagonal, which is where the two outer faces actually cross. Offset every
 // section point by u * m and the whole cross section mitres at once -- plinth,
-// body and coping together, with no special case for any of them.
+// body and coping together, with no special case for any of them, and none for
+// which variant's section it happens to be.
 //
 // The denominator vanishes at a 180 degree reversal, where there is no
 // intersection to find. Clamped rather than guarded with a branch, because a
@@ -254,8 +442,6 @@ function samplePath(points, closed, step, rand, wander) {
     const parts = Math.max(1, Math.round(len / step));
     for (let k = 0; k < parts; k++) {
       const t = k / parts;
-      // k === 0 is an original corner. It is placed exactly and marked, so the
-      // wander below skips it and the pier pass can find it.
       out.push({
         x: a.x + (b.x - a.x) * t,
         z: a.z + (b.z - a.z) * t,
@@ -265,7 +451,6 @@ function samplePath(points, closed, step, rand, wander) {
   }
   if (!closed) out.push({ x: src[n - 1].x, z: src[n - 1].z, corner: true });
 
-  // Distance along, then the per-vertex frame.
   let s = 0;
   for (let i = 0; i < out.length; i++) {
     if (i > 0) s += Math.hypot(out[i].x - out[i - 1].x, out[i].z - out[i - 1].z);
@@ -331,6 +516,40 @@ function pointAt(path, s) {
   return { ...pts[pts.length - 1], s };
 }
 
+// Cut a sampled path into runs, dropping the intervals in `gaps` and inserting
+// an exact sample at every cut so a run stops where it was told to and not at
+// the nearest subdivision. Used twice: once for gates, which cut the whole
+// wall, and once for missing coping stones, which cut only the coping.
+function cutRuns(path, gaps) {
+  if (!gaps.length) return [{ pts: path.pts, closed: path.closed, total: path.total }];
+  const runs = [];
+  const cuts = [];
+  for (const g of gaps) cuts.push(g.a, g.b);
+  const inGap = (s) => gaps.some((g) => s > g.a + 1e-6 && s < g.b - 1e-6);
+  let current = [];
+  const flush = () => {
+    if (current.length >= 2) runs.push({ pts: current, closed: false, total: path.total });
+    current = [];
+  };
+  const marks = [...path.pts.map((p) => p.s), ...cuts].sort((p, q) => p - q);
+  let prev = -1;
+  for (const s of marks) {
+    if (Math.abs(s - prev) < 1e-6) continue;
+    prev = s;
+    if (inGap(s)) { flush(); continue; }
+    current.push(pointAt(path, s));
+  }
+  flush();
+  // A closed loop cut in one place is still one run; stitch the tail onto the
+  // head so the piece that crosses s = 0 is not two runs meeting at a seam.
+  if (path.closed && runs.length > 1 && !inGap(0)) {
+    const head = runs.shift();
+    const tail = runs.pop();
+    runs.push({ pts: [...tail.pts, ...head.pts.map((p) => ({ ...p, s: p.s + path.total }))], closed: false });
+  }
+  return runs;
+}
+
 // ---------------------------------------------------------------------------
 // geometry
 
@@ -352,24 +571,24 @@ function edgeNormal(p, q) {
 // straight bay is one smooth surface and the mitred corners bend rather than
 // facet.
 //
-// `settle` is passed in rather than made here, because the end caps have to
-// apply the identical drop: the cap is a flat lid over the last ring and if it
-// is built off the unslumped section it stands up to a couple of centimetres
-// proud of it, which at a gate jamb is a visible step right where the player
-// is looking.
-function sweep(path, loop, settle) {
+// `shape` is the per-bay deformation and it is passed in rather than made here,
+// because the end caps and the coping have to apply the IDENTICAL settle and
+// lean: a cap built off the unslumped section stands proud of the run it caps,
+// and a coping built off an unleant body slides sideways off it.
+function sweep(path, loop, shape, stamp) {
   const rings = path.pts.length;
   const spans = path.closed ? rings : rings - 1;
-  const edges = loop.length; // closed loop: as many edges as points
+  const edges = loop.length;
   const vertsPerRing = edges * 2;
 
   const position = new Float32Array(rings * vertsPerRing * 3);
   const normal = new Float32Array(rings * vertsPerRing * 3);
-  const stone = new Float32Array(rings * vertsPerRing * 2);
+  const stone = new Float32Array(rings * vertsPerRing * 4);
   const index = [];
 
   for (let i = 0; i < rings; i++) {
     const p = path.pts[i];
+    const bay = stamp.bay(p.s);
     const base = i * vertsPerRing;
     for (let e = 0; e < edges; e++) {
       const a = loop[e];
@@ -378,14 +597,17 @@ function sweep(path, loop, settle) {
       for (let k = 0; k < 2; k++) {
         const pt = k === 0 ? a : b;
         const vi = base + e * 2 + k;
-        const u = pt[0] + p.wander;
+        const u = pt[0] + p.wander + shape.lean(p.s, pt[1]);
         position[vi * 3] = p.x + p.m.x * u;
-        position[vi * 3 + 1] = pt[1] + settle(p.s, pt[1]);
+        position[vi * 3 + 1] = pt[1] + shape.settle(p.s, pt[1]);
         position[vi * 3 + 2] = p.z + p.m.z * u;
         normal[vi * 3] = p.n.x * nrm[0];
         normal[vi * 3 + 1] = nrm[1];
         normal[vi * 3 + 2] = p.n.z * nrm[0];
-        stone[vi * 2] = p.s;
+        stone[vi * 4] = p.s;
+        stone[vi * 4 + 1] = stamp.dressed;
+        stone[vi * 4 + 2] = bay;
+        stone[vi * 4 + 3] = stamp.iron;
       }
     }
   }
@@ -394,29 +616,21 @@ function sweep(path, loop, settle) {
     const a = i * vertsPerRing;
     const b = ((i + 1) % rings) * vertsPerRing;
     for (let e = 0; e < edges; e++) {
-      const p0 = a + e * 2;
-      const p1 = a + e * 2 + 1;
-      const q0 = b + e * 2;
-      const q1 = b + e * 2 + 1;
-      index.push(p0, q0, q1, p0, q1, p1);
+      index.push(a + e * 2, b + e * 2, b + e * 2 + 1, a + e * 2, b + e * 2 + 1, a + e * 2 + 1);
     }
   }
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(position, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
-  geo.setAttribute('aStone', new THREE.BufferAttribute(stone, 2));
-  geo.setIndex(index);
-  return geo;
+  return buildGeometry(position, normal, stone, index);
 }
 
-// Flat cap over the end of an open run, fanned from a point on the wall's own
-// axis. The section is star shaped about that point -- every vertex of it is
-// visible from the centre line, coping oversail included -- so a fan is a valid
+// Flat cap over the end of a run, fanned from a point on the wall's own axis.
+// Every section here is star shaped about its own centre -- every vertex of it
+// is visible from the axis, coping oversail included -- so a fan is a valid
 // triangulation and no ear clipping is needed.
-function endCap(path, loop, end, settle) {
+function endCap(path, loop, end, shape, stamp) {
   const p = path.pts[end === 0 ? 0 : path.pts.length - 1];
-  const H = loop.reduce((m, q) => Math.max(m, q[1]), 0);
+  const ys = loop.map((q) => q[1]);
+  const mid = (Math.min(...ys) + Math.max(...ys)) / 2;
   const dir = end === 0
     ? { x: path.pts[0].x - path.pts[1].x, z: path.pts[0].z - path.pts[1].z }
     : { x: p.x - path.pts[path.pts.length - 2].x, z: p.z - path.pts[path.pts.length - 2].z };
@@ -425,16 +639,18 @@ function endCap(path, loop, end, settle) {
   const dl = Math.hypot(dir.x, dir.z) || 1;
   const nx = dir.x / dl;
   const nz = dir.z / dl;
+  const bay = stamp.bay(p.s);
 
   const position = [];
   const normal = [];
   const stone = [];
   const push = (u, v) => {
-    position.push(p.x + p.m.x * u, v + settle(p.s, v), p.z + p.m.z * u);
+    const uu = u + shape.lean(p.s, v);
+    position.push(p.x + p.m.x * uu, v + shape.settle(p.s, v), p.z + p.m.z * uu);
     normal.push(nx, 0, nz);
-    stone.push(p.s, 0);
+    stone.push(p.s, stamp.dressed, bay, stamp.iron);
   };
-  push(0, H * 0.5);
+  push(0, mid);
   for (const q of loop) push(q[0], q[1]);
   const index = [];
   for (let i = 0; i < loop.length; i++) {
@@ -450,19 +666,28 @@ function endCap(path, loop, end, settle) {
     if (end === 0) index.push(0, a, b);
     else index.push(0, b, a);
   }
+  return buildGeometry(position, normal, stone, index);
+}
+
+function buildGeometry(position, normal, stone, index) {
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normal, 3));
-  geo.setAttribute('aStone', new THREE.Float32BufferAttribute(stone, 2));
+  const F = (a, n) => (a instanceof Float32Array
+    ? new THREE.BufferAttribute(a, n)
+    : new THREE.Float32BufferAttribute(a, n));
+  geo.setAttribute('position', F(position, 3));
+  geo.setAttribute('normal', F(normal, 3));
+  geo.setAttribute('aStone', F(stone, 4));
   geo.setIndex(index);
   return geo;
 }
 
 // A pier: a chamfered square shaft with a capstone, standing a little above the
 // coping. This is the fence's post doing the fence's job -- it breaks the run
-// into bays, it sits over every corner, and anything awkward about a joint
-// happens inside it.
-function pier(p, size, H, rise, rand) {
+// into bays, it sits over every corner, it stands at every gate jamb, and
+// anything awkward about a joint happens inside it. Every variant uses it,
+// including the ironwork, which is how a railed cemetery boundary is actually
+// built: stone piers with iron panels hung between them.
+function pier(p, size, H, rise, rand, bay) {
   const r = size / 2;
   const c = r * 0.28;
   // A square with its corners taken off. Counter-clockwise in the pier's own
@@ -508,7 +733,7 @@ function pier(p, size, H, rise, rand) {
   // charcoal. Vertices are cheap. Sharing one between two faces that point
   // different ways is not.
   const world = (u, w, y) => [p.x + u * p.n.x - w * p.n.z, y, p.z + u * p.n.z + w * p.n.x];
-  const quad = (q0, q1, q2, q3, s0, s1, dressed = 0) => {
+  const quad = (q0, q1, q2, q3, s0, s1, dressed) => {
     // The true face normal, from the quad itself. No inferred tilt, no special
     // case for the vertical step and none for the chamfer: whatever shape the
     // rows describe, this is the direction it faces.
@@ -527,7 +752,7 @@ function pier(p, size, H, rise, rand) {
     for (const [q, sv] of [[q0, s0], [q1, s1], [q2, s1], [q3, s0]]) {
       position.push(q[0], q[1], q[2]);
       normal.push(nx, ny, nz);
-      stone.push(sv, dressed);
+      stone.push(sv, dressed, bay, 0);
     }
     index.push(base, base + 3, base + 1, base + 3, base + 2, base + 1);
   };
@@ -550,9 +775,7 @@ function pier(p, size, H, rise, rand) {
         // stone -- that is the whole point of a capstone, it is the piece that
         // sheds the water off the top of the pier in a single lump -- and
         // running the rubble coursing over it made the cap read as a little
-        // pile of gravel balanced on a post. Flagged rather than special-cased
-        // in the shader, so the coping could be flagged too if it ever wants
-        // to be.
+        // pile of gravel balanced on a post.
         ri >= 1 ? 1 : 0,
       );
     }
@@ -563,22 +786,18 @@ function pier(p, size, H, rise, rand) {
   const capBase = position.length / 3;
   position.push(p.x, ty, p.z);
   normal.push(0, 1, 0);
-  stone.push(p.s, 1);
+  stone.push(p.s, 1, bay, 0);
   for (let e = 0; e < ring.length; e++) {
     const q = world(ring[e][0] * ts, ring[e][1] * ts, ty);
     position.push(q[0], q[1], q[2]);
     normal.push(0, 1, 0);
-    stone.push(p.s + arc[e], 1);
+    stone.push(p.s + arc[e], 1, bay, 0);
   }
   for (let e = 0; e < ring.length; e++) {
     index.push(capBase, capBase + 1 + ((e + 1) % ring.length), capBase + 1 + e);
   }
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normal, 3));
-  geo.setAttribute('aStone', new THREE.Float32BufferAttribute(stone, 2));
-  geo.setIndex(index);
+  const geo = buildGeometry(position, normal, stone, index);
   // Knocked a little out of true, the same way a fence post is. Pivoted about
   // the pier's own foot, because that is where a leaning post pivots.
   const lean = (rand() * 2 - 1) * 0.011;
@@ -590,33 +809,134 @@ function pier(p, size, H, rise, rand) {
   return geo;
 }
 
+// Every railing bar on the whole perimeter, as ONE geometry.
+//
+// A square prism with a flat top, from the plinth to the crown. The top rail
+// crosses below the crown, so the last 0.22 of every bar stands above it and
+// the row of stubs is what reads as spikes at a hundred pixels -- cheaper than
+// modelling a finial and, at this size, indistinguishable from one.
+//
+// The pitch is the one number in this file chosen against the triangle budget
+// rather than against a reference. A bar is ten triangles: eight for the four
+// sides between two rings and two for the top. A grid is made of bars and there
+// is no way round that, so the pitch sets the cost of the whole variant --
+// 0.40 gives three hundred bars and three thousand triangles on a 30 by 30,
+// which lands the ironwork at roughly 1.7 times a masonry wall. Tighter looks
+// better and costs linearly; this is where it was left.
+function railingBars(path, v, H, piers, rand, stamp) {
+  const r = v.barSize / 2;
+  const ring = [[r, r], [-r, r], [-r, -r], [r, -r]];
+  const y0 = v.plinthTop - 0.02;
+  const y1 = H;
+
+  const position = [];
+  const normal = [];
+  const stone = [];
+  const index = [];
+
+  const world = (p, u, w, y) => [p.x + u * p.n.x - w * p.n.z, y, p.z + u * p.n.z + w * p.n.x];
+
+  // Bars are laid out bay by bay rather than along the whole perimeter, so a
+  // bay's bars are evenly spaced within it and none of them lands inside a
+  // pier. Corners therefore never carry a bar: a corner always has a pier.
+  for (let i = 0; i < piers.length - 1; i++) {
+    const a = piers[i].s + WALL.pier.width * 0.62;
+    const b = piers[i + 1].s - WALL.pier.width * 0.62;
+    const span = b - a;
+    if (span <= v.barPitch) continue;
+    const n = Math.max(1, Math.round(span / v.barPitch));
+    for (let k = 1; k < n; k++) {
+      const s = a + (span * k) / n;
+      const p = pointAt(path, s);
+      // A hand-forged bar is not perfectly plumb and not perfectly square on.
+      const tilt = (rand() * 2 - 1) * 0.012;
+      const spin = (rand() * 2 - 1) * 0.14;
+      const cs = Math.cos(spin);
+      const sn = Math.sin(spin);
+      const base = position.length / 3;
+      for (const [yy, lean] of [[y0, 0], [y1, tilt]]) {
+        for (const [u0, w0] of ring) {
+          const u = u0 * cs - w0 * sn + lean * (yy - y0);
+          const w = u0 * sn + w0 * cs;
+          const q = world(p, u, w, yy);
+          position.push(q[0], q[1], q[2]);
+          normal.push(0, 0, 0);       // filled in below
+          stone.push(s, 1, stamp.bay(s), 1);
+        }
+      }
+      for (let e = 0; e < 4; e++) {
+        const e2 = (e + 1) % 4;
+        index.push(base + e, base + 4 + e, base + 4 + e2, base + e, base + 4 + e2, base + e2);
+      }
+      // Flat top. Wound to face +Y.
+      index.push(base + 4, base + 6, base + 5, base + 4, base + 7, base + 6);
+    }
+  }
+
+  const geo = buildGeometry(position, normal, stone, index);
+  // A bar is four flat faces and a lid and the faces do not share a plane, so
+  // the normals are computed rather than written: computeVertexNormals averages
+  // the four sides at each arris, which on something 36mm across is what you
+  // want -- a square bar at this size should catch a soft roll of light, not
+  // four hard facets.
+  geo.computeVertexNormals();
+  return geo;
+}
+
 // ---------------------------------------------------------------------------
 // the surface
 //
-// Coursed rubble, drawn per fragment from two numbers: distance along the run,
+// Coursed masonry, drawn per fragment from two numbers: distance along the run,
 // which arrives in an attribute, and height, which is just the object-space Y.
 // The same split panel.js uses for its grain, and for the same reason: a swept
 // run has no UVs worth speaking of and a texture would need them, whereas a
 // dozen lines of hashing need neither and stay sharp at any distance.
 //
-// The vertex colour carries only the slow half -- the per-seed tone and the
-// grime picked up in the first third of a metre -- exactly as paintBoard does.
+// WHAT MAKES A WALL STOP REPEATING, since that was the note on the first pass
+// and it was right -- at the game's framing you could see the repeat.
+//
+// The thing that repeated was never the stones: `col` grows monotonically with
+// distance so no two stones anywhere on a 120 unit perimeter share a tone. What
+// repeated was the COURSING. One course height and one nominal stone length
+// held for the whole wall, so thirty units of run was thirty units of dead
+// parallel horizontal banding, and the eye reads regular banding as a repeat
+// even when nothing in it is literally repeated.
+//
+// So the fix is bays. Every bay between two piers -- the same 5.0 bays the
+// piers already divide the run into, arriving in aStone.z -- gets its own
+// course height, its own stone length, its own bond offset and its own tone.
+// Courses do not line up across a pier, which is what a real wall built or
+// rebuilt in sections looks like, and the pier is exactly the thing that makes
+// the discontinuity read as construction rather than as a seam. That is the
+// same argument panel.js makes for hiding its rail joints inside a post.
+//
+// Nothing here is fine noise. The smallest feature is a stone, a stone is a
+// third of a metre at its smallest, and every one of them is antialiased
+// against its own fragment footprint.
+//
+// The vertex colour carries the slow half -- the piece's own colour and a slow
+// lengthwise mottle -- exactly as paintBoard does. The material's base colour
+// is WHITE so the vertex colour IS the colour, which is also what lets one
+// material draw grey stone and black iron in the same draw call.
 
-const STONE_COLOUR = new THREE.Color(STONE.colour);
-const MORTAR_COLOUR = new THREE.Color(STONE.mortar);
-
-export function wallMaterial(options = {}) {
+export function wallMaterial(variant = 'ashlar', options = {}) {
+  const v = wallVariant(variant);
   const uniforms = {
-    uMortar: { value: MORTAR_COLOUR.clone() },
-    uCourse: { value: STONE.course },
-    uStone: { value: STONE.length },
-    uJoint: { value: STONE.joint },
-    uJointDepth: { value: STONE.jointDepth },
-    uTone: { value: STONE.tone },
-    uGrime: { value: STONE.grime },
+    uMortar: { value: new THREE.Color(v.mortar) },
+    uMoss: { value: new THREE.Color(v.moss) },
+    uCourse: { value: v.course },
+    uStone: { value: v.length },
+    uJoint: { value: v.joint },
+    uJointDepth: { value: v.jointDepth },
+    uTone: { value: v.tone },
+    uGrime: { value: v.grime },
+    uMossAmount: { value: v.mossAmount },
+    uRowJitter: { value: v.rowJitter },
+    uCope: { value: WALL.height - v.copeH },
   };
   const material = new THREE.MeshStandardMaterial({
-    color: STONE_COLOUR.clone(),
+    color: 0xffffff,
+    vertexColors: true,
     roughness: 0.94,
     metalness: 0.0,
     ...options,
@@ -626,88 +946,174 @@ export function wallMaterial(options = {}) {
     Object.assign(shader.uniforms, uniforms);
 
     shader.vertexShader = `
-      attribute vec2 aStone;
-      varying vec3 vStone;
+      attribute vec4 aStone;
+      varying vec4 vStone;
       ${shader.vertexShader}`.replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
-      // Object space, like the fence's grain: the wander and the settled coping
-      // are in the mesh, and the coursing has to be read before them or the
-      // joints shear off the wall wherever it goes out of true.
-      vStone = vec3(aStone.x, transformed.y, aStone.y);`,
-    );
+      // Object space, like the fence's grain: the wander, the lean and the
+      // settled coping are in the mesh, and the coursing has to be read before
+      // them or the joints shear off the wall wherever it goes out of true.
+      vStone = vec4(aStone.x, transformed.y, aStone.z, aStone.w);
+      vDressed = aStone.y;`,
+    ).replace('varying vec4 vStone;', 'varying vec4 vStone;\n      varying float vDressed;');
 
     shader.fragmentShader = `
-      varying vec3 vStone;
+      varying vec4 vStone;
+      varying float vDressed;
       uniform vec3 uMortar;
+      uniform vec3 uMoss;
       uniform float uCourse;
       uniform float uStone;
       uniform float uJoint;
       uniform float uJointDepth;
       uniform float uTone;
       uniform float uGrime;
+      uniform float uMossAmount;
+      uniform float uRowJitter;
+      uniform float uCope;
 
       float wallHash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
       }
-      ${shader.fragmentShader}`.replace(
-      '#include <color_fragment>',
-      `#include <color_fragment>
-      {
-        // A course wobbles a little rather than running dead level. Old rubble
+      ${shader.fragmentShader}`
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        // Iron in the same draw call as stone. aStone.w is the only thing that
+        // separates them, and it moves the surface as well as the colour --
+        // painted ironwork is smoother and darker and takes a specular the
+        // masonry never does, and without that the railings read as grey sticks.
+        roughnessFactor = mix(roughnessFactor, 0.44, vStone.w);`,
+      )
+      .replace(
+        '#include <metalnessmap_fragment>',
+        `#include <metalnessmap_fragment>
+        metalnessFactor = mix(metalnessFactor, 0.55, vStone.w);`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+      if (vStone.w < 0.5) {
+        float bay = vStone.z;
+        float bh = wallHash(vec2(bay, 5.0));
+        float bh2 = wallHash(vec2(bay, 19.0));
+        float bh3 = wallHash(vec2(bay, 41.0));
+
+        // Per bay coursing. A bay is a length of wall between two piers, and a
+        // real one was laid by one gang on one day: its beds are its own depth
+        // and its stones are its own size, and neither lines up with its
+        // neighbour's across the pier that divides them.
+        float course = uCourse * (0.86 + 0.30 * bh);
+        float nominal = uStone * (0.80 + 0.44 * bh2);
+
+        // A course wobbles a little rather than running dead level. Old masonry
         // is laid to a line, not to a laser, and perfectly parallel courses are
         // the single thing that makes a procedural wall read as wallpaper.
-        float y = vStone.y + 0.010 * sin(vStone.x * 1.9) + 0.005 * sin(vStone.x * 5.3 + 1.7);
-        float rowF = y / uCourse;
+        float y = vStone.y + 0.010 * sin(vStone.x * 1.9 + bh3 * 6.3)
+                           + 0.005 * sin(vStone.x * 5.3 + 1.7);
+
+        // Uncoursed rubble. Work out a coarse column FIRST, from the distance
+        // along alone, then shove that whole column of stone up or down before
+        // the beds are worked out. The beds then wander by a stone at a time
+        // instead of running through, which is the difference between a rubble
+        // wall and a coursed one and it is the only difference that reads at
+        // scene size.
+        float coarse = floor(vStone.x / (nominal * 1.7) + bh3 * 3.0);
+        y += uRowJitter * (wallHash(vec2(coarse, 71.0)) - 0.5);
+
+        float rowF = y / course;
         float row = floor(rowF);
         float rowT = fract(rowF);
 
         // Every course is offset by its own amount and its stones are its own
         // length, so no two courses break in the same place and nothing stacks
         // into a running joint.
-        float rh = wallHash(vec2(row, 3.0));
-        float len = uStone * (0.72 + 0.62 * wallHash(vec2(row, 11.0)));
-        float colF = (vStone.x + 0.028 * sin(y * 21.0 + rh * 6.3)) / len + rh * 7.0;
+        float rh = wallHash(vec2(row, 3.0 + bay * 0.37));
+        float len = nominal * (0.72 + 0.62 * wallHash(vec2(row, 11.0 + bay)));
+        float colF = (vStone.x + 0.028 * sin(y * 21.0 + rh * 6.3)) / len + rh * 7.0 + bay * 2.3;
         float col = floor(colF);
         float colT = fract(colF);
 
         // Distance to the nearest joint, in world units, so the mortar is the
         // same width on a course of long stones as on a course of short ones.
-        float dv = min(rowT, 1.0 - rowT) * uCourse;
+        float dv = min(rowT, 1.0 - rowT) * course;
         float dh = min(colT, 1.0 - colT) * len;
         float d = min(dv, dh);
         // Antialiased against the fragment's own footprint: at grazing angles
         // and at level-wide framing this is the difference between mortar and
         // moire.
         float w = max(fwidth(d), 1e-5);
-        // vStone.z marks a piece that is one dressed stone rather than a run
-        // of rubble: the capstones. It keeps the tone and the grime and loses
-        // the joints.
-        float joint = (1.0 - vStone.z) * (1.0 - smoothstep(uJoint * 0.5 - w, uJoint * 0.5 + w, d));
+        // vDressed marks a piece that is one dressed stone rather than a run of
+        // masonry: the capstones. It keeps the tone and the grime and loses the
+        // joints.
+        float joint = (1.0 - vDressed) * (1.0 - smoothstep(uJoint * 0.5 - w, uJoint * 0.5 + w, d));
 
         // Per stone tone. The whole reason the coursing reads from across a
         // level: the joints themselves are a pixel wide at that distance and
-        // vanish, and what is left is a field of slightly different greys,
-        // which is exactly what a rubble wall looks like from fifty metres.
+        // vanish, and what is left is a field of slightly different tones,
+        // which is exactly what a masonry wall looks like from fifty metres.
         float tone = wallHash(vec2(col, row)) - 0.5;
         diffuseColor.rgb *= 1.0 + tone * uTone;
+        // And then, rarely, a block that is properly darker than its
+        // neighbours -- a different stone out of a different quarry, a brick
+        // that came out of the kiln too hot. Roughly one in eight. Evenly
+        // spread tone is camouflage; the outliers are what the eye actually
+        // catches, and they are what stops thirty units of wall averaging out
+        // into one flat grey.
+        diffuseColor.rgb *= 1.0 - 0.26 * smoothstep(0.87, 1.0, wallHash(vec2(col, row + 13.0)));
         // The stone just under a joint catches less light.
-        diffuseColor.rgb *= 1.0 - (1.0 - vStone.z) * 0.10 * (1.0 - smoothstep(0.0, uCourse * 0.30, dv));
+        diffuseColor.rgb *= 1.0 - (1.0 - vDressed) * 0.10 * (1.0 - smoothstep(0.0, course * 0.30, dv));
         diffuseColor.rgb = mix(diffuseColor.rgb, uMortar, joint * uJointDepth);
 
-        // Ground grime, and moss in the wettest of it. Only the first third of
-        // a metre, which is where a wall actually stains.
+        // WHERE TWO SURFACES MEET is where a wall stains, and there are two
+        // such places on this section. The first is the ground, and the first
+        // third of a metre out of it is grubby and then mossy.
         float wet = 1.0 - smoothstep(0.0, 0.36, vStone.y);
-        diffuseColor.rgb *= 1.0 - uGrime * wet * (0.55 + 0.45 * wallHash(vec2(col, row + 31.0)));
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.86, 1.0, 0.80),
-                               wet * 0.55 * smoothstep(0.45, 0.95, wallHash(vec2(col, row + 57.0))));
+        // The second is under the coping's oversail, where the run-off comes
+        // off the drip and streaks the face below it. Narrower and dirtier
+        // than the ground stain, and it is the term that makes the coping read
+        // as a separate thing laid on top rather than as the top of the wall.
+        float drip = (1.0 - smoothstep(0.0, 0.22, uCope - vStone.y)) * step(vStone.y, uCope);
+        drip *= 0.35 + 0.65 * wallHash(vec2(col, 97.0));
+
+        diffuseColor.rgb *= 1.0 - uGrime * (wet * (0.55 + 0.45 * wallHash(vec2(col, row + 31.0))) + drip * 0.55);
+        diffuseColor.rgb = mix(diffuseColor.rgb, uMoss,
+                               uMossAmount * wet * 0.55 * smoothstep(0.45, 0.95, wallHash(vec2(col, row + 57.0))));
       }`,
-    );
+      );
   };
   // Same trap as the fence: three keys its program cache on the stock shader,
   // so without this every wall on the page recompiles into its own program.
-  material.customProgramCacheKey = () => 'graveyard-wall-stone';
+  // One key for all four variants, because they are one program with different
+  // uniforms -- which is the whole reason the variants are uniforms.
+  material.customProgramCacheKey = () => 'graveyard-wall';
   return material;
+}
+
+// The slow half of the weathering, and the piece's own colour, in a vertex
+// colour. Iron parts are painted their own colour by the same pass, which is
+// what keeps stone and ironwork in one material.
+function paint(geo, stoneColour, ironColour) {
+  const pos = geo.getAttribute('position');
+  const stone = geo.getAttribute('aStone');
+  const n = pos.count;
+  const colours = new Float32Array(n * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < n; i++) {
+    const s = stone.getX(i);
+    const iron = stone.getW(i) > 0.5;
+    c.copy(iron ? ironColour : stoneColour);
+    if (!iron) {
+      const k = (1 + 0.045 * Math.sin(s * 0.31)) * (1 + 0.030 * Math.sin(s * 1.13 + 2.1));
+      c.multiplyScalar(k);
+    }
+    colours[i * 3] = c.r;
+    colours[i * 3 + 1] = c.g;
+    colours[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+  return geo;
 }
 
 // ---------------------------------------------------------------------------
@@ -715,104 +1121,51 @@ export function wallMaterial(options = {}) {
 
 // Build the enclosure.
 //
-//   points   the wall's CENTRELINE corners, [{x, z}, ...]
-//   closed   true for an enclosure, false for a run with two open ends
-//   height   crown of the coping; defaults to WALL.height
-//   gate     { at, width } or an array of them: openings measured as a
-//            distance along the centreline from points[0], with a pier standing
-//            at each jamb. `gaps` is the same thing under a plural name.
+//   points    the wall's CENTRELINE corners, [{x, z}, ...]
+//   closed    true for an enclosure, false for a run with two open ends
+//   variant   one of WALL.variants; see the table at the top
+//   height    crown of the coping; defaults to WALL.height and should stay there
+//   gate      { at, width } or an array of them: openings measured as a
+//             distance along the centreline from points[0], with a pier
+//             standing at each jamb. `gaps` is the same under a plural name.
 //
-// Returns { group, update, dispose, bounds, length, stats }.
+// Returns { group, mesh, bounds, length, height, variant, stats, update, dispose }.
 export function createWall({
   seed = 1,
   points,
   closed = true,
+  variant = 'ashlar',
   height = WALL.height,
-  thickness = WALL.thickness,
+  thickness = null,
   gate = null,
   gaps = null,
   pierSpacing = WALL.pier.spacing,
   piers = true,
   step = 1.9,
-  wobble = 0.022,
   wander = 0.012,
+  breakage = 1,
 } = {}) {
   if (!points || points.length < 2) throw new Error('createWall() wants at least two centreline points');
 
+  const v = { ...wallVariant(variant) };
+  if (thickness) v.thickness = thickness;
   const rand = rng(seed);
-  const loop = sectionLoop(height, thickness);
+  const { body: bodyLoop, cope: copeLoop, copeBottom } = sections(height, v);
   const path = samplePath(points, closed, step, rand, wander);
 
-  // Openings. A gap makes the closed loop an open run, or an open run two runs;
-  // either way the work is the same, so both go through one list of intervals.
+  // Openings.
   const openings = []
     .concat(gate ? (Array.isArray(gate) ? gate : [gate]) : [])
     .concat(gaps || [])
     .map((g) => ({ a: g.at - g.width / 2, b: g.at + g.width / 2 }))
     .sort((p, q) => p.a - q.a);
+  const inOpening = (s) => openings.some((o) => s > o.a + 1e-6 && s < o.b - 1e-6);
 
-  const runs = [];
-  if (!openings.length) {
-    runs.push({ pts: path.pts, closed: path.closed, total: path.total });
-  } else {
-    // Cut the sampled path at every jamb. The jamb sample is inserted exactly
-    // at the opening's edge so the wall stops where the caller said it does and
-    // not at the nearest subdivision.
-    const cuts = [];
-    for (const o of openings) cuts.push(o.a, o.b);
-    const inGap = (s) => openings.some((o) => s > o.a + 1e-6 && s < o.b - 1e-6);
-    const at = (s) => pointAt(path, s);
-    let current = [];
-    const flush = () => {
-      if (current.length >= 2) runs.push({ pts: current, closed: false, total: path.total });
-      current = [];
-    };
-    const marks = [...path.pts.map((p) => p.s), ...cuts].sort((p, q) => p - q);
-    let prev = -1;
-    for (const s of marks) {
-      if (Math.abs(s - prev) < 1e-6) continue;
-      prev = s;
-      if (inGap(s)) { flush(); continue; }
-      const sample = cuts.some((c) => Math.abs(c - s) < 1e-6)
-        ? at(s)
-        : path.pts.find((p) => Math.abs(p.s - s) < 1e-6) || at(s);
-      current.push(sample);
-    }
-    flush();
-    // A closed loop cut in one place is still one run; stitch the tail onto the
-    // head so the piece that crosses s = 0 is not two runs meeting at a seam.
-    if (path.closed && runs.length > 1 && !inGap(0)) {
-      const head = runs.shift();
-      const tail = runs.pop();
-      runs.push({ pts: [...tail.pts, ...head.pts.map((p) => ({ ...p, s: p.s + path.total }))], closed: false });
-    }
-  }
-
-  // How far the coping has settled at a given distance along, at a given
-  // height up the section. Zero at the footing and quadratic in height, so all
-  // of the slump is in the top third and the wall stays bedded in the dirt
-  // everywhere. Drawn from the wall's seed once, here, so every piece of the
-  // wall -- runs and end caps alike -- reads the same curve.
-  const ph1 = rand() * Math.PI * 2;
-  const ph2 = rand() * Math.PI * 2;
-  const settle = (s, v) => {
-    const h = Math.max(0, v) / height;
-    return wobble * (Math.sin(s * 0.83 + ph1) * 0.6 + Math.sin(s * 2.17 + ph2) * 0.4) * h * h;
-  };
-
-  const parts = [];
-  for (const run of runs) {
-    parts.push(sweep(run, loop, settle));
-    if (!run.closed) {
-      parts.push(endCap(run, loop, 0, settle));
-      parts.push(endCap(run, loop, 1, settle));
-    }
-  }
-
-  // Piers: one at every original corner, one at every jamb, and the rest spread
-  // evenly along each corner-to-corner span so no bay is a different length
-  // from its neighbours. Spacing is a target, not a law.
-  if (piers) {
+  // --- where the piers stand ------------------------------------------------
+  // Worked out BEFORE anything is swept, because the piers are what define the
+  // bays and the bays are what the coursing varies over.
+  const pierS = [];
+  {
     const cornerS = path.pts.filter((p) => p.corner).map((p) => p.s);
     if (path.closed) cornerS.push(path.total);
     const want = new Set();
@@ -823,14 +1176,166 @@ export function createWall({
       for (let k = 0; k <= n; k++) want.add(+(a + ((b - a) * k) / n).toFixed(4));
     }
     for (const o of openings) { want.add(+o.a.toFixed(4)); want.add(+o.b.toFixed(4)); }
-    const inGap = (s) => openings.some((o) => s > o.a + 1e-6 && s < o.b - 1e-6);
     const seen = new Set();
     for (const s of [...want].sort((p, q) => p - q)) {
-      if (inGap(s)) continue;
+      if (inOpening(s)) continue;
       const key = path.closed && Math.abs(s - path.total) < 1e-6 ? 0 : s;
       if (seen.has(key)) continue;
       seen.add(key);
-      const p = pointAt(path, Math.min(s, path.total));
+      pierS.push(pointAt(path, Math.min(s, path.total)));
+    }
+  }
+
+  // A bay is the length of wall between two piers, and it is the unit
+  // everything below varies over: the coursing, the settle, the lean and the
+  // tone. Index rather than distance, so the shader can hash it.
+  const bayOf = (s) => {
+    let i = 0;
+    while (i + 1 < pierS.length && pierS[i + 1].s <= s + 1e-6) i++;
+    return i;
+  };
+
+  // --- how each bay is out of true ------------------------------------------
+  // The first pass had one sine of amplitude 0.022 running the whole perimeter,
+  // which at 30 units a side is a ripple you cannot see. This is per bay and an
+  // order of magnitude bigger: one bay has slumped in the middle, the next
+  // leans out at the top, the one after is straight. Quadratic in height in
+  // both cases, so the footing stays bedded in the dirt and all of the movement
+  // is where the eye reads a wall's line, along its top.
+  const bays = pierS.map(() => ({
+    sag: (rand() * 2 - 1) * v.sag,
+    lean: (rand() * 2 - 1) * v.lean,
+  }));
+  const ph = rand() * Math.PI * 2;
+  const shapeAt = (s) => {
+    const i = bayOf(s);
+    const a = pierS[i] ? pierS[i].s : 0;
+    const b = pierS[i + 1] ? pierS[i + 1].s : path.total;
+    // Zero at both piers and full in the middle, so a bay's slump is a bay's
+    // slump and the wall is pinned wherever a pier holds it up. Which is what
+    // a pier is for.
+    const t = b > a ? Math.min(1, Math.max(0, (s - a) / (b - a))) : 0;
+    return { arch: Math.sin(t * Math.PI), bay: bays[i] || bays[0] };
+  };
+  const shape = {
+    settle(s, y) {
+      const { arch, bay } = shapeAt(s);
+      const h = Math.max(0, y) / height;
+      // The slow perimeter-wide ripple is kept as well, at a tenth of the bay
+      // term: without it every bay is a clean arc and the arcs themselves start
+      // to look regular.
+      return (bay.sag * arch + 0.004 * Math.sin(s * 0.83 + ph)) * h * h;
+    },
+    lean(s, y) {
+      const { arch, bay } = shapeAt(s);
+      const h = Math.max(0, y) / height;
+      return bay.lean * arch * h * h;
+    },
+  };
+
+  const stamp = { bay: bayOf, dressed: 0, iron: 0 };
+  const parts = [];
+
+  // --- the body -------------------------------------------------------------
+  const bodyRuns = cutRuns(path, openings);
+  for (const run of bodyRuns) {
+    parts.push(sweep(run, bodyLoop, shape, stamp));
+    if (!run.closed) {
+      parts.push(endCap(run, bodyLoop, 0, shape, stamp));
+      parts.push(endCap(run, bodyLoop, 1, shape, stamp));
+    }
+  }
+
+  if (v.kind === 'masonry') {
+    // --- the coping, with stones missing out of it --------------------------
+    //
+    // A wall that has stood long enough for its mortar to go is a wall that has
+    // lost cope. This is the one piece of damage that reads at the game's
+    // framing, because it breaks the SILHOUETTE: everything else on the wall is
+    // a change of tone and the top line is the only line the eye is following.
+    //
+    // A break is a gap in the coping's own run, which is the gate machinery
+    // pointed at a different loop, so it costs two end caps and nothing else.
+    // Half of them get the stone put back, dropped and tilted, as though it had
+    // shifted rather than gone; the other half are open and show the body's
+    // flat top through them, which is why the body has one.
+    const copeGaps = [];
+    const displaced = [];
+    const nBreaks = v.copeBreaks > 0 ? Math.round((path.total / v.copeBreaks) * breakage) : 0;
+    for (let i = 0; i < nBreaks; i++) {
+      // Spread rather than random, so two breaks never land on top of each
+      // other and no bay collects all of them.
+      const centre = ((i + 0.28 + rand() * 0.44) / nBreaks) * path.total;
+      const width = 0.55 + rand() * 0.65;
+      const a = centre - width / 2;
+      const b = centre + width / 2;
+      // Never on a pier: the pier covers the coping there anyway, so a break
+      // under one is a break nobody can see, and it would leave the cope
+      // stopping short of the pier it should be running into.
+      if (pierS.some((p) => Math.abs(p.s - centre) < WALL.pier.width * 0.9 + width / 2)) continue;
+      if (inOpening(a) || inOpening(b)) continue;
+      copeGaps.push({ a, b });
+      if (rand() < 0.45) displaced.push({ a, b, drop: 0.02 + rand() * 0.05, tilt: (rand() * 2 - 1) * 0.16 });
+    }
+    copeGaps.sort((p, q) => p.a - q.a);
+
+    for (const run of cutRuns(path, [...openings, ...copeGaps].sort((p, q) => p.a - q.a))) {
+      parts.push(sweep(run, copeLoop, shape, stamp));
+      if (!run.closed) {
+        parts.push(endCap(run, copeLoop, 0, shape, stamp));
+        parts.push(endCap(run, copeLoop, 1, shape, stamp));
+      }
+    }
+
+    // The stones that shifted rather than fell. Built as a one-span run over
+    // the gap, then dropped and rolled about the run's own axis.
+    for (const d of displaced) {
+      const a = pointAt(path, d.a + 0.04);
+      const b = pointAt(path, d.b - 0.04);
+      if (b.s <= a.s) continue;
+      const mini = { pts: [a, b], closed: false, total: path.total };
+      const bits = [
+        sweep(mini, copeLoop, shape, stamp),
+        endCap(mini, copeLoop, 0, shape, stamp),
+        endCap(mini, copeLoop, 1, shape, stamp),
+      ];
+      const cx = (a.x + b.x) / 2;
+      const cz = (a.z + b.z) / 2;
+      const axis = new THREE.Vector3(b.x - a.x, 0, b.z - a.z).normalize();
+      const q = new THREE.Quaternion().setFromAxisAngle(axis, d.tilt);
+      const mtx = new THREE.Matrix4()
+        .makeTranslation(cx, copeBottom - d.drop, cz)
+        .multiply(new THREE.Matrix4().makeRotationFromQuaternion(q))
+        .multiply(new THREE.Matrix4().makeTranslation(-cx, -(copeBottom), -cz));
+      for (const g of bits) { g.applyMatrix4(mtx); parts.push(g); }
+    }
+  } else {
+    // --- the railings -------------------------------------------------------
+    // The plinth's own cope, unbroken: this one is a boundary that was
+    // maintained, which is half of why it looks different from the others.
+    const plinthCope = copeLoop.map(([u, y]) => [u, y - (height - v.plinthTop)]);
+    for (const run of cutRuns(path, openings)) {
+      parts.push(sweep(run, plinthCope, shape, stamp));
+      if (!run.closed) {
+        parts.push(endCap(run, plinthCope, 0, shape, stamp));
+        parts.push(endCap(run, plinthCope, 1, shape, stamp));
+      }
+    }
+    const ironStamp = { bay: bayOf, dressed: 1, iron: 1 };
+    const rail = railSection(v, height);
+    for (const run of cutRuns(path, openings)) {
+      parts.push(sweep(run, rail, shape, ironStamp));
+      if (!run.closed) {
+        parts.push(endCap(run, rail, 0, shape, ironStamp));
+        parts.push(endCap(run, rail, 1, shape, ironStamp));
+      }
+    }
+    parts.push(railingBars(path, v, height, pierS, rand, ironStamp));
+  }
+
+  // --- the piers ------------------------------------------------------------
+  if (piers) {
+    for (const p of pierS) {
       // A pier on a corner has to be bigger than one on a straight, and by how
       // much is not a taste call. On a straight the coping oversails to 0.295
       // and the pier's face stands at 0.43, so the pier is 0.135 proud. At a
@@ -843,7 +1348,14 @@ export function createWall({
       // |m| = 1 on a straight and sqrt(2) at a square corner, so a level whose
       // walls are not at right angles gets the right answer too.
       const mlen = Math.hypot(p.m.x, p.m.z);
-      parts.push(pier(p, WALL.pier.width * (1 + (mlen - 1) * (WALL.pier.cornerScale - 1) / (Math.SQRT2 - 1)), height, WALL.pier.rise, rand));
+      const corner = 1 + (mlen - 1) * (WALL.pier.cornerScale - 1) / (Math.SQRT2 - 1);
+      // And then no two piers are quite the same size or quite the same height.
+      // Twenty-four identical blocks at 5.0 centres is the loudest repeat left
+      // on the prop once the coursing varies, because a pier is a silhouette
+      // and the eye counts silhouettes.
+      const jitter = 0.94 + rand() * 0.12;
+      const rise = WALL.pier.rise * (0.82 + rand() * 0.40);
+      parts.push(pier(p, WALL.pier.width * corner * jitter, height, rise, rand, bayOf(p.s)));
     }
   }
 
@@ -852,29 +1364,9 @@ export function createWall({
   // examples/jsm out of the bundle.
   const geometry = mergeGeometries(parts.map((g) => ({ geometry: g })));
   for (const g of parts) g.dispose();
+  paint(geometry, new THREE.Color(v.stone), new THREE.Color(v.iron || v.stone));
 
-  // The slow half of the weathering, in a vertex colour, so a wall carries its
-  // own character before a single fragment is shaded.
-  {
-    const pos = geometry.getAttribute('position');
-    const n = pos.count;
-    const colours = new Float32Array(n * 3);
-    const phase = rand() * Math.PI * 2;
-    const tint = 0.94 + rand() * 0.10;
-    const stone = geometry.getAttribute('aStone');
-    for (let i = 0; i < n; i++) {
-      const s = stone.getX(i);
-      const k = tint
-        * (1 + 0.045 * Math.sin(s * 0.31 + phase))
-        * (1 + 0.030 * Math.sin(s * 1.13 + phase * 2.1));
-      colours[i * 3] = k;
-      colours[i * 3 + 1] = k;
-      colours[i * 3 + 2] = k * 0.995;
-    }
-    geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
-  }
-
-  const material = wallMaterial({ vertexColors: true });
+  const material = wallMaterial(variant);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -889,15 +1381,19 @@ export function createWall({
     minZ: Math.min(...zs), maxZ: Math.max(...zs),
   };
 
-  const tris = geometry.index.count / 3;
-
   return {
     group,
     mesh,
     bounds,
+    variant,
     length: path.total,
     height,
-    stats: { triangles: tris, vertices: geometry.getAttribute('position').count, drawCalls: 1 },
+    piers: pierS.length,
+    stats: {
+      triangles: geometry.index.count / 3,
+      vertices: geometry.getAttribute('position').count,
+      drawCalls: 1,
+    },
     update() {},   // static, but every prop in the set has one and callers loop
     dispose() {
       geometry.dispose();
@@ -958,24 +1454,23 @@ export function createWall({
 //      the hard edge the brief forbids, and no amount of tuning removes it: two
 //      opaque planes of different colours meeting at a line IS a line.
 //
-// The skirt costs one draw call and eight triangles, and it does not write
+// The skirt costs one draw call and sixteen triangles, and it does not write
 // depth, so nothing standing outside the wall is clipped by it.
 export function createVoid({
   bounds,
   // Where the falloff's zero point sits, measured OUT from the wall's
   // centreline: positive pushes it outward, negative pulls it in.
   //
-  // The default puts it at -WALL.base / 2, which is exactly the wall's own
-  // INNER face. That is the one value that gets both halves of the brief at
-  // once and it is worth spelling out why, because it looks like the wrong
+  // The default puts it at -WALL.base / 2, which is inside the narrowest body
+  // any variant has. That is the one value that gets both halves of the brief
+  // at once and it is worth spelling out why, because it looks like the wrong
   // sign:
   //
   //   * Nothing inside is tinted, and provably so rather than nearly so. The
-  //     ring's hole ends at the plinth's inner face, and the plinth is the
-  //     narrowest part of the wall at ground level -- the piers are wider on
-  //     both sides -- so every fragment the skirt draws anywhere on the
-  //     perimeter is underneath solid wall or outside it. No floor a player
-  //     can see inside the enclosure is covered by so much as a pixel.
+  //     ring's hole ends under the wall's own footprint, and the piers are
+  //     wider still on both sides, so every fragment the skirt draws anywhere
+  //     on the perimeter is underneath solid wall or outside it. No floor a
+  //     player can see inside the enclosure is covered by so much as a pixel.
   //   * The floor is ALREADY 29% dark by the time it comes out from under the
   //     outer face. Put the zero point on the outer face instead and the first
   //     half metre of the void is fully lit, which at the game's framing is a
@@ -1103,18 +1598,28 @@ export function createVoid({
 // A convenience for the common case: a rectangle of `size` world units, walled
 // all the way round with the darkness already on.
 //
-//   const level = createWalledLevel({ size: 30 });
+//   const level = createWalledLevel({ size: 30, variant: 'brick' });
 //   scene.add(level.group);
 //
 // 30 is the maximum: six of the floor's major squares, which is what the level
 // generator is capped at.
-export function createWalledLevel({ seed = 1, size = 30, sizeZ = null, centre = { x: 0, z: 0 }, rotation = 0, height = WALL.height, gate = null, dark = true } = {}) {
+export function createWalledLevel({
+  seed = 1,
+  size = 30,
+  sizeZ = null,
+  centre = { x: 0, z: 0 },
+  rotation = 0,
+  variant = 'ashlar',
+  height = WALL.height,
+  gate = null,
+  dark = true,
+} = {}) {
   const hx = size / 2;
   const hz = (sizeZ ?? size) / 2;
   const corners = [
     { x: -hx, z: -hz }, { x: hx, z: -hz }, { x: hx, z: hz }, { x: -hx, z: hz },
   ];
-  const wall = createWall({ seed, points: corners, closed: true, height, gate });
+  const wall = createWall({ seed, points: corners, closed: true, variant, height, gate });
   const group = new THREE.Group();
   group.add(wall.group);
   const dusk = dark
@@ -1127,6 +1632,7 @@ export function createWalledLevel({ seed = 1, size = 30, sizeZ = null, centre = 
     group,
     wall,
     dark: dusk,
+    variant,
     bounds: { minX: -hx, maxX: hx, minZ: -hz, maxZ: hz },
     stats: wall.stats,
     update() {},
