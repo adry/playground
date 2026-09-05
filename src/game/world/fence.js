@@ -483,6 +483,54 @@ function makeDivider({ field, rng, box, avoid, spawn }) {
   return null;
 }
 
+// --- the corner stubs ---------------------------------------------------------------
+//
+// The rules half measured 4.7% of a run spent within four units of the
+// perimeter and 33% of the deaths there: a risk ratio of seven. A corner is
+// where you get pinned, and it is the jump's only blind spot, because the wall
+// is the one barrier the ghost cannot clear. Their idea, and it is the best one
+// anybody has had about this arena: PUT A SHORT FENCE ACROSS EACH CORNER. It
+// turns the worst square on the board into the place where the whole mechanic
+// reads clearest, because the ghost goes over it in half a second and anything
+// chasing has to come round the open end. The corner stops being a trap and
+// becomes the tutorial.
+//
+// A stub is the one run in the arena with no gate, and it does not need one:
+// its opening is its OPEN END, which is kept wide enough for a body to walk
+// round with room to spare. Each of the four world corners maps to a point on a
+// GRID axis, so a stub across a corner is a straight chain of whole panels
+// along the other grid axis, which is also square to the camera.
+export const STUB_DEPTH = 4.2;      // how far in from the corner it stands
+export const STUB_PANELS = 2;       // 4.0 long, one vault
+export const STUB_SHUT = 0.5;       // the closed end, too narrow for a body
+export const STUB_OPEN = 2.9;       // the least the open end may be
+
+export function cornerStubs({ field, box, avoid, rng }) {
+  const frame = field.frame;
+  const out = [];
+  const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+  corners.forEach(([sx, sz], i) => {
+    const cg = frame.toGrid(sx * box.maxX, sz * box.maxZ);
+    // The corner sits on a grid axis; `along` is the other one.
+    const onU = Math.abs(cg.u) > Math.abs(cg.v);
+    const inward = onU ? -Math.sign(cg.u) : -Math.sign(cg.v);
+    const line = (onU ? cg.u : cg.v) + inward * STUB_DEPTH;
+    // At this depth the corner is 2 * STUB_DEPTH across, because the arena is a
+    // diamond in grid and its sides run at 45 degrees to these axes.
+    const halfSpan = STUB_DEPTH;
+    const len = STUB_PANELS * PANEL;
+    if (2 * halfSpan - len < STUB_SHUT + STUB_OPEN) return;
+    const shutSide = rng.chance(0.5) ? 1 : -1;
+    const start = shutSide < 0 ? -halfSpan + STUB_SHUT : halfSpan - STUB_SHUT - len;
+    const panels = onU
+      ? panelChain(line, start, 0, 1, STUB_PANELS)
+      : panelChain(start, line, 1, 0, STUB_PANELS);
+    if (tooClose(frame, panels, avoid, RUN_GAP)) return;
+    out.push(finishRun({ frame, id: `stub${i}`, kind: 'stub', panels }));
+  });
+  return out;
+}
+
 // --- the perimeter wall -----------------------------------------------------------
 
 export function makeWall(box) {
@@ -515,8 +563,8 @@ export function makeWall(box) {
 // --- the level's fences -------------------------------------------------------
 
 export const PEN_MIN = 2;
-export const PEN_MAX = 3;
-export const DIVIDER_CHANCE = 0.55;
+export const PEN_MAX = 4;
+export const DIVIDER_CHANCE = 0.75;
 
 export function levelFences({ field, box, spawn }) {
   const rng = rngAt(field.seed, 'fence');
@@ -530,6 +578,7 @@ export function levelFences({ field, box, spawn }) {
     const pen = makePen({ field, rng: rng.fork('pen' + i), box, avoid: runs, spawn, index: i });
     if (pen) runs.push(pen);
   }
+  for (const stub of cornerStubs({ field, box, avoid: runs, rng: rng.fork('stubs') })) runs.push(stub);
   return runs;
 }
 

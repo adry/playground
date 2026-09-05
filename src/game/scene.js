@@ -211,7 +211,7 @@ export async function startGame({ canvas, params }) {
     camera.bottom = -VIEW;
     camera.updateProjectionMatrix();
     renderer.setSize(w, h, false);
-    const reach = fitReach(aspect);
+    const reach = window.__OLD_SHADOW_BOX ? VIEW * Math.max(1, aspect) * 2.6 : fitReach(aspect);
     key.shadow.camera.left = -reach;
     key.shadow.camera.right = reach;
     key.shadow.camera.top = reach;

@@ -404,7 +404,7 @@ export function pathLanterns({ field, placer, box }) {
 // so the arena is uneven at the scale of a corner as well as at the scale of a
 // stone, and thinned to nothing where the ghost stands.
 
-export const SITE_PITCH = 4.5;
+export const SITE_PITCH = 4.0;
 
 export function openSites({ field, placer, box, spawn }) {
   const size = box.maxX - box.minX;
