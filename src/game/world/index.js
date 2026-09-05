@@ -64,7 +64,7 @@
 //
 //   one grave in every 32 by 32     one per chunk, within 3.5 of its centre
 //   one pellet in every 64 by 64    a 52 lattice with 5 of jitter
-//   one firefly per 18 by 18 cell   see below
+//   one firefly per 20 by 20 cell   see below
 //
 // AND THE CEILING THAT COMES WITH THE GRAVES. src/ghost/ground.js can only cut
 // the floor MAX_GROUND_HOLES = 4 times and THROWS at the fifth. The geometry
@@ -78,7 +78,7 @@
 // FIREFLIES
 // ============================================================================
 //
-// One per 18 by 18 cell, pulled up to 5 units off the cell centre toward
+// One per 20 by 20 cell, pulled up to 4 units off the cell centre toward
 // something worth walking to. That is roughly one per screen at the camera's
 // view of 9.0, and it is a deliberate hundredfold cut from the old maze's one
 // per unit of corridor: at one a metre the player grazes, at one a screen they
@@ -86,9 +86,10 @@
 // design. The pull order is
 //
 //   1. inside a fenced family plot, so the player must gate it or hop it;
-//   2. beside a boundary gate, so the player and the skeleton meet at a choke;
-//   3. on a path, so the trail reads as somewhere to walk;
-//   4. the cell centre, in the open.
+//   2. beside a gate, so the player and the skeleton meet at a choke point;
+//   3. the far side of a fence line, so the player meets a hop on the way;
+//   4. on a path, so the trail reads as somewhere to walk;
+//   5. the cell centre, in the open.
 //
 // and then off any prop it would be standing in. world-check.mjs measures the
 // spacing that comes out of it, and how often the next one is on screen.
@@ -198,12 +199,33 @@ export function createWorld({ seed = 1 } = {}) {
         }
       }
     }
-    // 3: on a path.
+    // 3: the far side of a fence line, so the player meets it on the way.
+    if (!pick) {
+      let best = null;
+      for (const chunk of near) {
+        for (const s of chunk.barriers) {
+          const c = closestOnSegment(cxw, czw, s.x0, s.z0, s.x1, s.z1);
+          if (c.d < 0.5 || c.d > FLY_REACH) continue;
+          if (!best || c.d < best.d) best = c;
+        }
+      }
+      if (best) {
+        // Away from the cell centre, so whoever comes for it has the fence in
+        // the way from the side the cell drew them in on.
+        const nx = (best.x - cxw) / best.d;
+        const nz = (best.z - czw) / best.d;
+        const x = best.x + nx * 2.6;
+        const z = best.z + nz * 2.6;
+        const g = frame.toGrid(x, z);
+        if (Math.hypot(x - cxw, z - czw) <= FLY_REACH + 2.6) pick = { u: g.u, v: g.v, why: 'fence' };
+      }
+    }
+    // 4: on a path.
     if (!pick) {
       const p = field.nearestPath(centre.u, centre.v, FLY_REACH + 1);
       if (p.dist <= FLY_REACH) pick = { u: p.u, v: p.v, why: 'path' };
     }
-    // 4: the open ground of the cell itself.
+    // 5: the open ground of the cell itself.
     if (!pick) {
       pick = {
         u: centre.u + rng.float(-2.5, 2.5),
@@ -212,7 +234,10 @@ export function createWorld({ seed = 1 } = {}) {
       };
     }
 
-    const spot = nudge(pick, centre, FLY_REACH, FLY_CLEAR);
+    // The fence rule is allowed to reach a little further than the others,
+    // because 2.6 of it is spent stepping over the line rather than wandering.
+    const reach = pick.why === 'fence' ? FLY_REACH + 2.6 : FLY_REACH;
+    const spot = nudge(pick, centre, reach, FLY_CLEAR);
     const w = frame.toWorld(spot.u, spot.v);
     got = { id: `fly/${fx},${fz}`, x: w.x, z: w.z, why: pick.why };
     flyCache.set(k, got);
@@ -456,6 +481,16 @@ export function createWorld({ seed = 1 } = {}) {
     _flyAt: flyAt,
     _pelletAt: pelletAt,
   };
+}
+
+export function closestOnSegment(px, pz, x0, z0, x1, z1) {
+  const ex = x1 - x0;
+  const ez = z1 - z0;
+  const l2 = ex * ex + ez * ez;
+  const t = l2 ? Math.max(0, Math.min(1, ((px - x0) * ex + (pz - z0) * ez) / l2)) : 0;
+  const x = x0 + ex * t;
+  const z = z0 + ez * t;
+  return { x, z, t, d: Math.hypot(px - x, pz - z) };
 }
 
 // Standard segment intersection, written out because this package imports

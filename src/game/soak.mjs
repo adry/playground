@@ -151,7 +151,15 @@ export function pen(cx, cz, w, h, gates = 0) {
 // 1. Fairness
 // ---------------------------------------------------------------------------
 
-const FAIR_HALF = 30;
+// The raster is built over a region considerably LARGER than the one it
+// judges, and the difference matters more than it looks. A fence run of up to
+// 16 units near the edge of a judged region joins the rest of the world round
+// its own end, and if that end falls outside the raster the flood cannot get
+// there and the check reports the sampling window instead of the world. That
+// was 2.7% of worlds failing F3 for no reason at all before the margin was
+// widened. 44 minus 26 is 18 units of margin, longer than the longest fence.
+const FAIR_HALF = 44;
+const FAIR_JUDGE = 26;
 const FAIR_CELL = 0.75;
 // One radius for both floods. The skeleton needs 0.555 of clearance and the
 // ghost 0.55, so the larger of the two is used for the raster and the ghost is
@@ -231,16 +239,19 @@ function fairOne(world, at) {
   const grid = nav.makeGrid({ x: at.x, z: at.z, half: FAIR_HALF, cell: FAIR_CELL, radius: FAIR_RADIUS });
   const N = grid.n * grid.n;
   const { label, count } = components(grid);
-  const box = { minX: at.x - FAIR_HALF, minZ: at.z - FAIR_HALF, maxX: at.x + FAIR_HALF, maxZ: at.z + FAIR_HALF };
-  const inBox = (p) => p.x > box.minX + 1 && p.x < box.maxX - 1 && p.z > box.minZ + 1 && p.z < box.maxZ - 1;
+  const box = { minX: at.x - FAIR_JUDGE, minZ: at.z - FAIR_JUDGE, maxX: at.x + FAIR_JUDGE, maxZ: at.z + FAIR_JUDGE };
+  const inBox = (p) => p.x > box.minX && p.x < box.maxX && p.z > box.minZ && p.z < box.maxZ;
   const fireflies = world.fireflies(box).filter(inBox);
   const powerups = world.powerups(box).filter(inBox);
   const graves = world.graves(box).filter(inBox);
   const gates = world.gates(box).filter(inBox);
 
   const fail = [];
+  // The point the flood starts from stands in for the ghost. It is snapped to
+  // the nearest cell the ghost fits in, because a SAMPLE point landing inside a
+  // headstone says nothing about the world; whether the world's own spawn is
+  // clear is a separate question and fairness() asks it separately.
   const spawnCell = grid.nearestOpen(at.x, at.z);
-  if (!nav.discClear(at.x, at.z, TUNING.ghostRadius)) fail.push('spawn');
   if (spawnCell < 0) return ['spawn'];
 
   // Which components touch the box edge, and so continue into the world.
@@ -298,9 +309,16 @@ function fairOne(world, at) {
   for (const c of wanted) if (c >= 0 && exits(c) === 0) { fail.push('F2sealed'); break; }
 
   // F3. THE SAFE SPOT. Everything the ghost can reach, a skeleton can reach.
+  //
+  // Judged on the JUDGED region, which is the raster's middle. See FAIR_HALF.
   let leak = 0;
-  for (let i = 0; i < N; i++) if (ghostSet[i] && !skelSet[i]) leak++;
-  if (leak > 0) fail.push('F3safeSpot');
+  for (let i = 0; i < N; i++) {
+    if (!ghostSet[i] || skelSet[i]) continue;
+    if (Math.abs(grid.wx(i) - at.x) > FAIR_JUDGE || Math.abs(grid.wz(i) - at.z) > FAIR_JUDGE) continue;
+    leak++;
+  }
+  // A few cells is rasterisation at a gate's lip; a pocket is tens of them.
+  if (leak > 6) fail.push('F3safeSpot');
 
   // F4. NO GATE IS THE ONLY WAY OUT. Stated as the question a skeleton standing
   // in a gate asks: plug it, and does anywhere the ghost could reach become
@@ -310,6 +328,8 @@ function fairOne(world, at) {
   // vaulted, which is what the self test builds.
   const plugged = new Uint8Array(N);
   for (const g of gates) {
+    // Only gates in the judged middle; a gate at the raster's edge has half its
+    // neighbourhood missing.
     const plug = new Set();
     const rr = g.half + FAIR_RADIUS;
     const c0 = grid.index(g.x, g.z);
@@ -326,7 +346,11 @@ function fairOne(world, at) {
     }
     flood(grid, [spawnCell], true, plugged, plug);
     let lost = 0;
-    for (let i = 0; i < N; i++) if (ghostSet[i] && !plugged[i] && !plug.has(i)) lost++;
+    for (let i = 0; i < N; i++) {
+      if (!ghostSet[i] || plugged[i] || plug.has(i)) continue;
+      if (Math.abs(grid.wx(i) - at.x) > FAIR_JUDGE || Math.abs(grid.wz(i) - at.z) > FAIR_JUDGE) continue;
+      lost++;
+    }
     // A handful of cells at the plug's own lip is rasterisation, not a trap.
     if (lost > 4) { fail.push('F4pin'); break; }
   }
@@ -337,7 +361,16 @@ function fairOne(world, at) {
     if (c < 0 || !ghostSet[c] || Math.hypot(grid.wx(c) - f.x, grid.wz(c) - f.z) > TUNING.pickRadius) { fail.push('flyReach'); break; }
   }
   for (const g of graves) if (!nav.discClear(g.x, g.z, SKEL_RADIUS)) { fail.push('graveClear'); break; }
-  for (const g of gates) if (!nav.discClear(g.x, g.z, 0.60)) { fail.push('gateWide'); break; }
+  // Not only the opening: the CORRIDOR through it, two units either side. A
+  // gate a body cannot approach is not a gate, and a prop just outside the
+  // mouth is exactly how that happens.
+  for (const g of gates) {
+    let plugged = false;
+    for (let t = -2.0; t <= 2.0 + 1e-9; t += 0.5) {
+      if (!nav.discClear(g.x - g.dz * t, g.z + g.dx * t, 0.60)) { plugged = true; break; }
+    }
+    if (plugged) { fail.push('gateWide'); break; }
+  }
 
   return fail;
 }
@@ -355,15 +388,19 @@ function fairness(seeds) {
     // so a thousand seeds is a thousand different neighbourhoods and not a
     // thousand looks at the same one.
     const at = { x: ((seed * 37) % 400) - 200, z: ((seed * 91) % 400) - 200 };
-    const box = { minX: at.x - FAIR_HALF, minZ: at.z - FAIR_HALF, maxX: at.x + FAIR_HALF, maxZ: at.z + FAIR_HALF };
+    const box = { minX: at.x - FAIR_JUDGE, minZ: at.z - FAIR_JUDGE, maxX: at.x + FAIR_JUDGE, maxZ: at.z + FAIR_JUDGE };
     barriers += world.barriers(box).length;
     gates += world.gates(box).length;
     flies += world.fireflies(box).length;
-    for (const f of fairOne(world, at)) fail[f].push(seed);
+    // The world's own spawn, checked where it actually is.
+    const spawnNav = createNav(world);
+    spawnNav.focus(world.spawn.x, world.spawn.z);
+    if (!spawnNav.discClear(world.spawn.x, world.spawn.z, TUNING.ghostRadius)) fail.spawn.push(seed);
+    for (const f of fairOne(world, at)) if (f !== 'spawn') fail[f].push(seed);
   }
-  const area = ((FAIR_HALF * 2) ** 2) / 1e4;
-  console.log(`\n--- 1. FAIRNESS, ${seeds} worlds, ${FAIR_HALF * 2} by ${FAIR_HALF * 2} region each at ${FAIR_CELL}, ${((Date.now() - t0) / 1000).toFixed(1)}s ---`);
-  console.log(`  per region: ${(barriers / seeds).toFixed(1)} fence segments, ${(gates / seeds).toFixed(1)} gates, ${(flies / seeds).toFixed(1)} fireflies`
+  const area = ((FAIR_JUDGE * 2) ** 2) / 1e4;
+  console.log(`\n--- 1. FAIRNESS, ${seeds} worlds, ${FAIR_JUDGE * 2} by ${FAIR_JUDGE * 2} judged inside a ${FAIR_HALF * 2} raster at ${FAIR_CELL}, ${((Date.now() - t0) / 1000).toFixed(1)}s ---`);
+  console.log(`  per ${FAIR_JUDGE * 2} by ${FAIR_JUDGE * 2} region: ${(barriers / seeds).toFixed(1)} fence segments, ${(gates / seeds).toFixed(1)} gates, ${(flies / seeds).toFixed(1)} fireflies`
     + `  (${(flies / seeds / area / 100).toFixed(2)} fireflies per 100 sq units)`);
   for (const k of keys) {
     console.log(`  ${k.padEnd(12)} ${String(fail[k].length).padStart(5)} failed  ${pct(fail[k].length, seeds).padStart(7)}   ${fail[k].slice(0, 6).join(' ')}`);

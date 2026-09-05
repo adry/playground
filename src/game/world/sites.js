@@ -228,8 +228,8 @@ export function placeGrave({ field, placer, cx, cz, rng }) {
   // to the anchor first. The window is what the density floor is proved on, so
   // the search may wander inside it and nowhere else.
   const spots = [];
-  for (let dz = -GRAVE_REACH; dz <= GRAVE_REACH + 1e-9; dz += 1) {
-    for (let dx = -GRAVE_REACH; dx <= GRAVE_REACH + 1e-9; dx += 1) {
+  for (let dz = -GRAVE_REACH; dz <= GRAVE_REACH + 1e-9; dz += 0.7) {
+    for (let dx = -GRAVE_REACH; dx <= GRAVE_REACH + 1e-9; dx += 0.7) {
       const x = centre.x + dx;
       const z = centre.z + dz;
       spots.push({ x, z, d: Math.hypot(x - anchor.x, z - anchor.z) });
@@ -239,25 +239,58 @@ export function placeGrave({ field, placer, cx, cz, rng }) {
 
   const variant = rng.pick(['heart', 'fred', 'celtic', 'gothic', 'wheel', 'urn', 'column']);
   const ext = graveExtents(variant);
-  const headSide = rng.chance(0.5) ? 1 : -1;
-  // The placer's tryGroup, told that this group outranks everything soft.
-  const hardPlacer = { ...placer, tryGroup: (specs) => placer.tryGroup(specs, { asHard: true }) };
+  const first = rng.chance(0.5) ? 1 : -1;
 
-  for (const spot of spots) {
-    const g = field.frame.toGrid(spot.x, spot.z);
-    const u = g.u - headSide * ext.shift;
-    const v = g.v;
-    // The heap goes on the long side AWAY from the nearest path, which is the
-    // same rule the maze had with the corridor in the path's place.
-    const near = field.nearestPath(u, v, 10);
-    const side = Number.isFinite(near.dist) && near.v >= v ? -1 : 1;
-    const group = graveGroup({ placer: hardPlacer, rng, u, v, pileSide: side, headSide, stoneVariant: variant });
-    if (group) {
+  // A grave is three and a half units long and it has to thread between a path
+  // and whatever fence its chunk built, inside a window seven units across that
+  // it may not leave, because leaving it would break the one-grave-per-32-box
+  // floor. So it is allowed to turn. Square to the camera is tried everywhere
+  // in the window before any angle is, and the angles offered are small: a
+  // headstone twenty degrees off the camera still reads as a headstone. A right
+  // angle is on the list as the very last resort, because a grave the rules
+  // half cannot find is worse than a headstone in profile, and it is reached
+  // for in well under one chunk in a thousand.
+  const TURNS = [0, 0.35, -0.35, 0.61, -0.61, 0.95, -0.95, Math.PI / 2];
+
+  // The placer's tryGroup, told that this group outranks everything soft, and
+  // turned about the spot. Rotating the positions by theta turns a footprint's
+  // grid yaw by MINUS theta, because grid and world are a reflection apart.
+  const turnedPlacer = (cu, cv, theta) => ({
+    ...placer,
+    tryGroup: (specs) => placer.tryGroup(specs.map((s) => {
+      const du = s.u - cu;
+      const dv = s.v - cv;
       return {
-        hole: group[0],
-        x: group[0].x, z: group[0].z, yaw: group[0].yaw,
-        u: group[0].u, v: group[0].v,
+        ...s,
+        u: cu + du * Math.cos(theta) - dv * Math.sin(theta),
+        v: cv + du * Math.sin(theta) + dv * Math.cos(theta),
+        gridYaw: s.gridYaw - theta,
       };
+    }), { asHard: true }),
+  });
+
+  for (const theta of TURNS) {
+    for (const headSide of [first, -first]) {
+      for (const spot of spots) {
+        const g = field.frame.toGrid(spot.x, spot.z);
+        const u = g.u - headSide * ext.shift;
+        const v = g.v;
+        // The heap goes on the long side AWAY from the nearest path, which is
+        // the same rule the maze had with the corridor in the path's place.
+        const near = field.nearestPath(u, v, 10);
+        const side = Number.isFinite(near.dist) && near.v >= v ? -1 : 1;
+        const group = graveGroup({
+          placer: turnedPlacer(g.u, g.v, theta),
+          rng, u, v, pileSide: side, headSide, stoneVariant: variant,
+        });
+        if (group) {
+          return {
+            hole: group[0],
+            x: group[0].x, z: group[0].z, yaw: group[0].yaw,
+            u: group[0].u, v: group[0].v,
+          };
+        }
+      }
     }
   }
   return null;

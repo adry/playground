@@ -63,12 +63,17 @@ const SKILLS = {
   jumpTrigger: 2.2,
 
   // --- planning ---------------------------------------------------------------
-  think: 0.10,
-  half: 30,            // planning window half width, world units
+  // 8 Hz over a 52 by 52 window at 1.25. The window has to hold two or three
+  // fireflies at a spacing of 18 so the near-and-dangerous versus far-and-safe
+  // choice actually has two candidates in it, and it has to stay small enough
+  // that the Dijkstra over it can run eight times a second for a few hundred
+  // simulated minutes. 26 and 1.25 is 1764 cells, which is both.
+  think: 0.125,
+  half: 26,
   cell: 1.25,
   // Rebuild the occupancy raster only after the ghost has moved this far. The
   // raster is the expensive part; the Dijkstra over it is not.
-  regrid: 8,
+  regrid: 10,
   // Pure-pursuit lookahead, the corner cut, unchanged in value and in reason.
   cut: 1.8,
   // Do not abandon the firefly you are already going to unless the new one is
@@ -140,7 +145,7 @@ export function createBot(game, opts = {}) {
   let goalPt = null;
   const stats = {
     threatTime: 0, panicTime: 0, plans: 0, stuck: 0,
-    jumps: 0, vaults: 0, refused: 0, gatePasses: 0, plannedVaults: 0,
+    jumps: 0, vaults: 0, refused: 0, wouldVault: 0, plannedVaults: 0, fenceRoutes: 0,
   };
 
   function ensureGrid(x, z) {
@@ -334,10 +339,16 @@ export function createBot(game, opts = {}) {
       }
       buildRoute(goal.cell);
       for (const j of routeJump) if (j) { stats.plannedVaults++; break; }
+      // Was a fence between the ghost and its goal at all? That is the
+      // denominator the vault rate has to be read against: a bot that never
+      // jumps in a world with no fences on its routes has learned nothing.
+      if (nav.crossesBarrier(g.x, g.z, goal.x, goal.z, 0)) stats.fenceRoutes++;
     }
 
     if (route.length < 2) {
-      // Standing on the goal cell. Steer at the exact point.
+      // Standing on the goal cell. Steer at the exact point, which is what
+      // actually gets picked up: a cell is 1.25 across and a pick radius is
+      // 1.0, so arriving at the cell is not arriving at the firefly.
       const p = goalPt || { x: g.x, z: g.z };
       const dx = p.x - g.x;
       const dz = p.z - g.z;
@@ -357,14 +368,33 @@ export function createBot(game, opts = {}) {
       const d = (grid.wx(route[i]) - g.x) ** 2 + (grid.wz(route[i]) - g.z) ** 2;
       if (d < bestD) { bestD = d; k = i; }
     }
-    if (k >= route.length - 1) { route.length = 0; cool = 0; }
+    if (k >= route.length - 1) {
+      // The end of the plan. Head for the goal point itself and re-plan on the
+      // next tick. Emptying the route here and carrying on was a bug worth
+      // naming: it left the follower indexing an empty array, which steered at
+      // NaN for a frame and re-planned on every single frame after, at six
+      // times the intended rate and a third of the score.
+      route.length = 0;
+      cool = 0;
+      const p = goalPt || { x: g.x, z: g.z };
+      const dx = p.x - g.x;
+      const dz = p.z - g.z;
+      const l = Math.hypot(dx, dz);
+      return l < 1e-6 ? { x: 0, y: 0, jump: false } : { x: dx / l, y: dz / l, jump: false };
+    }
+
     let rem = S.cut;
-    let aimI = Math.min(k + 1, route.length - 1);
+    let aimI = k + 1;
     let px = g.x;
     let pz = g.z;
     let wantJump = false;
     let toFence = Infinity;
     let travelled = 0;
+    let aimDone = false;
+    // Two things are being looked for and they have different horizons: the aim
+    // point is S.cut along the route, and the next VAULT may be further, so the
+    // scan runs to whichever is longer. Cutting it at S.cut was why the first
+    // version of this never pressed jump at all.
     for (let i = k + 1; i < route.length; i++) {
       const qx = grid.wx(route[i]);
       const qz = grid.wz(route[i]);
@@ -372,10 +402,10 @@ export function createBot(game, opts = {}) {
       if (routeJump[i] && travelled < toFence) toFence = travelled;
       travelled += seg;
       px = qx; pz = qz;
-      aimI = i;
-      rem -= seg;
-      if (rem <= 0) break;
+      if (!aimDone) { aimI = i; rem -= seg; if (rem <= 0) aimDone = true; }
+      if (aimDone && (travelled > S.jumpTrigger + 1.5 || toFence < Infinity)) break;
     }
+
     // The vault. The plan asked for one, the fence is close, and the ghost is
     // allowed to make it. Everything that decides WHETHER it is legal lives in
     // rules.js; all the bot does is press the button at the right moment, the
@@ -384,6 +414,7 @@ export function createBot(game, opts = {}) {
       const lx = g.x + g.vx * game.airTime;
       const lz = g.z + g.vz * game.airTime;
       if (nav.crossesBarrier(g.x, g.z, lx, lz, 0) && nav.discClear(lx, lz, game.tuning.ghostRadius)) wantJump = true;
+      else stats.wouldVault++;
     }
     const ax = grid.wx(route[aimI]);
     const az = grid.wz(route[aimI]);
@@ -402,7 +433,7 @@ export function createBot(game, opts = {}) {
 // a much weaker statement than "the passive player dies in 17 seconds", and the
 // first one is true at any speed ratio at all.
 export function passiveBot(game) {
-  const stats = { threatTime: 0, panicTime: 0, plans: 0, stuck: 0, jumps: 0, vaults: 0, refused: 0, plannedVaults: 0 };
+  const stats = { threatTime: 0, panicTime: 0, plans: 0, stuck: 0, jumps: 0, vaults: 0, refused: 0, wouldVault: 0, plannedVaults: 0, fenceRoutes: 0 };
   return {
     stats,
     step: (state, dt) => {

@@ -9,10 +9,12 @@
 // a finite level, so three things are new.
 //
 // 1. THE PATH TEST REPLACES THE CORRIDOR TEST. A path is a wandering curve
-//    rather than a union of squares, so the test is the distance to the nearest
-//    curve, taken against the prop's bounding circle. That is conservative, and
-//    conservative is the right direction: the checker does the exact box test
-//    and a generator that is stricter than its checker never surprises anyone.
+//    rather than a union of squares, so a corridor tile against a footprint
+//    becomes a curve against a footprint: the bounding circle for a fast
+//    accept, and the curve sampled at 0.12 against the oriented box when the
+//    circle is not decisive. The sampled minimum always OVERSTATES the
+//    distance, so a step of it is given back, which leaves the generator
+//    strictly harder to satisfy than the checker.
 //
 // 2. A CHUNK RESOLVES AGAINST ITS NEIGHBOURS, NOT AGAINST THE WORLD. Building a
 //    chunk is allowed to look at the eight around it and nothing else. Within
@@ -125,9 +127,54 @@ export function createPlacer({ field, chunk, hard = [], blockers = [], barriers 
     return front.height >= back.height + (front.depth - back.depth) * OCCLUSION - OCCLUSION_MARGIN;
   }
 
+  // Rule 2, against the real footprint.
+  //
+  // The first version of this tested the prop's BOUNDING CIRCLE against the
+  // curve, which is conservative and therefore safe, and it cost the world one
+  // grave in a hundred chunks: a grave hole is 2.0 by 0.9, its circle is 1.10,
+  // and at a crossroads the difference between needing 2.45 of clearance and
+  // needing 1.80 is the difference between a grave fitting in the quadrant and
+  // not fitting anywhere. Since the density floor is a promise to the rules
+  // half, the test is now the same exact one the checker does: the curve,
+  // sampled finely, against the oriented box. The circle survives as the fast
+  // accept, which is what it is good for.
+  const PATH_NEED = PATH_HALF + CORRIDOR_MARGIN;
+  const PATH_STEP = 0.12;
+  // A sampled minimum can only ever OVERSTATE the distance, and overstating it
+  // is the unsafe direction, so half a step of the curve is given back.
+  const PATH_SLACK = PATH_STEP;
+  const probe = { shape: 'disc', x: 0, z: 0, r: 0 };
+
+  function pathGap(shape, u, v, reach) {
+    let best = Infinity;
+    const span = reach + 1.5;
+    for (const k of field.uPathsNear(u, span)) {
+      for (let t = v - span; t <= v + span; t += PATH_STEP) {
+        probe.x = field.uPathAt(k, t);
+        probe.z = t;
+        if (Math.abs(probe.x - u) > span) continue;
+        const g = gap(probe, shape);
+        if (g < best) best = g;
+      }
+    }
+    for (const m of field.vPathsNear(v, span)) {
+      for (let t = u - span; t <= u + span; t += PATH_STEP) {
+        probe.x = t;
+        probe.z = field.vPathAt(m, t);
+        if (Math.abs(probe.z - v) > span) continue;
+        const g = gap(probe, shape);
+        if (g < best) best = g;
+      }
+    }
+    return best - PATH_SLACK;
+  }
+
   function pathClear(prop) {
-    const reach = PATH_HALF + CORRIDOR_MARGIN + prop.radius;
-    return field.nearestPath(prop.u, prop.v, reach + 1).dist >= reach;
+    const near = field.nearestPath(prop.u, prop.v, PATH_NEED + prop.radius + 1).dist;
+    if (near >= PATH_NEED + prop.radius) return true;
+    if (near < PATH_NEED) return false;
+    if (prop.foot.shape === 'disc') return false;
+    return pathGap(prop.shape, prop.u, prop.v, prop.radius) >= PATH_NEED;
   }
 
   function reject(prop, { asHard = false } = {}) {

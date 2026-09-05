@@ -243,9 +243,18 @@ export function createWorld({ seed = 1, spacing = FLY_SPACING } = {}) {
       for (let dx = -1; dx <= 1 && !crosses; dx++) {
         if (!dx && !dz) continue;
         if ((cz + dz) * 1000 + (cx + dx) > cz * 1000 + cx) continue;
+        const nb = raw(cx + dx, cz + dz);
         for (const a of me.barriers) {
-          for (const b of raw(cx + dx, cz + dz).barriers) {
+          for (const b of nb.barriers) {
             if (segCross(a.x0, a.z0, a.x1, a.z1, b.x0, b.z0, b.x1, b.z1)) { crosses = true; break; }
+          }
+          // And a run that ends INSIDE a neighbour's pen by walking through its
+          // gate. That crosses no segment, so the intersection test above never
+          // sees it, and it plugs the only way in. It cost 1 world in 200 its
+          // F3 before this was here, which is the kind of thing that is only
+          // ever found by checking rather than by looking.
+          if (!crosses) {
+            for (const g of nb.gates) if (segPointDist(a, g.x, g.z) < 1.5) { crosses = true; break; }
           }
           if (crosses) break;
         }
@@ -260,9 +269,22 @@ export function createWorld({ seed = 1, spacing = FLY_SPACING } = {}) {
       for (const p of nbProps) if (Math.hypot(p.x - x, p.z - z) < r + p.radius) return false;
       return true;
     };
-    // A gate has to admit a disc of 0.60 (G5), so nothing solid within 0.95.
+    // A gate has to admit a disc of 0.60, and it is the APPROACH and not the
+    // opening that has to be clear. A prop 1.271 from a gate centre, just
+    // outside a keep-out disc of 1.270, plugged the mouth of one of these and
+    // cost 3% of worlds their F3: a walker cannot use an opening it cannot
+    // reach. So the keep-out is a CAPSULE about the line THROUGH the gate,
+    // 2.2 units either side, which is the corridor a body has to travel.
+    const nbGates = [];
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) for (const g of raw(cx + dx, cz + dz).gates) nbGates.push(g);
     const inGate = (x, z, r) => {
-      for (const g of gates) if (Math.hypot(x - g.x, z - g.z) < 0.95 + r) return true;
+      for (const g of nbGates) {
+        const nx = -g.dz;
+        const nz = g.dx;
+        const along = (x - g.x) * nx + (z - g.z) * nz;
+        const t = along < -2.2 ? -2.2 : along > 2.2 ? 2.2 : along;
+        if (Math.hypot(x - (g.x + nx * t), z - (g.z + nz * t)) < 0.62 + r) return true;
+      }
       return false;
     };
 
@@ -277,11 +299,11 @@ export function createWorld({ seed = 1, spacing = FLY_SPACING } = {}) {
       }),
       // A firefly must be somewhere the ghost's own disc can reach it, so it
       // needs the pick radius of room and not merely its own point.
-      fireflies: me.fireflies.filter((f) => clearOf(f.x, f.z, 0.62)),
+      fireflies: me.fireflies.filter((f) => clearOf(f.x, f.z, 0.62) && !inGate(f.x, f.z, 0.2)),
       powerups: me.powerups.filter((p) => clearOf(p.x, p.z, 0.75)),
       // A grave must admit the skeleton's body, or something climbs out of the
       // ground already stuck.
-      graves: me.graves.filter((g) => clearOf(g.x, g.z, 0.70)),
+      graves: me.graves.filter((g) => clearOf(g.x, g.z, 0.70) && !inGate(g.x, g.z, 0.4)),
     };
     chunks.set(key, c);
     return c;

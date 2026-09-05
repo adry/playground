@@ -55,10 +55,13 @@ export const PATH_HALF = 1.3;
 
 // The firefly lattice. One firefly per cell, and the cell is the whole of the
 // pacing: at view 9.0 the camera shows 18 world units of screen height, so a
-// cell of 18 is one firefly per screen and the player has to choose a direction
+// cell of 20 is one firefly per screen and the player has to choose a direction
 // and commit rather than graze. See index.js for the measured spacing this
-// actually produces.
-export const FLY_CELL = 18;
+// actually produces, and world-check.mjs for the number it was tuned against:
+// a cell is not the spacing, because a firefly is pulled off its cell centre,
+// so the cell was walked and adjusted until the mean nearest neighbour landed
+// on the eighteen units the rules half is pricing a firefly at.
+export const FLY_CELL = 20;
 // How far a firefly may be pulled off its cell centre to reach something worth
 // walking to. Bounds the spacing: two neighbours can be as close as
 // FLY_CELL - 2 * FLY_REACH and as far as FLY_CELL + 2 * FLY_REACH.
@@ -183,18 +186,28 @@ export function createField(seed) {
     if (!w) {
       const rng = rngAt(seed, 'path/' + family, k);
       w = [
-        { amp: rng.float(2.2, 3.6), len: rng.float(17, 26), phase: rng.float(0, TAU) },
-        { amp: rng.float(0.9, 1.6), len: rng.float(7.5, 11.5), phase: rng.float(0, TAU) },
+        { amp: rng.float(2.0, 3.2), len: rng.float(17, 26), phase: rng.float(0, TAU) },
+        { amp: rng.float(0.8, 1.4), len: rng.float(7.5, 11.5), phase: rng.float(0, TAU) },
+        // A fixed offset per curve, so the avenues are not eighteen apart
+        // everywhere. Without it the network is a woven grid and the owner's
+        // word for a woven grid is squarish. With it the spacing between two
+        // neighbours runs from about nine to about twenty seven, and the
+        // amplitudes above are capped so that even the closest pair keeps four
+        // units of ground between them and can never merge.
+        { amp: 0, len: 1, phase: 0, fixed: rng.float(-2.5, 2.5) },
       ];
       waveCache.set(key, w);
     }
     return w;
   }
-  const PATH_SWING = 5.2;
+  // The furthest a curve can be from its nominal line: both amplitudes plus
+  // the fixed offset.
+  const PATH_SWING = 3.2 + 1.4 + 2.5;
 
   function pathOffset(family, k, t) {
     const w = pathWaves(family, k);
-    return w[0].amp * Math.sin(t / w[0].len + w[0].phase) + w[1].amp * Math.sin(t / w[1].len + w[1].phase);
+    return w[0].amp * Math.sin(t / w[0].len + w[0].phase)
+      + w[1].amp * Math.sin(t / w[1].len + w[1].phase) + w[2].fixed;
   }
   // The curve's slope, which the boundary fences use to stand square to a path.
   function pathSlope(family, k, t) {

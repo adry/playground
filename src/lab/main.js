@@ -8,8 +8,9 @@ import { createGround } from '../ghost/ground.js';
 // This is what /lab/ is for now. Two other things live behind flags on the
 // same page:
 //
-//   /lab/?play=1   the free-roam graveyard, exactly as it was, nothing moved
-//   /lab/?game=1   the Pac-Man: a generated level, the rules, and a keyboard
+//   /lab/?play=1    the free-roam graveyard, exactly as it was, nothing moved
+//   /lab/?game=1    the Pac-Man: a generated level, the rules, and a keyboard
+//   /lab/?world=1   the endless world with no game in it, for judging placement
 //
 // All three share a floor and a light rig and nothing else.
 //
@@ -20,7 +21,12 @@ import { createGround } from '../ghost/ground.js';
 
 const params = new URLSearchParams(location.search);
 
-if (params.get('game') === '1') {
+if (params.get('world') === '1') {
+  // The world viewer: the endless graveyard with no game in it, for judging
+  // how things are placed. See src/game/viewer.js.
+  const { startViewer } = await import('../game/viewer.js');
+  await startViewer({ canvas: document.getElementById('view'), params });
+} else if (params.get('game') === '1') {
   // The Pac-Man. A generated level, the rules running over it, and a keyboard.
   // Dynamically imported for the same reason as the graveyard below: a page
   // showing the lineup should not pay for the game's module graph.
