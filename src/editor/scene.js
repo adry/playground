@@ -520,7 +520,7 @@ export function createEditorScene({ canvas }) {
     // than reading it off the ground block.
     const t0 = performance.now();
     cover = createGroundCover({
-      ground: doc.ground, seed: doc.seed, kerbs: doc.ground.kerbs || null,
+      ground: doc.ground, floor: ground, seed: doc.seed, kerbs: doc.ground.kerbs || null,
     });
     coverMs = performance.now() - t0;
     level.add(cover.group);

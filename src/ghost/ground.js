@@ -38,6 +38,12 @@ export function createGround({
   // declares them at exactly the length it loops over.
   const holes = [];
 
+  // Materials on OTHER meshes that must be cut by the same holes. The floor is
+  // no longer the only opaque thing at y = 0: the ground cover lays a second
+  // surface over it, and a hole cut in the floor alone is a hole with a lawn
+  // stretched across it. See cutWithGroundHoles below.
+  const followers = new Set();
+
   function rebuild() {
     const pose = [];
     const shape = [];
@@ -140,6 +146,11 @@ export function createGround({
   // this is here so a hole can find it through the mesh it was handed.
   mesh.userData.groundHoles = {
     max: MAX_GROUND_HOLES,
+    // For cutWithGroundHoles: the live count, the shared uniforms, and the set
+    // of materials to recompile when the count changes.
+    holeCount: () => holes.length,
+    uniforms,
+    followers,
     add(footprint) {
       if (holes.length >= MAX_GROUND_HOLES) {
         throw new Error(`ground carries at most ${MAX_GROUND_HOLES} holes`);
@@ -148,6 +159,7 @@ export function createGround({
       holes.push(h);
       rebuild();
       material.needsUpdate = true;
+      for (const m of followers) m.needsUpdate = true;
 
       let live = true;
       return {
@@ -164,6 +176,7 @@ export function createGround({
           if (i >= 0) holes.splice(i, 1);
           rebuild();
           material.needsUpdate = true;
+          for (const m of followers) m.needsUpdate = true;
         },
       };
     },
@@ -191,4 +204,96 @@ export function addGroundHole(ground, footprint = {}) {
   const registry = ground?.userData?.groundHoles;
   if (!registry) throw new Error('addGroundHole() wants the mesh returned by createGround()');
   return registry.add(footprint);
+}
+
+// Cut a material by the same holes the floor is cut by.
+//
+// THE PROBLEM THIS SOLVES, because it is not obvious from either side. A grave
+// hole is not geometry, it is a discard in the FLOOR's fragment shader: the pit
+// is modelled below y = 0 and would be invisible, so the floor is told to stop
+// drawing over it. That worked while the floor was the only opaque thing at
+// y = 0, which was true when hole.js was written and stopped being true when
+// the ground cover arrived. Paint grass over a grave and the pit vanishes, not
+// because the floor healed but because a second surface is now stretched across
+// it. The owner reported exactly that.
+//
+// So a hole has to cut every surface lying on the floor, and the honest way to
+// say that is once, here, rather than by each surface reimplementing the same
+// signed distance. The material shares the floor's own uniform objects, so it
+// needs no updating when a hole moves, and it joins the floor's follower set so
+// it recompiles when the COUNT changes, which is the one thing baked into the
+// program.
+//
+//   cutWithGroundHoles(coverMaterial, ground);   // ground = createGround()'s mesh
+//
+// Safe to call on a floor with no holes: it injects nothing, exactly as the
+// floor does, so a page that never digs a grave compiles what it always did.
+export function cutWithGroundHoles(material, ground) {
+  const reg = ground?.userData?.groundHoles;
+  if (!material || !reg) return material;
+
+  reg.followers.add(material);
+
+  // The count is in the compiled program, so it has to be in the cache key or
+  // three hands back the program it already has and onBeforeCompile never runs
+  // again. This is the same trap the floor's own material documents.
+  //
+  // Only an OWN key is chained. three's default implementation returns
+  // `onBeforeCompile.toString()`, so chaining that would put this entire
+  // function, injected shader source and all, into the key of every cover
+  // material and rebuild that string on every frame the renderer asks. The
+  // default's purpose is to notice that the hook changed, and the hook here is
+  // fixed: what varies is the count, which is already in the key.
+  const ownKey = Object.prototype.hasOwnProperty.call(material, 'customProgramCacheKey')
+    ? material.customProgramCacheKey.bind(material)
+    : null;
+  material.customProgramCacheKey = () =>
+    `${ownKey ? ownKey() : ''}|ground-holes:${reg.holeCount()}`;
+
+  const prev = material.onBeforeCompile?.bind(material);
+  material.onBeforeCompile = (shader, renderer) => {
+    if (prev) prev(shader, renderer);
+    const n = reg.holeCount();
+    if (n === 0) return;
+    Object.assign(shader.uniforms, {
+      uHolePose: reg.uniforms.uHolePose,
+      uHoleShape: reg.uniforms.uHoleShape,
+    });
+
+    // A separate varying from the floor's vGWorld, because this material may
+    // already carry one and two declarations of the same name will not compile.
+    shader.vertexShader = `varying vec3 vHoleWorld;\n${shader.vertexShader}`.replace(
+      '#include <worldpos_vertex>',
+      `#include <worldpos_vertex>
+      vHoleWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
+    );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        'void main() {',
+        `varying vec3 vHoleWorld;
+        uniform vec4 uHolePose[${n}];
+        uniform vec4 uHoleShape[${n}];
+
+        float groundHoleCutSD(vec2 p, vec2 ext, float r) {
+          vec2 q = abs(p) - (ext - vec2(r));
+          return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+        }
+
+        void main() {`,
+      )
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+        for (int i = 0; i < ${n}; i++) {
+          vec4 pose = uHolePose[i];
+          vec4 shape = uHoleShape[i];
+          vec2 d = vHoleWorld.xz - pose.xy;
+          vec2 p = vec2(d.x * pose.z - d.y * pose.w, d.x * pose.w + d.y * pose.z);
+          if (groundHoleCutSD(p, shape.xy, shape.z) < 0.0) discard;
+        }`,
+      );
+  };
+  material.needsUpdate = true;
+  return material;
 }

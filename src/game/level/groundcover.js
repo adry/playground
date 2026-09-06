@@ -219,6 +219,7 @@
 
 import * as THREE from 'three';
 import { toyMaterial } from '../../ghost/props/style.js';
+import { cutWithGroundHoles } from '../../ghost/ground.js';
 import { createKerbRun } from '../../ghost/props/ground/kerb.js';
 import { unpackPaint } from './format.js';
 
@@ -748,7 +749,11 @@ function detailGeometry(kind) {
 // The return shape is the one the editor and the viewer already call:
 // { group, stats, update, dispose }.
 
-export function createGroundCover({ ground, seed = 1, detail = true, kerbs = null } = {}) {
+// `floor` is the mesh from createGround(), and it is separate from `ground`
+// because `ground` is the PAINT (which cell is grass) while the floor is the
+// surface underneath it. Passing it is what lets a grave hole cut this cover as
+// well as the floor; omit it and the cover is opaque over every pit.
+export function createGroundCover({ ground, floor = null, seed = 1, detail = true, kerbs = null } = {}) {
   const group = new THREE.Group();
   group.name = 'groundcover';
   const disposables = [];
@@ -1231,6 +1236,24 @@ export function createGroundCover({ ground, seed = 1, detail = true, kerbs = nul
     group.add(made.group);
     parts.push(made);
     stats.kerbs += 1;
+  }
+
+  // EVERY surface this builds has to be cut by the floor's grave holes, and it
+  // is done here, once, over the finished group rather than at each place a
+  // material is made. There are ten of them (the surface, a scatter per
+  // material, a kerb run per pair) and cutting them individually missed six,
+  // including the kerbs, which is exactly the kind of miss that comes back as
+  // "the hole disappeared" months later. A hole is a discard in the FLOOR's
+  // fragment shader, so anything else opaque lying on the floor hides the pit
+  // unless it discards too.
+  {
+    const seen = new Set();
+    group.traverse((o) => {
+      if (!o.isMesh) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (m && !seen.has(m)) { seen.add(m); cutWithGroundHoles(m, floor); }
+      }
+    });
   }
 
   return {

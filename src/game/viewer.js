@@ -150,7 +150,7 @@ export async function startViewer({ canvas, params }) {
     if (cover) { scene.remove(cover.group); cover.dispose(); cover = null; }
     if (!world.ground) return;
     cover = createGroundCover({
-      ground: world.ground, seed: world.seed || seed, kerbs: world.ground.kerbs || null,
+      ground: world.ground, floor: ground, seed: world.seed || seed, kerbs: world.ground.kerbs || null,
     });
     scene.add(cover.group);
   }

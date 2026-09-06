@@ -346,6 +346,7 @@ export async function startGame({ canvas, params }) {
   const cover = authored
     ? authored.createGroundCover({
       ground: authored.doc.ground,
+      floor: ground,
       seed: authored.doc.seed,
       // Which pairs of grounds meet at a row of stones. groundcover.js takes it
       // as an argument rather than reading it off the ground block.
