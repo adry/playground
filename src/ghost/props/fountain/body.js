@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Profile, createSink, sinkToGeometry, latheInto } from './lathe.js';
 import { VEIN_TINT } from './marble.js';
+import { seg } from '../style.js';
 
 // The marble. One profile, run from the axis at the bottom of the plinth all
 // the way round to the axis at the tip of the finial, with an angular
@@ -205,7 +206,11 @@ function chipBite(sample, theta) {
   return bite;
 }
 
-export function buildBodyGeometry({ segments = 78 } = {}) {
+// The lathe's angular step. 78 was chosen against a lab render of one
+// fountain; the game shows two of them at about fifty pixels across, and the
+// house DETAIL scale is the correction for exactly that gap. The floor is 32,
+// below which the basin's rim reads as a polygon at the near edge.
+export function buildBodyGeometry({ segments = seg(78, 32) } = {}) {
   const profile = buildProfile();
 
   const displace = (sample, theta) => {

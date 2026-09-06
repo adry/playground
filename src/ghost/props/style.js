@@ -31,7 +31,65 @@ export function toyMaterial(color, options = {}) {
 
 // Curved surfaces need enough segments that the silhouette reads as smooth at
 // the scale these props are viewed. Cheap insurance: these are static props.
-export const SEGMENTS = { radial: 48, height: 32, curve: 24 };
+//
+// ============================================================================
+// THE HOUSE TESSELLATION IS NOW SCALED BY ONE NUMBER, AND HERE IS WHY
+// ============================================================================
+//
+// "Cheap insurance" was true when a page showed one prop. The owner's own
+// level shows ninety-one, and the arithmetic is not survivable: measured off
+// public/levels/graveyard.json, built exactly as the game builds it,
+//
+//   bush     32 x  ~24,000   769,240
+//   pumpkin  11 x  ~69,000   790,500
+//   stone    37 x   ~9,400   347,152
+//   lantern   8 x  ~21,500   172,328
+//   fountain  2 x   39,816    79,632
+//   shed      1 x   23,958    23,958
+//                            ---------
+//                            2,173,330 triangles of props
+//
+// plus five skeletons at 260,416 each. Three and a half million triangles for
+// a scene whose whole visible content is about a third of a million pixels.
+//
+// AND THE FILL IS NOT THE PROBLEM, which is the measurement that decides this
+// file. The owner ran the game at ?shadow=0&dpr=1 -- no shadow pass at all and
+// a quarter of the pixels -- and reported "a bit better". If pixels were the
+// wall, that would have been transformative. It was not, so what is left is
+// the geometry and the CPU that submits it, and this is the geometry's dial.
+//
+// DETAIL scales every house tessellation number below. It is not a quality
+// setting the player sees; it is the correction for the fact that these props
+// were each authored against a lab render four to twenty-five times the size
+// they are ever seen at. A pumpkin is forty pixels across in the game. Its
+// shell was a 220 by 128 grid, which is forty triangles per pixel.
+//
+// ?detail= overrides it, so a before-and-after render is one URL apart and a
+// machine that wants the lab's density can still have it.
+export const DETAIL = (() => {
+  const dflt = 0.5;
+  // A headless probe has no URL. It reads the same dial off the environment so
+  // the arithmetic in a node script and the picture in the browser are the
+  // same setting; nothing in the shipped page looks at this.
+  if (typeof process !== 'undefined' && process.env && process.env.DETAIL) {
+    const e = Number(process.env.DETAIL);
+    if (Number.isFinite(e) && e > 0) return e;
+  }
+  if (typeof window === 'undefined' || !window.location) return dflt;
+  try {
+    const v = Number(new URLSearchParams(window.location.search).get('detail'));
+    return Number.isFinite(v) && v > 0 ? v : dflt;
+  } catch { return dflt; }
+})();
+
+// Scale a tessellation count by DETAIL. Never below `min`: past about eight
+// steps a swept round thing stops being round, and a saving that turns a
+// lantern's glass into a hexagon is not a saving.
+export function seg(n, min = 8) {
+  return Math.max(min, Math.round(n * DETAIL));
+}
+
+export const SEGMENTS = { radial: seg(48, 12), height: seg(32, 8), curve: seg(24, 6) };
 
 // Everything is authored against the ghost, which stands about 1.6 units tall
 // with its hem near y = 0.2. A pumpkin should come up to roughly its hem.

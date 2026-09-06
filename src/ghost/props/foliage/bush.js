@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { contactShadow } from '../style.js';
+import { contactShadow, DETAIL } from '../style.js';
 import {
   FOLIAGE, foliageMaterial, foliageRng, makeLobes, blobGeometry,
   lumpPositions, icosphere, mergeLumps, bakeFoliageTint, bakeWind,
@@ -216,11 +216,39 @@ export function createBush({ seed = 1, scale = 1, variant = DEFAULT_VARIANT } = 
 // from an eighty-triangle one. What a cluster is for at this size is not its
 // own silhouette; it is one crevice in the vertex-colour bake and one grain of
 // the outline, and both of those it still has.
-const LEAF = 0.034;
-const SPACING = 0.036;
-const NAP = 0.008;
+//
+// AND THEN THE LEVEL ARRIVED WITH THIRTY-TWO OF THEM.
+//
+// Everything above is judged one bush at a time and it is right one bush at a
+// time. The owner's level has 32, and at ~24,000 triangles each they are
+// 769,240 triangles, the largest single line in the whole scene -- larger than
+// all five skeletons, larger than every headstone put together. About 21,000
+// of each bush is these clusters.
+//
+// The clusters do not get cut to a quarter, which is what a straight DETAIL
+// scale would do, because that is exactly the version the paragraph above
+// rejected: a 0.14 cluster reading as a pebble. They are scaled on the SQUARE
+// ROOT of DETAIL instead, so at the shipped 0.5 there are half as many and each
+// is 1.41x across -- a 0.096 cluster, 4.8 px at the game camera, between the
+// 3.4 px that ships and the 7 px that was thrown out. Coverage is unchanged,
+// because count times area is unchanged, which is the property that decides
+// whether a mass looks bald.
+const LEAF_K = 1 / Math.sqrt(DETAIL);
+const LEAF = 0.034 * LEAF_K;
+const SPACING = 0.036 * LEAF_K;
+const NAP = 0.008 * LEAF_K;
 const FLAT = 0.34;
 const LEAF_DETAIL = 0;
+
+// The mass takes the same square-root scale as the clusters, and for the same
+// reason: the numbers below were each set by an angular step argument against
+// a single bush, and thirty-two of them is a different question. `md` is where
+// that scale is applied, with a floor of 4 (500 triangles) under it, because
+// below that the ball's silhouette starts to show its facets at the near edge.
+//
+// PolyhedronGeometry counts go as (detail + 1)^2, so the scale is applied to
+// detail + 1 rather than to detail: 9 -> 6, 13 -> 9, 15 -> 10 at DETAIL 0.5.
+const md = (d) => Math.max(4, Math.round((d + 1) * Math.sqrt(DETAIL)) - 1);
 
 // How finely the mass is tessellated, as three's PolyhedronGeometry `detail`,
 // which gives 20 * (detail + 1)^2 triangles. It is per form because the three
@@ -253,7 +281,7 @@ const CLIPPED = {
     return {
       height,
       mass: (inset) => profileGeometry({
-        detail: 9,
+        detail: md(9),
         profile: ballProfile({ a, b, cy, cut }, inset),
       }),
     };
@@ -290,7 +318,7 @@ const CLIPPED = {
       napSize: (p) => taper(p.y),
       napAt: (p) => NAP * taper(p.y),
       mass: (inset) => profileGeometry({
-        detail: 13,
+        detail: md(13),
         profile: insetProfile(coneProfile({
           base, apex,
           y1: 0,                  // widest at the floor, so the flank stands vertical there
@@ -314,7 +342,7 @@ const CLIPPED = {
     return {
       height,
       mass: (inset) => fieldGeometry({
-        detail: 15,
+        detail: md(15),
         field: insetField(cutField(boxField({
           hx: width / 2 - fillet,
           hy: (height + buried) / 2 - fillet,
@@ -403,7 +431,7 @@ function hedgeSpec({ capPlus }) {
       || Math.abs(p.z) > HEDGE.thick / 2 - LEAF * 1.3
       || p.y > HEDGE.height - LEAF * 1.3,
     mass: (inset) => fieldGeometry({
-      detail: 15,
+      detail: md(15),
       field: field(inset),
       origin: [0, cy, 0],
       reach: 4 * HEDGE.pitch,

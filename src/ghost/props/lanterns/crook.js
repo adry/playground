@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { PALETTE, toyMaterial, SEGMENTS, contactShadow } from '../style.js';
+import { PALETTE, toyMaterial, SEGMENTS, contactShadow, seg } from '../style.js';
 import { createSwing } from '../fence/swing.js';
 
 // A lantern hanging from a shepherd's crook.
@@ -223,7 +223,11 @@ function stripUV(g) {
 // A lathe whose profile is a spline through the given points rather than the
 // points themselves. Corners are what this file is trying hardest not to have,
 // and a hand-written profile with eight points in it always has eight of them.
-function softLathe(pts, steps = 40, segments = SEGMENTS.radial) {
+// `steps` resamples the profile up the lantern and `segments` sweeps it around.
+// SEGMENTS.radial carries the house DETAIL scale; steps did not, and after the
+// scale it was the larger half of the cost. There are six of these in the
+// owner's level and they were 22,276 triangles each for a prop 0.25 units wide.
+function softLathe(pts, steps = seg(40, 16), segments = SEGMENTS.radial) {
   const curve = new THREE.SplineCurve(pts.map(([x, y]) => new THREE.Vector2(x, y)));
   const profile = [];
   for (let i = 0; i <= steps; i++) profile.push(curve.getPoint(i / steps));

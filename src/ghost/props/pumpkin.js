@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { toyMaterial, PALETTE, SEGMENTS } from './style.js';
+import { toyMaterial, PALETTE, SEGMENTS, DETAIL } from './style.js';
 
 // A squat ribbed jack-o'-lantern in the house vinyl-toy style: smooth lobes, a
 // curved tapering stem, and a carved face that glows from inside.
@@ -298,6 +298,15 @@ const VARIANTS = {
 // Tessellation. SEGMENTS is sized for plain round surfaces; a lobed one needs
 // several times that many steps around, or the grooves stair-step, so the
 // counts here scale the house numbers up rather than reusing them blind.
+//
+// SEGMENTS now carries the house DETAIL scale, so RINGS follows it and so does
+// the stem's sweep. What that is worth here, and why this prop was the first
+// one looked at: a classic pumpkin was 65,788 triangles, of which 49,548 were
+// this grid. The prop is 0.8 world units across, which at the game camera is
+// about forty pixels, so the shell alone was running at forty triangles per
+// pixel. The `tiny` variant -- a third the height, twenty-three pixels across
+// -- was still 43,808, because none of this was ever tied to how big the thing
+// actually is.
 const RINGS = SEGMENTS.height * 4;
 
 // What the lamp, the carving and its bloom look like at the bottom and the top
@@ -912,11 +921,21 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // The mouth needs the samples: at 96 across, a tooth flank fell inside a
   // single column and its shoulders came out as a staircase. 240 puts two or
   // three columns in the flank, which is enough for the smoothstep to read.
+  // The emissive plate's own grid, and the contour the shell is cut along: CUTS
+  // below walks the same nx, so this one set of numbers decides the plate, the
+  // wall inside the openings and the gobo the lamp projects.
+  //
+  // It did NOT follow the shell grid and it should: with the shell scaled and
+  // this left alone the plate became 43% of the whole prop. The mouth's 240 is
+  // the grin's outline, which at game scale is fifteen pixels wide -- sixteen
+  // steps a pixel. Scaled with a floor under each, because the teeth are the
+  // one part of this face that is a shape rather than a blob.
+  const fs = (n, min) => Math.max(min, Math.round(n * DETAIL));
   const FACE_SHAPES = [
-    { nx: 14, ny: 14, sampler: refit(eye(-1)) },
-    { nx: 14, ny: 14, sampler: refit(eye(1)) },
-    { nx: 10, ny: 10, sampler: refit(nose) },
-    { nx: 240, ny: 10, sampler: refit(mouth) },
+    { nx: fs(14, 8), ny: fs(14, 8), sampler: refit(eye(-1)) },
+    { nx: fs(14, 8), ny: fs(14, 8), sampler: refit(eye(1)) },
+    { nx: fs(10, 8), ny: fs(10, 8), sampler: refit(nose) },
+    { nx: fs(240, 96), ny: fs(10, 6), sampler: refit(mouth) },
   ];
 
 
@@ -1077,7 +1096,14 @@ export function createPumpkin({ variant = 'classic', seed = 1, scale = 1 } = {})
   // Denser than the plain shell needed. The grid is now the thing being cut, so
   // its cell has to be small next to a tooth flank; at the old 180 x 96 a whole
   // tooth was three cells wide and snapping could not rescue the outline.
-  const radial = Math.max(lobes * 22, SEGMENTS.radial * 2);
+  // 22 steps a lobe was set by the CARVING and not by the silhouette: a tooth
+  // flank is a contour crossing this grid at an arbitrary angle and can only be
+  // as clean as the cell it lands on. So it takes the house scale rather than
+  // being cut freely, and the floor underneath it is the real constraint --
+  // below about eleven steps a lobe the grin's teeth start to lose their
+  // corners. See the render pair in the report: at DETAIL 0.5 this is 110
+  // steps against 220, and at game scale the two are the same picture.
+  const radial = Math.max(Math.round(lobes * 22 * DETAIL), lobes * 11, SEGMENTS.radial * 2);
   const shellVerts = [];
   const shellNors = [];
   const shellColors = [];

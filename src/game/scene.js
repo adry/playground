@@ -62,7 +62,7 @@ import { createTombstone } from '../ghost/props/stones/index.js';
 import { createPumpkin } from '../ghost/props/pumpkin.js';
 import { createFenceRun } from '../ghost/props/fence/panel.js';
 import { createFireflies } from '../ghost/props/fireflies.js';
-import { createSkeletonRig } from '../ghost/props/skeleton/model.js';
+import { createSkeletonRig, cloneSkeletonRig } from '../ghost/props/skeleton/model.js';
 import { createSkeletonPerformance } from '../ghost/props/skeleton/perform.js';
 import { createGraveHole } from '../ghost/props/ground/hole.js';
 import { createPropCache, createPropField } from '../ghost/props/instancing.js';
@@ -85,9 +85,14 @@ export async function startGame({ canvas, params }) {
   const seed = Number(params.get('seed')) || 1;
   const testMode = params.get('test') === '1';
   // Frame-time readout. Off unless asked for, and F2 toggles it at any time.
+  // 'sim' used to be one bucket holding four unrelated things, which is how a
+  // frame stays a mystery: the share recorder's canvas copy, the rules, the
+  // ghost's cloth and the input all landed in the same number. They are split
+  // now, because the question this pass had to answer was which of them the
+  // frame was going to and the old buckets could not say.
   const fperf = createFrameHud({
     enabled: params.get('perf') === '1',
-    buckets: ['sim', 'skels', 'bake', 'props', 'render'],
+    buckets: ['shots', 'rules', 'cloth', 'skels', 'bake', 'props', 'render'],
   });
 
   // --- the level -------------------------------------------------------------
@@ -353,7 +358,11 @@ export async function startGame({ canvas, params }) {
     key.shadow.camera.top = reach;
     key.shadow.camera.bottom = -reach;
     key.shadow.camera.updateProjectionMatrix();
-    shadowTexel = (2 * reach) / 2048;
+    // Against the map's ACTUAL size, not a constant. This read 2048 and the map
+    // is 1024 now, so the snap in follow() was rounding the light's target to
+    // half a texel instead of a whole one, which is the thing the snap exists
+    // to prevent: every shadow edge crawls as the camera moves.
+    shadowTexel = (2 * reach) / (shadowSize || 1024);
   }
 
   // --- the floor -------------------------------------------------------------
@@ -787,11 +796,18 @@ export async function startGame({ canvas, params }) {
   // figure and the gait; the rules own where it is, through the `driver` hook.
   // Rebuilding four rigs every wave would be the most expensive thing on the
   // page and would buy nothing: they are the same four skeletons.
+  // The first figure is built; the rest are COPIES of it, sharing its vertex
+  // buffers. createSkeletonRig takes no arguments and is deterministic, so the
+  // five were always the same 260,416 triangles built five times over: 2483,
+  // 2218 and 2204 ms on three consecutive calls, against 4 ms for a copy. That
+  // is about nine seconds off the load, five sets of buffers off the GPU, and
+  // not one pixel different. See cloneSkeletonRig in model.js.
+  let rigOrigin = null;
   const rigs = [];
   function ensureRigs(n) {
     while (rigs.length < n) {
       const i = rigs.length;
-      const rig = createSkeletonRig();
+      const rig = rigOrigin ? cloneSkeletonRig(rigOrigin) : (rigOrigin = createSkeletonRig());
       scene.add(rig.group);
       let want = null;
       const perf = createSkeletonPerformance({
@@ -1098,6 +1114,7 @@ export async function startGame({ canvas, params }) {
     // and the camera is still the camera that drew it, so the crop share.js
     // works out matches the pixels it copies.
     shots.tick(dt);
+    fperf.mark();
     time += dt;
     if (!run.over) run.time += dt;
     // input.sample takes the ghost's position because the drag control is
@@ -1106,6 +1123,7 @@ export async function startGame({ canvas, params }) {
     // fighting a mouse that is not there.
     const axis = scripted || input.sample(ghost.pos);
     const st = game.update(dt, axis);
+    fperf.mark();
 
     driveGhost(st);
     ghost.update(dt, axis, st.ghost);

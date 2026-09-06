@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { registerStone, inkText } from '../tombstones.js';
 import { Profile, createSink, sinkToGeometry, latheInto, roundedBoxInto, transformRange } from '../fountain/lathe.js';
+import { seg } from '../style.js';
 
 // A draped funerary urn on a squarish pedestal.
 //
@@ -268,7 +269,11 @@ registerStone('urn', {
     const urnStart = sink.pos.length;
     latheInto(sink, {
       profile,
-      segments: 128,
+      // 128 was set against a lab render of one urn. The game shows it at about
+      // fifty pixels, and the drape's displacement is what the eye reads here,
+      // not the angular step. The house DETAIL scale carries it, with a floor
+      // that keeps the rim round at the near edge.
+      segments: seg(128, 48),
       displace: drapeDisplacer(profile, centre),
     });
     // Scaled up as a whole and sunk a little into the cornice, so no seam opens

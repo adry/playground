@@ -154,3 +154,75 @@ export function createSkeletonRig({ scale = 1 } = {}) {
     },
   };
 }
+
+// ===========================================================================
+// A SECOND FIGURE IS A COPY, NOT A SECOND BUILD
+// ===========================================================================
+//
+// createSkeletonRig takes no arguments and is deterministic: every call returns
+// the same 260,416 triangles in the same 82 meshes. The game keeps FIVE, and it
+// was calling this five times.
+//
+// Measured, three calls in a row in node: 2495 ms, 2218 ms, 2204 ms. So four of
+// the five rigs were about nine seconds of the load, building geometry that
+// already existed, and then handing the driver five separate copies of the same
+// vertex buffers to upload. The owner's complaint is that they cannot START the
+// level; this is the largest single thing standing in the way of starting it,
+// and unlike everything else in this pass it is not a quality trade at all --
+// the copies are the same figure to the last vertex.
+//
+// three's clone() copies the node tree and SHARES geometry and material by
+// reference, which is exactly what is wanted: one set of buffers on the GPU,
+// five independently posed node trees hanging off them. The animator poses
+// nodes and never touches a vertex, so nothing about the performance changes.
+//
+// The three things perform.js reads -- group, joints, shed -- are remapped by
+// walking the source and the copy in lockstep. That is exact rather than
+// name-based on purpose: the rig has 135 named nodes and only 125 distinct
+// names, so resolving a joint by name would be ambiguous for ten of them.
+//
+// dispose() on a copy frees nothing. The geometries, the material and the
+// parts belong to the rig this was copied from, and freeing them here would
+// pull them out from under the other four figures.
+export function cloneSkeletonRig(src) {
+  const group = src.group.clone(true);
+
+  // Lockstep index. clone(true) preserves child order at every level, so a
+  // parallel walk pairs each source node with its copy exactly.
+  const map = new Map();
+  (function pair(a, b) {
+    map.set(a, b);
+    for (let i = 0; i < a.children.length; i++) pair(a.children[i], b.children[i]);
+  }(src.group, group));
+
+  const joints = {};
+  for (const [name, node] of Object.entries(src.joints)) {
+    const copy = map.get(node);
+    if (!copy) throw new Error(`cloneSkeletonRig: joint ${name} has no counterpart`);
+    // userData carries the jaw's published axis and sign, and clone() copies
+    // it, so the contract survives without being restated here.
+    joints[name] = copy;
+  }
+
+  const shed = new Map();
+  for (const [name, node] of src.shed) {
+    const copy = map.get(node);
+    if (copy) shed.set(name, copy);
+  }
+
+  // perform.js reads this and treats an empty list as nothing to do. The
+  // source publishes an empty array; clone() gives the copy a reference to the
+  // SAME array, which would be shared state if it ever stopped being empty.
+  group.userData.contactShadow = [];
+
+  return {
+    group,
+    joints,
+    shed,
+    meshCount: src.meshCount,
+    update() {},
+    // Deliberately empty. See the note above: everything a copy points at is
+    // owned by the rig it was copied from.
+    dispose() {},
+  };
+}

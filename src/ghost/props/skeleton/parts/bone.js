@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import M from '../metrics.js';
+import { DETAIL } from '../../style.js';
 
 // The shared bone vocabulary.
 //
@@ -29,7 +30,24 @@ export function boneMaterial(options = {}) {
 // the two are indistinguishable, and the game draws a whole skeleton 97 pixels
 // tall. The figure was 531,364 triangles, of which this number alone was
 // 65,280. See the block above jointBall for the arithmetic and the renders.
-const RADIAL = 12;
+//
+// A SECOND CUT, AND WHY IT IS SMALLER THAN THE HOUSE ONE.
+//
+// The house DETAIL scale is 0.5 and everything else in the palette takes it
+// straight. This figure takes its SQUARE ROOT, so 0.71 rather than 0.5, and the
+// reason is that the skeleton is the one prop in the game that is also seen in
+// close-up: the rise clip and the dance clip both frame it at about 400 px
+// tall, four times the game's 97. The first cut was measured at three framings
+// and the close-up was already the one that moved. Halving again on top of it
+// would be spending the whole of that margin at once.
+//
+// At 0.71 the four dials go 12 -> 8 sides, 14x11 -> 10x8 balls, and the cranium
+// 216x138 -> 153x98, which is a rig of about 150,000 against 260,416, and five
+// of them 750,000 against 1,302,080. ?detail= drives it, so the pair of renders
+// that justifies it is one URL apart.
+const SKEL_DETAIL = Math.sqrt(DETAIL);
+const sk = (n, min) => Math.max(min, Math.round(n * SKEL_DETAIL));
+const RADIAL = sk(12, 8);
 
 // A long bone: swept along `path`, fat at both ends, waisted in between.
 //
@@ -134,7 +152,7 @@ export function straightShaft(a, b, r, { bow = 0, bowAxis = null, ...rest } = {}
 // 59% of what halving would have been, so three quarters is what shipped. See
 // skull.js.
 export function jointBall(r, { squash = 0.88, axis = null } = {}) {
-  const geo = new THREE.SphereGeometry(r * M.jointBallScale, 14, 11);
+  const geo = new THREE.SphereGeometry(r * M.jointBallScale, sk(14, 8), sk(11, 6));
   if (squash !== 1) {
     geo.scale(1, squash, 1);
     if (axis) {

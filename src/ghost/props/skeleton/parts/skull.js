@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import M, { LEFT_X } from '../metrics.js';
 import { shaft } from './bone.js';
+import { DETAIL } from '../../style.js';
+
+// See NTH/NPH below and the block in bone.js: the figure takes the square root
+// of the house detail scale, and never goes below what the openings need.
+const skullSeg = (n, min) => Math.max(min, Math.round(n * Math.sqrt(DETAIL)));
 
 // The skull, built from a photograph of a real one.
 //
@@ -675,8 +680,16 @@ const AO_REACH = 0.038 * HS;
 // density, and it still returns 45,716 triangles, 59% of what halving offered.
 // That is the trade: give up two fifths of the saving on this one dial and the
 // form we fought for is untouched.
-const NTH = 216;
-const NPH = 138;
+//
+// AND THE SAME SECOND CUT AS THE REST OF THE FIGURE. bone.js explains why the
+// skeleton scales on the square root of the house DETAIL rather than on DETAIL
+// itself: this is the one prop that is also framed in close-up. At 0.71 the
+// grid is 153 by 98, which is above the 144 by 92 the paragraph above rejected
+// and below the 216 by 138 that shipped, and the orbit rim and the nasal
+// aperture -- the two contours that decided this number -- are the things to
+// look at in the close-up render, not the vault.
+const NTH = skullSeg(216, 144);
+const NPH = skullSeg(138, 92);
 
 // Polynomial smooth minimum. k is a real length, so a fillet between two parts
 // is the same size wherever it happens.
