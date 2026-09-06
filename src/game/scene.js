@@ -1028,6 +1028,55 @@ export async function startGame({ canvas, params }) {
   resize();
   window.addEventListener('resize', resize);
 
+  // ===========================================================================
+  // EVERYTHING THE FIRST FRAME WOULD OTHERWISE PAY FOR, PAID HERE
+  // ===========================================================================
+  //
+  // The level finishes building and the page is not playable for another
+  // thirteen seconds. That is not the build and it is not the frame rate; it is
+  // the first draws. Measured on the owner's level, after gameReady, with
+  // nothing yet drawn:
+  //
+  //   renderer.compile, 226 materials, 37 programs        68 ms
+  //   uploading 120 textures, 159 MB                    8672 ms
+  //   the first render after both                       2793 ms
+  //   every render after that                              7 ms
+  //
+  // Two things follow. The first is that shader compilation, which is what
+  // everyone reaches for, is 68 ms of it -- worth doing, and not the answer.
+  // The second is that the 2793 ms first render IS the hitch the owner sees:
+  // the frame HUD's p50 is 16.7 ms and its p95 is 2416, and a p95 that is a
+  // hundred and fifty times the median is one frame, not a pattern.
+  //
+  // None of this makes the work smaller. What it does is move it to a point
+  // where the page has not yet claimed to be ready, so it lands in the load
+  // instead of in the first second of play. The bakes themselves got smaller
+  // separately: see FACE_ROWS in props/tombstones.js.
+  //
+  // It is wrapped because none of it is load-bearing. initTexture is a hint,
+  // compile is an optimisation, and a driver that dislikes either should cost
+  // the page a slow first frame rather than a blank one.
+  try {
+    renderer.compile(scene, camera);
+    const seen = new Set();
+    scene.traverse((o) => {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) {
+        if (!m) continue;
+        for (const k in m) {
+          const v = m[k];
+          if (v && v.isTexture && !seen.has(v)) { seen.add(v); renderer.initTexture(v); }
+        }
+      }
+    });
+    // The shadow map is a second pass with its own programs, and it is drawn
+    // for the first time inside the first render like everything else. One
+    // render here retires it, along with whatever compile could not see.
+    renderer.render(scene, camera);
+  } catch (err) {
+    console.warn('warm-up skipped:', err.message);
+  }
+
   function follow(dt) {
     const k = 1 - Math.exp(-dt * 5.6);
     camTarget.x += (ghost.pos.x - camTarget.x) * k;

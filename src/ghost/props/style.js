@@ -66,6 +66,14 @@ export function toyMaterial(color, options = {}) {
 //
 // ?detail= overrides it, so a before-and-after render is one URL apart and a
 // machine that wants the lab's density can still have it.
+//
+// THE EDITOR RENDERS AT THIS TOO, AND THAT IS DELIBERATE. /editor/ imports the
+// same prop modules, so it now draws the palette at the density the game ships
+// at. That is the point of the tool -- a level laid out against a prettier
+// preview than the game gives is a level laid out for the preview -- so please
+// do not "fix" the editor back to the old numbers. If you want the lab's
+// density for a close look at one prop, /editor/?detail=1 gives it to you for
+// that session and changes nothing about what ships.
 export const DETAIL = (() => {
   const dflt = 0.5;
   // A headless probe has no URL. It reads the same dial off the environment so

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE, SEGMENTS, toyMaterial } from './style.js';
+import { DETAIL } from './style.js';
 
 // Carved headstones for the graveyard set.
 //
@@ -615,7 +616,40 @@ export const GRIME = 0.2;
 //
 // Raise it if a close-up ever needs it. It is one number and everything follows
 // it.
-export const FACE_ROWS = 512;
+//
+// ============================================================================
+// AND IT IS THE LARGEST THING IN THE LOAD, MEASURED
+// ============================================================================
+//
+// The paragraph above is right that the GAME samples this around mip 3. What it
+// does not say is what the other three mip levels cost to get onto the card.
+// Measured on the owner's level, ninety-one props, after gameReady and before
+// anything is drawn:
+//
+//   renderer.compile, 226 materials, 37 programs        68 ms
+//   uploading 120 textures, 159 MB                    8672 ms
+//   the first render after both                       2793 ms
+//   every render after that                              7 ms
+//
+// So the thirteen seconds between "the level is built" and "the game is
+// playable" is almost entirely THIS: 111 of those 120 textures are prop bakes,
+// 151 MB of them, and they are a map and a normal map per prop at up to
+// 1466 by 512. Shader compilation, which is the usual suspect, is 68 ms.
+//
+// This number sets both axes -- the width follows the slab's aspect -- so it
+// goes as the square of the scale.
+//
+// THE SQUARE ROOT OF THE HOUSE SCALE, NOT THE SCALE, and the reason is in the
+// letter-height block above. The groove is the thing that fails first: at 512
+// its wall is FH * 0.011 = 5.6 texels and its lip FH * 0.006 = 3.1. At the full
+// DETAIL of 0.5 that is 2.8 and 1.5, and a lip of one and a half texels is a
+// painted line rather than a cut. At the square root it is 362 rows, a wall of
+// 4.0 texels and a lip of 2.2, and it still halves the memory and the bake.
+//
+// The bake cost falls with it, which is the second half of the win: the file's
+// own note says the build is "nearly all of it the pixel loop in
+// heightToNormalMap", and that loop is per texel.
+export const FACE_ROWS = Math.max(192, Math.round(512 * Math.sqrt(DETAIL)));
 
 // --- the bake pool ----------------------------------------------------------
 //
