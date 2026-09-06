@@ -486,13 +486,49 @@ const DIR8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -
 // seventeen findings of exactly one cell and none of two or more, against a
 // soak that reports those arenas clean at a raster of 0.15. One cell is the
 // instrument; two is a place.
-export function findWedges({ box, barriers, gates, props, spawn, spawns = null, cell = NAV_CELL, minCells = MIN_POCKET }) {
+// The classification the wedge finder works from, handed out so a PICTURE can
+// be drawn from the same arrays the finding comes from.
+//
+// This exists because a wedge is the one defect on this project that nobody has
+// been able to SEE. It is a number in an audit line -- "260 cells at -12.0,
+// -11.3" -- and every attempt to work out what bounds one has been done by
+// deleting a prop, re-running the audit and reading a different number, which
+// is a search with no gradient. world/plot.js draws the level; now it can draw
+// this over the top of it, and the two cannot disagree, because the audit calls
+// this same function.
+//
+// `state` is one byte a cell:
+//
+//   0  nothing this size can stand here at all
+//   1  walkable, and connected to the ghost's spawn. The game's real floor.
+//   2  a body fits, nothing can walk here, and it is big enough to be reported
+//   3  a body fits, nothing can walk here, and it is under minCells
+//
+// 2 and 3 are the same defect; the split is there so a picture can show the
+// instrument's own floor rather than pretend it is not there.
+export function navPicture({ box, barriers, gates, props, spawn, cell = NAV_CELL, minCells = MIN_POCKET }) {
+  const { grid, reachable, flagged, pockets } = classify({ box, barriers, gates, props, spawn, cell, minCells });
+  const N = grid.n * grid.n;
+  const state = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    if (reachable[i] && !grid.unfit[i]) state[i] = 1;
+    else if (flagged[i]) state[i] = pockets.big[i] ? 2 : 3;
+  }
+  return { n: grid.n, cell, x0: grid.x0, z0: grid.z0, state };
+}
+
+// The shared half of findWedges and navPicture. One implementation, so a
+// picture can never show a wedge the audit does not report or miss one it does.
+function classify({ box, barriers, gates, props, spawn, cell, minCells }) {
   const grid = navGrid(box, barriers, gates, props, spawn, cell);
   const { label } = components(grid);
-  const spawnCell = nearestWide(grid, spawn.x, spawn.z);
-  if (spawnCell < 0) return [];
-  const reachable = dilate(grid, label, label[spawnCell], FRINGE, grid.unfit);
   const N = grid.n * grid.n;
+  const spawnCell = nearestWide(grid, spawn.x, spawn.z);
+  if (spawnCell < 0) {
+    return { grid, reachable: new Uint8Array(N), flagged: new Uint8Array(N),
+      pockets: { list: [], big: new Uint8Array(N) } };
+  }
+  const reachable = dilate(grid, label, label[spawnCell], FRINGE, grid.unfit);
   const flagged = new Uint8Array(N);
   for (let i = 0; i < N; i++) {
     if (grid.unfit[i] || reachable[i]) continue;
@@ -502,22 +538,28 @@ export function findWedges({ box, barriers, gates, props, spawn, spawns = null, 
     if (!bodyFits(barriers, props, x, z, cell)) continue;
     flagged[i] = 1;
   }
-  // One finding per pocket rather than per cell, because an author wants to be
-  // sent to a place and not to a list of quarter unit squares.
+  return { grid, reachable, flagged, pockets: poolPockets(grid, flagged, minCells) };
+}
+
+// One entry per connected pocket, plus a mask saying which cells belong to a
+// pocket that clears the floor.
+function poolPockets(grid, flagged, minCells) {
+  const N = grid.n * grid.n;
   const seen = new Uint8Array(N);
-  const out = [];
+  const big = new Uint8Array(N);
+  const list = [];
   for (let s = 0; s < N; s++) {
     if (!flagged[s] || seen[s]) continue;
     const stack = [s];
+    const members = [];
     seen[s] = 1;
     let sx = 0;
     let sz = 0;
-    let count = 0;
     while (stack.length) {
       const i = stack.pop();
+      members.push(i);
       sx += grid.wx(i);
       sz += grid.wz(i);
-      count++;
       const a = i % grid.n;
       for (let d = 0; d < 8; d++) {
         const [dx, dz] = DIR8[d];
@@ -528,8 +570,19 @@ export function findWedges({ box, barriers, gates, props, spawn, spawns = null, 
         stack.push(j);
       }
     }
-    if (count >= minCells) out.push({ x: sx / count, z: sz / count, cells: count });
+    const count = members.length;
+    if (count < minCells) continue;
+    for (const i of members) big[i] = 1;
+    list.push({ x: sx / count, z: sz / count, cells: count });
   }
+  return { list, big };
+}
+
+export function findWedges({ box, barriers, gates, props, spawn, spawns = null, cell = NAV_CELL, minCells = MIN_POCKET }) {
+  const { grid, reachable, pockets } = classify({ box, barriers, gates, props, spawn, cell, minCells });
+  const out = pockets.list.slice();
+  // One finding per pocket rather than per cell, because an author wants to be
+  // sent to a place and not to a list of quarter unit squares. See poolPockets.
   // And the marker whose plot the ghost's flood never reached. `reachable` is
   // the generous dilation, so a spawn point outside it is outside it at every
   // raster and not merely at this one.

@@ -14,6 +14,8 @@
 
 import { createSurface, toPNG, text } from '../layout/plot.js';
 import { gridBoxOf } from './field.js';
+import { makeFrame } from '../layout/frame.js';
+import { navPicture } from './repair.js';
 
 const C = {
   bg: [14, 16, 20, 255],
@@ -30,6 +32,14 @@ const C = {
   pumpkin: [232, 140, 58, 255],
   lantern: [246, 220, 120, 255],
   bush: [104, 150, 96, 255],
+  // The palette grew and this table did not, so a shed and a fountain were
+  // both coming out as the [255, 0, 255] "no colour for this kind" blob, which
+  // in a picture about what blocks the player reads as something alarming
+  // rather than as a missing entry.
+  shed: [150, 128, 104, 255],
+  fountain: [120, 170, 200, 255],
+  flowers: [198, 120, 170, 255],
+  grass: [120, 160, 104, 255],
   hole: [24, 20, 18, 255],
   dirt: [130, 96, 70, 255],
   grave: [220, 110, 220, 255],
@@ -38,6 +48,14 @@ const C = {
   jack: [255, 120, 40, 255],
   walk: [90, 190, 255, 255],
   spawn: [120, 220, 255, 255],
+  // The navigation overlay. `floor` is everywhere a body can walk to from the
+  // ghost's spawn; `wedge` is everywhere a body FITS and nothing can walk to,
+  // which is the defect; `speck` is the same defect below the audit's own
+  // reporting floor, drawn dimmer so the instrument's threshold is visible in
+  // the picture rather than hidden behind it.
+  floor: [40, 62, 78, 255],
+  wedge: [255, 60, 130, 255],
+  speck: [150, 90, 60, 255],
   label: [225, 228, 232, 255],
 };
 
@@ -46,8 +64,19 @@ const C = {
 // of a generator into a picture of a game.
 export function drawRegion(world, {
   centre = { x: 0, z: 0 }, size = 44, scale = 22, walk = null, label = null,
+  // Draw the reachable set and the wedges over the level. Off by default: it
+  // costs a nav raster of the whole box, which is the expensive part of the
+  // audit, and most callers want a picture of the LEVEL.
+  nav = false,
 } = {}) {
-  const frame = world.frame;
+  // A GENERATED world carries its own frame; an AUTHORED one does not, because
+  // the level format has no grid in it at all -- see level/format.js, which says
+  // so in as many words. The screen frame is the same fixed isometry for every
+  // world in the project, so building one here is not a substitute for the
+  // world's, it is the same object. Without this, drawRegion could only ever
+  // picture a generated arena, which is the half of the project that no longer
+  // ships.
+  const frame = world.frame || makeFrame('screen');
   // The picture is a grid aligned square, because that is what the camera sees,
   // and the arena is a world aligned square, so the arena is a DIAMOND in the
   // picture and the four corners of the image are the darkness beyond the wall.
@@ -65,6 +94,44 @@ export function drawRegion(world, {
   const X = (u) => (u - g.minU) * scale;
   const Y = (v) => (g.maxV - v) * scale;
   const G = (x, z) => frame.toGrid(x, z);
+
+  // ===========================================================================
+  // THE NAVIGATION OVERLAY, UNDERNEATH EVERYTHING
+  // ===========================================================================
+  //
+  // Drawn first so the props sit on top of it: the question this answers is
+  // "what bounds this pocket", and the answer is always a prop or a fence, so
+  // the props have to be legible over it.
+  //
+  // It comes from repair.js's own classifier, the same call findWedges makes,
+  // so a wedge in this picture is a wedge in the audit by construction. A
+  // separate raster here would be a second opinion, and a second opinion about
+  // reachability is exactly how this defect stayed invisible for so long.
+  if (nav) {
+    const pic = navPicture({
+      box, barriers: world.barriers(box), gates: world.gates(box),
+      props: world.props(box), spawn: world.spawn,
+    });
+    const quad = (cx, cz, half, c, alpha) => {
+      const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => {
+        const q = G(cx + a * half, cz + b * half);
+        return [X(q.u), Y(q.v)];
+      });
+      s.poly(pts, c, alpha);
+    };
+    // Half the cell plus a hair, so neighbouring cells meet rather than leaving
+    // a moire of background between them once the 45 degrees is taken out.
+    const half = pic.cell * 0.62;
+    for (let i = 0; i < pic.n * pic.n; i++) {
+      const st = pic.state[i];
+      if (!st) continue;
+      const cx = pic.x0 + (i % pic.n) * pic.cell + pic.cell / 2;
+      const cz = pic.z0 + (((i / pic.n) | 0) * pic.cell) + pic.cell / 2;
+      if (st === 1) quad(cx, cz, half, C.floor, 1);
+      else if (st === 2) quad(cx, cz, half, C.wedge, 0.85);
+      else quad(cx, cz, half, C.speck, 0.7);
+    }
+  }
 
   // The floor's own grid, a major line every 5.0, which is the thing the arena
   // was sized against: six large squares a side.
