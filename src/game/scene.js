@@ -208,7 +208,20 @@ export async function startGame({ canvas, params }) {
   // that is already shipped, on a night when this page does not work yet.
   // Whichever of the two survives should own the rig; today neither does.
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
-  renderer.setPixelRatio(testMode ? 1 : Math.min(window.devicePixelRatio || 1, 2));
+
+  // QUALITY. The game draws every frame, so unlike the editor it cannot buy
+  // anything back by drawing less often: what it costs per frame is what it
+  // costs. Two dials, both readable from the URL so a slow machine has an
+  // answer that does not need a rebuild.
+  //
+  // The pixel ratio matters more than it looks. On a retina display
+  // devicePixelRatio is 2, so an uncapped renderer fills FOUR TIMES the pixels
+  // the window shows, with multisampling on top of that. This shipped at 2 and
+  // the editor was capped weeks before the game was, which is an oversight
+  // rather than a decision: 1.5 still leaves one and a half device pixels per
+  // CSS pixel, visibly sharper than 1 on a retina panel, at 56% of the fill.
+  const dprCap = Number(params.get('dpr')) || 1.5;
+  renderer.setPixelRatio(testMode ? 1 : Math.min(window.devicePixelRatio || 1, dprCap));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -223,7 +236,16 @@ export async function startGame({ canvas, params }) {
   scene.add(hemi);
   const key = new THREE.DirectionalLight(0xfff4e6, 2.1);
   key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048);
+  // The shadow map is a second full pass over every casting triangle, every
+  // frame. 2048 was inherited from a page showing one character; this one shows
+  // five skeletons and a graveyard, and the map covers the whole arena rather
+  // than one figure, so the extra resolution was buying detail nobody can
+  // resolve at this camera. ?shadow= overrides, and 0 turns shadows off
+  // entirely, which is the biggest single lever a struggling machine has.
+  const shadowSize = params.has('shadow') ? Number(params.get('shadow')) : 1024;
+  renderer.shadowMap.enabled = shadowSize > 0;
+  key.castShadow = shadowSize > 0;
+  key.shadow.mapSize.set(shadowSize || 1024, shadowSize || 1024);
   key.shadow.camera.near = 0.5;
   key.shadow.camera.far = 60;
   key.shadow.bias = -0.0004;
