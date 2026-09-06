@@ -173,7 +173,7 @@ const SHED_PLAN = [
 // THE DIRT, in the same TABLE time as everything else above.
 //
 // props/ground/dirt.js owns the clods and the simulation; this is only the list
-// of moments the climb hands it, and that split is the point: the zombie has
+// of moments the climb hands it, and that split is the point: another figure
 // its own emergence with its own timings and wants the same four beats fired
 // off its own choreography, not off a copy of this table.
 //
@@ -396,7 +396,7 @@ export function createSkeletonPerformance({
   // Which beats of DIRT_PLAN have fired, as a bitmask.
   //
   // Cleared in BOTH enter() branches that begin a climb, and that is not
-  // belt-and-braces. The zombie's head shake carries the scar: its equivalent
+  // belt-and-braces. A second figure's head shake carried the same scar: its
   // flag was cleared only in reset(), so every emergence after the first played
   // with the beat silently missing, and nothing about it showed up in a clip of
   // a fresh scene. The game puts a figure back under and brings it up again
@@ -822,7 +822,7 @@ export function createSkeletonPerformance({
   // threshold is TABLE time, so re-timing the climb re-times the dirt with it
   // and the fist and its spray cannot come apart. And it does not decide how
   // much earth to throw: it says where, which way and how hard, and dirt.js
-  // decides what that looks like, because the zombie will be asking the same
+  // decides what that looks like, because a second figure would ask the same
   // four questions with different answers.
   function maybeDirt(t) {
     if (!soil) return;
