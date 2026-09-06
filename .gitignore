@@ -49,3 +49,7 @@ out/
 # level in here, so the pattern is the rule rather than the file. demo.json is
 # the one the site ships and does not match it.
 /public/levels/*-check.json
+
+# The performance pass's working baseline. A measurement of one machine at
+# one moment, rewritten on every run, and meaningless on any other machine.
+.perf-base.json
