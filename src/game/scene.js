@@ -1,7 +1,7 @@
 // The game, on screen.
 //
 //   /lab/?game=1                          the level the site ships, which is
-//                                         /levels/demo.json and was authored
+//                                         /levels/graveyard.json, the owner's own level
 //   /lab/?game=1&level=<url>              some other authored level
 //   /lab/?game=1&level=session            whatever /editor/ has open, which is
 //                                         what its play button opens and is
@@ -114,7 +114,7 @@ export async function startGame({ canvas, params }) {
   // they pull in every prop in the palette -- the fountain, the shed, nine
   // lanterns -- which is most of what an authored level can contain and none
   // of what a generated one does.
-  const SHIPPED_LEVEL = '/levels/demo.json';
+  const SHIPPED_LEVEL = '/levels/graveyard.json';
   // Not a URL: the token that means "the document the editor has open". See
   // loadLevelFrom, which is the only thing that knows what to do with it.
   const SESSION = 'session';
