@@ -36,7 +36,7 @@ look before the site goes live.
 | Domain | `index.html` (canonical, Open Graph, JSON-LD), `sitemap.xml`, `robots.txt` | `https://chronicledeluxe.com` |
 | Contact email | `index.html`, every `mailto:` | `hello@chronicledeluxe.com` |
 | Dayzie one-liner | venture card 07 | A deliberately general description |
-| GoodMargin name and App Store link | venture card 06, hero map | "GoodMargin", no link yet |
+| GoodMargin name and App Store link | venture card 06, hero tile | "GoodMargin", no link yet |
 | Newsletter link | "Read the Chronicle" card | A `mailto:` subscribe request |
 | Quomoda and Past Tense links | venture cards 04 and 05 | No link yet (only Resourced links out) |
 
@@ -47,7 +47,7 @@ domain and email in one go.
 
 ```
 index.html                 the page: content, meta tags, JSON-LD
-404.html                   not-found page
+404.html                   "This page is past tense."
 assets/css/site.css        all styles, top to bottom in page order
 assets/js/site.js          all motion, progressive enhancement only
 assets/fonts/              self-hosted variable fonts (latin subset)
@@ -60,14 +60,13 @@ robots.txt, sitemap.xml
 ## Adding a venture
 
 1. Copy one `<li class="venture ...">` block in `index.html`, give it the
-   next number, a two-letter symbol, a `view-transition-name` that is unique
-   (`v9`, `v10`...) and `data-tags` from `fashion ai software apps`.
-2. Add a tone class in `site.css` next to the others
-   (`.c-name { --c: #hex; --on: <text colour on it>; }`). Keep it muted so
-   the portfolio still reads as one house.
-3. Give it an arm in the hero map: the map is an SVG in `index.html` with
-   one `hm-item` group per business, spaced 360 / n degrees apart.
-4. Update the counts on the filter chips, the "Seven businesses" headline,
+   next number, an `id`, a `view-transition-name` that is unique (`v9`,
+   `v10`...) and `data-tags` from `fashion ai software apps`. If it started
+   as a fix for one of our own problems, give it the "Built for us first" pill.
+   Then give it a tile in the hero mosaic that links to that `id`.
+2. Add a colour class in `site.css` next to the others
+   (`.c-name { --c: #hex; --on: <text colour on it>; }`).
+3. Update the counts on the filter chips, the "Seven businesses" headline,
    the "7 ventures" number, and the `ItemList` in the JSON-LD.
 
 ## Motion
@@ -75,19 +74,22 @@ robots.txt, sitemap.xml
 All of it is driven by one `requestAnimationFrame` loop and a few
 `IntersectionObserver`s in `site.js`:
 
-- **Hero**: headline words rise from a mask. The house map draws itself in
-  (rings, then one arm per business, then the nodes and labels), small
-  pulses travel from the centre out along each arm, and hovering a business
-  highlights its arm. The map drifts a few pixels with the pointer.
-- **Ticker**: one quiet row of disciplines that picks up speed while you
-  scroll.
-- **Manifesto**: words darken as you read down.
+- **Hero**: headline words rise from a mask, then the mosaic assembles from
+  the centre out: the house first, then one tile per business. Each tile
+  links to its venture card. With a mouse the mosaic drifts a few pixels with
+  the pointer and the house mark turns a quarter on hover.
+- **Marquee**: two straight bands running in opposite directions that pick up
+  a little speed while you scroll.
+- **Manifesto**: words light up as you read down.
 - **Ventures**: filter chips animate the grid with the View Transitions API
-  where the browser supports it; on hover a card lifts, its grid shifts and
-  its symbol rises.
+  where the browser supports it; on hover a card lifts and its line artwork
+  animates (on touch it animates while the card is on screen).
 - **Approach**: a progress line fills and the steps light up as you scroll.
-- **Numbers** count up, **principles** underline on hover, the founder
-  monogram's rings draw in, the **footer wordmark** rises letter by letter.
+- **Numbers** count up, **house rules** fill with colour on hover, the
+  **footer wordmark** rises letter by letter.
+
+There is nothing to drag, nothing bounces and nothing overshoots: every
+movement eases out and settles.
 
 `prefers-reduced-motion` turns the decorative motion off and shows
 everything in its final state. If the script fails to load, an inline

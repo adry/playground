@@ -20,15 +20,11 @@
 
   /* ------------------------------------------------------------------
      Intro: wait for the display font (briefly) so the headline animates
-     in its real shape instead of reflowing mid-flight. Once the house map
-     has finished drawing, hover states switch to their own fast timing.
+     in its real shape instead of reflowing mid-flight.
   ------------------------------------------------------------------ */
   const fontsReady = document.fonts?.ready ?? Promise.resolve();
   Promise.race([fontsReady, new Promise((r) => setTimeout(r, 400))]).then(() => {
-    requestAnimationFrame(() => {
-      root.classList.add('is-loaded');
-      setTimeout(() => root.classList.add('map-ready'), reduce ? 0 : 2400);
-    });
+    requestAnimationFrame(() => root.classList.add('is-loaded'));
   });
 
   /* ------------------------------------------------------------------
@@ -49,7 +45,7 @@
   };
 
   /* ------------------------------------------------------------------
-     Header: frosted bar once you scroll, hides on the way down,
+     Header: frosted pill once you scroll, hides on the way down,
      comes back the moment you scroll up.
   ------------------------------------------------------------------ */
   const header = $('[data-header]');
@@ -95,7 +91,7 @@
       $('a', menu).focus({ preventScroll: true });
     } else {
       menu.classList.remove('is-open');
-      menuTimer = setTimeout(() => { if (!menuOpen) menu.hidden = true; }, reduce ? 0 : 720);
+      menuTimer = setTimeout(() => { if (!menuOpen) menu.hidden = true; }, reduce ? 0 : 760);
     }
   }
   toggle.addEventListener('click', () => setMenu(!menuOpen));
@@ -105,7 +101,7 @@
   });
 
   /* ------------------------------------------------------------------
-     "Currently building" rotator
+     "Now building in ..." rotator
   ------------------------------------------------------------------ */
   const rotator = $('.rotator');
   const rotWords = $$('.rotator-word');
@@ -113,7 +109,8 @@
 
   function sizeRotator() {
     if (!rotator) return;
-    rotator.style.width = `${rotWords[rotIndex].offsetWidth}px`;
+    const pad = parseFloat(getComputedStyle(rotator).paddingLeft) * 2;
+    rotator.style.width = `${rotWords[rotIndex].offsetWidth + pad}px`;
   }
   if (rotator && rotWords.length > 1) {
     setInterval(() => {
@@ -126,15 +123,15 @@
       next.classList.add('is-active');
       sizeRotator();
       setTimeout(() => prev.classList.remove('is-leaving'), 700);
-    }, 2600);
+    }, 2200);
   }
 
   /* ------------------------------------------------------------------
-     House map: drifts a few pixels toward the pointer and sinks slowly
-     as the hero scrolls away, so it reads as a layer behind the copy.
+     Hero mosaic: drifts a few pixels toward the pointer, so it reads as a
+     layer sitting just behind the copy. Nothing to drag, nothing to chase.
   ------------------------------------------------------------------ */
   const hero = $('.hero');
-  const mapWrap = $('[data-map]');
+  const mosaic = $('[data-mosaic]');
   let pointerX = 0, pointerY = 0, px = 0, py = 0;
   watch(hero, '80px');
 
@@ -145,16 +142,16 @@
     }, { passive: true });
   }
 
-  function updateMap(dt) {
-    if (!mapWrap) return;
+  function updateMosaic(dt) {
+    if (!mosaic || !finePointer) return;
     px = lerp(px, pointerX, 0.05 * dt);
     py = lerp(py, pointerY, 0.05 * dt);
-    const drift = finePointer ? Math.min(sy, vh) * 0.12 : 0;
-    mapWrap.style.transform = `translate3d(${(px * 10).toFixed(2)}px, ${(py * 8 + drift).toFixed(2)}px, 0)`;
+    mosaic.style.transform = `translate3d(${(px * -8).toFixed(2)}px, ${(py * -6).toFixed(2)}px, 0)`;
   }
 
   /* ------------------------------------------------------------------
-     Ticker: runs steadily and picks up speed while the page scrolls.
+     Marquee: two bands running in opposite directions. Scrolling
+     speeds them up a little.
   ------------------------------------------------------------------ */
   const marqueeWrap = $('.marquee');
   watch(marqueeWrap, '100px');
@@ -180,10 +177,10 @@
   }
 
   function updateMarquees(dt) {
-    const boost = Math.min(Math.abs(vel), 60) * 0.25;
+    const boost = Math.min(Math.abs(vel), 80) * 0.3;
     marquees.forEach((m) => {
       if (!m.unit) return;
-      m.x -= (0.55 + boost) * m.dir * dt;
+      m.x -= (0.9 + boost) * m.dir * dt;
       if (m.dir > 0 && m.x <= -m.unit) m.x += m.unit;
       if (m.dir < 0 && m.x >= 0) m.x -= m.unit;
       m.track.style.transform = `translate3d(${m.x.toFixed(2)}px,0,0)`;
@@ -191,7 +188,7 @@
   }
 
   /* ------------------------------------------------------------------
-     Manifesto: words darken as you read down the page.
+     Manifesto: words light up as you read down the page.
   ------------------------------------------------------------------ */
   const manifesto = $('[data-manifesto]');
   let mWords = [];
@@ -276,7 +273,7 @@
       new IntersectionObserver(([e], io) => {
         if (!e.isIntersecting) return;
         io.disconnect();
-        const t0 = performance.now(), dur = 1500 + target * 20;
+        const t0 = performance.now(), dur = 1400 + target * 20;
         const tick = (t) => {
           const k = clamp((t - t0) / dur, 0, 1);
           const eased = k === 1 ? 1 : 1 - Math.pow(2, -10 * k);
@@ -293,6 +290,10 @@
   ------------------------------------------------------------------ */
   const chips = $$('[data-filter]');
   const cards = $$('.venture');
+  const cardIO = new IntersectionObserver((entries) => {
+    entries.forEach((e) => e.target.classList.toggle('in-view', e.isIntersecting));
+  }, { rootMargin: '60px' });
+  cards.forEach((c) => cardIO.observe(c));
   const filterStatus = $('[data-filter-status]');
 
   function applyFilter(f) {
@@ -303,10 +304,6 @@
       if (show) { shown++; c.classList.add('is-in'); }
     });
     return shown;
-  }
-  function announce(n, chip) {
-    const label = chip.firstChild.textContent.trim();
-    filterStatus.textContent = `${n} ${n === 1 ? 'venture' : 'ventures'} shown${chip.dataset.filter === 'all' ? '' : ` in ${label}`}.`;
   }
   chips.forEach((chip) => chip.addEventListener('click', () => {
     if (chip.getAttribute('aria-pressed') === 'true') return;
@@ -328,6 +325,10 @@
       announce(shown, chip);
     }
   }));
+  function announce(n, chip) {
+    const label = chip.firstChild.textContent.trim();
+    filterStatus.textContent = `${n} ${n === 1 ? 'venture' : 'ventures'} shown${chip.dataset.filter === 'all' ? '' : ` in ${label}`}.`;
+  }
 
   /* ------------------------------------------------------------------
      Card spotlight and magnetic buttons, for mouse users only.
@@ -347,14 +348,14 @@
         const r = el.getBoundingClientRect();
         const dx = e.clientX - (r.left + r.width / 2);
         const dy = e.clientY - (r.top + r.height / 2);
-        el.style.translate = `${(dx * 0.12).toFixed(1)}px ${(dy * 0.18).toFixed(1)}px`;
+        el.style.translate = `${(dx * 0.15).toFixed(1)}px ${(dy * 0.22).toFixed(1)}px`;
       });
       el.addEventListener('pointerleave', () => { el.style.translate = '0px 0px'; });
     });
   }
 
   /* ------------------------------------------------------------------
-     Footer year and wordmark sizing
+     Footer year
   ------------------------------------------------------------------ */
   const year = $('[data-year]');
   if (year) year.textContent = String(new Date().getFullYear());
@@ -388,8 +389,7 @@
   fontsReady.then(() => requestAnimationFrame(measure));
 
   /* ------------------------------------------------------------------
-     One frame loop drives every continuous effect: layout reads first,
-     then writes, so a frame never forces a second layout.
+     One frame loop drives every continuous effect.
   ------------------------------------------------------------------ */
   let last = performance.now();
   let first = true;
@@ -408,7 +408,7 @@
 
     // Write phase
     if (dy !== 0 || first) { updateHeader(dy); updateProgress(); }
-    if (!reduce && visible.get(hero)) updateMap(dt);
+    if (!reduce && visible.get(hero)) updateMosaic(dt);
     if (!reduce && visible.get(marqueeWrap)) updateMarquees(dt);
     if (manifestoRect) updateManifesto(manifestoRect);
     if (stepsRect) updateSteps(stepsRect, stepTops);
