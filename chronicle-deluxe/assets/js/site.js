@@ -20,11 +20,15 @@
 
   /* ------------------------------------------------------------------
      Intro: wait for the display font (briefly) so the headline animates
-     in its real shape instead of reflowing mid-flight.
+     in its real shape instead of reflowing mid-flight. Once the house map
+     has finished drawing, hover states switch to their own fast timing.
   ------------------------------------------------------------------ */
   const fontsReady = document.fonts?.ready ?? Promise.resolve();
   Promise.race([fontsReady, new Promise((r) => setTimeout(r, 400))]).then(() => {
-    requestAnimationFrame(() => root.classList.add('is-loaded'));
+    requestAnimationFrame(() => {
+      root.classList.add('is-loaded');
+      setTimeout(() => root.classList.add('map-ready'), reduce ? 0 : 2400);
+    });
   });
 
   /* ------------------------------------------------------------------
@@ -45,7 +49,7 @@
   };
 
   /* ------------------------------------------------------------------
-     Header: frosted pill once you scroll, hides on the way down,
+     Header: frosted bar once you scroll, hides on the way down,
      comes back the moment you scroll up.
   ------------------------------------------------------------------ */
   const header = $('[data-header]');
@@ -91,7 +95,7 @@
       $('a', menu).focus({ preventScroll: true });
     } else {
       menu.classList.remove('is-open');
-      menuTimer = setTimeout(() => { if (!menuOpen) menu.hidden = true; }, reduce ? 0 : 760);
+      menuTimer = setTimeout(() => { if (!menuOpen) menu.hidden = true; }, reduce ? 0 : 720);
     }
   }
   toggle.addEventListener('click', () => setMenu(!menuOpen));
@@ -101,7 +105,7 @@
   });
 
   /* ------------------------------------------------------------------
-     "Now building in ..." rotator
+     "Currently building" rotator
   ------------------------------------------------------------------ */
   const rotator = $('.rotator');
   const rotWords = $$('.rotator-word');
@@ -109,8 +113,7 @@
 
   function sizeRotator() {
     if (!rotator) return;
-    const pad = parseFloat(getComputedStyle(rotator).paddingLeft) * 2;
-    rotator.style.width = `${rotWords[rotIndex].offsetWidth + pad}px`;
+    rotator.style.width = `${rotWords[rotIndex].offsetWidth}px`;
   }
   if (rotator && rotWords.length > 1) {
     setInterval(() => {
@@ -123,79 +126,17 @@
       next.classList.add('is-active');
       sizeRotator();
       setTimeout(() => prev.classList.remove('is-leaving'), 700);
-    }, 2200);
+    }, 2600);
   }
 
   /* ------------------------------------------------------------------
-     Hero stickers: float, drift with the pointer and the scroll, and on
-     a mouse you can pick them up and throw them. On touch a tap boops.
+     House map: drifts a few pixels toward the pointer and sinks slowly
+     as the hero scrolls away, so it reads as a layer behind the copy.
   ------------------------------------------------------------------ */
   const hero = $('.hero');
-  const stage = $('[data-stage]');
-  const badge = $('.badge');
-  const depths = [0.14, 0.32, 0.2, 0.1, 0.26, 0.38, 0.16, 0.08];
-  let pointerX = 0, pointerY = 0, px = 0, py = 0, zTop = 20;
+  const mapWrap = $('[data-map]');
+  let pointerX = 0, pointerY = 0, px = 0, py = 0;
   watch(hero, '80px');
-
-  const stickers = $$('.sticker', stage).map((el, i) => ({
-    el, x: 0, y: 0, vx: 0, vy: 0, drag: false, moved: 0,
-    depth: depths[i % depths.length], bounds: null, lastX: 0, lastY: 0, lastT: 0,
-  }));
-
-  function measureStickers() {
-    const hw = hero.clientWidth, hh = hero.clientHeight;
-    stickers.forEach((s) => {
-      const bx = stage.offsetLeft + s.el.offsetLeft;
-      const by = stage.offsetTop + s.el.offsetTop;
-      s.bounds = {
-        minX: -bx + 8, maxX: hw - bx - s.el.offsetWidth - 8,
-        minY: -by + 70, maxY: hh - by - s.el.offsetHeight - 8,
-      };
-    });
-  }
-
-  stickers.forEach((s) => {
-    const { el } = s;
-    el.addEventListener('pointerdown', (e) => {
-      if (e.pointerType === 'touch' || e.button !== 0) return;
-      e.preventDefault();
-      s.drag = true;
-      s.moved = 0;
-      s.vx = s.vy = 0;
-      s.lastX = e.clientX; s.lastY = e.clientY; s.lastT = performance.now();
-      el.setPointerCapture(e.pointerId);
-      el.classList.add('is-dragging');
-      el.style.zIndex = String(++zTop);
-    });
-    el.addEventListener('pointermove', (e) => {
-      if (!s.drag) return;
-      const now = performance.now();
-      const dt = Math.max(8, now - s.lastT);
-      const dx = e.clientX - s.lastX, dy = e.clientY - s.lastY;
-      s.x += dx; s.y += dy;
-      s.moved += Math.abs(dx) + Math.abs(dy);
-      s.vx = lerp(s.vx, (dx / dt) * 16.67, 0.6);
-      s.vy = lerp(s.vy, (dy / dt) * 16.67, 0.6);
-      s.lastX = e.clientX; s.lastY = e.clientY; s.lastT = now;
-    });
-    const drop = () => {
-      if (!s.drag) return;
-      s.drag = false;
-      el.classList.remove('is-dragging');
-      if (s.moved > 6) stage.classList.add('has-dragged');
-      if (performance.now() - s.lastT > 80) { s.vx = 0; s.vy = 0; }
-    };
-    el.addEventListener('pointerup', drop);
-    el.addEventListener('pointercancel', drop);
-    el.addEventListener('lostpointercapture', drop);
-    el.addEventListener('click', () => {
-      if (s.moved > 6) return;
-      el.classList.remove('is-boop');
-      void el.offsetWidth;
-      el.classList.add('is-boop');
-    });
-    el.addEventListener('animationend', () => el.classList.remove('is-boop'));
-  });
 
   if (finePointer) {
     addEventListener('pointermove', (e) => {
@@ -204,43 +145,16 @@
     }, { passive: true });
   }
 
-  function updateStickers(dt, sr) {
-    px = lerp(px, pointerX, 0.06 * dt);
-    py = lerp(py, pointerY, 0.06 * dt);
-    // Parallax is measured from where the stage sits in the viewport, so the
-    // stickers hold their designed layout whenever the stage is centred, on a
-    // desktop (stage visible at load) and on a phone (stage further down) alike.
-    const scrollShift = clamp(vh * 0.5 - (sr.top + sr.height / 2), -vh * 0.6, vh * 1.2) * (finePointer ? 1 : 0.5);
-    for (const s of stickers) {
-      if (!s.drag && (Math.abs(s.vx) > 0.01 || Math.abs(s.vy) > 0.01)) {
-        s.x += s.vx * dt; s.y += s.vy * dt;
-        const f = Math.pow(0.93, dt);
-        s.vx *= f; s.vy *= f;
-        const b = s.bounds;
-        if (b) {
-          if (s.x < b.minX) { s.x = b.minX; s.vx = -s.vx * 0.55; }
-          if (s.x > b.maxX) { s.x = b.maxX; s.vx = -s.vx * 0.55; }
-          if (s.y < b.minY) { s.y = b.minY; s.vy = -s.vy * 0.55; }
-          if (s.y > b.maxY) { s.y = b.maxY; s.vy = -s.vy * 0.55; }
-        }
-      }
-      const tx = s.x + px * s.depth * 46;
-      const ty = s.y + py * s.depth * 34 - scrollShift * s.depth;
-      const tilt = s.drag ? clamp(s.vx * 0.9, -14, 14) : 0;
-      s.el.style.transform = `translate3d(${tx.toFixed(2)}px, ${ty.toFixed(2)}px, 0) rotate(${tilt.toFixed(2)}deg)`;
-    }
-  }
-
-  let badgeRot = 0;
-  function updateBadge(dt) {
-    if (!badge) return;
-    badgeRot = (badgeRot + (0.22 + Math.min(Math.abs(vel), 60) * 0.35) * dt) % 360;
-    badge.style.setProperty('--rot', `${badgeRot.toFixed(2)}deg`);
+  function updateMap(dt) {
+    if (!mapWrap) return;
+    px = lerp(px, pointerX, 0.05 * dt);
+    py = lerp(py, pointerY, 0.05 * dt);
+    const drift = finePointer ? Math.min(sy, vh) * 0.12 : 0;
+    mapWrap.style.transform = `translate3d(${(px * 10).toFixed(2)}px, ${(py * 8 + drift).toFixed(2)}px, 0)`;
   }
 
   /* ------------------------------------------------------------------
-     Marquee: two tapes running in opposite directions. Scrolling speeds
-     them up and leans them over, like a ticker with momentum.
+     Ticker: runs steadily and picks up speed while the page scrolls.
   ------------------------------------------------------------------ */
   const marqueeWrap = $('.marquee');
   watch(marqueeWrap, '100px');
@@ -266,19 +180,18 @@
   }
 
   function updateMarquees(dt) {
-    const boost = Math.min(Math.abs(vel), 80) * 0.45;
-    const skew = clamp(-vel * 0.18, -10, 10);
+    const boost = Math.min(Math.abs(vel), 60) * 0.25;
     marquees.forEach((m) => {
       if (!m.unit) return;
-      m.x -= (0.9 + boost) * m.dir * dt;
+      m.x -= (0.55 + boost) * m.dir * dt;
       if (m.dir > 0 && m.x <= -m.unit) m.x += m.unit;
       if (m.dir < 0 && m.x >= 0) m.x -= m.unit;
-      m.track.style.transform = `translate3d(${m.x.toFixed(2)}px,0,0) skewX(${(skew * m.dir).toFixed(2)}deg)`;
+      m.track.style.transform = `translate3d(${m.x.toFixed(2)}px,0,0)`;
     });
   }
 
   /* ------------------------------------------------------------------
-     Manifesto: words light up as you read down the page.
+     Manifesto: words darken as you read down the page.
   ------------------------------------------------------------------ */
   const manifesto = $('[data-manifesto]');
   let mWords = [];
@@ -363,7 +276,7 @@
       new IntersectionObserver(([e], io) => {
         if (!e.isIntersecting) return;
         io.disconnect();
-        const t0 = performance.now(), dur = 1400 + target * 20;
+        const t0 = performance.now(), dur = 1500 + target * 20;
         const tick = (t) => {
           const k = clamp((t - t0) / dur, 0, 1);
           const eased = k === 1 ? 1 : 1 - Math.pow(2, -10 * k);
@@ -380,10 +293,6 @@
   ------------------------------------------------------------------ */
   const chips = $$('[data-filter]');
   const cards = $$('.venture');
-  const cardIO = new IntersectionObserver((entries) => {
-    entries.forEach((e) => e.target.classList.toggle('in-view', e.isIntersecting));
-  }, { rootMargin: '60px' });
-  cards.forEach((c) => cardIO.observe(c));
   const filterStatus = $('[data-filter-status]');
 
   function applyFilter(f) {
@@ -394,6 +303,10 @@
       if (show) { shown++; c.classList.add('is-in'); }
     });
     return shown;
+  }
+  function announce(n, chip) {
+    const label = chip.firstChild.textContent.trim();
+    filterStatus.textContent = `${n} ${n === 1 ? 'venture' : 'ventures'} shown${chip.dataset.filter === 'all' ? '' : ` in ${label}`}.`;
   }
   chips.forEach((chip) => chip.addEventListener('click', () => {
     if (chip.getAttribute('aria-pressed') === 'true') return;
@@ -415,30 +328,16 @@
       announce(shown, chip);
     }
   }));
-  function announce(n, chip) {
-    const label = chip.firstChild.textContent.trim();
-    filterStatus.textContent = `${n} ${n === 1 ? 'venture' : 'ventures'} shown${chip.dataset.filter === 'all' ? '' : ` in ${label}`}.`;
-  }
 
   /* ------------------------------------------------------------------
-     Card tilt and magnetic buttons, for mouse users only.
+     Card spotlight and magnetic buttons, for mouse users only.
   ------------------------------------------------------------------ */
   if (finePointer) {
     $$('.venture > article').forEach((card) => {
       card.addEventListener('pointermove', (e) => {
-        if (reduce) return;
         const r = card.getBoundingClientRect();
-        const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
-        card.classList.add('is-tilting');
-        card.style.setProperty('--ry', `${((x - 0.5) * 7).toFixed(2)}deg`);
-        card.style.setProperty('--rx', `${((0.5 - y) * 7).toFixed(2)}deg`);
-        card.style.setProperty('--mx', `${(x * 100).toFixed(1)}%`);
-        card.style.setProperty('--my', `${(y * 100).toFixed(1)}%`);
-      });
-      card.addEventListener('pointerleave', () => {
-        card.classList.remove('is-tilting');
-        card.style.setProperty('--rx', '0deg');
-        card.style.setProperty('--ry', '0deg');
+        card.style.setProperty('--mx', `${(((e.clientX - r.left) / r.width) * 100).toFixed(1)}%`);
+        card.style.setProperty('--my', `${(((e.clientY - r.top) / r.height) * 100).toFixed(1)}%`);
       });
     });
 
@@ -448,14 +347,14 @@
         const r = el.getBoundingClientRect();
         const dx = e.clientX - (r.left + r.width / 2);
         const dy = e.clientY - (r.top + r.height / 2);
-        el.style.translate = `${(dx * 0.22).toFixed(1)}px ${(dy * 0.32).toFixed(1)}px`;
+        el.style.translate = `${(dx * 0.12).toFixed(1)}px ${(dy * 0.18).toFixed(1)}px`;
       });
       el.addEventListener('pointerleave', () => { el.style.translate = '0px 0px'; });
     });
   }
 
   /* ------------------------------------------------------------------
-     Footer year
+     Footer year and wordmark sizing
   ------------------------------------------------------------------ */
   const year = $('[data-year]');
   if (year) year.textContent = String(new Date().getFullYear());
@@ -477,7 +376,6 @@
   function measure() {
     vh = window.innerHeight;
     docH = document.documentElement.scrollHeight;
-    measureStickers();
     measureMarquees();
     sizeRotator();
     fitWordmark();
@@ -490,7 +388,8 @@
   fontsReady.then(() => requestAnimationFrame(measure));
 
   /* ------------------------------------------------------------------
-     One frame loop drives every continuous effect.
+     One frame loop drives every continuous effect: layout reads first,
+     then writes, so a frame never forces a second layout.
   ------------------------------------------------------------------ */
   let last = performance.now();
   let first = true;
@@ -502,8 +401,6 @@
     vel = lerp(vel, dy / Math.max(dt, 0.001), 0.2);
 
     // Read phase
-    const heroOn = !reduce && (visible.get(hero) || stickers.some((s) => s.drag || Math.abs(s.vx) > 0.01));
-    const stageRect = heroOn ? stage.getBoundingClientRect() : null;
     const manifestoRect = !reduce && manifesto && visible.get(manifesto) ? manifesto.getBoundingClientRect() : null;
     const stepsOn = steps && visible.get(steps) && (dy !== 0 || first);
     const stepsRect = stepsOn ? steps.getBoundingClientRect() : null;
@@ -511,7 +408,7 @@
 
     // Write phase
     if (dy !== 0 || first) { updateHeader(dy); updateProgress(); }
-    if (heroOn) { updateStickers(dt, stageRect); updateBadge(dt); }
+    if (!reduce && visible.get(hero)) updateMap(dt);
     if (!reduce && visible.get(marqueeWrap)) updateMarquees(dt);
     if (manifestoRect) updateManifesto(manifestoRect);
     if (stepsRect) updateSteps(stepsRect, stepTops);
