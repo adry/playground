@@ -73,7 +73,7 @@ function sideBuilding(r: Rand, x: number, w: number, top: number): string {
 function stenstad(r: Rand, l: Listing): string {
   const paint = pick(r, PAINT.stenstad);
   const roof = r() < 0.55 ? ROOF.copper : ROOF.tin;
-  const n = l.floors;
+  const n = l.floors ?? 5;
   const x0 = 32, x1 = 128, ground = 92, roofH = 10, gfH = 15;
   const upperH = (ground - 14 - roofH - gfH) / (n - 1);
   const top = ground - gfH - upperH * (n - 1);
@@ -108,7 +108,7 @@ function stenstad(r: Rand, l: Listing): string {
 
 function funkis(r: Rand, l: Listing): string {
   const paint = pick(r, PAINT.funkis);
-  const n = l.floors;
+  const n = l.floors ?? 5;
   const x0 = 22, x1 = 138, ground = 92, fh = 13;
   const top = ground - n * fh - 4;
   let s = rect(x0, top, x1 - x0, ground - top, paint);
@@ -137,7 +137,7 @@ function funkis(r: Rand, l: Listing): string {
 function modern(r: Rand, l: Listing): string {
   const paint = pick(r, PAINT.modern);
   const accent = '#B07A4A';
-  const n = l.floors;
+  const n = l.floors ?? 5;
   const x0 = 18, x1 = 142, ground = 92;
   const fh = Math.min(12, 74 / n);
   const top = ground - n * fh;
