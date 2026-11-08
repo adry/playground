@@ -77,12 +77,11 @@ function listingFor(r: Rand, area: DemoArea, i: number, agencyCycle: number): Li
   const fee = isFlat ? Math.round((size * between(r, 48, 78)) / 10) * 10 : null;
   const floors = intBetween(r, info.floors[0], info.floors[1]);
   const floor = isFlat ? intBetween(r, 1, floors) : null;
-  const street = pick(r, area.streets);
+  const [street, sLat, sLng] = pick(r, area.streets);
   const number = intBetween(r, 2, 96);
   const letter = isFlat && r() < 0.15 ? pick(r, ['A', 'B']) : '';
-  const angle = r() * Math.PI * 2;
-  const dist = Math.sqrt(r()) * area.spreadKm;
-  const pos = offsetKm(area, Math.cos(angle) * dist, Math.sin(angle) * dist);
+  // Within about 40 m of the street's point, so homes stay on land on a map.
+  const pos = offsetKm({ lat: sLat, lng: sLng }, (r() - 0.5) * 0.08, (r() - 0.5) * 0.08);
   const agency = DEMO_AGENCIES[agencyCycle % DEMO_AGENCIES.length];
   const agent = pick(r, agency.agents);
   const phone = `070-174 06 ${String(5 + ((i * 7 + agencyCycle) % 95)).padStart(2, '0')}`;

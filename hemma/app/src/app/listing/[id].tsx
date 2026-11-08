@@ -9,9 +9,11 @@ import { dateKey, dayLabel, distanceText, fromKey, kr, num, rok, timeRange } fro
 import { distanceKm, walkMinutes } from '@core/geo.ts';
 import { Button } from '../../components/bits';
 import { HomeImage } from '../../components/HomeImage';
+import { MiniMap } from '../../components/MiniMap';
 import { Icon } from '../../components/Icon';
 import { T } from '../../components/T';
 import { useApp } from '../../state';
+import { appleMapsUrl, googleMapsUrl, openDirections, otherAppUrl } from '../../directions';
 import { useTheme } from '../../theme';
 import { track } from '../../track';
 
@@ -39,10 +41,11 @@ export default function ListingScreen() {
 
   const km = distanceKm(app.origin, l);
   const area = app.data.areas.find((a) => a.id === l.area)?.name;
-  const query = encodeURIComponent(`${l.address}, ${l.city || 'Stockholm'}`);
-  const directions = () => {
+  const dest = { lat: l.lat, lng: l.lng, label: l.address };
+  const from = app.origin.gps ? null : app.origin;
+  const go = (url: string) => {
     track('directions', ref, app.day);
-    void Linking.openURL(Platform.OS === 'ios' ? `maps://?daddr=${query}&dirflg=w` : `https://www.google.com/maps/dir/?api=1&destination=${query}&travelmode=walking`);
+    void Linking.openURL(url);
   };
   const facts: [string, string][] = [
     ['Rooms', rok(l.rooms)],
@@ -135,7 +138,24 @@ export default function ListingScreen() {
           </View>
         </View>
 
-        <Button primary icon="walk" label="Directions" onPress={directions} />
+        <View style={{ gap: 10 }}>
+          <T v="label" color={t.muted} style={{ fontSize: 12 }}>Getting there</T>
+          <MiniMap at={l} label={l.address} onPress={() => { track('directions', ref, app.day); openDirections(dest, from); }} />
+          <T v="small" color={t.muted}>{distanceText(km)} from {app.origin.label}, about {walkMinutes(km)} min on foot.</T>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {Platform.OS === 'android' ? (
+              <>
+                <Button primary icon="walk" label="Google Maps" style={{ flex: 1 }} onPress={() => go(googleMapsUrl(dest, from))} />
+                <Button icon="pin" label="Other app" style={{ flex: 1 }} onPress={() => go(otherAppUrl(dest))} />
+              </>
+            ) : (
+              <>
+                <Button primary icon="walk" label="Apple Maps" style={{ flex: 1 }} onPress={() => go(appleMapsUrl(dest, from))} />
+                <Button icon="walk" label="Google Maps" style={{ flex: 1 }} onPress={() => go(googleMapsUrl(dest, from))} />
+              </>
+            )}
+          </View>
+        </View>
 
         {promo && (
           <View style={{ backgroundColor: t.ochreSoft, borderRadius: 12, padding: 12 }}>

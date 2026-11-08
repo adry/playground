@@ -25,7 +25,7 @@ cd hemma/app && npm install && npx expo start
 cd hemma/dashboard && npm install && npm run dev
 
 # Tests
-cd hemma/core && node --test test/*.test.ts                            # feed rules, demo data
+cd hemma/core && node --test test/*.test.ts                            # feed rules, map links, demo data
 cd hemma/supabase && npm install && node --test test/*.test.ts         # real Postgres (PGlite), importer, signatures
 ```
 
@@ -45,6 +45,17 @@ app (buyers) ── track() ──▶ events     dashboard (agents, admins) ─�
                                                                    ◀── stripe-webhook ──
 ```
 
+- **The map is a real map:** Apple Maps on iPhone and Google Maps on
+  Android, through react-native-maps.
+  - **Pins:** each viewing is a pin showing its start time, coloured by
+    whether it is on now, with the buyer's search radius drawn around them.
+  - **Directions:** tap a pin for the home and a Directions button. Every
+    home page also has a small map and **Apple Maps** / **Google Maps**
+    buttons (Google Maps / Other app on Android) that send the home's
+    coordinates for walking directions. My day sends the whole route to
+    Google Maps.
+  - **Web build:** the web export used for quick previews shows a distance
+    diagram instead, since react-native-maps has no web version.
 - **Buyers** get the homes with viewings in the next 14 days around them.
   The phone ranks them with `core/feed.ts`, the same code the dashboard
   previews and the tests check.
@@ -91,8 +102,11 @@ app (buyers) ── track() ──▶ events     dashboard (agents, admins) ─�
      `app/.env`
    - `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `dashboard/.env`
 7. **Builds:** `npx eas-cli build` for TestFlight and Play internal testing.
-   The bundle id `se.hemma.app` in `app/app.json` is a placeholder; change it
-   to yours before the first build.
+   - The bundle id `se.hemma.app` in `app/app.json` is a placeholder; change
+     it to yours before the first build.
+   - Android builds need a Google Maps key (Maps SDK for Android) in
+     `GOOGLE_MAPS_ANDROID_API_KEY`, as an EAS secret. iPhone uses Apple Maps
+     and needs no key. Expo Go works without either.
 
 ## What is verified, and what is not
 
@@ -107,14 +121,18 @@ app (buyers) ── track() ──▶ events     dashboard (agents, admins) ─�
   - Importer: Swedish times and home types, rejected rows, the shrink guard,
     signed push events.
 - **The four Edge Functions** type-check under Deno.
-- **The app:** type-checks, bundles with Metro, and was clicked through in a
-  phone-sized browser.
+- **The app:** type-checks and bundles for iOS, Android and web.
+  - The phone bundles contain the native map.
+  - The direction links are unit-tested and were captured from the running
+    web build.
+  - Clicked through in a phone-sized browser.
 - **The dashboard:** type-checks, builds, and was clicked through in all
   three roles.
 
 **Not verified:**
-- The app on a physical iPhone or Android phone. Expo Go or an EAS build is
-  the next step.
+- The app on a physical iPhone or Android phone, including how the map and
+  its pins look: this sandbox cannot run a phone simulator. Expo Go or an
+  EAS build is the next step.
 - Stripe payments end to end, which needs your Stripe account.
 - Deployment to a real Supabase project.
 - The Mspecs and Vitec integrations, which need partner access first; see

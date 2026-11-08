@@ -1,5 +1,4 @@
 // My day: planned viewings in time order with the walk between them.
-import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, View } from 'react-native';
 import { planDay, statusOf } from '@core/feed.ts';
@@ -11,6 +10,7 @@ import { HomeImage } from '../../components/HomeImage';
 import { Icon } from '../../components/Icon';
 import { T } from '../../components/T';
 import { useApp } from '../../state';
+import { openRoute } from '../../directions';
 import { useTheme } from '../../theme';
 
 export default function Plan() {
@@ -20,12 +20,8 @@ export default function Plan() {
   const plan = planDay({ entries, listings: app.data.listings, origin: app.origin });
   const otherDays = [...new Set(app.plan.map((e) => dateKey(new Date(e.start))))].filter((d) => d !== app.day && d >= app.today).sort();
 
-  const route = () => {
-    const stops = plan.stops.map((s) => `${s.listing.address}, ${s.listing.city || 'Stockholm'}`);
-    const params = new URLSearchParams({ api: '1', origin: `${app.origin.lat},${app.origin.lng}`, destination: stops[stops.length - 1], travelmode: 'walking' });
-    if (stops.length > 1) params.set('waypoints', stops.slice(0, -1).join('|'));
-    void Linking.openURL(`https://www.google.com/maps/dir/?${params}`);
-  };
+  const route = () =>
+    openRoute(plan.stops.map((s) => ({ lat: s.listing.lat, lng: s.listing.lng, label: s.listing.address })), app.origin.gps ? null : app.origin);
 
   return (
     <View style={{ flex: 1, backgroundColor: t.paper }}>
@@ -90,7 +86,7 @@ export default function Plan() {
                 </View>
               );
             })}
-            <Button primary icon="walk" label="Walking route in Google Maps" onPress={route} style={{ marginTop: 20 }} />
+            <Button primary icon="walk" label="Walking route" onPress={route} style={{ marginTop: 20 }} />
           </View>
         )}
 
