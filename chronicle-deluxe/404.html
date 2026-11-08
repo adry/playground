@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Page not found | Chronicle Deluxe</title>
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#F4EFE6">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="32x32">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/assets/fonts/bricolage-grotesque-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/assets/css/site.css">
+  <style>
+    .lost { min-height: 100svh; display: grid; align-content: center; gap: 28px; padding-block: 120px 64px; }
+    .lost-code { font-family: var(--font-serif); font-style: italic; font-size: clamp(1.3rem, 1rem + 1vw, 1.8rem); color: var(--muted); }
+    .lost h1 { font-family: var(--font-display); font-weight: 760; font-stretch: 78%; font-size: clamp(3rem, 1rem + 9vw, 9rem); line-height: .9; letter-spacing: -.035em; word-spacing: .08em; text-wrap: balance; }
+    .lost h1 .serif { color: var(--tomato-text); }
+    .lost p { max-width: 46ch; font-size: clamp(1.05rem, 1rem + .3vw, 1.25rem); color: var(--ink-3); }
+    .lost .row { display: flex; flex-wrap: wrap; gap: 12px; }
+    .lost-mark { width: clamp(64px, 9vw, 110px); color: var(--tomato); animation: spin 14s linear infinite; }
+    .brand-fixed { position: fixed; top: 22px; left: var(--gutter); }
+  </style>
+</head>
+<body>
+  <a class="brand brand-fixed" href="/" aria-label="Chronicle Deluxe, home">
+    <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true"><path fill="currentColor" d="M17.6 2h4.8l-.9 13.4 11.2-7.5 2.4 4.2L23 18l12.1 5.9-2.4 4.2-11.2-7.5.9 13.4h-4.8l.9-13.4-11.2 7.5-2.4-4.2L17 18 4.9 12.1l2.4-4.2 11.2 7.5z"/></svg>
+    <span class="brand-word">Chronicle <em>Deluxe</em></span>
+  </a>
+  <main class="container lost">
+    <svg class="lost-mark" viewBox="0 0 40 40" aria-hidden="true"><path fill="currentColor" d="M17.6 2h4.8l-.9 13.4 11.2-7.5 2.4 4.2L23 18l12.1 5.9-2.4 4.2-11.2-7.5.9 13.4h-4.8l.9-13.4-11.2 7.5-2.4-4.2L17 18 4.9 12.1l2.4-4.2 11.2 7.5z"/></svg>
+    <p class="lost-code">Error 404</p>
+    <h1>This page is <span class="serif">past tense.</span></h1>
+    <p>Whatever lived here has moved, been renamed, or never quite launched. The businesses that did are one click away.</p>
+    <div class="row">
+      <a class="btn btn-ink" href="/"><span>Back to the house</span></a>
+      <a class="btn btn-ghost" href="/#ventures"><span>See the ventures</span></a>
+    </div>
+  </main>
+</body>
+</html>
