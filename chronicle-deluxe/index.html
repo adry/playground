@@ -72,11 +72,11 @@
           { "@type": "PostalAddress", "addressLocality": "Copenhagen", "addressCountry": "DK" }
         ],
         "founder": { "@type": "Person", "name": "Adrien Forray", "sameAs": "https://linkedin.com/in/adrienforray/" },
-        "sameAs": ["https://linkedin.com/in/adrienforray/", "https://www.past-tense-studio.com", "https://goodmarg.in", "https://www.goodzon.es", "https://www.quomoda.com", "https://www.resourced.com"],
+        "sameAs": ["https://linkedin.com/in/adrienforray/", "https://www.past-tense-studio.com", "https://goodmarg.in", "https://www.goodzon.es", "https://www.quomoda.com", "https://www.resourced.com", "https://dayzie.vercel.app/"],
         "subOrganization": [
           { "@type": "Organization", "name": "Past Tense", "url": "https://www.past-tense-studio.com", "description": "Scandinavian fashion label co-founded by Chronicle Deluxe." },
-          { "@type": "Organization", "name": "Quomoda", "url": "https://www.quomoda.com", "description": "Fashion online academy training the next generation of fashion operators." },
-          { "@type": "Organization", "name": "Resourced", "url": "https://www.resourced.com", "description": "PLM for fashion brands." }
+          { "@type": "Organization", "name": "Quomoda", "url": "https://www.quomoda.com", "description": "Wholesale software for fashion brands: linesheets, orders, stock, production, fulfilment and invoicing in one place." },
+          { "@type": "Organization", "name": "Resourced", "url": "https://www.resourced.com", "description": "The PLM for brands that develop physical product." }
         ]
       },
       {
@@ -94,10 +94,10 @@
           { "@type": "ListItem", "position": 1, "item": { "@type": "Brand", "name": "Past Tense", "url": "https://www.past-tense-studio.com" } },
           { "@type": "ListItem", "position": 2, "item": { "@type": "SoftwareApplication", "name": "Good Margin", "url": "https://goodmarg.in", "operatingSystem": "iOS", "applicationCategory": "BusinessApplication", "description": "iPhone app that helps brands make margin decisions: pricing, costing and scenarios." } },
           { "@type": "ListItem", "position": 3, "item": { "@type": "Service", "name": "AI implementation", "provider": { "@id": "https://www.chronicledeluxe.com/#organization" } } },
-          { "@type": "ListItem", "position": 4, "item": { "@type": "SoftwareApplication", "name": "Good Zones", "url": "https://www.goodzon.es", "applicationCategory": "BusinessApplication", "description": "Timezones for global teams." } },
-          { "@type": "ListItem", "position": 5, "item": { "@type": "SoftwareApplication", "name": "Dayzie", "operatingSystem": "iOS" } },
-          { "@type": "ListItem", "position": 6, "item": { "@type": "EducationalOrganization", "name": "Quomoda", "url": "https://www.quomoda.com" } },
-          { "@type": "ListItem", "position": 7, "item": { "@type": "SoftwareApplication", "name": "Resourced", "url": "https://www.resourced.com", "applicationCategory": "BusinessApplication" } }
+          { "@type": "ListItem", "position": 4, "item": { "@type": "WebApplication", "name": "Good Zones", "url": "https://www.goodzon.es", "applicationCategory": "BusinessApplication", "description": "Keep track of time across the world with an intuitive slider interface." } },
+          { "@type": "ListItem", "position": 5, "item": { "@type": "SoftwareApplication", "name": "Dayzie", "url": "https://dayzie.vercel.app/", "operatingSystem": "iOS", "applicationCategory": "LifestyleApplication", "description": "Make your calendar fun: plan with friends and see live countdowns on the Home Screen and Lock Screen." } },
+          { "@type": "ListItem", "position": 6, "item": { "@type": "SoftwareApplication", "name": "Quomoda", "url": "https://www.quomoda.com", "applicationCategory": "BusinessApplication", "description": "Wholesale software for fashion brands." } },
+          { "@type": "ListItem", "position": 7, "item": { "@type": "SoftwareApplication", "name": "Resourced", "url": "https://www.resourced.com", "applicationCategory": "BusinessApplication", "description": "The PLM for brands that develop physical product." } }
         ]
       }
     ]
@@ -158,7 +158,7 @@
       <div class="wrap">
         <p class="statement-text" data-words>
           We are <b>AI first</b>: supporting brands with AI implementation and strategy across design, product development, buying, sales and operations.
-          We also build a few of our own: a Scandinavian label, iPhone apps, an online academy.
+          We also build a few of our own: a Scandinavian label, iPhone apps, a wholesale platform.
           Outside fashion, every one of them started as a fix for <b>our own daily problems</b>.
         </p>
       </div>
@@ -293,43 +293,74 @@
       <div class="wrap">
         <p class="chapter-bar mono" data-reveal><span>§05 · Built for us first</span><span>003</span></p>
         <h2 class="giant" id="own-title" data-split>Outside fashion, we build what we need<i class="dot" aria-hidden="true"></i></h2>
-        <p class="body own-lede" data-reveal>If something slows us down every day, we fix it. If the fix works for us, it usually works for someone else too, and it becomes a business.</p>
-        <ul class="own-grid" role="list">
-          <li class="own-card" data-reveal>
+        <p class="body own-lede" data-reveal>If something slows us down every day, we fix it. If the fix works for us, it usually works for someone else too, and it becomes a business with a look of its own.</p>
+
+        <article class="ai-row" data-reveal aria-labelledby="ai-title">
+          <div class="ai-copy">
             <p class="mono own-top"><span>01 · Practice</span><span>Open for projects</span></p>
-            <h3>AI Implementation</h3>
-            <div class="own-visual agent" aria-hidden="true" data-agent>
-              <p><i>›</i> <span data-type>Reading supplier emails</span></p>
-              <p><i>›</i> <span data-type>Updating the PLM</span></p>
-              <p><i>›</i> <span data-type>Drafting purchase orders</span></p>
-              <p class="ok"><i class="dot"></i> <span data-type>Done before coffee</span></p>
-            </div>
+            <h3 id="ai-title">AI Implementation</h3>
             <p>We automated our own daily grind first. Now we wire agents, automations and internal tools into how other businesses run, so teams get hours back every week.</p>
             <a class="mono cta-link" href="mailto:hello@chronicledeluxe.com?subject=AI%20implementation">Bring us a project <span aria-hidden="true">→</span></a>
-          </li>
-          <li class="own-card" data-reveal>
-            <p class="mono own-top"><span>02 · Tool</span><span>2024</span></p>
-            <h3>Good Zones</h3>
-            <div class="own-visual zones" aria-hidden="true" data-zones>
-              <p><span>Paris</span><b data-tz="Europe/Paris">--:--</b></p>
-              <p><span>Stockholm</span><b data-tz="Europe/Stockholm">--:--</b></p>
-              <p><span>New York</span><b data-tz="America/New_York">--:--</b></p>
-              <p><span>Shanghai</span><b data-tz="Asia/Shanghai">--:--</b></p>
+          </div>
+          <div class="own-visual agent" aria-hidden="true" data-agent>
+            <p><i>›</i> <span data-type>Reading supplier emails</span></p>
+            <p><i>›</i> <span data-type>Updating the PLM</span></p>
+            <p><i>›</i> <span data-type>Drafting purchase orders</span></p>
+            <p class="ok"><i class="dot"></i> <span data-type>Done before coffee</span></p>
+          </div>
+        </article>
+
+        <!-- Good Zones, in the look of goodzon.es -->
+        <article class="vp vp-gz" data-reveal data-vp aria-labelledby="gz-title">
+          <p class="vp-tag mono"><span>02 · Tool · 2024</span><span>goodzon.es</span></p>
+          <div class="vp-panel">
+            <div class="gz-copy">
+              <img class="gz-icon" src="assets/img/ventures/goodzones-icon.webp" width="56" height="56" alt="" loading="lazy">
+              <h3 id="gz-title">Good Zones</h3>
+              <p>Keep track of time across the world with an intuitive slider. Built for our own week of calls between offices, clients and factories in different timezones, without the spreadsheet maths.</p>
+              <a class="gz-btn" href="https://www.goodzon.es" target="_blank" rel="noopener">Open Good Zones <span aria-hidden="true">↗</span><span class="sr-only">(opens in a new tab)</span></a>
             </div>
-            <p>Timezones for global teams. A focused tool to coordinate distributed teams across timezones without the spreadsheet math. Free, fast, single-purpose.</p>
-            <a class="mono cta-link" href="https://www.goodzon.es" target="_blank" rel="noopener">Visit goodzon.es <span aria-hidden="true">↗</span><span class="sr-only">(opens in a new tab)</span></a>
-          </li>
-          <li class="own-card" data-reveal>
-            <p class="mono own-top"><span>03 · iOS app</span><span>Live</span></p>
-            <h3>Dayzie</h3>
-            <div class="own-visual day" aria-hidden="true" data-day>
-              <svg viewBox="0 0 200 110"><path class="arc" d="M10 100a90 90 0 0 1 180 0" pathLength="1"/><path class="arc-fill" d="M10 100a90 90 0 0 1 180 0" pathLength="1"/><circle class="sun" r="7" cx="10" cy="100"/></svg>
-              <p class="mono"><b data-day-pct>0</b>% of today</p>
+            <div class="gz-app" data-zones role="group" aria-label="Good Zones demo: drag any slider to move every clock">
+              <div class="gz-tools">
+                <button class="gz-ico" type="button" data-gz-reset disabled aria-label="Back to the current time"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
+                <span class="gz-hint">Drag any slider</span>
+              </div>
+              <div class="gz-grid">
+                <div class="gz-card" data-tz="Europe/Paris"><p class="gz-title">Paris, FR</p><p class="gz-sub" data-sub>GMT+1</p><input class="gz-range" type="range" min="0" max="1439" step="5" value="720" aria-label="Time in Paris"><p class="gz-ampm" data-ampm>PM</p><p class="gz-time" data-time>12:00</p></div>
+                <div class="gz-card" data-tz="Europe/Stockholm"><p class="gz-title">Stockholm, SE</p><p class="gz-sub" data-sub>GMT+1</p><input class="gz-range" type="range" min="0" max="1439" step="5" value="720" aria-label="Time in Stockholm"><p class="gz-ampm" data-ampm>PM</p><p class="gz-time" data-time>12:00</p></div>
+                <div class="gz-card" data-tz="America/New_York"><p class="gz-title">New York, US</p><p class="gz-sub" data-sub>GMT-5</p><input class="gz-range" type="range" min="0" max="1439" step="5" value="360" aria-label="Time in New York"><p class="gz-ampm" data-ampm>AM</p><p class="gz-time" data-time>06:00</p></div>
+                <div class="gz-card" data-tz="Asia/Shanghai"><p class="gz-title">Shanghai, CN</p><p class="gz-sub" data-sub>GMT+8</p><input class="gz-range" type="range" min="0" max="1439" step="5" value="1140" aria-label="Time in Shanghai"><p class="gz-ampm" data-ampm>PM</p><p class="gz-time" data-time>07:00</p></div>
+                <div class="gz-add" aria-hidden="true">+</div>
+              </div>
             </div>
-            <p>Our consumer app. It started as the fix for a problem we had every day, and it is the proof that the house does not only build for fashion.</p>
-            <a class="mono cta-link" href="mailto:hello@chronicledeluxe.com?subject=Dayzie">Ask about Dayzie <span aria-hidden="true">→</span></a>
-          </li>
-        </ul>
+          </div>
+        </article>
+
+        <!-- Dayzie, in the look of dayzie.vercel.app -->
+        <article class="vp vp-dz" data-reveal data-vp aria-labelledby="dz-title">
+          <p class="vp-tag mono"><span>03 · iOS app · Coming soon</span><span>dayzie.vercel.app</span></p>
+          <div class="vp-panel">
+            <div class="dz-copy">
+              <p class="dz-brand"><img src="assets/img/ventures/dayzie-icon.webp" width="40" height="40" alt="" loading="lazy"><span>Dayzie</span></p>
+              <h3 class="dz-title" id="dz-title">Make your calendar <span class="dz-sticker">fun</span></h3>
+              <p class="dz-lede">Plan with friends, watch the hype build and see live countdowns right on your Home Screen and Lock Screen.</p>
+              <div class="dz-ctas">
+                <a class="dz-btn" href="https://dayzie.vercel.app/" target="_blank" rel="noopener">Meet Dayzie<span class="sr-only"> (opens in a new tab)</span></a>
+                <p class="dz-note">Coming soon to the App Store<br>For iPhone</p>
+              </div>
+              <div class="dz-ticket" data-countdown>
+                <p class="dz-days"><b data-cd-n>5</b><span data-cd-unit>Days</span></p>
+                <p class="dz-what"><b>The weekend <span aria-hidden="true">🎉</span></b><span>Friday · 18:00 · Everywhere</span></p>
+              </div>
+            </div>
+            <div class="dz-stage" data-dz-stage>
+              <div class="dz-phone"><img src="assets/img/ventures/dayzie-home.webp" width="600" height="1304" alt="Dayzie's home screen, with a live countdown to a costume party and the plans coming up" loading="lazy"></div>
+              <span class="dz-st st1" aria-hidden="true">🎃</span>
+              <span class="dz-st st2" aria-hidden="true">🎂</span>
+              <span class="dz-st st3" aria-hidden="true">🍿</span>
+            </div>
+          </div>
+        </article>
       </div>
     </section>
 
@@ -337,27 +368,48 @@
     <section class="chapter also" id="also" aria-labelledby="also-title" data-chapter="§06" data-name="Also">
       <div class="wrap">
         <p class="chapter-bar mono" data-reveal><span>§06 · Also</span><span>002</span></p>
-        <h2 class="chapter-lede" id="also-title" data-reveal>A small portfolio of tools, schools and bets we run alongside client work.</h2>
-        <ol class="also-list" role="list">
-          <li data-reveal>
-            <a class="also-row" href="https://www.quomoda.com" target="_blank" rel="noopener">
-              <span class="mono n">01</span>
-              <span class="also-name"><b>Quomoda</b><span class="mono">Fashion online academy</span></span>
-              <span class="also-desc">A fashion-rooted online academy training the next generation of fashion operators: merchandising, product, sourcing.</span>
-              <span class="mono also-meta"><span>Year <b>2020</b></span><span>Role <b>Operator</b></span></span>
-              <span class="also-arrow" aria-hidden="true">↗</span><span class="sr-only">(opens in a new tab)</span>
-            </a>
-          </li>
-          <li data-reveal>
-            <a class="also-row" href="https://www.resourced.com" target="_blank" rel="noopener">
-              <span class="mono n">02</span>
-              <span class="also-name"><b>Resourced</b><span class="mono">PLM for fashion brands</span></span>
-              <span class="also-desc">A modern PLM rebuilding what spreadsheets and legacy systems made painful: collection planning, BOM, sample tracking.</span>
-              <span class="mono also-meta"><span>Year <b>2020</b></span><span>Role <b>Investor</b></span></span>
-              <span class="also-arrow" aria-hidden="true">↗</span><span class="sr-only">(opens in a new tab)</span>
-            </a>
-          </li>
-        </ol>
+        <h2 class="chapter-lede" id="also-title" data-reveal>Two platforms for fashion brands that we run and back alongside client work.</h2>
+
+        <!-- Quomoda, in the look of quomoda.com -->
+        <article class="vp vp-qm" data-reveal data-vp aria-labelledby="qm-title">
+          <p class="vp-tag mono"><span>01 · Quomoda · Since 2020</span><span>Operator · quomoda.com</span></p>
+          <div class="vp-panel">
+            <div class="qm-hero">
+              <img class="qm-q" src="assets/img/ventures/quomoda-q.webp" width="171" height="200" alt="Quomoda" loading="lazy">
+              <p class="qm-new"><span class="qm-spark" aria-hidden="true">✦</span><b>New</b> AI does the data entry, you approve it</p>
+              <h3 id="qm-title">Fashion business, <span>simplified.</span></h3>
+              <p class="qm-lede">QUOMODA is the all-in-one platform for fashion brands and buyers: wholesale, retail and DTC. Linesheets, orders, stock and fulfilment in one place.</p>
+              <div class="qm-ctas">
+                <a class="qm-btn" href="https://app.quomoda.com/auth/signup" target="_blank" rel="noopener">Get started<span class="sr-only"> on Quomoda (opens in a new tab)</span></a>
+                <a class="qm-btn ghost" href="https://calendly.com/adrienforray" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Book a demo<span class="sr-only"> (opens in a new tab)</span></a>
+              </div>
+            </div>
+            <ol class="qm-steps" data-qm-steps aria-label="Four steps from collection to cash">
+              <li><p class="qm-top"><span>01</span>Design &amp; samples<em class="qm-chip" data-to="Live">Draft</em></p><b>Share your linesheet</b><p>Upload your collection once and send buyers a shoppable link. No PDFs, no spreadsheets.</p><p class="qm-doc">SS26-LINESHEET<span>42 styles · 6 buyers</span></p></li>
+              <li><p class="qm-top"><span>02</span>Showroom<em class="qm-chip" data-to="Confirmed">Pending</em></p><b>Buyers order directly</b><p>Wholesale orders land in QUOMODA and are confirmed in one click: sizes, doors and delivery drops included.</p><p class="qm-doc">ORD-2026-0142<span>68 units</span></p></li>
+              <li><p class="qm-top"><span>03</span>Production<em class="qm-chip" data-to="In production">Planned</em></p><b>Produce &amp; receive stock</b><p>Raise purchase orders to your factories, track production, then receive finished goods straight into stock.</p><p class="qm-doc">PO-2048<span>300 units</span></p></li>
+              <li><p class="qm-top"><span>04</span>Dispatch<em class="qm-chip" data-to="Sent">Packing</em></p><b>You ship &amp; invoice</b><p>Allocate stock, print pick and packing lists, and send invoices. Wholesale and DTC ship from the same stock.</p><p class="qm-doc">INV-2026-0087<span>4 cartons</span></p></li>
+            </ol>
+          </div>
+        </article>
+
+        <!-- Resourced, in the look of resourced.com -->
+        <article class="vp vp-rs" data-reveal data-vp aria-labelledby="rs-title">
+          <p class="vp-tag mono"><span>02 · Resourced · Since 2020</span><span>Investor · resourced.com</span></p>
+          <div class="vp-panel">
+            <canvas class="rs-cloud" data-rs-cloud aria-hidden="true"></canvas>
+            <div class="rs-copy">
+              <img class="rs-logo" src="assets/img/ventures/resourced-logo.svg" width="230" height="38" alt="Resourced" loading="lazy">
+              <p class="rs-label">The PLM for brands that develop physical product</p>
+              <h3 class="rs-title" id="rs-title">You’re a <span class="sr-only">merchandiser.</span><span class="rs-role" aria-hidden="true" data-roles="merchandiser|product developer|designer|buyer|garment technologist">merchandiser.</span> Not an admin.</h3>
+              <p class="rs-lede">Bring everyone who touches your product into a single flow, from idea to finished product, so you ship the right product, at the right time, at the right price.</p>
+              <div class="rs-ctas">
+                <a class="rs-btn" href="https://meetings-eu1.hubspot.com/meetings/egroendal/resourced-demo" target="_blank" rel="noopener">Book a demo <span aria-hidden="true">›</span><span class="sr-only">with Resourced (opens in a new tab)</span></a>
+                <a class="rs-link" href="https://www.resourced.com" target="_blank" rel="noopener">resourced.com <span aria-hidden="true">↗</span><span class="sr-only">(opens in a new tab)</span></a>
+              </div>
+            </div>
+          </div>
+        </article>
       </div>
     </section>
 
@@ -390,8 +442,8 @@
           <a class="talk-mail" href="mailto:hello@chronicledeluxe.com">hello@chronicledeluxe.com <span aria-hidden="true">↗</span></a>
           <div class="talk-cols">
             <div><p class="mono">Studio</p><a href="https://www.past-tense-studio.com" target="_blank" rel="noopener">Past Tense</a></div>
-            <div><p class="mono">Apps</p><a href="https://goodmarg.in" target="_blank" rel="noopener">Good Margin</a><a href="https://www.goodzon.es" target="_blank" rel="noopener">Good Zones</a><a href="mailto:hello@chronicledeluxe.com?subject=Dayzie">Dayzie</a></div>
-            <div><p class="mono">Education</p><a href="https://www.quomoda.com" target="_blank" rel="noopener">Quomoda</a></div>
+            <div><p class="mono">Apps</p><a href="https://goodmarg.in" target="_blank" rel="noopener">Good Margin</a><a href="https://www.goodzon.es" target="_blank" rel="noopener">Good Zones</a><a href="https://dayzie.vercel.app/" target="_blank" rel="noopener">Dayzie</a></div>
+            <div><p class="mono">Platforms</p><a href="https://www.quomoda.com" target="_blank" rel="noopener">Quomoda</a><a href="https://www.resourced.com" target="_blank" rel="noopener">Resourced</a></div>
             <div><p class="mono">Social</p><a href="https://linkedin.com/in/adrienforray/" target="_blank" rel="noopener">LinkedIn</a></div>
           </div>
         </div>

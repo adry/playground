@@ -256,7 +256,7 @@
   }
 
   /* ------------------------------------------------------------------
-     §05: an agent that types its day, live clocks, and today's progress.
+     §05: an agent that types its day.
   ------------------------------------------------------------------ */
   const agent = $('[data-agent]');
   if (agent) {
@@ -283,16 +283,63 @@
     new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible) play(); }, { threshold: 0.5 }).observe(agent);
   }
 
+  /* ------------------------------------------------------------------
+     Venture panels: each grows to full size as it arrives.
+  ------------------------------------------------------------------ */
+  if (motion) {
+    $$('[data-vp]').forEach((vp) => {
+      const panel = $('.vp-panel', vp);
+      scene(panel, (r) => clamp((vh - r.top) / (vh * 0.7), 0, 1), (p) => {
+        panel.style.setProperty('--vp', ease(p).toFixed(4));
+      });
+    });
+  }
+
+  /* Good Zones: live clocks; drag any slider and every city follows, as in
+     the real app. The clock button brings them back to now. */
   const zones = $('[data-zones]');
   if (zones) {
-    const clocks = $$('[data-tz]', zones).map((el) => ({ el, fmt: new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: el.dataset.tz }) }));
+    const resetBtn = $('[data-gz-reset]', zones);
+    let offset = 0; // minutes away from now
+    const part = (parts, type) => (parts.find((x) => x.type === type) || {}).value || '';
+    const cards = $$('[data-tz]', zones).map((card, k) => {
+      const timeZone = card.dataset.tz;
+      card.style.setProperty('--k', k);
+      return {
+        range: $('input', card), time: $('[data-time]', card), ampm: $('[data-ampm]', card), sub: $('[data-sub]', card),
+        h24: new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit', hourCycle: 'h23' }),
+        h12: new Intl.DateTimeFormat('en-US', { timeZone, hour: '2-digit', minute: '2-digit', hour12: true }),
+        day: new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short', month: 'short', day: 'numeric' }),
+        zone: new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'shortOffset' }),
+      };
+    });
+    const addCell = $('.gz-add', zones);
+    if (addCell) addCell.style.setProperty('--k', cards.length);
+    const at = () => new Date(Date.now() + offset * 60000);
+    const minutesIn = (c, d) => { const p = c.h24.formatToParts(d); return (Number(part(p, 'hour')) % 24) * 60 + Number(part(p, 'minute')); };
     const draw = () => {
-      const now = new Date();
-      clocks.forEach(({ el, fmt }) => {
-        const [h, m] = fmt.format(now).split(':');
-        el.innerHTML = `${h}<span class="colon">:</span>${m}`;
+      const d = at();
+      cards.forEach((c) => {
+        const p = c.h12.formatToParts(d);
+        const hm = `${part(p, 'hour')}:${part(p, 'minute')}`;
+        const ap = part(p, 'dayPeriod').toUpperCase();
+        let gmt = part(c.zone.formatToParts(d), 'timeZoneName');
+        if (gmt === 'GMT') gmt = 'GMT+0';
+        c.time.textContent = hm;
+        c.ampm.textContent = ap;
+        c.sub.textContent = `${gmt} • ${c.day.format(d)}`;
+        const m = minutesIn(c, d);
+        c.range.value = String(m);
+        c.range.style.setProperty('--v', `${(m / 1439 * 100).toFixed(2)}%`);
+        c.range.setAttribute('aria-valuetext', `${hm} ${ap}, ${c.day.format(d)}`);
       });
+      resetBtn.disabled = offset === 0;
     };
+    cards.forEach((c) => c.range.addEventListener('input', () => {
+      offset += Number(c.range.value) - minutesIn(c, at());
+      draw();
+    }));
+    resetBtn.addEventListener('click', () => { offset = 0; draw(); });
     draw();
     let timer = null;
     new IntersectionObserver(([e]) => {
@@ -301,27 +348,127 @@
     }).observe(zones);
   }
 
-  const day = $('[data-day]');
-  if (day) {
-    const path = $('.arc-fill', day);
-    const sun = $('.sun', day);
-    const pct = $('[data-day-pct]', day);
-    const total = path.getTotalLength();
-    const frac = () => { const d = new Date(); return (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()) / 86400; };
-    const place = (f) => {
-      day.style.setProperty('--dp', f.toFixed(4));
-      const pt = path.getPointAtLength(f * total);
-      sun.setAttribute('cx', pt.x.toFixed(1));
-      sun.setAttribute('cy', pt.y.toFixed(1));
-      pct.textContent = String(Math.round(f * 100));
+  /* Dayzie: the ticket counts down to Friday 18:00, the phone rises. */
+  const countdown = $('[data-countdown]');
+  if (countdown) {
+    const n = $('[data-cd-n]', countdown);
+    const unit = $('[data-cd-unit]', countdown);
+    const draw = () => {
+      const now = new Date();
+      const t = new Date(now);
+      t.setHours(18, 0, 0, 0);
+      t.setDate(t.getDate() + ((5 - now.getDay() + 7) % 7));
+      if (t <= now) t.setDate(t.getDate() + 7);
+      const ms = t - now;
+      const days = Math.floor(ms / 864e5);
+      if (days >= 1) { n.textContent = String(days); unit.textContent = days === 1 ? 'Day' : 'Days'; }
+      else { const h = Math.max(1, Math.round(ms / 36e5)); n.textContent = String(h); unit.textContent = h === 1 ? 'Hour' : 'Hours'; }
     };
-    place(motion ? 0 : frac());
-    reveal(day, () => {
-      if (!motion) return place(frac());
-      const target = frac(), t0 = performance.now();
-      const tick = (t) => { const k = clamp((t - t0) / 1600, 0, 1); place(ease(k) * target); if (k < 1) requestAnimationFrame(tick); };
-      requestAnimationFrame(tick);
+    draw();
+    setInterval(draw, 60000);
+  }
+  const dzStage = $('[data-dz-stage]');
+  if (motion && dzStage) {
+    scene(dzStage, (r) => clamp((vh - r.top) / (vh + r.height), 0, 1), (p) => {
+      dzStage.style.setProperty('--lift', `${((0.5 - p) * 90).toFixed(1)}px`);
     });
+  }
+
+  /* Quomoda: the four steps light up in order as you scroll past. */
+  const qmSteps = $('[data-qm-steps]');
+  if (qmSteps) {
+    const steps = $$('li', qmSteps).map((li) => ({ li, chip: $('.qm-chip', li) }));
+    steps.forEach((s) => { s.from = s.chip.textContent; s.to = s.chip.dataset.to; });
+    const light = (p) => {
+      qmSteps.style.setProperty('--qp', p.toFixed(4));
+      steps.forEach((s, i) => {
+        const on = p >= (i + 0.6) / steps.length;
+        if (on === s.li.classList.contains('on')) return;
+        s.li.classList.toggle('on', on);
+        s.chip.textContent = on ? s.to : s.from;
+      });
+    };
+    if (motion) scene(qmSteps, (r) => clamp((vh * 0.92 - r.top) / (vh * 0.6), 0, 1), light);
+    else light(1);
+  }
+
+  /* Resourced: the role in the headline changes, as on resourced.com, and a
+     cloud of colourway names drifts along the loops of its mark. */
+  const role = $('.rs-role');
+  if (role && motion) {
+    const roles = role.dataset.roles.split('|');
+    let i = 0, seen = false;
+    new IntersectionObserver(([e]) => { seen = e.isIntersecting; }).observe(role);
+    setInterval(() => {
+      if (!seen || document.hidden) return;
+      role.classList.add('out');
+      setTimeout(() => { i = (i + 1) % roles.length; role.textContent = `${roles[i]}.`; role.classList.remove('out'); }, 380);
+    }, 2600);
+  }
+
+  const cloud = $('[data-rs-cloud]');
+  let sizeCloud = () => {};
+  if (cloud && cloud.getContext) {
+    const ctx = cloud.getContext('2d');
+    const NAMES = ['Velveteen Violet', 'Cambric Violet', 'Signal Violet', 'Heliotrope', 'Sea Lavender', 'Iodine Haze', 'Woad Vat', 'Verdigris', 'Kit Bag', 'Binder Blue', 'Lapis Fleck', 'Reservoir Blue', 'Copper Sulphate', 'Sea Weed', 'Anodised', 'Thistle', 'Mulberry', 'Indigo Rinse', 'Petrol', 'Lichen', 'Bilberry', 'Damson', 'Mint Cord', 'Glacier', 'Cobalt Dye', 'Juniper', 'Orchid Tint', 'Sage Wash'];
+    let seed = 11;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const TAU = Math.PI * 2;
+    const pills = [];
+    for (let i = 0; i < 270; i++) {
+      const named = i < NAMES.length;
+      pills.push({
+        t: rnd() * TAU, jx: rnd() - 0.5, jy: rnd() - 0.5,
+        v: (0.00005 + rnd() * 0.00009) * (named ? 0.6 : 1),
+        name: named ? NAMES[i] : '', w: named ? 0 : 8 + rnd() * 34, h: named ? 18 : 3 + rnd() * 4,
+        z: named ? 0.75 + rnd() * 0.25 : 0.2 + rnd() * 0.55,
+      });
+    }
+    let W = 0, H = 0, dpr = 1, shift = 0, measured = false;
+    sizeCloud = () => {
+      const r = cloud.getBoundingClientRect();
+      dpr = Math.min(2, window.devicePixelRatio || 1);
+      W = r.width; H = r.height;
+      cloud.width = Math.round(W * dpr); cloud.height = Math.round(H * dpr);
+      measured = false;
+    };
+    const roundRect = (x, y, w, h, rad) => { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, rad); else ctx.rect(x, y, w, h); ctx.fill(); };
+    const paint = (time) => {
+      if (!W) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      const wide = W >= 820;
+      const cx = wide ? W * 0.72 : W * 0.5;
+      const cy = (wide ? H * 0.5 : H - 150) + shift;
+      const A = wide ? Math.min(W * 0.25, H * 0.5) : Math.min(W * 0.44, 190);
+      ctx.font = '500 10.5px "Inter Resourced", Inter, system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+      if (!measured) { pills.forEach((p) => { if (p.name) p.w = ctx.measureText(p.name).width + 14; }); measured = true; }
+      for (const p of pills) {
+        const t = p.t + time * p.v;
+        const s = Math.sin(t), c = Math.cos(t), den = 1 + s * s;
+        const x = cx + (A * c) / den + p.jx * A * 0.2;
+        const y = cy + (A * 1.2 * s * c) / den + p.jy * A * 0.2;
+        const hue = 150 + (((t % TAU) + TAU) % TAU) / TAU * 160;
+        const fade = wide ? smooth(W * 0.36, W * 0.6, x) : 1;
+        const a = p.z * fade;
+        if (a < 0.02) continue;
+        if (p.name) {
+          ctx.fillStyle = `hsla(${hue.toFixed(0)}, 62%, 52%, ${(a * 0.92).toFixed(3)})`;
+          roundRect(x - p.w / 2, y - 9, p.w, 18, 9);
+          ctx.fillStyle = `rgba(255, 255, 255, ${a.toFixed(3)})`;
+          ctx.fillText(p.name, x - p.w / 2 + 7, y + 0.5);
+        } else {
+          ctx.fillStyle = `hsla(${hue.toFixed(0)}, 60%, 66%, ${(a * 0.55).toFixed(3)})`;
+          roundRect(x - p.w / 2, y - p.h / 2, p.w, p.h, p.h / 2);
+        }
+      }
+    };
+    if (motion) {
+      scene(cloud, (r) => clamp((vh - r.top) / (vh + r.height), 0, 1), (p) => { shift = (0.5 - p) * 60; paint(performance.now()); });
+    } else {
+      (document.fonts?.ready ?? Promise.resolve()).then(() => { sizeCloud(); paint(0); });
+    }
   }
 
   /* ------------------------------------------------------------------
@@ -386,6 +533,7 @@
     vh = window.innerHeight;
     measureFilm();
     measureTickers();
+    sizeCloud();
     cover = Math.hypot(vw, vh) * 0.52;
     if (indexOpen && vw > 9999) setIndex(false);
   }
