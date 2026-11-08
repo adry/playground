@@ -1,0 +1,15 @@
+{
+  "name": "hemma-viewings",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5190",
+    "test": "node --test test/*.test.mjs",
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "vite": "^6.4.3"
+  }
+}
