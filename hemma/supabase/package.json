@@ -1,0 +1,12 @@
+{
+  "name": "@hemma/supabase",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.15",
+    "fast-xml-parser": "4.5.3"
+  }
+}

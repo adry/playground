@@ -1,0 +1,11 @@
+# Only what differs from Supabase's defaults. `supabase link` fills in the rest.
+project_id = "hemma"
+
+[functions.ingest-feeds]
+verify_jwt = false # authenticated with the x-ingest-secret header instead
+
+[functions.feed-push]
+verify_jwt = false # authenticated with a per-source HMAC signature instead
+
+[functions.stripe-webhook]
+verify_jwt = false # authenticated with Stripe's signature instead

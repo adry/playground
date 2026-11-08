@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<listings>
+  <listing id="KV-1001">
+    <agencyName>Kvarter &amp; Co</agencyName>
+    <agencyOrgNumber>556677-8899</agencyOrgNumber>
+    <agentName>Maja Ek</agentName>
+    <agentPhone>0701740610</agentPhone>
+    <address>Skånegatan 84</address>
+    <city>Stockholm</city>
+    <lat>59.3135</lat>
+    <lng>18.0790</lng>
+    <type>Bostadsrättslägenhet</type>
+    <rooms>2,5</rooms>
+    <size>61</size>
+    <price>5 250 000</price>
+    <fee>3412</fee>
+    <floor>3</floor>
+    <built>1909</built>
+    <images><image>https://img.example/a.jpg</image><image>http://insecure.example/b.jpg</image></images>
+    <viewings>
+      <viewing start="2026-11-15 13:00" end="2026-11-15 13:45"/>
+      <viewing start="2026-11-16T17:30:00+01:00" end="2026-11-16T18:00:00+01:00" booking="true"/>
+    </viewings>
+  </listing>
+  <listing id="KV-1002">
+    <agencyName>Kvarter &amp; Co</agencyName>
+    <address>Nockebyvägen 12</address>
+    <lat>59.3290</lat>
+    <lng>17.9250</lng>
+    <type>Villa</type>
+    <viewings><viewing start="2026-11-15 11:00"/></viewings>
+  </listing>
+  <listing id="KV-1003">
+    <agencyName>Kvarter &amp; Co</agencyName>
+    <address>Ingen Koordinat 1</address>
+  </listing>
+</listings>
