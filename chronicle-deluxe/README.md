@@ -4,14 +4,38 @@ The website for Chronicle Deluxe, a multidisciplinary business incubator:
 fashion transformation consulting, AI implementation, Resourced, Quomoda,
 Past Tense, GoodMargin, Dayzie and whatever comes next.
 
-It is a single static page with no build step and no dependencies. Every word
-is in the HTML, so search engines and link previews read it without running
-any JavaScript; the script only adds motion on top.
+One static page, no build step, no dependencies. Black and white with one
+accent, one typeface (Inter), and the story told through scroll-driven
+scenes. Every word is in the HTML, so search engines and link previews read
+it without running any JavaScript; the script only adds the motion.
 
 ```bash
 cd chronicle-deluxe
 python3 -m http.server 8765     # then open http://127.0.0.1:8765
 ```
+
+## The page, top to bottom
+
+| Section | What moves |
+|---|---|
+| Hero | Pinned for three screens. The headline fades as the house mark explodes into eight arms, one per business, and the labels arrive. |
+| What we are | The manifesto darkens word by word as you read. |
+| Two sources | Fashion know-how and our own daily problems. Giant type drifts sideways behind two cards that move at slightly different speeds. |
+| Ventures | Pinned gallery: scrolling down slides the eight cards sideways. Each card's line drawing lags behind its card. |
+| Numbers | Count up when they arrive. |
+| Approach | A ring fills as you read the four steps; the step in the reading line shows inside it. |
+| Rules | Pinned: the six rules hand over one at a time, never overlapping. |
+| The house | A giant monogram moves slower than the page. |
+| FAQ, contact, footer | Fade in; the footer wordmark drifts. |
+
+## Brand settings
+
+- **Accent**: `--accent` at the top of `assets/css/site.css`. Change that one
+  value (and `--accent-hover`) and the whole site follows. The favicon, icons
+  and social card use the same orange and need regenerating if it changes.
+- **Typeface**: Inter, self-hosted in `assets/fonts/` (SIL Open Font License).
+- **Greys**: Apple-style neutrals (`--ink`, `--snow`, `--gray`), chosen so
+  every piece of text meets WCAG contrast on its background.
 
 ## Deploying
 
@@ -28,83 +52,45 @@ root. `index.html` uses relative paths, so it also works from a subfolder.
 
 ## Before launch: things to confirm
 
-These were written from the best information available and are worth a
-look before the site goes live.
-
 | What | Where | Current value |
 |---|---|---|
 | Domain | `index.html` (canonical, Open Graph, JSON-LD), `sitemap.xml`, `robots.txt` | `https://chronicledeluxe.com` |
-| Contact email | `index.html`, every `mailto:` | `hello@chronicledeluxe.com` |
-| Dayzie one-liner | venture card 07 | A deliberately general description |
-| GoodMargin name and App Store link | venture card 06, hero tile | "GoodMargin", no link yet |
+| Contact email | every `mailto:` | `hello@chronicledeluxe.com` |
+| Dayzie one-liner | ventures card 07 | A deliberately general description |
+| GoodMargin name and App Store link | ventures card 06 | "GoodMargin", no link yet |
 | Newsletter link | "Read the Chronicle" card | A `mailto:` subscribe request |
-| Quomoda and Past Tense links | venture cards 04 and 05 | No link yet (only Resourced links out) |
-
-Search the HTML for `chronicledeluxe.com` to catch every occurrence of the
-domain and email in one go.
-
-## Layout
-
-```
-index.html                 the page: content, meta tags, JSON-LD
-404.html                   "This page is past tense."
-assets/css/site.css        all styles, top to bottom in page order
-assets/js/site.js          all motion, progressive enhancement only
-assets/fonts/              self-hosted variable fonts (latin subset)
-assets/img/og.png          1200x630 social card
-assets/img/logo.png        logo used by structured data
-favicon.svg / .ico, apple-touch-icon.png, site.webmanifest
-robots.txt, sitemap.xml
-```
+| Quomoda and Past Tense links | ventures cards 04 and 05 | Email links for now |
 
 ## Adding a venture
 
-1. Copy one `<li class="venture ...">` block in `index.html`, give it the
-   next number, an `id`, a `view-transition-name` that is unique (`v9`,
-   `v10`...) and `data-tags` from `fashion ai software apps`. If it started
-   as a fix for one of our own problems, give it the "Built for us first" pill.
-   Then give it a tile in the hero mosaic that links to that `id`.
-2. Add a colour class in `site.css` next to the others
-   (`.c-name { --c: #hex; --on: <text colour on it>; }`).
-3. Update the counts on the filter chips, the "Seven businesses" headline,
-   the "7 ventures" number, and the `ItemList` in the JSON-LD.
+1. Copy one `<li class="vcard">` in `index.html` and give it the next number
+   and an `id`. If it started as a fix for one of our own problems, give it
+   the `<b class="own">Built for us first</b>` tag.
+2. Add an arm to the hero mark (`.x-arm`, angles spaced 360 / n degrees) and a
+   label in `.x-labels` with its `--x` and `--y` direction.
+3. Update the "Seven businesses" lines, the "7 ventures" number and the
+   `ItemList` in the JSON-LD. The gallery measures itself.
 
-## Motion
+## Motion and accessibility
 
-All of it is driven by one `requestAnimationFrame` loop and a few
-`IntersectionObserver`s in `site.js`:
+One `requestAnimationFrame` loop in `assets/js/site.js` drives every scene,
+and only while that scene is near the viewport. It reads all layout values
+first and writes styles after, so a frame never forces a second layout.
 
-- **Hero**: headline words rise from a mask, then the mosaic assembles from
-  the centre out: the house first, then one tile per business. Each tile
-  links to its venture card. With a mouse the mosaic drifts a few pixels with
-  the pointer and the house mark turns a quarter on hover.
-- **Marquee**: two straight bands running in opposite directions that pick up
-  a little speed while you scroll.
-- **Manifesto**: words light up as you read down.
-- **Ventures**: filter chips animate the grid with the View Transitions API
-  where the browser supports it; on hover a card lifts and its line artwork
-  animates (on touch it animates while the card is on screen).
-- **Approach**: a progress line fills and the steps light up as you scroll.
-- **Numbers** count up, **house rules** fill with colour on hover, the
-  **footer wordmark** rises letter by letter.
-
-There is nothing to drag, nothing bounces and nothing overshoots: every
-movement eases out and settles.
-
-`prefers-reduced-motion` turns the decorative motion off and shows
-everything in its final state. If the script fails to load, an inline
-fallback reveals the page after three seconds.
+The scroll scenes switch on only under `html.motion`, which the inline head
+script sets unless the visitor asks for reduced motion. Without it (reduced
+motion, or the script failing to load) every section lays itself out
+statically: the hero shows the open house, the rules are a list, and the
+ventures become a swipeable row. Keyboard users who tab into an off-screen
+venture card are scrolled to it.
 
 ## SEO
 
 - One `h1`, a section per topic with its own `h2`, venture names as `h3`.
 - Title, description, canonical, Open Graph and Twitter card tags.
-- JSON-LD: `Organization` (with the ventures as `subOrganization`),
-  `WebSite`, an `ItemList` of the ventures and an `FAQPage` matching the FAQ.
-- Fonts are self-hosted and preloaded, CSS and JS are one small file each,
-  there are no third-party requests.
-
-## Fonts
-
-Bricolage Grotesque, Inter and Instrument Serif, all under the SIL Open Font
-License 1.1, downloaded from Google Fonts and served from `assets/fonts/`.
+- JSON-LD: `Organization` (ventures as `subOrganization`), `WebSite`, an
+  `ItemList` of the ventures and an `FAQPage` matching the FAQ.
+- Decorative giant type is drawn from data attributes, so it never reads as
+  content.
+- Self-hosted, preloaded font; one small CSS and JS file; no third-party
+  requests. Lighthouse scores 100 in all four categories on mobile.

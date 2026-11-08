@@ -1,7 +1,9 @@
 /* Chronicle Deluxe, site motion.
-   No dependencies. Everything here is progressive enhancement: the page is
-   complete and readable without it, and prefers-reduced-motion turns the
-   decorative motion off while keeping every interaction working. */
+   No dependencies. Every scroll-driven scene is opt-in: html.motion is set
+   by the inline head script unless the visitor prefers reduced motion, and
+   without it (or without this script) the page lays itself out statically
+   with everything visible. One frame loop reads every layout value first and
+   writes every style after, so a frame never forces a second layout. */
 (() => {
   'use strict';
 
@@ -11,61 +13,51 @@
   const $ = (s, c = document) => c.querySelector(s);
   const $$ = (s, c = document) => Array.from(c.querySelectorAll(s));
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-  const lerp = (a, b, t) => a + (b - a) * t;
+  const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
-  const mqReduce = matchMedia('(prefers-reduced-motion: reduce)');
-  let reduce = mqReduce.matches;
-  mqReduce.addEventListener?.('change', (e) => { reduce = e.matches; });
-  const finePointer = matchMedia('(hover: hover) and (pointer: fine)').matches;
+  const motion = root.classList.contains('motion');
+
+  let vw = window.innerWidth;
+  let vh = window.innerHeight;
+  let sy = 0, lastSy = 0;
+  addEventListener('scroll', () => { sy = window.scrollY; }, { passive: true });
 
   /* ------------------------------------------------------------------
-     Intro: wait for the display font (briefly) so the headline animates
-     in its real shape instead of reflowing mid-flight.
+     Intro: fade the hero copy in once the font is ready (briefly).
   ------------------------------------------------------------------ */
   const fontsReady = document.fonts?.ready ?? Promise.resolve();
-  Promise.race([fontsReady, new Promise((r) => setTimeout(r, 400))]).then(() => {
+  Promise.race([fontsReady, new Promise((r) => setTimeout(r, 350))]).then(() => {
     requestAnimationFrame(() => root.classList.add('is-loaded'));
   });
 
   /* ------------------------------------------------------------------
-     Scroll state shared by every scroll-linked effect.
+     Scenes: anything driven per frame registers here and only runs while
+     its element is near the viewport.
   ------------------------------------------------------------------ */
-  let sy = 0;
-  let lastSy = 0;
-  let vel = 0; // smoothed scroll velocity, px per frame
-  let vh = window.innerHeight;
-  let docH = 0;
-  addEventListener('scroll', () => { sy = window.scrollY; }, { passive: true });
-
-  const visible = new Map();
-  const watch = (el, margin = '0px') => {
+  const scenes = [];
+  function scene(el, read, write) {
     if (!el) return;
-    visible.set(el, false);
-    new IntersectionObserver(([e]) => visible.set(el, e.isIntersecting), { rootMargin: margin }).observe(el);
-  };
+    const s = { el, read, write, on: false, data: null };
+    new IntersectionObserver(([e]) => { s.on = e.isIntersecting; }, { rootMargin: '25% 0px' }).observe(el);
+    scenes.push(s);
+  }
+  // Progress through a pinned (sticky) section: 0 when it reaches the top,
+  // 1 when its end leaves the bottom of the sticky frame.
+  const pinProgress = (r) => clamp(-r.top / Math.max(1, r.height - vh), 0, 1);
 
   /* ------------------------------------------------------------------
-     Header: frosted pill once you scroll, hides on the way down,
-     comes back the moment you scroll up.
+     Header: hides on the way down, returns on the way up.
   ------------------------------------------------------------------ */
   const header = $('[data-header]');
-  const progress = $('.progress');
   let headerAccum = 0;
   let menuOpen = false;
-
   function updateHeader(dy) {
-    header.classList.toggle('is-scrolled', sy > 24);
-    if (menuOpen || sy < 160) { header.classList.remove('is-hidden'); headerAccum = 0; return; }
+    if (menuOpen || sy < 120) { header.classList.remove('is-hidden'); headerAccum = 0; return; }
     headerAccum = dy > 0 ? Math.max(0, headerAccum) + dy : Math.min(0, headerAccum) + dy;
-    if (headerAccum > 48) header.classList.add('is-hidden');
-    else if (headerAccum < -12) header.classList.remove('is-hidden');
+    if (headerAccum > 60) header.classList.add('is-hidden');
+    else if (headerAccum < -10) header.classList.remove('is-hidden');
   }
   header.addEventListener('focusin', () => header.classList.remove('is-hidden'));
-
-  function updateProgress() {
-    const max = Math.max(1, docH - vh);
-    progress.style.setProperty('--p', clamp(sy / max, 0, 1).toFixed(4));
-  }
 
   /* ------------------------------------------------------------------
      Mobile menu
@@ -75,7 +67,6 @@
   const main = $('#main');
   const footer = $('.site-footer');
   let menuTimer;
-
   function setMenu(open) {
     if (open === menuOpen) return;
     menuOpen = open;
@@ -91,109 +82,40 @@
       $('a', menu).focus({ preventScroll: true });
     } else {
       menu.classList.remove('is-open');
-      menuTimer = setTimeout(() => { if (!menuOpen) menu.hidden = true; }, reduce ? 0 : 760);
+      menuTimer = setTimeout(() => { if (!menuOpen) menu.hidden = true; }, 400);
     }
   }
   toggle.addEventListener('click', () => setMenu(!menuOpen));
   $$('a', menu).forEach((a) => a.addEventListener('click', () => setMenu(false)));
-  addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && menuOpen) { setMenu(false); toggle.focus(); }
-  });
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && menuOpen) { setMenu(false); toggle.focus(); } });
 
   /* ------------------------------------------------------------------
-     "Now building in ..." rotator
+     HERO: the house explodes into its businesses as you scroll.
   ------------------------------------------------------------------ */
-  const rotator = $('.rotator');
-  const rotWords = $$('.rotator-word');
-  let rotIndex = 0;
-
-  function sizeRotator() {
-    if (!rotator) return;
-    const pad = parseFloat(getComputedStyle(rotator).paddingLeft) * 2;
-    rotator.style.width = `${rotWords[rotIndex].offsetWidth + pad}px`;
-  }
-  if (rotator && rotWords.length > 1) {
-    setInterval(() => {
-      if (reduce || document.hidden) return;
-      const prev = rotWords[rotIndex];
-      rotIndex = (rotIndex + 1) % rotWords.length;
-      const next = rotWords[rotIndex];
-      prev.classList.remove('is-active');
-      prev.classList.add('is-leaving');
-      next.classList.add('is-active');
-      sizeRotator();
-      setTimeout(() => prev.classList.remove('is-leaving'), 700);
-    }, 2200);
-  }
-
-  /* ------------------------------------------------------------------
-     Hero mosaic: drifts a few pixels toward the pointer, so it reads as a
-     layer sitting just behind the copy. Nothing to drag, nothing to chase.
-  ------------------------------------------------------------------ */
-  const hero = $('.hero');
-  const mosaic = $('[data-mosaic]');
-  let pointerX = 0, pointerY = 0, px = 0, py = 0;
-  watch(hero, '80px');
-
-  if (finePointer) {
-    addEventListener('pointermove', (e) => {
-      pointerX = (e.clientX / window.innerWidth - 0.5) * 2;
-      pointerY = (e.clientY / window.innerHeight - 0.5) * 2;
-    }, { passive: true });
-  }
-
-  function updateMosaic(dt) {
-    if (!mosaic || !finePointer) return;
-    px = lerp(px, pointerX, 0.05 * dt);
-    py = lerp(py, pointerY, 0.05 * dt);
-    mosaic.style.transform = `translate3d(${(px * -8).toFixed(2)}px, ${(py * -6).toFixed(2)}px, 0)`;
-  }
-
-  /* ------------------------------------------------------------------
-     Marquee: two bands running in opposite directions. Scrolling
-     speeds them up a little.
-  ------------------------------------------------------------------ */
-  const marqueeWrap = $('.marquee');
-  watch(marqueeWrap, '100px');
-  const marquees = $$('[data-marquee]').map((row) => {
-    const track = $('.marquee-track', row);
-    const set = `<span class="mq-set">${track.innerHTML}</span>`;
-    track.innerHTML = set + set.replace('class="mq-set"', 'class="mq-set" aria-hidden="true"');
-    return { row, track, dir: Number(row.dataset.marquee) || 1, x: 0, unit: 0 };
-  });
-
-  function measureMarquees() {
-    marquees.forEach((m) => {
-      const sets = $$('.mq-set', m.track);
-      m.unit = sets[1].offsetLeft - sets[0].offsetLeft;
-      const need = Math.ceil((m.row.offsetWidth * 1.2) / Math.max(1, m.unit)) + 1;
-      while ($$('.mq-set', m.track).length < need + 1) {
-        const clone = sets[0].cloneNode(true);
-        clone.setAttribute('aria-hidden', 'true');
-        m.track.append(clone);
-      }
-      if (m.dir < 0 && m.x === 0) m.x = -m.unit;
-    });
-  }
-
-  function updateMarquees(dt) {
-    const boost = Math.min(Math.abs(vel), 80) * 0.3;
-    marquees.forEach((m) => {
-      if (!m.unit) return;
-      m.x -= (0.9 + boost) * m.dir * dt;
-      if (m.dir > 0 && m.x <= -m.unit) m.x += m.unit;
-      if (m.dir < 0 && m.x >= 0) m.x -= m.unit;
-      m.track.style.transform = `translate3d(${m.x.toFixed(2)}px,0,0)`;
+  const hero = $('[data-hero]');
+  let idle = 0;
+  if (motion && hero) {
+    scene(hero, (r) => pinProgress(r), (p, dt) => {
+      const t = smooth(0, 0.24, p);
+      const e = smooth(0.14, 0.68, p);
+      const l = smooth(0.56, 0.8, p);
+      const c = smooth(0.74, 0.92, p);
+      // A slow idle turn while the house is closed; it unwinds as it opens,
+      // so the arms always land square under their labels.
+      idle = (idle + 0.07 * dt) % 45;
+      hero.style.setProperty('--t', t.toFixed(4));
+      hero.style.setProperty('--e', e.toFixed(4));
+      hero.style.setProperty('--l', l.toFixed(4));
+      hero.style.setProperty('--c', c.toFixed(4));
+      hero.style.setProperty('--rot', `${(idle * (1 - e)).toFixed(3)}deg`);
     });
   }
 
   /* ------------------------------------------------------------------
-     Manifesto: words light up as you read down the page.
+     Manifesto: words darken as you read down.
   ------------------------------------------------------------------ */
   const manifesto = $('[data-manifesto]');
-  let mWords = [];
-  let mLit = -1;
-  if (manifesto) {
+  if (manifesto && motion) {
     const split = (node) => {
       for (const child of Array.from(node.childNodes)) {
         if (child.nodeType === Node.TEXT_NODE) {
@@ -207,150 +129,159 @@
             frag.append(w);
           });
           child.replaceWith(frag);
-        } else if (child.nodeType === Node.ELEMENT_NODE) {
-          split(child);
-        }
+        } else if (child.nodeType === Node.ELEMENT_NODE) split(child);
       }
     };
     split(manifesto);
-    mWords = $$('.mw', manifesto);
-    watch(manifesto, '200px');
-  }
-
-  function updateManifesto(r) {
-    const p = clamp((vh * 0.82 - r.top) / (r.height + vh * 0.25), 0, 1);
-    const lit = Math.round(p * mWords.length);
-    if (lit === mLit) return;
-    const from = Math.min(lit, Math.max(0, mLit)), to = Math.max(lit, mLit);
-    for (let i = from; i < to && i < mWords.length; i++) mWords[i].classList.toggle('on', i < lit);
-    mLit = lit;
+    const words = $$('.mw', manifesto);
+    let lit = -1;
+    scene(manifesto, (r) => clamp((vh * 0.8 - r.top) / (r.height + vh * 0.3), 0, 1), (p) => {
+      const n = Math.round(p * words.length);
+      if (n === lit) return;
+      const from = Math.min(n, Math.max(0, lit)), to = Math.max(n, lit);
+      for (let i = from; i < to && i < words.length; i++) words[i].classList.toggle('on', i < n);
+      lit = n;
+    });
   }
 
   /* ------------------------------------------------------------------
-     Approach steps: a line that fills as you scroll, steps that light up.
+     Parallax: [data-speed] layers move slower or faster than the page,
+     [data-drift] lines slide sideways, measured from their section.
   ------------------------------------------------------------------ */
-  const steps = $('[data-steps]');
-  const stepItems = $$('[data-step]');
-  watch(steps, '200px');
-
-  function updateSteps(r, tops) {
-    const p = clamp((vh * 0.62 - r.top) / r.height, 0, 1);
-    steps.style.setProperty('--p', p.toFixed(4));
-    stepItems.forEach((li, i) => li.classList.toggle('is-active', tops[i] < vh * 0.64));
+  if (motion) {
+    $$('[data-parallax-scope]').forEach((scope) => {
+      const layers = $$('[data-speed]', scope).map((el) => ({ el, k: Number(el.dataset.speed) }));
+      const drifts = $$('[data-drift]', scope).map((el) => ({ el, k: Number(el.dataset.drift) }));
+      scene(scope, (r) => r, (r) => {
+        const offset = r.top + r.height / 2 - vh / 2;     // 0 when centred
+        const prog = clamp((vh - r.top) / (vh + r.height), 0, 1);
+        layers.forEach(({ el, k }) => { el.style.transform = `translate3d(0, ${(-offset * k).toFixed(1)}px, 0)`; });
+        drifts.forEach(({ el, k }) => { el.style.transform = `translate3d(${((prog - 0.5) * k * vw * 0.5).toFixed(1)}px, 0, 0)`; });
+      });
+    });
   }
 
   /* ------------------------------------------------------------------
-     Reveal on scroll, with a stagger for things that arrive together.
+     VENTURES: vertical scroll slides the cards sideways. Each card's
+     artwork lags a little behind its card.
+  ------------------------------------------------------------------ */
+  const gallery = $('[data-gallery]');
+  const track = gallery && $('.gallery-track', gallery);
+  const cards = gallery ? $$('.vcard', gallery) : [];
+  const bar = gallery && $('.gallery-progress', gallery);
+  let travel = 0, centers = [];
+  function measureGallery() {
+    if (!gallery || !motion) return;
+    track.style.transform = 'none';
+    travel = Math.max(0, track.scrollWidth - vw);
+    centers = cards.map((c) => c.offsetLeft + c.offsetWidth / 2);
+    gallery.style.height = `${Math.round(vh + travel)}px`;
+  }
+  if (gallery && motion) {
+    scene(gallery, (r) => pinProgress(r), (p) => {
+      const x = -p * travel;
+      track.style.transform = `translate3d(${x.toFixed(1)}px, 0, 0)`;
+      bar.style.setProperty('--gp', p.toFixed(4));
+      cards.forEach((c, i) => {
+        const off = clamp((centers[i] + x - vw / 2) / vw, -1.2, 1.2);
+        c.style.setProperty('--cx', off.toFixed(3));
+      });
+    });
+    // Keyboard users tabbing into an off-screen card get scrolled to it.
+    gallery.addEventListener('focusin', (e) => {
+      const card = e.target.closest('.vcard');
+      if (!card || !travel) return;
+      const i = cards.indexOf(card);
+      const p = clamp((centers[i] - vw / 2) / travel, 0, 1);
+      const top = gallery.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({ top: top + p * (gallery.offsetHeight - vh), behavior: 'instant' });
+    });
+  }
+  // Artwork only animates while its card is on screen.
+  const cardIO = new IntersectionObserver((entries) => {
+    entries.forEach((e) => e.target.classList.toggle('in-view', e.isIntersecting));
+  });
+  cards.forEach((c) => cardIO.observe(c));
+
+  /* ------------------------------------------------------------------
+     APPROACH: the ring fills as you read; the step in the reading line
+     is the one shown inside it.
+  ------------------------------------------------------------------ */
+  const approach = $('[data-approach]');
+  if (approach) {
+    const ringWrap = $('.ring-wrap', approach);
+    const ringSteps = $$('.ring-steps p', approach);
+    const steps = $$('[data-step]', approach);
+    const stepsBox = $('.steps', approach);
+    let current = -1;
+    scene(approach, () => ({ box: stepsBox.getBoundingClientRect(), tops: steps.map((s) => s.getBoundingClientRect().top) }), ({ box, tops }) => {
+      const p = clamp((vh * 0.55 - box.top) / box.height, 0, 1);
+      ringWrap.style.setProperty('--rp', p.toFixed(4));
+      let active = 0;
+      tops.forEach((t, i) => { if (t < vh * 0.6) active = i; });
+      steps.forEach((s, i) => s.classList.toggle('is-active', tops[i] < vh * 0.6));
+      if (active !== current) {
+        ringSteps.forEach((el, i) => el.classList.toggle('is-on', i === active));
+        current = active;
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------------
+     RULES: one rule at a time, cross-fading as you scroll.
+  ------------------------------------------------------------------ */
+  const rules = $('[data-rules]');
+  if (rules && motion) {
+    const items = $$('.rule', rules);
+    const dots = $$('.rules-dots i', rules);
+    const n = items.length;
+    let shown = -1;
+    scene(rules, (r) => pinProgress(r), (p) => {
+      const pos = p * (n - 1);
+      items.forEach((it, i) => {
+        const off = i - pos;
+        // Hold each rule, then hand over cleanly: the outgoing one is gone
+        // before the incoming one appears, so two never overlap.
+        const a = clamp((0.5 - Math.abs(off)) / 0.13, 0, 1);
+        it.style.opacity = a.toFixed(3);
+        it.style.transform = `translate3d(0, ${(off * 110).toFixed(1)}px, 0) scale(${(1 - Math.min(Math.abs(off), 1) * 0.05).toFixed(4)})`;
+        it.style.visibility = a < 0.01 ? 'hidden' : 'visible';
+      });
+      const now = Math.round(pos);
+      if (now !== shown) { dots.forEach((d, i) => d.classList.toggle('is-on', i === now)); shown = now; }
+    });
+  }
+
+  /* ------------------------------------------------------------------
+     Reveal on scroll, staggered when things arrive together.
   ------------------------------------------------------------------ */
   const revealIO = new IntersectionObserver((entries) => {
-    const arriving = entries.filter((e) => e.isIntersecting).map((e) => e.target);
-    arriving.forEach((el, i) => {
-      el.style.setProperty('--d', `${Math.min(i, 6) * 0.08}s`);
-      el.classList.add('is-in');
-      revealIO.unobserve(el);
+    entries.filter((e) => e.isIntersecting).forEach((e, i) => {
+      e.target.style.setProperty('--d', `${Math.min(i, 5) * 0.08}s`);
+      e.target.classList.add('is-in');
+      revealIO.unobserve(e.target);
     });
-  }, { threshold: 0.12, rootMargin: '0px 0px -6% 0px' });
+  }, { threshold: 0.15, rootMargin: '0px 0px -5% 0px' });
   $$('[data-reveal]').forEach((el) => revealIO.observe(el));
-
-  // Footer wordmark letters rise in sequence.
-  const wordmark = $('[data-wordmark]');
-  if (wordmark) {
-    $$('span', wordmark).forEach((s, i) => s.style.setProperty('--n', i));
-    new IntersectionObserver(([e], io) => {
-      if (e.isIntersecting) { wordmark.classList.add('is-in'); io.disconnect(); }
-    }, { threshold: 0.3 }).observe(wordmark);
-  }
 
   /* ------------------------------------------------------------------
      Counters
   ------------------------------------------------------------------ */
-  const counters = $$('[data-count]');
-  if (!reduce) {
-    counters.forEach((el) => {
+  if (motion) {
+    $$('[data-count]').forEach((el) => {
       const target = Number(el.dataset.count);
-      if (el.getBoundingClientRect().top < vh) return; // already on screen, leave it
       el.textContent = '0';
       new IntersectionObserver(([e], io) => {
         if (!e.isIntersecting) return;
         io.disconnect();
-        const t0 = performance.now(), dur = 1400 + target * 20;
+        const t0 = performance.now(), dur = 1400 + target * 25;
         const tick = (t) => {
           const k = clamp((t - t0) / dur, 0, 1);
-          const eased = k === 1 ? 1 : 1 - Math.pow(2, -10 * k);
-          el.textContent = String(Math.round(eased * target));
+          el.textContent = String(Math.round((k === 1 ? 1 : 1 - Math.pow(2, -10 * k)) * target));
           if (k < 1) requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
       }, { threshold: 0.6 }).observe(el);
-    });
-  }
-
-  /* ------------------------------------------------------------------
-     Venture filters, with a View Transition where the browser has one.
-  ------------------------------------------------------------------ */
-  const chips = $$('[data-filter]');
-  const cards = $$('.venture');
-  const cardIO = new IntersectionObserver((entries) => {
-    entries.forEach((e) => e.target.classList.toggle('in-view', e.isIntersecting));
-  }, { rootMargin: '60px' });
-  cards.forEach((c) => cardIO.observe(c));
-  const filterStatus = $('[data-filter-status]');
-
-  function applyFilter(f) {
-    let shown = 0;
-    cards.forEach((c) => {
-      const show = f === 'all' || c.dataset.tags.split(' ').includes(f);
-      c.hidden = !show;
-      if (show) { shown++; c.classList.add('is-in'); }
-    });
-    return shown;
-  }
-  chips.forEach((chip) => chip.addEventListener('click', () => {
-    if (chip.getAttribute('aria-pressed') === 'true') return;
-    chips.forEach((c) => c.setAttribute('aria-pressed', String(c === chip)));
-    const f = chip.dataset.filter;
-    let shown = 0;
-    if (document.startViewTransition && !reduce) {
-      document.startViewTransition(() => { shown = applyFilter(f); }).updateCallbackDone.then(() => announce(shown, chip));
-    } else {
-      shown = applyFilter(f);
-      if (!reduce) {
-        cards.filter((c) => !c.hidden).forEach((c, i) => {
-          c.classList.remove('is-entering');
-          void c.offsetWidth;
-          c.style.setProperty('--d', `${i * 0.05}s`);
-          c.classList.add('is-entering');
-        });
-      }
-      announce(shown, chip);
-    }
-  }));
-  function announce(n, chip) {
-    const label = chip.firstChild.textContent.trim();
-    filterStatus.textContent = `${n} ${n === 1 ? 'venture' : 'ventures'} shown${chip.dataset.filter === 'all' ? '' : ` in ${label}`}.`;
-  }
-
-  /* ------------------------------------------------------------------
-     Card spotlight and magnetic buttons, for mouse users only.
-  ------------------------------------------------------------------ */
-  if (finePointer) {
-    $$('.venture > article').forEach((card) => {
-      card.addEventListener('pointermove', (e) => {
-        const r = card.getBoundingClientRect();
-        card.style.setProperty('--mx', `${(((e.clientX - r.left) / r.width) * 100).toFixed(1)}%`);
-        card.style.setProperty('--my', `${(((e.clientY - r.top) / r.height) * 100).toFixed(1)}%`);
-      });
-    });
-
-    $$('[data-magnetic]').forEach((el) => {
-      el.addEventListener('pointermove', (e) => {
-        if (reduce) return;
-        const r = el.getBoundingClientRect();
-        const dx = e.clientX - (r.left + r.width / 2);
-        const dy = e.clientY - (r.top + r.height / 2);
-        el.style.translate = `${(dx * 0.15).toFixed(1)}px ${(dy * 0.22).toFixed(1)}px`;
-      });
-      el.addEventListener('pointerleave', () => { el.style.translate = '0px 0px'; });
     });
   }
 
@@ -360,37 +291,27 @@
   const year = $('[data-year]');
   if (year) year.textContent = String(new Date().getFullYear());
 
-  // Size the footer wordmark so it runs exactly edge to edge.
-  function fitWordmark() {
-    if (!wordmark) return;
-    const letters = $$('span', wordmark);
-    wordmark.style.fontSize = '';
-    const first = letters[0], lastL = letters[letters.length - 1];
-    const natural = lastL.offsetLeft + lastL.offsetWidth - first.offsetLeft;
-    const fs = parseFloat(getComputedStyle(wordmark).fontSize);
-    if (natural > 0) wordmark.style.fontSize = `${((fs * wordmark.clientWidth) / natural).toFixed(2)}px`;
-  }
-
   /* ------------------------------------------------------------------
-     Layout measurements
+     Measurements and the frame loop
   ------------------------------------------------------------------ */
   function measure() {
+    vw = window.innerWidth;
     vh = window.innerHeight;
-    docH = document.documentElement.scrollHeight;
-    measureMarquees();
-    sizeRotator();
-    fitWordmark();
-    if (window.innerWidth > 920 && menuOpen) setMenu(false);
+    measureGallery();
+    if (vw > 860 && menuOpen) setMenu(false);
   }
-  let resizeTimer;
-  addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(measure, 120); });
-  new ResizeObserver(() => { docH = document.documentElement.scrollHeight; }).observe(document.body);
+  let resizeTimer, lastW = vw;
+  addEventListener('resize', () => {
+    // Phones fire resize as the address bar slides; only re-measure when the
+    // width changes or the height changes a lot.
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (window.innerWidth !== lastW || Math.abs(window.innerHeight - vh) > 120) { lastW = window.innerWidth; measure(); }
+    }, 150);
+  });
   requestAnimationFrame(() => { sy = lastSy = window.scrollY; measure(); });
   fontsReady.then(() => requestAnimationFrame(measure));
 
-  /* ------------------------------------------------------------------
-     One frame loop drives every continuous effect.
-  ------------------------------------------------------------------ */
   let last = performance.now();
   let first = true;
   function frame(now) {
@@ -398,20 +319,13 @@
     last = now;
     const dy = sy - lastSy;
     lastSy = sy;
-    vel = lerp(vel, dy / Math.max(dt, 0.001), 0.2);
 
+    const active = scenes.filter((s) => s.on || first);
     // Read phase
-    const manifestoRect = !reduce && manifesto && visible.get(manifesto) ? manifesto.getBoundingClientRect() : null;
-    const stepsOn = steps && visible.get(steps) && (dy !== 0 || first);
-    const stepsRect = stepsOn ? steps.getBoundingClientRect() : null;
-    const stepTops = stepsOn ? stepItems.map((li) => li.getBoundingClientRect().top) : null;
-
+    active.forEach((s) => { s.data = s.read(s.el.getBoundingClientRect()); });
     // Write phase
-    if (dy !== 0 || first) { updateHeader(dy); updateProgress(); }
-    if (!reduce && visible.get(hero)) updateMosaic(dt);
-    if (!reduce && visible.get(marqueeWrap)) updateMarquees(dt);
-    if (manifestoRect) updateManifesto(manifestoRect);
-    if (stepsRect) updateSteps(stepsRect, stepTops);
+    if (dy !== 0 || first) updateHeader(dy);
+    active.forEach((s) => s.write(s.data, dt));
 
     first = false;
     requestAnimationFrame(frame);
