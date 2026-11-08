@@ -22,9 +22,9 @@ export const AGENCIES = [
 export const DEMO_AGENT = { agencyId: 'kvarter', name: 'Maja Ek' };
 
 export const PACKAGES = [
-  { id: 'day', name: 'Day', days: 1, price: 495, tier: 1, blurb: 'First in the feed for one viewing day.' },
-  { id: 'weekend', name: 'Long weekend', days: 3, price: 995, tier: 2, blurb: 'Three days in a row, placed ahead of day boosts.' },
-  { id: 'week', name: 'Week', days: 7, price: 1795, tier: 3, blurb: 'Seven days, first in line, and a highlighted pin on the map.' },
+  { id: 'day', name: 'Day', days: 1, price: 249, tier: 1, blurb: 'First in the feed for one viewing day.' },
+  { id: 'weekend', name: 'Viewing weekend', days: 3, price: 549, tier: 2, blurb: 'Three days in a row, such as Sunday and Monday viewings, placed ahead of day boosts.' },
+  { id: 'week', name: 'Week', days: 7, price: 949, tier: 3, blurb: 'Seven days, first in line, and a highlighted pin on the map.' },
 ];
 export const PACKAGE_BY_ID = Object.fromEntries(PACKAGES.map((p) => [p.id, p]));
 

@@ -6,7 +6,8 @@
     "dev": "vite --host 127.0.0.1 --port 5192",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 5192",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:artifact": "node build-artifact.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",

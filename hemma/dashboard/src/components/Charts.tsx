@@ -19,11 +19,11 @@ function bar(x: number, y: number, w: number, h: number, r: number) {
   return `M${x} ${y + h}V${y + rr}Q${x} ${y} ${x + rr} ${y}H${x + w - rr}Q${x + w} ${y} ${x + w} ${y + rr}V${y + h}Z`;
 }
 
-// The smallest 1, 2, 2.5 or 5 times a power of ten at or above the tallest bar.
+// The smallest round number at or above the tallest bar, so bars use the height.
 function niceMax(v: number) {
   if (v <= 0) return 10;
   const p = 10 ** Math.floor(Math.log10(v));
-  return ([1, 2, 2.5, 5, 10].find((m) => m * p >= v) ?? 10) * p;
+  return ([1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((m) => m * p >= v) ?? 10) * p;
 }
 
 export function ViewsChart({ data }: { data: DayViews[] }) {
