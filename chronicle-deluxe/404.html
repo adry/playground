@@ -5,29 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Page not found | Chronicle Deluxe</title>
   <meta name="robots" content="noindex">
-  <meta name="theme-color" content="#000000">
+  <meta name="theme-color" content="#ffffff">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon.ico" sizes="32x32">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="preload" href="/assets/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/inter-tight-var.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/assets/css/site.css">
   <style>
-    body { background: var(--black); color: var(--snow); }
-    .lost { min-height: 100svh; display: grid; place-content: center; justify-items: center; gap: 22px; padding: 96px var(--gutter); text-align: center; }
-    .lost-mark { width: 64px; height: 64px; color: var(--accent); animation: spin 40s linear infinite; }
-    .lost .eyebrow { color: var(--gray); }
-    .lost .title-hero { max-width: 11ch; }
-    .lost .lede { margin-inline: auto; color: var(--gray); }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    .lost { min-height: 100svh; display: grid; grid-template-rows: auto 1fr auto; gap: 32px; padding: 24px var(--pad); }
+    .lost-top, .lost-foot { display: flex; justify-content: space-between; color: var(--g500); }
+    .lost .brand { color: var(--black); }
+    .lost h1 { align-self: end; font-size: clamp(3.4rem, 1rem + 9vw, 11rem); font-weight: 800; line-height: .88; letter-spacing: -.058em; }
+    .lost h1 .dot { width: .17em; height: .17em; margin-left: .04em; }
+    .lost p { max-width: 34ch; font-size: clamp(1.2rem, 1rem + 1vw, 2rem); font-weight: 500; letter-spacing: -.03em; line-height: 1.2; }
   </style>
 </head>
 <body>
   <main class="lost">
-    <svg class="lost-mark" viewBox="0 0 40 40" aria-hidden="true"><path fill="currentColor" d="M17.6 2h4.8l-.9 13.4 11.2-7.5 2.4 4.2L23 18l12.1 5.9-2.4 4.2-11.2-7.5.9 13.4h-4.8l.9-13.4-11.2 7.5-2.4-4.2L17 18 4.9 12.1l2.4-4.2 11.2 7.5z"/></svg>
-    <p class="eyebrow">Error 404</p>
-    <h1 class="title-hero">This page is <span class="accent">past tense.</span></h1>
-    <p class="lede">Whatever lived here has moved or never quite launched. The businesses that did are one click away.</p>
-    <a class="btn btn-accent btn-lg" href="/">Back to the house</a>
+    <div class="lost-top"><a class="brand" href="/"><i class="dot" aria-hidden="true"></i>Chronicle Deluxe</a><span class="mono">Error 404</span></div>
+    <div>
+      <h1>This page is past tense<i class="dot" aria-hidden="true"></i></h1>
+      <p style="margin-top:28px">Whatever lived here has moved on. <a class="inline-link" href="/">Back to the house</a></p>
+    </div>
+    <div class="lost-foot mono"><span>Est. 2007</span><span>Paris · Stockholm · Copenhagen</span></div>
   </main>
 </body>
 </html>
