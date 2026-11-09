@@ -420,8 +420,8 @@ ul[role="list"], ol[role="list"], .index ol { list-style: none; padding: 0; }
 .seasons-block { margin-top: clamp(90px, 14vh, 160px); }
 .seasons-head { display: grid; gap: 18px; margin-bottom: clamp(32px, 5vh, 56px); }
 @media (min-width: 900px) { .seasons-head { grid-template-columns: 1fr 1fr; align-items: end; } }
-.seasons { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--g200); }
-@media (min-width: 720px) { .seasons { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* Nine seasons: three rows of three at every width. */
+.seasons { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--g200); }
 .seasons li { display: grid; gap: 6px; padding: 22px 16px 22px 0; border-bottom: 1px solid var(--g200); }
 .seasons b { font-size: clamp(1.6rem, 1.2rem + 1.2vw, 2.6rem); font-weight: 800; letter-spacing: -.045em; line-height: 1; }
 .seasons .mono { color: var(--g500); }

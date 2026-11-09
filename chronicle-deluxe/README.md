@@ -23,13 +23,13 @@ python3 -m http.server 8765     # then open http://127.0.0.1:8765
 | Chapter | What moves |
 |---|---|
 | Header | Shows the chapter you are in (`§03 Past Tense`) and swaps as you scroll. "Index" opens a full-screen chapter list. Turns white over the red finale. |
-| Hero | "One house. Many businesses." rises line by line, then the red dot lands. A thin ring with a red dot orbits behind, as on the brand's social card. |
+| Hero | "One incubator. Many businesses." rises line by line, then the red dot lands. A thin ring with a red dot orbits behind, as on the brand's social card. |
 | Statement | AI first, our own ventures, our own daily problems: words darken as you read. |
 | §01 Services, §02 Technologies | The live site's two tables. Rows rise in; on hover a row fills black. |
-| §03 Past Tense | The headline rises word by word, the photo unveils from below and drifts. Then the lookbook pins and slides sideways; the frame in the centre comes into colour. The eight seasons follow, with SS27 pulsing. |
-| §04 Good Margin | The phone settles from a tilt as it arrives, the cards slide in and the margins count up. |
-| §05 Built for us first | AI implementation in the house style (an agent typing its day). Then Good Zones and Dayzie, each in its own look: Good Zones' live clock cards (drag any slider and every city follows), Dayzie's sticker, countdown ticket and real app screen. |
-| §06 Also | Quomoda and Resourced, rebuilt from their own landing pages: Quomoda's hero (particles, glow, AI pill, word rise, magnetic buttons) and its four step cards, whose status pills turn over as you scroll; Resourced's two-tone sentence with the role flipping under a yellow marker, over the real WebGL mark cloud. |
+| §03 Past Tense | The headline rises word by word, the photo unveils from below and drifts. Then the lookbook pins and slides sideways; the frame in the centre comes into colour. The nine seasons follow, with AW27 (in the works) pulsing. |
+| §04 Platforms | Quomoda and Resourced, rebuilt from their own landing pages: Quomoda's hero (particles, glow, AI pill, word rise, magnetic buttons) and its four step cards, whose status pills turn over as you scroll; Resourced's two-tone sentence with the role flipping under a yellow marker, over the real WebGL mark cloud. |
+| §05 Good Margin | The phone settles from a tilt as it arrives, the cards slide in and the margins count up. |
+| §06 Built for us first | AI implementation in the house style (an agent typing its day). Then Good Zones and Dayzie, each in its own look: Good Zones' live clock cards (drag any slider and every city follows), Dayzie's sticker, countdown ticket and real app screen. |
 | §07 Clients | Two giant tickers in opposite directions, faster while you scroll, plus the plain list. |
 | Let's talk | Pinned: the red dot grows until it is the whole screen, then "LET'S TALK." arrives. |
 
@@ -70,7 +70,7 @@ as before. Neither project's saved settings change.
 
 | What | Where | Current value |
 |---|---|---|
-| AI implementation link | §05 card | An email link |
+| AI implementation link | §06 card | An email link |
 
 ## Motion and accessibility
 
