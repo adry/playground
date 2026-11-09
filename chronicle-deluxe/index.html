@@ -95,7 +95,7 @@
           { "@type": "ListItem", "position": 2, "item": { "@type": "SoftwareApplication", "name": "Good Margin", "url": "https://goodmarg.in", "operatingSystem": "iOS", "applicationCategory": "BusinessApplication", "description": "iPhone app that helps brands make margin decisions: pricing, costing and scenarios." } },
           { "@type": "ListItem", "position": 3, "item": { "@type": "Service", "name": "AI implementation", "provider": { "@id": "https://www.chronicledeluxe.com/#organization" } } },
           { "@type": "ListItem", "position": 4, "item": { "@type": "WebApplication", "name": "Good Zones", "url": "https://www.goodzon.es", "applicationCategory": "BusinessApplication", "description": "Keep track of time across the world with an intuitive slider interface." } },
-          { "@type": "ListItem", "position": 5, "item": { "@type": "SoftwareApplication", "name": "Dayzie", "url": "https://dayzie.vercel.app/", "operatingSystem": "iOS", "applicationCategory": "LifestyleApplication", "description": "Make your calendar fun: plan with friends and see live countdowns on the Home Screen and Lock Screen." } },
+          { "@type": "ListItem", "position": 5, "item": { "@type": "SoftwareApplication", "name": "Dayzie", "url": "https://dayzie.vercel.app/", "downloadUrl": "https://apps.apple.com/app/id6830167907", "operatingSystem": "iOS", "applicationCategory": "LifestyleApplication", "description": "Make your calendar fun: plan with friends and see live countdowns on the Home Screen and Lock Screen." } },
           { "@type": "ListItem", "position": 6, "item": { "@type": "SoftwareApplication", "name": "Quomoda", "url": "https://www.quomoda.com", "applicationCategory": "BusinessApplication", "description": "Wholesale software for fashion brands." } },
           { "@type": "ListItem", "position": 7, "item": { "@type": "SoftwareApplication", "name": "Resourced", "url": "https://www.resourced.com", "applicationCategory": "BusinessApplication", "description": "The PLM for brands that develop physical product." } }
         ]
@@ -336,28 +336,28 @@
           </div>
         </article>
 
-        <!-- Dayzie, in the look of dayzie.vercel.app -->
+        <!-- Dayzie, built from the dayzie site's own markup and styles (adry/dayzie) -->
         <article class="vp vp-dz" data-reveal data-vp aria-labelledby="dz-title">
-          <p class="vp-tag mono"><span>03 · iOS app · Coming soon</span><span>dayzie.vercel.app</span></p>
+          <p class="vp-tag mono"><span>03 · iOS app · On the App Store</span><span>dayzie.vercel.app</span></p>
           <div class="vp-panel">
             <div class="dz-copy">
               <p class="dz-brand"><img src="assets/img/ventures/dayzie-icon.webp" width="40" height="40" alt="" loading="lazy"><span>Dayzie</span></p>
-              <h3 class="dz-title" id="dz-title">Make your calendar <span class="dz-sticker">fun</span></h3>
+              <h3 class="dz-title" id="dz-title">Make your calendar <span class="dz-tilt">fun</span></h3>
               <p class="dz-lede">Plan with friends, watch the hype build and see live countdowns right on your Home Screen and Lock Screen.</p>
-              <div class="dz-ctas">
-                <a class="dz-btn" href="https://dayzie.vercel.app/" target="_blank" rel="noopener">Meet Dayzie<span class="sr-only"> (opens in a new tab)</span></a>
-                <p class="dz-note">Coming soon to the App Store<br>For iPhone</p>
+              <div class="dz-download">
+                <a class="dz-badge" href="https://apps.apple.com/app/id6830167907" target="_blank" rel="noopener"><img src="assets/img/ventures/dayzie-appstore-badge.svg" alt="Download Dayzie on the App Store" width="168" height="56" loading="lazy"></a>
+                <span class="dz-note">For iPhone · <a href="https://dayzie.vercel.app/" target="_blank" rel="noopener">dayzie.vercel.app<span class="sr-only"> (opens in a new tab)</span></a></span>
               </div>
-              <div class="dz-ticket" data-countdown>
-                <p class="dz-days"><b data-cd-n>5</b><span data-cd-unit>Days</span></p>
-                <p class="dz-what"><b>The weekend <span aria-hidden="true">🎉</span></b><span>Friday · 18:00 · Everywhere</span></p>
-              </div>
+              <article class="dz-ticket" data-countdown aria-label="A live example ticket">
+                <div class="dz-stub"><span class="dz-big" data-cd-n>5</span><span class="dz-unit" data-cd-unit>DAYS</span></div>
+                <div class="dz-body"><h4>The weekend <span aria-hidden="true">🎉</span></h4><p>Friday · 18:00 · Everywhere</p></div>
+              </article>
             </div>
             <div class="dz-stage" data-dz-stage>
-              <div class="dz-phone"><img src="assets/img/ventures/dayzie-home.webp" width="600" height="1304" alt="Dayzie's home screen, with a live countdown to a costume party and the plans coming up" loading="lazy"></div>
-              <span class="dz-st st1" aria-hidden="true">🎃</span>
-              <span class="dz-st st2" aria-hidden="true">🎂</span>
-              <span class="dz-st st3" aria-hidden="true">🍿</span>
+              <span class="dz-sticker s1" aria-hidden="true">🎃</span>
+              <span class="dz-sticker s2" aria-hidden="true">🎂</span>
+              <span class="dz-sticker s3" aria-hidden="true">🍿</span>
+              <div class="dz-phone"><img src="assets/img/ventures/dayzie-home.webp" alt="The Dayzie home screen with a live countdown to a costume party" width="660" height="1434" loading="lazy"></div>
             </div>
           </div>
         </article>
@@ -370,43 +370,49 @@
         <p class="chapter-bar mono" data-reveal><span>§06 · Also</span><span>002</span></p>
         <h2 class="chapter-lede" id="also-title" data-reveal>Two platforms for fashion brands that we run and back alongside client work.</h2>
 
-        <!-- Quomoda, in the look of quomoda.com -->
+        <!-- Quomoda, built from quomoda.com's own landing page (adry/fashionOS, src/pages/Landing.tsx) -->
         <article class="vp vp-qm" data-reveal data-vp aria-labelledby="qm-title">
           <p class="vp-tag mono"><span>01 · Quomoda · Since 2020</span><span>Operator · quomoda.com</span></p>
           <div class="vp-panel">
+            <canvas class="qm-particles" data-qm-particles aria-hidden="true"></canvas>
+            <div class="qm-glow" aria-hidden="true"></div>
             <div class="qm-hero">
-              <img class="qm-q" src="assets/img/ventures/quomoda-q.webp" width="171" height="200" alt="Quomoda" loading="lazy">
-              <p class="qm-new"><span class="qm-spark" aria-hidden="true">✦</span><b>New</b> AI does the data entry, you approve it</p>
-              <h3 id="qm-title">Fashion business, <span>simplified.</span></h3>
-              <p class="qm-lede">QUOMODA is the all-in-one platform for fashion brands and buyers: wholesale, retail and DTC. Linesheets, orders, stock and fulfilment in one place.</p>
-              <div class="qm-ctas">
-                <a class="qm-btn" href="https://app.quomoda.com/auth/signup" target="_blank" rel="noopener">Get started<span class="sr-only"> on Quomoda (opens in a new tab)</span></a>
-                <a class="qm-btn ghost" href="https://calendly.com/adrienforray" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Book a demo<span class="sr-only"> (opens in a new tab)</span></a>
+              <div class="qm-rise"><img class="qm-q" src="assets/img/ventures/quomoda-q.webp" width="171" height="200" alt="Quomoda" loading="lazy"></div>
+              <p class="qm-pill qm-rise" style="--d:.05s"><svg class="qm-spark" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><defs><linearGradient id="qm-ai-full" x1="0" y1="1" x2="1" y2="0"><stop offset="0%" stop-color="#4F46E5"/><stop offset="34%" stop-color="#9333EA"/><stop offset="64%" stop-color="#EC4899"/><stop offset="100%" stop-color="#F59E0B"/></linearGradient></defs><path fill="url(#qm-ai-full)" d="M10 5.2 L11.9 11.1 L17.8 13 L11.9 14.9 L10 20.8 L8.1 14.9 L2.2 13 L8.1 11.1 Z"/><path fill="url(#qm-ai-full)" opacity=".5" d="M18.6 3 L19.5 5.6 L22.1 6.5 L19.5 7.4 L18.6 10 L17.7 7.4 L15.1 6.5 L17.7 5.6 Z"/></svg><span class="qm-ai">New</span><span class="qm-pill-t">AI does the data entry, you approve it</span></p>
+              <h3 id="qm-title"><span class="qm-w" style="--d:.15s">Fashion</span> <span class="qm-w" style="--d:.3s">business,</span> <span class="qm-w qm-primary" style="--d:.5s">simplified.</span></h3>
+              <p class="qm-lede qm-rise" style="--d:.75s">QUOMODA is the all-in-one platform for fashion brands and buyers: wholesale, retail and DTC. Linesheets, orders, stock and fulfilment in one place.</p>
+              <div class="qm-ctas qm-rise" style="--d:.95s">
+                <span class="qm-mag"><a class="qm-btn qm-shine" href="https://app.quomoda.com/auth/signup" target="_blank" rel="noopener">Get started<span class="sr-only"> on Quomoda (opens in a new tab)</span></a></span>
+                <span class="qm-mag"><a class="qm-btn qm-outline" href="https://calendly.com/adrienforray" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>Book a demo<span class="sr-only"> (opens in a new tab)</span></a></span>
+                <span class="qm-mag"><a class="qm-btn qm-ghost" href="https://app.quomoda.com/auth/login" target="_blank" rel="noopener">Sign in<span class="sr-only"> to Quomoda (opens in a new tab)</span></a></span>
               </div>
             </div>
-            <ol class="qm-steps" data-qm-steps aria-label="Four steps from collection to cash">
-              <li><p class="qm-top"><span>01</span>Design &amp; samples<em class="qm-chip" data-to="Live">Draft</em></p><b>Share your linesheet</b><p>Upload your collection once and send buyers a shoppable link. No PDFs, no spreadsheets.</p><p class="qm-doc">SS26-LINESHEET<span>42 styles · 6 buyers</span></p></li>
-              <li><p class="qm-top"><span>02</span>Showroom<em class="qm-chip" data-to="Confirmed">Pending</em></p><b>Buyers order directly</b><p>Wholesale orders land in QUOMODA and are confirmed in one click: sizes, doors and delivery drops included.</p><p class="qm-doc">ORD-2026-0142<span>68 units</span></p></li>
-              <li><p class="qm-top"><span>03</span>Production<em class="qm-chip" data-to="In production">Planned</em></p><b>Produce &amp; receive stock</b><p>Raise purchase orders to your factories, track production, then receive finished goods straight into stock.</p><p class="qm-doc">PO-2048<span>300 units</span></p></li>
-              <li><p class="qm-top"><span>04</span>Dispatch<em class="qm-chip" data-to="Sent">Packing</em></p><b>You ship &amp; invoice</b><p>Allocate stock, print pick and packing lists, and send invoices. Wholesale and DTC ship from the same stock.</p><p class="qm-doc">INV-2026-0087<span>4 cartons</span></p></li>
-            </ol>
+            <div class="qm-how">
+              <p class="qm-kicker">How it works</p>
+              <h4 class="qm-how-title">Four steps from collection to cash</h4>
+              <ol class="qm-steps" data-qm-steps role="list">
+                <li class="qm-card"><p class="qm-head"><span class="qm-n">01</span><span class="qm-zone">Design &amp; samples</span><span class="qm-slot"><span class="qm-was">Draft</span><span class="qm-now live">Live</span></span></p><h5>Share your linesheet</h5><p>Upload your collection once and send buyers a beautiful, shoppable link. No PDFs, no spreadsheets.</p><p class="qm-foot"><span class="qm-ref">SS26-LINESHEET</span><span>42 styles · 6 buyers</span></p></li>
+                <li class="qm-card"><p class="qm-head"><span class="qm-n">02</span><span class="qm-zone">Showroom</span><span class="qm-slot"><span class="qm-was">Pending</span><span class="qm-now ok">Confirmed</span></span></p><h5>Buyers order directly</h5><p>Wholesale orders land in QUOMODA, confirmed in one click: sizes, doors and delivery drops included.</p><p class="qm-foot"><span class="qm-ref">ORD-2026-0142</span><span>Atelier Verdon · 68 units</span></p></li>
+                <li class="qm-card"><p class="qm-head"><span class="qm-n">03</span><span class="qm-zone">Production</span><span class="qm-slot"><span class="qm-was">Planned</span><span class="qm-now work">In production</span></span></p><h5>Produce &amp; receive stock</h5><p>Raise purchase orders to your factories, track production, then receive finished goods straight into stock.</p><p class="qm-foot"><span class="qm-ref">PO-2048</span><span>Manifattura Tessile · 300 units</span></p></li>
+                <li class="qm-card"><p class="qm-head"><span class="qm-n">04</span><span class="qm-zone">Dispatch</span><span class="qm-slot"><span class="qm-was">Packing</span><span class="qm-now ok">Sent</span></span></p><h5>You ship &amp; invoice</h5><p>Allocate stock, print pick and packing lists, and send invoices as PDFs. Wholesale and DTC ship from the same stock.</p><p class="qm-foot"><span class="qm-ref">INV-2026-0087</span><span>4 cartons</span></p></li>
+              </ol>
+            </div>
           </div>
         </article>
 
-        <!-- Resourced, in the look of resourced.com -->
+        <!-- Resourced, built from resourced.com's own landing page (Resourced-AB/Landing-Page): the hero sentence, its rolling role and the real mark cloud -->
         <article class="vp vp-rs" data-reveal data-vp aria-labelledby="rs-title">
           <p class="vp-tag mono"><span>02 · Resourced · Since 2020</span><span>Investor · resourced.com</span></p>
           <div class="vp-panel">
-            <canvas class="rs-cloud" data-rs-cloud aria-hidden="true"></canvas>
+            <div class="rs-mark" data-rs-mark aria-hidden="true"></div>
             <div class="rs-copy">
               <img class="rs-logo" src="assets/img/ventures/resourced-logo.svg" width="230" height="38" alt="Resourced" loading="lazy">
-              <p class="rs-label">The PLM for brands that develop physical product</p>
-              <h3 class="rs-title" id="rs-title">You’re a <span class="sr-only">merchandiser.</span><span class="rs-role" aria-hidden="true" data-roles="merchandiser|product developer|designer|buyer|garment technologist">merchandiser.</span> Not an admin.</h3>
-              <p class="rs-lede">Bring everyone who touches your product into a single flow, from idea to finished product, so you ship the right product, at the right time, at the right price.</p>
-              <div class="rs-ctas">
+              <h3 class="rs-lede" id="rs-title">You’re a <br class="rs-hold"><span class="rs-tail"><span class="rs-roll" data-roll><span class="rs-w is-on">product developer</span><span class="rs-w" aria-hidden="true">designer</span><span class="rs-w" aria-hidden="true">merchandiser</span><span class="rs-w" aria-hidden="true">buyer</span><span class="rs-w" aria-hidden="true">garment technologist</span><span class="rs-w" aria-hidden="true">sourcing manager</span><span class="rs-w" aria-hidden="true">production manager</span><span class="rs-w" aria-hidden="true">controller</span></span><span class="rs-dot" aria-hidden="true">.</span><span class="sr-only">.</span></span><br>Not an admin.</h3>
+              <p class="rs-sub">Bring everyone who touches your product into a single flow, from idea to finished product, so you ship the right product, at the right time, at the right price. That’s how brands scale for real.</p>
+              <p class="rs-act">
                 <a class="rs-btn" href="https://meetings-eu1.hubspot.com/meetings/egroendal/resourced-demo" target="_blank" rel="noopener">Book a demo <span aria-hidden="true">›</span><span class="sr-only">with Resourced (opens in a new tab)</span></a>
                 <a class="rs-link" href="https://www.resourced.com" target="_blank" rel="noopener">resourced.com <span aria-hidden="true">↗</span><span class="sr-only">(opens in a new tab)</span></a>
-              </div>
+              </p>
             </div>
           </div>
         </article>

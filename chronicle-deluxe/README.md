@@ -29,7 +29,7 @@ python3 -m http.server 8765     # then open http://127.0.0.1:8765
 | §03 Past Tense | The headline rises word by word, the photo unveils from below and drifts. Then the lookbook pins and slides sideways; the frame in the centre comes into colour. The eight seasons follow, with SS27 pulsing. |
 | §04 Good Margin | The phone settles from a tilt as it arrives, the cards slide in and the margins count up. |
 | §05 Built for us first | AI implementation in the house style (an agent typing its day). Then Good Zones and Dayzie, each in its own look: Good Zones' live clock cards (drag any slider and every city follows), Dayzie's sticker, countdown ticket and real app screen. |
-| §06 Also | Quomoda and Resourced in their own looks: Quomoda's four steps light up as you scroll; Resourced's headline cycles through roles over a drifting cloud of colourway names. |
+| §06 Also | Quomoda and Resourced, rebuilt from their own landing pages: Quomoda's hero (particles, glow, AI pill, word rise, magnetic buttons) and its four step cards, whose status pills turn over as you scroll; Resourced's two-tone sentence with the role flipping under a yellow marker, over the real WebGL mark cloud. |
 | §07 Clients | Two giant tickers in opposite directions, faster while you scroll, plus the plain list. |
 | Let's talk | Pinned: the red dot grows until it is the whole screen, then "LET'S TALK." arrives. |
 
@@ -41,9 +41,13 @@ python3 -m http.server 8765     # then open http://127.0.0.1:8765
   (SIL Open Font License).
 - **Images**: `assets/img/past-tense/` are the live site's Past Tense images,
   converted to WebP.
-- **Ventures**: each venture panel copies its own site (goodzon.es,
-  dayzie.vercel.app, quomoda.com, resourced.com): colours, buttons, logos from
-  `assets/img/ventures/`, and type. Resourced uses Inter (`inter-var.woff2`);
+- **Ventures**: each venture panel is ported from its own site's source:
+  Dayzie from adry/dayzie (styles.css, App Store link and badge), Quomoda
+  from adry/fashionOS (`src/pages/Landing.tsx`, `index.css`), Resourced from
+  Resourced-AB/Landing-Page. Resourced's mark cloud is that repo's
+  `src/js/loader`, vendored unchanged in `assets/js/vendor/resourced/` and
+  loaded only when the panel comes near. Good Zones copies goodzon.es.
+  Logos and screens are in `assets/img/ventures/`. Resourced uses Inter (`inter-var.woff2`);
   Dayzie uses the system rounded font on Apple devices and Nunito
   (`nunito-var.woff2`) elsewhere; Quomoda and Good Zones use the system sans,
   as their sites do. These fonts only load when their panel is on screen.

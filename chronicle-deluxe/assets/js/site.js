@@ -8,6 +8,8 @@
   'use strict';
 
   const root = document.documentElement;
+  // Where this file lives, so modules it loads later resolve next to it.
+  const scriptBase = (document.currentScript && document.currentScript.src) || location.href;
   clearTimeout(window.__cdFallback);
 
   const $ = (s, c = document) => c.querySelector(s);
@@ -348,7 +350,8 @@
     }).observe(zones);
   }
 
-  /* Dayzie: the ticket counts down to Friday 18:00, the phone rises. */
+  /* Dayzie: the ticket counts down to Friday 18:00, as on dayzie's own
+     hero; the phone rises as you pass. */
   const countdown = $('[data-countdown]');
   if (countdown) {
     const n = $('[data-cd-n]', countdown);
@@ -361,8 +364,8 @@
       if (t <= now) t.setDate(t.getDate() + 7);
       const ms = t - now;
       const days = Math.floor(ms / 864e5);
-      if (days >= 1) { n.textContent = String(days); unit.textContent = days === 1 ? 'Day' : 'Days'; }
-      else { const h = Math.max(1, Math.round(ms / 36e5)); n.textContent = String(h); unit.textContent = h === 1 ? 'Hour' : 'Hours'; }
+      if (days >= 1) { n.textContent = String(days); unit.textContent = days === 1 ? 'DAY' : 'DAYS'; }
+      else { const h = Math.max(1, Math.round(ms / 36e5)); n.textContent = String(h); unit.textContent = h === 1 ? 'HOUR' : 'HOURS'; }
     };
     draw();
     setInterval(draw, 60000);
@@ -370,105 +373,142 @@
   const dzStage = $('[data-dz-stage]');
   if (motion && dzStage) {
     scene(dzStage, (r) => clamp((vh - r.top) / (vh + r.height), 0, 1), (p) => {
-      dzStage.style.setProperty('--lift', `${((0.5 - p) * 90).toFixed(1)}px`);
+      dzStage.style.setProperty('--lift', `${((0.5 - p) * 60).toFixed(1)}px`);
     });
   }
 
-  /* Quomoda: the four steps light up in order as you scroll past. */
+  /* Quomoda: quomoda.com's particle field (ParticleField.tsx), its magnetic
+     buttons, and the four step cards whose status pills turn over in order
+     as you scroll past. */
+  const qmParticles = $('[data-qm-particles]');
+  let sizeParticles = () => {};
+  if (qmParticles && motion) {
+    const ctx = qmParticles.getContext('2d');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let w = 0, h = 0;
+    sizeParticles = () => {
+      const r = qmParticles.getBoundingClientRect();
+      w = r.width; h = r.height;
+      qmParticles.width = w * dpr; qmParticles.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    let ps = null;
+    scene(qmParticles, () => null, (_, dt) => {
+      if (!w) sizeParticles();
+      if (!ps) ps = Array.from({ length: 42 }, () => ({
+        x: Math.random() * w, y: Math.random() * h, r: 0.8 + Math.random() * 2.2,
+        vy: 0.1 + Math.random() * 0.28, vx: (Math.random() - 0.5) * 0.16,
+        o: 0.2 + Math.random() * 0.4, purple: Math.random() < 0.6, tw: Math.random() * Math.PI * 2,
+      }));
+      ctx.clearRect(0, 0, w, h);
+      for (const p of ps) {
+        p.y -= p.vy * dt; p.x += p.vx * dt; p.tw += 0.015 * dt;
+        if (p.y < -8) { p.y = h + 8; p.x = Math.random() * w; }
+        if (p.x < -8) p.x = w + 8; else if (p.x > w + 8) p.x = -8;
+        const alpha = p.o * (0.7 + 0.3 * Math.sin(p.tw));
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = p.purple ? `rgba(124, 58, 237, ${alpha * 0.35})` : `rgba(100, 116, 139, ${alpha * 0.22})`;
+        ctx.fill();
+      }
+    });
+  }
+  if (motion && matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    $$('.qm-mag').forEach((m) => {
+      m.addEventListener('pointermove', (e) => {
+        const r = m.getBoundingClientRect();
+        const x = (e.clientX - r.left - r.width / 2) * 0.25;
+        const y = (e.clientY - r.top - r.height / 2) * 0.35;
+        m.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+      });
+      m.addEventListener('pointerleave', () => { m.style.transform = ''; });
+    });
+  }
   const qmSteps = $('[data-qm-steps]');
   if (qmSteps) {
-    const steps = $$('li', qmSteps).map((li) => ({ li, chip: $('.qm-chip', li) }));
-    steps.forEach((s) => { s.from = s.chip.textContent; s.to = s.chip.dataset.to; });
+    const cards = $$('.qm-card', qmSteps);
     const light = (p) => {
-      qmSteps.style.setProperty('--qp', p.toFixed(4));
-      steps.forEach((s, i) => {
-        const on = p >= (i + 0.6) / steps.length;
-        if (on === s.li.classList.contains('on')) return;
-        s.li.classList.toggle('on', on);
-        s.chip.textContent = on ? s.to : s.from;
+      cards.forEach((card, i) => {
+        const on = p >= (i + 0.6) / cards.length;
+        if (on === card.classList.contains('on')) return;
+        card.classList.toggle('on', on);
+        if (on) { card.classList.remove('is-arriving'); void card.offsetWidth; card.classList.add('is-arriving'); }
       });
     };
     if (motion) scene(qmSteps, (r) => clamp((vh * 0.92 - r.top) / (vh * 0.6), 0, 1), light);
     else light(1);
   }
 
-  /* Resourced: the role in the headline changes, as on resourced.com, and a
-     cloud of colourway names drifts along the loops of its mark. */
-  const role = $('.rs-role');
-  if (role && motion) {
-    const roles = role.dataset.roles.split('|');
+  /* Resourced: resourced.com's hero. The role flips letter by letter under a
+     marker stroke (flippingWords in the landing page's concept.js), and the
+     mark is the site's own WebGL cloud of colourway pills, vendored unchanged
+     from its src/js/loader and mounted only when the panel comes near. */
+  const roll = $('[data-roll]');
+  if (roll) {
+    const spans = $$('.rs-w', roll);
+    const words = spans.map((el) => el.textContent);
+    const live = document.createElement('span');
+    live.className = 'rs-w rs-live is-on';
+    live.setAttribute('aria-hidden', 'true');
+    live.textContent = words[0];
     let i = 0, seen = false;
-    new IntersectionObserver(([e]) => { seen = e.isIntersecting; }).observe(role);
-    setInterval(() => {
-      if (!seen || document.hidden) return;
-      role.classList.add('out');
-      setTimeout(() => { i = (i + 1) % roles.length; role.textContent = `${roles[i]}.`; role.classList.remove('out'); }, 380);
-    }, 2600);
+    const widthOf = (k) => spans[k].offsetWidth;
+    const fit = () => { roll.style.width = `${widthOf(i)}px`; };
+    fontsReady.then(() => {
+      fit();
+      spans.forEach((el) => el.classList.add('is-gone'));
+      roll.appendChild(live);
+      addEventListener('resize', () => { roll.style.width = ''; requestAnimationFrame(fit); });
+      if (!motion) return;
+      new IntersectionObserver(([e]) => { seen = e.isIntersecting; }).observe(roll);
+      const GLYPHS = 'acdenorstuilm';
+      let flipping = 0;
+      const flip = (to) => {
+        const from = words[i], target = words[to];
+        const len = Math.max(from.length, target.length);
+        const t0 = performance.now();
+        cancelAnimationFrame(flipping);
+        const churn = (now) => {
+          const t = now - t0;
+          let done = true, out = '';
+          for (let c = 0; c < len; c++) {
+            const landed = t - c * 34;
+            const want = target[c] ?? '';
+            if (landed >= 0 && landed < 190 && want !== ' ') { out += GLYPHS[Math.floor((landed / 42 + c * 3) % GLYPHS.length)]; done = false; }
+            else if (landed < 0) { out += from[c] ?? ''; done = false; }
+            else out += want;
+          }
+          live.textContent = out;
+          if (!done) flipping = requestAnimationFrame(churn);
+        };
+        i = to;
+        roll.style.width = `${widthOf(i)}px`;
+        flipping = requestAnimationFrame(churn);
+        roll.classList.remove('is-drawing');
+        void roll.offsetWidth;
+        roll.classList.add('is-drawing');
+      };
+      setInterval(() => { if (seen && !document.hidden) flip((i + 1) % words.length); }, 2600);
+    });
   }
 
-  const cloud = $('[data-rs-cloud]');
-  let sizeCloud = () => {};
-  if (cloud && cloud.getContext) {
-    const ctx = cloud.getContext('2d');
-    const NAMES = ['Velveteen Violet', 'Cambric Violet', 'Signal Violet', 'Heliotrope', 'Sea Lavender', 'Iodine Haze', 'Woad Vat', 'Verdigris', 'Kit Bag', 'Binder Blue', 'Lapis Fleck', 'Reservoir Blue', 'Copper Sulphate', 'Sea Weed', 'Anodised', 'Thistle', 'Mulberry', 'Indigo Rinse', 'Petrol', 'Lichen', 'Bilberry', 'Damson', 'Mint Cord', 'Glacier', 'Cobalt Dye', 'Juniper', 'Orchid Tint', 'Sage Wash'];
-    let seed = 11;
-    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    const TAU = Math.PI * 2;
-    const pills = [];
-    for (let i = 0; i < 270; i++) {
-      const named = i < NAMES.length;
-      pills.push({
-        t: rnd() * TAU, jx: rnd() - 0.5, jy: rnd() - 0.5,
-        v: (0.00005 + rnd() * 0.00009) * (named ? 0.6 : 1),
-        name: named ? NAMES[i] : '', w: named ? 0 : 8 + rnd() * 34, h: named ? 18 : 3 + rnd() * 4,
-        z: named ? 0.75 + rnd() * 0.25 : 0.2 + rnd() * 0.55,
-      });
-    }
-    let W = 0, H = 0, dpr = 1, shift = 0, measured = false;
-    sizeCloud = () => {
-      const r = cloud.getBoundingClientRect();
-      dpr = Math.min(2, window.devicePixelRatio || 1);
-      W = r.width; H = r.height;
-      cloud.width = Math.round(W * dpr); cloud.height = Math.round(H * dpr);
-      measured = false;
-    };
-    const roundRect = (x, y, w, h, rad) => { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, rad); else ctx.rect(x, y, w, h); ctx.fill(); };
-    const paint = (time) => {
-      if (!W) return;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, W, H);
-      const wide = W >= 820;
-      const cx = wide ? W * 0.72 : W * 0.5;
-      const cy = (wide ? H * 0.5 : H - 150) + shift;
-      const A = wide ? Math.min(W * 0.25, H * 0.5) : Math.min(W * 0.44, 190);
-      ctx.font = '500 10.5px "Inter Resourced", Inter, system-ui, sans-serif';
-      ctx.textBaseline = 'middle';
-      if (!measured) { pills.forEach((p) => { if (p.name) p.w = ctx.measureText(p.name).width + 14; }); measured = true; }
-      for (const p of pills) {
-        const t = p.t + time * p.v;
-        const s = Math.sin(t), c = Math.cos(t), den = 1 + s * s;
-        const x = cx + (A * c) / den + p.jx * A * 0.2;
-        const y = cy + (A * 1.2 * s * c) / den + p.jy * A * 0.2;
-        const hue = 150 + (((t % TAU) + TAU) % TAU) / TAU * 160;
-        const fade = wide ? smooth(W * 0.36, W * 0.6, x) : 1;
-        const a = p.z * fade;
-        if (a < 0.02) continue;
-        if (p.name) {
-          ctx.fillStyle = `hsla(${hue.toFixed(0)}, 62%, 52%, ${(a * 0.92).toFixed(3)})`;
-          roundRect(x - p.w / 2, y - 9, p.w, 18, 9);
-          ctx.fillStyle = `rgba(255, 255, 255, ${a.toFixed(3)})`;
-          ctx.fillText(p.name, x - p.w / 2 + 7, y + 0.5);
-        } else {
-          ctx.fillStyle = `hsla(${hue.toFixed(0)}, 60%, 66%, ${(a * 0.55).toFixed(3)})`;
-          roundRect(x - p.w / 2, y - p.h / 2, p.w, p.h, p.h / 2);
-        }
-      }
-    };
-    if (motion) {
-      scene(cloud, (r) => clamp((vh - r.top) / (vh + r.height), 0, 1), (p) => { shift = (0.5 - p) * 60; paint(performance.now()); });
-    } else {
-      (document.fonts?.ready ?? Promise.resolve()).then(() => { sizeCloud(); paint(0); });
-    }
+  const rsMark = $('[data-rs-mark]');
+  if (rsMark && 'IntersectionObserver' in window) {
+    const io = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) return;
+      io.disconnect();
+      import(new URL('vendor/resourced/resourced-loader.js', scriptBase).href).then(({ mountLoader }) => {
+        // The landing page's own settings for this device (markLook() in mark-cloud.js).
+        const coarse = matchMedia('(hover: none), (pointer: coarse)').matches;
+        const look = coarse
+          ? { touch: true, lens: 1.0, maxDpr: 3, satScale: 0.88, litLift: -0.09, inkScale: 1.75, scale: 0.9 }
+          : { litLift: 0.06, scale: 0.86 };
+        const loader = mountLoader(rsMark, look);
+        loader.ready.then(() => rsMark.classList.add('is-live')).catch(() => {});
+        addEventListener('pagehide', () => loader.destroy(), { once: true });
+      }).catch(() => {});
+    }, { rootMargin: '300px 0px' });
+    io.observe(rsMark);
   }
 
   /* ------------------------------------------------------------------
@@ -533,7 +573,7 @@
     vh = window.innerHeight;
     measureFilm();
     measureTickers();
-    sizeCloud();
+    sizeParticles();
     cover = Math.hypot(vw, vh) * 0.52;
     if (indexOpen && vw > 9999) setIndex(false);
   }
